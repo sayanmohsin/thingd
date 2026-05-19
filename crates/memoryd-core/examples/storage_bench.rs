@@ -6,12 +6,14 @@ use std::hint::black_box;
 use std::time::{Duration, Instant};
 
 use memoryd_core::{
-    EventLog, MemoryEngine, MemoryEvent, MemoryObject, ObjectStore, SqliteMemoryStore,
+    EventLog, MemoryEngine, MemoryEvent, MemoryObject, ObjectStore, QueueJob, QueueStore,
+    SqliteMemoryStore,
 };
 use rusqlite as _;
 
 const DEFAULT_ITERATIONS: usize = 5_000;
 const COLLECTION: &str = "bench_objects";
+const QUEUE: &str = "bench_queue";
 const STREAM: &str = "bench:events";
 const OBJECT_BODY: &str = r#"{"text":"benchmark object","project":"memoryd","confidence":0.95}"#;
 const EVENT_BODY: &str = r#"{"text":"benchmark event","project":"memoryd","actor":"benchmark"}"#;
@@ -54,7 +56,7 @@ fn iterations() -> usize {
 
 fn bench_store<S>(name: &str, mut store: S, iterations: usize) -> Result<(), Box<dyn Error>>
 where
-    S: EventLog + ObjectStore,
+    S: EventLog + ObjectStore + QueueStore,
 {
     let elapsed = time_object_puts(&mut store, iterations)?;
     report(name, "object_put", iterations, elapsed);
@@ -70,6 +72,12 @@ where
     let elapsed = started.elapsed();
     black_box(events.len());
     report(name, "event_list", events.len(), elapsed);
+
+    let elapsed = time_queue_pushes(&mut store, iterations)?;
+    report(name, "queue_push", iterations, elapsed);
+
+    let elapsed = time_queue_claims_and_acks(&mut store, iterations)?;
+    report(name, "queue_claim_ack", iterations, elapsed);
 
     println!();
     Ok(())
@@ -115,6 +123,40 @@ where
         let event = MemoryEvent::new(STREAM, "benchmark.event", format!("{EVENT_BODY}:{index}"));
         let stored = store.append_event(event)?;
         black_box(stored.sequence);
+    }
+
+    Ok(started.elapsed())
+}
+
+fn time_queue_pushes<S>(store: &mut S, iterations: usize) -> Result<Duration, Box<dyn Error>>
+where
+    S: QueueStore,
+{
+    let started = Instant::now();
+
+    for index in 0..iterations {
+        let job = QueueJob::new(QUEUE, format!("job-{index}"), format!("payload-{index}"), 3);
+        let stored = store.push_job(job)?;
+        black_box(stored.status);
+    }
+
+    Ok(started.elapsed())
+}
+
+fn time_queue_claims_and_acks<S>(
+    store: &mut S,
+    iterations: usize,
+) -> Result<Duration, Box<dyn Error>>
+where
+    S: QueueStore,
+{
+    let started = Instant::now();
+
+    for _ in 0..iterations {
+        if let Some(job) = store.claim_job(QUEUE)? {
+            let acked = store.ack_job(QUEUE, &job.id)?;
+            black_box(acked);
+        }
     }
 
     Ok(started.elapsed())

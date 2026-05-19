@@ -24,6 +24,8 @@ It measures:
 - object reads
 - event appends
 - event stream listing
+- queue pushes
+- queue claim plus ack loops
 
 Use `MEMORYD_BENCH_ITERS` to change the operation count:
 
@@ -69,9 +71,8 @@ Expected shape:
 - `in-memory` is the upper bound for trait overhead.
 - `sqlite-memory` shows SQLite execution cost without filesystem durability.
 - `sqlite-file` shows the current durable write path with one transaction per
-  object write.
+  object or queue write.
 
-Queue benchmarks should be added after SQLite queue persistence is implemented.
 Node.js SDK benchmarks should be added after the N-API `NativeMemoryStore`
 exists, so the benchmark can exercise the real public package path.
 
@@ -95,19 +96,26 @@ Results:
 
 | Store | Operation | Elapsed | Ops/sec |
 | --- | --- | ---: | ---: |
-| `in-memory` | object put | `3.708041ms` | `1,348,435` |
-| `in-memory` | object get | `1.789667ms` | `2,794,857` |
-| `in-memory` | event append | `1.341959ms` | `3,728,560` |
-| `in-memory` | event list | `353.083us` | `14,164,305` |
-| `sqlite-memory` | object put | `41.395459ms` | `120,787` |
-| `sqlite-memory` | object get | `9.564125ms` | `522,793` |
-| `sqlite-memory` | event append | `16.484125ms` | `303,324` |
-| `sqlite-memory` | event list | `830.542us` | `6,024,096` |
-| `sqlite-file` | object put | `199.284459ms` | `25,089` |
-| `sqlite-file` | object get | `12.1275ms` | `412,303` |
-| `sqlite-file` | event append | `185.5375ms` | `26,948` |
-| `sqlite-file` | event list | `801.125us` | `6,242,197` |
+| `in-memory` | object put | `3.345875ms` | `1,494,768` |
+| `in-memory` | object get | `1.637125ms` | `3,054,367` |
+| `in-memory` | event append | `1.580166ms` | `3,164,556` |
+| `in-memory` | event list | `502.416us` | `9,960,159` |
+| `in-memory` | queue push | `29.113791ms` | `171,744` |
+| `in-memory` | queue claim+ack | `29.841583ms` | `167,554` |
+| `sqlite-memory` | object put | `32.989416ms` | `151,565` |
+| `sqlite-memory` | object get | `8.891084ms` | `562,366` |
+| `sqlite-memory` | event append | `15.433917ms` | `323,981` |
+| `sqlite-memory` | event list | `841.666us` | `5,945,303` |
+| `sqlite-memory` | queue push | `36.469333ms` | `137,102` |
+| `sqlite-memory` | queue claim+ack | `115.987ms` | `43,108` |
+| `sqlite-file` | object put | `292.691166ms` | `17,082` |
+| `sqlite-file` | object get | `12.23875ms` | `408,563` |
+| `sqlite-file` | event append | `293.291792ms` | `17,047` |
+| `sqlite-file` | event list | `982.416us` | `5,091,649` |
+| `sqlite-file` | queue push | `246.495416ms` | `20,284` |
+| `sqlite-file` | queue claim+ack | `523.464958ms` | `9,551` |
 
 Current read: the durable file path is already fine for early local-app
-workloads, but write-heavy paths will benefit from explicit batching and fewer
-one-row transactions once the API grows batch primitives.
+workloads, but write-heavy object/event paths and queue claim+ack loops will
+benefit from explicit batching, fewer one-row transactions, and purpose-built
+claim indexes as the API grows.

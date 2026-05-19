@@ -1,16 +1,14 @@
 //! `SQLite`-backed storage adapter.
 //!
-//! This adapter currently implements durable object and event storage. Queue
-//! persistence is intentionally left for the next phase because queue leasing
-//! needs careful transactional semantics.
+//! This adapter implements durable object, event, and queue storage.
 
 use std::path::Path;
 
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
 
 use crate::{
     EventLog, MemoryEvent, MemoryObject, MemorydError, MemorydResult, ObjectKey, ObjectStore,
-    QueueJob, QueueStore,
+    QueueJob, QueueJobStatus, QueueStore,
 };
 
 /// `SQLite`-backed memory store.
@@ -70,6 +68,21 @@ impl SqliteMemoryStore {
 
                 CREATE INDEX IF NOT EXISTS idx_events_stream_sequence
                     ON events (stream, sequence);
+
+                CREATE TABLE IF NOT EXISTS queue_jobs (
+                    queue TEXT NOT NULL,
+                    id TEXT NOT NULL,
+                    body TEXT NOT NULL,
+                    attempts INTEGER NOT NULL,
+                    max_attempts INTEGER NOT NULL,
+                    status TEXT NOT NULL,
+                    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+                    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+                    PRIMARY KEY (queue, id)
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_queue_jobs_queue_status_created
+                    ON queue_jobs (queue, status, created_at);
                 ",
             )
             .map_err(MemorydError::from)?;
@@ -215,40 +228,235 @@ impl EventLog for SqliteMemoryStore {
 }
 
 impl QueueStore for SqliteMemoryStore {
-    fn push_job(&mut self, _job: QueueJob) -> MemorydResult<QueueJob> {
-        Err(MemorydError::Storage(
-            "SQLite queue storage is not implemented yet".to_owned(),
-        ))
+    fn push_job(&mut self, job: QueueJob) -> MemorydResult<QueueJob> {
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(MemorydError::from)?;
+
+        if let Some(existing) = transaction
+            .query_row(
+                &queue_job_select_sql("WHERE queue = ?1 AND id = ?2"),
+                params![&job.queue, &job.id],
+                row_to_queue_job,
+            )
+            .optional()
+            .map_err(MemorydError::from)?
+        {
+            transaction.commit().map_err(MemorydError::from)?;
+            return Ok(existing);
+        }
+
+        transaction
+            .execute(
+                r"
+                INSERT INTO queue_jobs (
+                    queue,
+                    id,
+                    body,
+                    attempts,
+                    max_attempts,
+                    status,
+                    created_at,
+                    updated_at
+                )
+                VALUES (
+                    ?1,
+                    ?2,
+                    ?3,
+                    ?4,
+                    ?5,
+                    ?6,
+                    strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
+                    strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+                )
+                ",
+                params![
+                    &job.queue,
+                    &job.id,
+                    &job.body,
+                    u32_to_i64(job.attempts),
+                    u32_to_i64(job.max_attempts),
+                    status_to_str(job.status)
+                ],
+            )
+            .map_err(MemorydError::from)?;
+
+        transaction.commit().map_err(MemorydError::from)?;
+        Ok(job)
     }
 
-    fn claim_job(&mut self, _queue: &str) -> MemorydResult<Option<QueueJob>> {
-        Err(MemorydError::Storage(
-            "SQLite queue storage is not implemented yet".to_owned(),
-        ))
+    fn claim_job(&mut self, queue: &str) -> MemorydResult<Option<QueueJob>> {
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(MemorydError::from)?;
+
+        let Some(mut job) = transaction
+            .query_row(
+                &queue_job_select_sql(
+                    "WHERE queue = ?1 AND status = 'ready' ORDER BY created_at, id LIMIT 1",
+                ),
+                params![queue],
+                row_to_queue_job,
+            )
+            .optional()
+            .map_err(MemorydError::from)?
+        else {
+            transaction.commit().map_err(MemorydError::from)?;
+            return Ok(None);
+        };
+
+        job.status = QueueJobStatus::Leased;
+        job.attempts += 1;
+
+        transaction
+            .execute(
+                r"
+                UPDATE queue_jobs
+                SET attempts = ?3,
+                    status = ?4,
+                    updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+                WHERE queue = ?1 AND id = ?2
+                ",
+                params![
+                    &job.queue,
+                    &job.id,
+                    u32_to_i64(job.attempts),
+                    status_to_str(job.status)
+                ],
+            )
+            .map_err(MemorydError::from)?;
+
+        transaction.commit().map_err(MemorydError::from)?;
+        Ok(Some(job))
     }
 
-    fn ack_job(&mut self, _queue: &str, _id: &str) -> MemorydResult<Option<QueueJob>> {
-        Err(MemorydError::Storage(
-            "SQLite queue storage is not implemented yet".to_owned(),
-        ))
+    fn ack_job(&mut self, queue: &str, id: &str) -> MemorydResult<Option<QueueJob>> {
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(MemorydError::from)?;
+
+        let Some(mut job) = transaction
+            .query_row(
+                &queue_job_select_sql("WHERE queue = ?1 AND id = ?2"),
+                params![queue, id],
+                row_to_queue_job,
+            )
+            .optional()
+            .map_err(MemorydError::from)?
+        else {
+            transaction.commit().map_err(MemorydError::from)?;
+            return Ok(None);
+        };
+
+        if job.status != QueueJobStatus::Leased {
+            return Err(MemorydError::Conflict(format!(
+                "job {id} must be leased before ack"
+            )));
+        }
+
+        job.status = QueueJobStatus::Completed;
+        transaction
+            .execute(
+                r"
+                UPDATE queue_jobs
+                SET status = ?3,
+                    updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+                WHERE queue = ?1 AND id = ?2
+                ",
+                params![queue, id, status_to_str(job.status)],
+            )
+            .map_err(MemorydError::from)?;
+
+        transaction.commit().map_err(MemorydError::from)?;
+        Ok(Some(job))
     }
 
-    fn nack_job(&mut self, _queue: &str, _id: &str) -> MemorydResult<Option<QueueJob>> {
-        Err(MemorydError::Storage(
-            "SQLite queue storage is not implemented yet".to_owned(),
-        ))
+    fn nack_job(&mut self, queue: &str, id: &str) -> MemorydResult<Option<QueueJob>> {
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(MemorydError::from)?;
+
+        let Some(mut job) = transaction
+            .query_row(
+                &queue_job_select_sql("WHERE queue = ?1 AND id = ?2"),
+                params![queue, id],
+                row_to_queue_job,
+            )
+            .optional()
+            .map_err(MemorydError::from)?
+        else {
+            transaction.commit().map_err(MemorydError::from)?;
+            return Ok(None);
+        };
+
+        if job.status != QueueJobStatus::Leased {
+            return Err(MemorydError::Conflict(format!(
+                "job {id} must be leased before nack"
+            )));
+        }
+
+        job.status = if job.attempts >= job.max_attempts {
+            QueueJobStatus::Dead
+        } else {
+            QueueJobStatus::Ready
+        };
+
+        transaction
+            .execute(
+                r"
+                UPDATE queue_jobs
+                SET status = ?3,
+                    updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+                WHERE queue = ?1 AND id = ?2
+                ",
+                params![queue, id, status_to_str(job.status)],
+            )
+            .map_err(MemorydError::from)?;
+
+        transaction.commit().map_err(MemorydError::from)?;
+        Ok(Some(job))
     }
 
-    fn list_jobs(&self, _queue: &str) -> MemorydResult<Vec<QueueJob>> {
-        Err(MemorydError::Storage(
-            "SQLite queue storage is not implemented yet".to_owned(),
-        ))
+    fn list_jobs(&self, queue: &str) -> MemorydResult<Vec<QueueJob>> {
+        let mut statement = self
+            .connection
+            .prepare(&queue_job_select_sql(
+                "WHERE queue = ?1 ORDER BY created_at, id",
+            ))
+            .map_err(MemorydError::from)?;
+        let rows = statement
+            .query_map(params![queue], row_to_queue_job)
+            .map_err(MemorydError::from)?;
+
+        let mut jobs = Vec::new();
+        for row in rows {
+            jobs.push(row.map_err(MemorydError::from)?);
+        }
+
+        Ok(jobs)
     }
 
-    fn list_dead_jobs(&self, _queue: &str) -> MemorydResult<Vec<QueueJob>> {
-        Err(MemorydError::Storage(
-            "SQLite queue storage is not implemented yet".to_owned(),
-        ))
+    fn list_dead_jobs(&self, queue: &str) -> MemorydResult<Vec<QueueJob>> {
+        let mut statement = self
+            .connection
+            .prepare(&queue_job_select_sql(
+                "WHERE queue = ?1 AND status = 'dead' ORDER BY created_at, id",
+            ))
+            .map_err(MemorydError::from)?;
+        let rows = statement
+            .query_map(params![queue], row_to_queue_job)
+            .map_err(MemorydError::from)?;
+
+        let mut jobs = Vec::new();
+        for row in rows {
+            jobs.push(row.map_err(MemorydError::from)?);
+        }
+
+        Ok(jobs)
     }
 }
 
@@ -267,6 +475,66 @@ fn row_to_event(row: &rusqlite::Row<'_>) -> rusqlite::Result<MemoryEvent> {
             )
         })?,
     })
+}
+
+fn queue_job_select_sql(predicate: &str) -> String {
+    format!("SELECT queue, id, body, attempts, max_attempts, status FROM queue_jobs {predicate}")
+}
+
+fn row_to_queue_job(row: &rusqlite::Row<'_>) -> rusqlite::Result<QueueJob> {
+    let attempts = row.get::<_, i64>(3)?;
+    let max_attempts = row.get::<_, i64>(4)?;
+    let status = row.get::<_, String>(5)?;
+
+    Ok(QueueJob {
+        queue: row.get(0)?,
+        id: row.get(1)?,
+        body: row.get(2)?,
+        attempts: i64_to_u32(attempts, 3)?,
+        max_attempts: i64_to_u32(max_attempts, 4)?,
+        status: str_to_status(&status).map_err(|error| {
+            rusqlite::Error::FromSqlConversionFailure(
+                5,
+                rusqlite::types::Type::Text,
+                Box::new(error),
+            )
+        })?,
+    })
+}
+
+const fn status_to_str(status: QueueJobStatus) -> &'static str {
+    match status {
+        QueueJobStatus::Ready => "ready",
+        QueueJobStatus::Leased => "leased",
+        QueueJobStatus::Completed => "completed",
+        QueueJobStatus::Dead => "dead",
+    }
+}
+
+fn str_to_status(status: &str) -> MemorydResult<QueueJobStatus> {
+    match status {
+        "ready" => Ok(QueueJobStatus::Ready),
+        "leased" => Ok(QueueJobStatus::Leased),
+        "completed" => Ok(QueueJobStatus::Completed),
+        "dead" => Ok(QueueJobStatus::Dead),
+        _ => Err(MemorydError::Storage(format!(
+            "unknown queue job status: {status}"
+        ))),
+    }
+}
+
+fn i64_to_u32(value: i64, index: usize) -> rusqlite::Result<u32> {
+    u32::try_from(value).map_err(|error| {
+        rusqlite::Error::FromSqlConversionFailure(
+            index,
+            rusqlite::types::Type::Integer,
+            Box::new(error),
+        )
+    })
+}
+
+fn u32_to_i64(value: u32) -> i64 {
+    i64::from(value)
 }
 
 #[cfg(test)]
@@ -340,5 +608,100 @@ mod tests {
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].event_type, "decision.made");
         assert_eq!(events[0].sequence, 1);
+    }
+
+    #[test]
+    fn stores_queue_jobs_across_reopen() {
+        let file = NamedTempFile::new().unwrap();
+
+        {
+            let mut store = SqliteMemoryStore::open(file.path()).unwrap();
+            let job = store
+                .push_job(QueueJob::new("embed", "job-1", "{\"doc\":\"doc-1\"}", 3))
+                .unwrap();
+
+            assert_eq!(job.status, QueueJobStatus::Ready);
+        }
+
+        let store = SqliteMemoryStore::open(file.path()).unwrap();
+        let jobs = store.list_jobs("embed").unwrap();
+
+        assert_eq!(jobs.len(), 1);
+        assert_eq!(jobs[0].id, "job-1");
+        assert_eq!(jobs[0].status, QueueJobStatus::Ready);
+    }
+
+    #[test]
+    fn returns_existing_queue_job_for_duplicate_push() {
+        let mut store = SqliteMemoryStore::open_in_memory().unwrap();
+
+        let first = store
+            .push_job(QueueJob::new("embed", "job-1", "{\"doc\":\"doc-1\"}", 3))
+            .unwrap();
+        let second = store
+            .push_job(QueueJob::new("embed", "job-1", "{\"doc\":\"doc-2\"}", 3))
+            .unwrap();
+
+        assert_eq!(first.body, "{\"doc\":\"doc-1\"}");
+        assert_eq!(second.body, first.body);
+        assert_eq!(store.list_jobs("embed").unwrap().len(), 1);
+    }
+
+    #[test]
+    fn claims_and_acks_queue_jobs() {
+        let mut store = SqliteMemoryStore::open_in_memory().unwrap();
+
+        store
+            .push_job(QueueJob::new("embed", "job-1", "{\"doc\":\"doc-1\"}", 3))
+            .unwrap();
+
+        let claimed = store.claim_job("embed").unwrap().unwrap();
+        let acked = store.ack_job("embed", "job-1").unwrap().unwrap();
+
+        assert_eq!(claimed.status, QueueJobStatus::Leased);
+        assert_eq!(claimed.attempts, 1);
+        assert_eq!(acked.status, QueueJobStatus::Completed);
+        assert!(store.claim_job("embed").unwrap().is_none());
+    }
+
+    #[test]
+    fn nacks_queue_jobs_to_retry_then_dead_letter() {
+        let mut store = SqliteMemoryStore::open_in_memory().unwrap();
+
+        store
+            .push_job(QueueJob::new("embed", "job-1", "{\"doc\":\"doc-1\"}", 2))
+            .unwrap();
+
+        store.claim_job("embed").unwrap().unwrap();
+        let retried = store.nack_job("embed", "job-1").unwrap().unwrap();
+        assert_eq!(retried.status, QueueJobStatus::Ready);
+        assert_eq!(retried.attempts, 1);
+
+        store.claim_job("embed").unwrap().unwrap();
+        let dead = store.nack_job("embed", "job-1").unwrap().unwrap();
+        assert_eq!(dead.status, QueueJobStatus::Dead);
+        assert_eq!(dead.attempts, 2);
+        assert_eq!(store.list_dead_jobs("embed").unwrap().len(), 1);
+    }
+
+    #[test]
+    fn persists_completed_queue_jobs_across_reopen() {
+        let file = NamedTempFile::new().unwrap();
+
+        {
+            let mut store = SqliteMemoryStore::open(file.path()).unwrap();
+            store
+                .push_job(QueueJob::new("embed", "job-1", "{\"doc\":\"doc-1\"}", 3))
+                .unwrap();
+            store.claim_job("embed").unwrap().unwrap();
+            store.ack_job("embed", "job-1").unwrap().unwrap();
+        }
+
+        let store = SqliteMemoryStore::open(file.path()).unwrap();
+        let jobs = store.list_jobs("embed").unwrap();
+
+        assert_eq!(jobs.len(), 1);
+        assert_eq!(jobs[0].status, QueueJobStatus::Completed);
+        assert_eq!(jobs[0].attempts, 1);
     }
 }

@@ -6,7 +6,7 @@ Read this file before making integration changes. It explains the current projec
 
 ## Current State
 
-`memoryd` is an early open source project. The public Node.js API is real enough to test locally, but it still uses the TypeScript in-memory proof store. The Rust core has started durable storage with a feature-gated SQLite adapter for objects and events.
+`memoryd` is an early open source project. The public Node.js API is real enough to test locally, but it still uses the TypeScript in-memory proof store. The Rust core has started durable storage with a feature-gated SQLite adapter for objects, events, and queues.
 
 Current implementation:
 
@@ -46,7 +46,7 @@ cluster sidecar mode:
 ```
 
 Current Node.js code only implements the TypeScript in-memory proof layer.
-The Rust crate now includes `SqliteMemoryStore` for object and event persistence, but the Node SDK does not call Rust yet and SQLite queue storage is not implemented yet.
+The Rust crate now includes `SqliteMemoryStore` for object, event, and queue persistence, but the Node SDK does not call Rust yet. Node-style delayed jobs and configurable lease durations still need Rust model/API alignment before the native adapter can fully mirror the TypeScript queue API.
 
 ## Integration Checklist
 
@@ -265,7 +265,8 @@ For sidecar and cluster planning, read [sidecar-cluster.md](./sidecar-cluster.md
 - Update README/docs when changing integration behavior.
 - Do not use internal store classes from app examples unless the example is explicitly about custom stores.
 - Do not promise persistence through the Node SDK until the native adapter exists.
-- Do not claim SQLite queue support until `SqliteMemoryStore` implements `QueueStore` semantics.
+- Do not claim Node SDK persistence until `NativeMemoryStore` exists.
+- Do not claim Rust delayed-job or configurable lease-expiration support until the Rust queue model includes those fields.
 - Do not claim exactly-once queue delivery. The queue is at-least-once.
 - Do not hide distributed-system tradeoffs. Multi-pod writes need server/sidecar or primary-writer mode.
 - Do not add multi-primary cluster behavior. Planned cluster mode is leader-writer with forwarding and event replication.

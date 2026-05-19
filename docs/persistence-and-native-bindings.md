@@ -45,7 +45,7 @@ crates/memoryd-core
 - queue model types
 - storage traits
 - in-memory engine used for tests and API design
-- feature-gated SQLite adapter for durable object and event storage
+- feature-gated SQLite adapter for durable object, event, and queue storage
 
 The important traits are:
 
@@ -71,11 +71,11 @@ Pros:
 
 Cons:
 
-- needs careful queue leasing implementation
+- Node-style lease duration and delayed-job options still need Rust API alignment
 - vector search requires extension strategy
 - schema/migration discipline required
 
-Current fit: selected first durable backend. The Phase 4 adapter uses `rusqlite` for object and event persistence.
+Current fit: selected first durable backend. The adapter uses `rusqlite` for object, event, and trait-level queue persistence.
 
 ### redb
 
@@ -125,9 +125,9 @@ Current implementation status:
 
 - objects: implemented in `SqliteMemoryStore`
 - events: implemented in `SqliteMemoryStore`
-- queue jobs: not implemented in SQLite yet
+- queue jobs: implemented in `SqliteMemoryStore`
 - Node SDK native adapter: not implemented yet
-- benchmarks: `npm run bench:rust` covers the Rust object/event storage path
+- benchmarks: `npm run bench:rust` covers the Rust object/event/queue storage path
 
 Keep vector search and multi-pod replication out of the first durable milestone.
 
@@ -169,7 +169,8 @@ The native binding should satisfy the existing Node tests before it becomes the 
 - no prebuild matrix yet
 - no server/sidecar mode yet
 - no MCP implementation yet
-- no SQLite queue persistence yet
+- no Node SDK native adapter yet
+- no Rust API support for Node-style delayed jobs or configurable lease durations yet
 
 ## Phase 4 Scope
 
@@ -183,9 +184,19 @@ Implemented:
 4. Add Rust tests for object and event persistence across database reopen.
 5. Run Rust CI checks with all features enabled.
 
+Completed in Phase 5:
+
+1. Add SQLite queue persistence for `QueueStore`.
+2. Store queue jobs durably across database reopen.
+3. Support idempotent queue push by `(queue, id)`.
+4. Support transactional claim with `ready -> leased`.
+5. Support `ack` with `leased -> completed`.
+6. Support `nack` with `leased -> ready` or `leased -> dead`.
+7. Add Rust tests for queue persistence, duplicate push, ack, retry, dead-letter, and reopen behavior.
+
 Remaining:
 
-1. Add SQLite queue persistence with lease-safe transactional semantics.
+1. Add Rust model support for delayed jobs and configurable lease expiration.
 2. Add a `napi-rs` binding that can open a database file.
 3. Add a TypeScript `NativeMemoryStore` adapter.
 4. Run the existing SDK tests against both in-memory and native stores.
