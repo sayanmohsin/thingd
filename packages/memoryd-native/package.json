@@ -1,0 +1,13 @@
+{
+  "name": "@sayanmohsin/memoryd-native",
+  "version": "0.0.0-development",
+  "description": "Native Node.js binding scaffold for memoryd.",
+  "type": "module",
+  "private": true,
+  "author": "Sayan Mohsin",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sayanmohsin/memoryd.git"
+  }
+}

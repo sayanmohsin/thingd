@@ -20,6 +20,8 @@ MCP server
   safe read/write surface
 ```
 
+The public Node SDK should remain the app-facing contract. Native bindings should sit underneath that SDK rather than creating a separate API surface.
+
 ## Storage Model
 
 The durable engine should be append-friendly and rebuildable:
@@ -33,6 +35,17 @@ indexes
 ```
 
 Objects are the primary app-facing shape. Events explain how state changed. Indexes are derived and can be rebuilt.
+
+`crates/memoryd-core` defines the current storage boundary with these traits:
+
+```txt
+ObjectStore
+EventLog
+QueueStore
+MemoryStore
+```
+
+Future durable adapters should implement those traits.
 
 ## Queue Model
 
@@ -55,3 +68,21 @@ The practical path is:
 3. local read replicas
 4. tenant or queue partitioning
 5. consensus only if real demand proves it is worth the complexity
+
+## Native Binding Direction
+
+The expected embedded path is:
+
+```txt
+@sayanmohsin/memoryd
+  TypeScript public API
+  native store adapter
+
+@sayanmohsin/memoryd-native
+  napi-rs binding package
+
+crates/memoryd-core
+  durable engine traits and adapters
+```
+
+The native binding package is a scaffold only right now.

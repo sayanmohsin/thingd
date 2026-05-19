@@ -345,6 +345,7 @@ crates/
 
 packages/
   memoryd/            Node.js SDK
+  memoryd-native/     Planned native Node.js binding package
   memoryd-mcp/        MCP server package
 
 examples/
@@ -354,7 +355,9 @@ examples/
 docs/
   vision.md
   architecture.md
+  agent-implementation-guide.md
   coding-standards.md
+  persistence-and-native-bindings.md
   release.md
 ```
 
@@ -410,7 +413,9 @@ Project conventions live in checked-in files so this private repo stays easy to 
 - [biome.json](./biome.json) controls TypeScript, JavaScript, and JSON formatting/linting.
 - [rustfmt.toml](./rustfmt.toml) controls Rust formatting.
 - [Cargo.toml](./Cargo.toml) defines workspace Rust and Clippy lints.
+- [docs/agent-implementation-guide.md](./docs/agent-implementation-guide.md) explains how AI agents and contributors should integrate `memoryd` into apps.
 - [docs/coding-standards.md](./docs/coding-standards.md) explains the coding standards.
+- [docs/persistence-and-native-bindings.md](./docs/persistence-and-native-bindings.md) explains the Rust persistence boundary and native binding direction.
 - [docs/release.md](./docs/release.md) explains npm publishing and automatic versioning.
 
 Useful commands:
