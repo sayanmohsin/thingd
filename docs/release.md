@@ -56,6 +56,8 @@ NPM_TOKEN
 
 The package is configured with npm provenance enabled through `publishConfig.provenance`.
 
+Release packaging intentionally avoids `workspace:*` dependency specs in `package.json` files. The repo uses pnpm for development, but `@semantic-release/npm` calls the npm CLI internally during publish, and npm rejects pnpm-only workspace protocol dependencies.
+
 ## First npm Publish From CI
 
 Use this path when the package does not exist on npm yet.

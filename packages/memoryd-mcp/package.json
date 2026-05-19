@@ -26,7 +26,7 @@
     "url": "git+https://github.com/sayanmohsin/memoryd.git"
   },
   "dependencies": {
-    "@sayanmohsin/memoryd": "workspace:*",
+    "@sayanmohsin/memoryd": "file:../memoryd",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "zod": "^4.4.3"
   },

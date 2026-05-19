@@ -9,7 +9,7 @@
     "build": "nest build"
   },
   "dependencies": {
-    "@sayanmohsin/memoryd": "workspace:*",
+    "@sayanmohsin/memoryd": "file:../../packages/memoryd",
     "@nestjs/common": "^10.0.0",
     "@nestjs/core": "^10.0.0",
     "@nestjs/platform-express": "^10.0.0",

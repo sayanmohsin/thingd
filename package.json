@@ -42,7 +42,7 @@
     "@semantic-release/npm": "13.1.5",
     "@semantic-release/release-notes-generator": "14.1.1",
     "@types/node": "25.9.0",
-    "@sayanmohsin/memoryd-native": "workspace:*",
+    "@sayanmohsin/memoryd-native": "file:packages/memoryd-native",
     "conventional-changelog-conventionalcommits": "9.3.1",
     "semantic-release": "25.0.3",
     "typescript": "6.0.3"

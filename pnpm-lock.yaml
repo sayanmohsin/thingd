@@ -12,7 +12,7 @@ importers:
         specifier: 2.4.15
         version: 2.4.15
       '@sayanmohsin/memoryd-native':
-        specifier: workspace:*
+        specifier: file:packages/memoryd-native
         version: link:packages/memoryd-native
       '@semantic-release/commit-analyzer':
         specifier: 13.0.1
@@ -51,7 +51,7 @@ importers:
         specifier: ^10.0.0
         version: 10.4.22(@nestjs/common@10.4.22(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@10.4.22)
       '@sayanmohsin/memoryd':
-        specifier: workspace:*
+        specifier: file:../../packages/memoryd
         version: link:../../packages/memoryd
       reflect-metadata:
         specifier: ^0.2.0
@@ -82,7 +82,7 @@ importers:
         specifier: ^1.29.0
         version: 1.29.0(zod@4.4.3)
       '@sayanmohsin/memoryd':
-        specifier: workspace:*
+        specifier: file:../memoryd
         version: link:../memoryd
 
   packages/memoryd-mcp:
@@ -91,7 +91,7 @@ importers:
         specifier: ^1.29.0
         version: 1.29.0(zod@4.4.3)
       '@sayanmohsin/memoryd':
-        specifier: workspace:*
+        specifier: file:../memoryd
         version: link:../memoryd
       zod:
         specifier: ^4.4.3
