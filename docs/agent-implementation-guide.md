@@ -255,6 +255,7 @@ crates/memoryd-core
 Do not introduce a second app-facing API from the native package. The native path should pass the same SDK tests that the in-memory store passes.
 
 For storage decisions, read [persistence-and-native-bindings.md](./persistence-and-native-bindings.md).
+For future AI-native data structures, read [ai-primitives.md](./ai-primitives.md).
 For sidecar and cluster planning, read [sidecar-cluster.md](./sidecar-cluster.md).
 
 ## Implementation Rules For Agents
@@ -270,6 +271,7 @@ For sidecar and cluster planning, read [sidecar-cluster.md](./sidecar-cluster.md
 - Do not claim exactly-once queue delivery. The queue is at-least-once.
 - Do not hide distributed-system tradeoffs. Multi-pod writes need server/sidecar or primary-writer mode.
 - Do not add multi-primary cluster behavior. Planned cluster mode is leader-writer with forwarding and event replication.
+- Do not add generic textbook structures as public features unless they map to an AI-native workflow primitive in `docs/ai-primitives.md`.
 - Keep sidecar environment variables and Kubernetes examples aligned with `docs/sidecar-cluster.md`.
 - Keep package publish behavior in `release.config.mjs` and `docs/release.md` aligned.
 

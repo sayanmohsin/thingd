@@ -12,6 +12,7 @@ SQLite-like local deployment
 + AI-readable events and memory
 + full-text and vector-ready search
 + durable queues for workers and agents
++ graph links, leases, workflows, and semantic cache later
 + MCP tools for safe AI access
 + optional sidecar cluster bridge later
 ```
@@ -89,6 +90,10 @@ memoryd
   queue       durable jobs, retries, leases, delays, and DLQ
   graph       links between objects, memories, sources, and decisions
   locks       leases for multi-worker and multi-pod coordination
+  workflow    DAGs for multi-step AI jobs and pipelines
+  cache       semantic cache for model/tool outputs
+  ledger      tool-call history, latency, cost, and replay data
+  snapshots   compaction summaries linked to raw events
   mcp         agent-facing tools and resources
 ```
 
@@ -271,6 +276,22 @@ const hits = await db.search("customers who upgraded after a failed deployment",
 
 Early versions can start with full-text and metadata search. Vector search can come after the object and event model is stable.
 
+## AI-native primitives
+
+Beyond objects, events, and queues, `memoryd` should grow workflow primitives
+that are valuable for modern AI applications:
+
+- graph links for source tracing and explainable retrieval
+- hybrid search across text, metadata, graph links, recency, and vectors
+- locks, leases, and semaphores for worker and pod coordination
+- workflow DAGs for document ingestion, indexing, and agent pipelines
+- semantic cache for expensive model/tool outputs
+- tool-call ledger for replay, audit, latency, and cost
+- compaction snapshots for long-running memory
+
+See [docs/ai-primitives.md](./docs/ai-primitives.md) for the priority order,
+target APIs, storage shapes, MCP tools, and future phases.
+
 ## MCP-native access
 
 MCP is a core part of the design. The database should ship with an MCP server so agents can read and write through explicit tools instead of guessing internal schemas.
@@ -391,6 +412,7 @@ examples/
 
 docs/
   vision.md
+  ai-primitives.md
   architecture.md
   agent-implementation-guide.md
   coding-standards.md
@@ -453,6 +475,7 @@ Project conventions live in checked-in files so this private repo stays easy to 
 - [rustfmt.toml](./rustfmt.toml) controls Rust formatting.
 - [Cargo.toml](./Cargo.toml) defines workspace Rust and Clippy lints.
 - [docs/agent-implementation-guide.md](./docs/agent-implementation-guide.md) explains how AI agents and contributors should integrate `memoryd` into apps.
+- [docs/ai-primitives.md](./docs/ai-primitives.md) plans graph links, hybrid search, locks, workflow DAGs, semantic cache, tool ledger, and compaction.
 - [docs/coding-standards.md](./docs/coding-standards.md) explains the coding standards.
 - [docs/persistence-and-native-bindings.md](./docs/persistence-and-native-bindings.md) explains the Rust persistence boundary and native binding direction.
 - [docs/sidecar-cluster.md](./docs/sidecar-cluster.md) explains the planned sidecar, Kubernetes, and cluster bridge shape.
@@ -564,6 +587,12 @@ npm run test:rust
 
 - [ ] vector search
 - [ ] graph links
+- [ ] hybrid search
+- [ ] locks, leases, and semaphores
+- [ ] workflow DAGs
+- [ ] semantic cache
+- [ ] tool-call ledger
+- [ ] compaction snapshots
 - [ ] local read replicas
 - [ ] server binary
 - [ ] Docker sidecar image

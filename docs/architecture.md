@@ -7,6 +7,11 @@ Rust core
   object store
   event log
   queue engine
+  graph links
+  locks and leases
+  workflow DAG
+  semantic cache
+  tool-call ledger
   search indexes
   storage adapters
 
@@ -37,6 +42,11 @@ objects
 events
 queue_jobs
 links
+leases
+workflow_runs
+cache_entries
+tool_calls
+snapshots
 indexes
 ```
 
@@ -84,6 +94,16 @@ leader, and replicates the leader event log into local follower stores.
 
 For the detailed API, environment, Kubernetes, and phase plan, read
 [sidecar-cluster.md](./sidecar-cluster.md).
+
+## AI-Native Primitive Direction
+
+`memoryd` should prioritize workflow primitives that help agents understand,
+retrieve, coordinate, and audit work. The planned order is graph links, hybrid
+search, locks/leases/semaphores, workflow DAGs, semantic cache, tool-call
+ledger, and compaction snapshots.
+
+For target APIs, storage shapes, MCP surfaces, and phase planning, read
+[ai-primitives.md](./ai-primitives.md).
 
 ## Native Binding Direction
 
