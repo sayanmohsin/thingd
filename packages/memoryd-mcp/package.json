@@ -1,0 +1,11 @@
+{
+  "name": "@sayanmohsin/memoryd-mcp",
+  "version": "0.1.0",
+  "description": "MCP tools for memoryd.",
+  "type": "module",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sayanmohsin/memoryd.git"
+  }
+}
