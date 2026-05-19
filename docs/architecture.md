@@ -105,6 +105,14 @@ ledger, and compaction snapshots.
 For target APIs, storage shapes, MCP surfaces, and phase planning, read
 [ai-primitives.md](./ai-primitives.md).
 
+## MCP Server Direction
+
+`packages/memoryd-mcp` wraps the public SDK as MCP tools. Phase 8 provides a
+stdio transport for local MCP clients and tests. The next runtime step is a
+remote Streamable HTTP endpoint with auth, followed by Docker/server mode.
+
+For current tools and local usage, read [mcp-server.md](./mcp-server.md).
+
 ## Native Binding Direction
 
 The expected embedded path is:

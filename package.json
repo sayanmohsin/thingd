@@ -23,8 +23,9 @@
     "rust:clippy": "cargo clippy --workspace --all-targets --all-features -- -D warnings",
     "rust:fmt": "cargo fmt --all",
     "rust:fmt:check": "cargo fmt --all --check",
-    "test": "npm run test:node && npm run test:package && npm run test:rust",
-    "test:local": "npm run check && npm run build && npm run test:node && npm run test:package",
+    "test": "npm run test:node && npm run test:mcp && npm run test:package && npm run test:rust",
+    "test:local": "npm run check && npm run build && npm run test:node && npm run test:mcp && npm run test:package",
+    "test:mcp": "npm run test --workspace @sayanmohsin/memoryd-mcp",
     "test:node": "npm run test --workspace @sayanmohsin/memoryd",
     "test:package": "npm run build --workspace @sayanmohsin/memoryd && node scripts/verify-package.mjs",
     "test:rust": "cargo test --workspace --all-targets --all-features"

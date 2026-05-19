@@ -31,7 +31,7 @@ The repository currently contains:
 - object, event, search, and queue APIs
 - queue semantics for leases, `ack`, `nack`, delayed jobs, retry delays, and dead-letter jobs
 - npm package smoke testing without publishing
-- MCP package scaffolding
+- stdio MCP server package with object, event, search, and queue tools
 - architecture, release, persistence, and agent integration docs
 
 It is not production-ready yet. The default public Node.js SDK path still uses the TypeScript in-memory store for API exploration and local integration tests. The Rust core has SQLite-backed object, event, and queue persistence behind the `sqlite` feature, and the repo now has an opt-in private native driver for local testing. Native prebuilds, migrations, and production hardening are still next.
@@ -308,25 +308,40 @@ target APIs, storage shapes, MCP tools, and future phases.
 
 ## MCP-native access
 
-MCP is a core part of the design. The database should ship with an MCP server so agents can read and write through explicit tools instead of guessing internal schemas.
+MCP is a core part of the design. The database ships with an initial stdio MCP server so agents can read and write through explicit tools instead of guessing internal schemas.
 
-Planned tools:
+Current tools:
 
 ```txt
 memory.search
-memory.get
-memory.put
-memory.patch
-memory.delete
-memory.link
+memory.objects.get
+memory.objects.put
+memory.objects.delete
 memory.events.append
 memory.events.list
 memory.queue.push
 memory.queue.claim
 memory.queue.ack
 memory.queue.nack
+memory.queue.list
 memory.queue.dead
 ```
+
+Run it locally:
+
+```bash
+npm run build --workspace @sayanmohsin/memoryd-mcp
+node packages/memoryd-mcp/dist/cli.js --path :memory:
+```
+
+For the native Rust-backed store:
+
+```bash
+npm run build --workspace @sayanmohsin/memoryd-native
+node packages/memoryd-mcp/dist/cli.js --path ./memoryd.db --driver native
+```
+
+See [docs/mcp-server.md](./docs/mcp-server.md) for the current MCP boundary and next runtime steps.
 
 The MCP layer should enforce:
 
@@ -417,7 +432,7 @@ crates/
 
 packages/
   memoryd/            Node.js SDK
-  memoryd-native/     Planned native Node.js binding package
+  memoryd-native/     Private native Node.js binding package
   memoryd-mcp/        MCP server package
 
 examples/
@@ -587,7 +602,8 @@ npm run test:rust
 - [ ] full-text search
 - [ ] metadata filters
 - [ ] object-to-text indexing
-- [ ] MCP server
+- [x] stdio MCP server skeleton
+- [ ] remote HTTP MCP server
 - [ ] audit events for MCP writes
 
 ### v0.3 - production shape

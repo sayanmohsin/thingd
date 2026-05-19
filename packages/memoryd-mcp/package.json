@@ -5,8 +5,35 @@
   "type": "module",
   "author": "Sayan Mohsin",
   "license": "Apache-2.0",
+  "bin": {
+    "memoryd-mcp": "./dist/cli.js"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
   "repository": {
     "type": "git",
     "url": "git+https://github.com/sayanmohsin/memoryd.git"
+  },
+  "dependencies": {
+    "@sayanmohsin/memoryd": "0.0.0-development",
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "zod": "^4.4.3"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "npm run build && node --test test/*.test.mjs"
+  },
+  "engines": {
+    "node": ">=20"
   }
 }

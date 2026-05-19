@@ -6,16 +6,16 @@ Read this file before making integration changes. It explains the current projec
 
 ## Current State
 
-`memoryd` is an early open source project. The public Node.js API is real enough to test locally, but it still uses the TypeScript in-memory proof store. The Rust core has started durable storage with a feature-gated SQLite adapter for objects, events, and queues.
+`memoryd` is an early open source project. The public Node.js API is real enough to test locally, and the default path still uses the TypeScript in-memory proof store. The Rust core has durable storage with a feature-gated SQLite adapter for objects, events, and queues.
 
 Current implementation:
 
 - `packages/memoryd` exposes the Node.js SDK.
 - `packages/memoryd/src/stores/in-memory-memory-store.ts` is the current proof store.
 - `crates/memoryd-core` contains the Rust storage boundary, in-memory Rust engine, and `SqliteMemoryStore` behind the `sqlite` feature.
-- `packages/memoryd-native` is a private scaffold for future N-API bindings.
+- `packages/memoryd-native` is a private N-API binding for local native driver testing.
+- `packages/memoryd-mcp` exposes the SDK through a stdio MCP server.
 - `examples/nestjs-basic` demonstrates app integration shape.
-- `packages/memoryd-mcp` is a placeholder for future MCP tools.
 
 Do not present the public Node package as production-ready persistent storage yet.
 
@@ -206,28 +206,28 @@ export class DecisionsService {
 
 The current `examples/nestjs-basic` app uses a local adapter shape. Future work should move it onto the exported SDK once the example is ready to demonstrate the package directly.
 
-## Future MCP Integration Shape
+## MCP Integration Shape
 
-The MCP package should wrap the same SDK surface. It should not bypass validation or use internal store implementation details.
+The MCP package wraps the same SDK surface. It should not bypass validation or use internal store implementation details.
 
-Planned tools:
+Current tools:
 
 ```txt
 memory.search
-memory.get
-memory.put
-memory.patch
-memory.delete
+memory.objects.get
+memory.objects.put
+memory.objects.delete
 memory.events.append
 memory.events.list
 memory.queue.push
 memory.queue.claim
 memory.queue.ack
 memory.queue.nack
+memory.queue.list
 memory.queue.dead
 ```
 
-Each MCP write should include actor/source metadata and should append an audit event when practical.
+Each future remote MCP write should include actor/source metadata and should append an audit event when practical. The current stdio skeleton does not yet implement audit writes.
 
 ## Rust And Native Binding Direction
 
