@@ -1,6 +1,13 @@
 #!/usr/bin/env node
 
-import { parseMemorydDriver, parsePort, readCliValue } from "./config.js";
+import { readClusterOptionsFromEnv } from "./cluster.js";
+import {
+  parseBooleanFlag,
+  parseMemorydDriver,
+  parsePort,
+  readCliValue,
+  readMcpAuditOptionsFromEnv,
+} from "./config.js";
 import { startMemorydHttpServer } from "./http.js";
 
 type HttpCliOptions = {
@@ -9,6 +16,7 @@ type HttpCliOptions = {
   host: string;
   port: number;
   authToken?: string;
+  allowUnauthenticated: boolean;
 };
 
 const options = parseHttpCliOptions(process.argv.slice(2));
@@ -23,6 +31,9 @@ const runtime = await startMemorydHttpServer({
   host: options.host,
   port: options.port,
   authToken: options.authToken,
+  allowUnauthenticated: options.allowUnauthenticated,
+  audit: readMcpAuditOptionsFromEnv(process.env),
+  cluster: readClusterOptionsFromEnv(process.env),
 });
 
 console.error(`memoryd MCP HTTP runtime listening at ${runtime.mcpUrl}`);
@@ -40,6 +51,10 @@ function parseHttpCliOptions(args: string[]): HttpCliOptions {
     host: process.env.MEMORYD_HOST ?? "127.0.0.1",
     port: parsePort(process.env.MEMORYD_PORT, 8757),
     authToken: process.env.MEMORYD_AUTH_TOKEN,
+    allowUnauthenticated: parseBooleanFlag(
+      process.env.MEMORYD_ALLOW_UNAUTHENTICATED,
+      "MEMORYD_ALLOW_UNAUTHENTICATED",
+    ),
   };
 
   for (let index = 0; index < args.length; index += 1) {
@@ -75,6 +90,11 @@ function parseHttpCliOptions(args: string[]): HttpCliOptions {
       continue;
     }
 
+    if (arg === "--allow-unauthenticated") {
+      options.allowUnauthenticated = true;
+      continue;
+    }
+
     if (arg === "--help" || arg === "-h") {
       printHelp();
       process.exit(0);
@@ -97,6 +117,16 @@ Options:
   --host <host>         bind host. Defaults to MEMORYD_HOST or 127.0.0.1
   --port <port>         bind port. Defaults to MEMORYD_PORT or 8757
   --auth-token <token>  bearer token. Defaults to MEMORYD_AUTH_TOKEN
+  --allow-unauthenticated
+                        allow tokenless non-loopback binding
   -h, --help            show this help
+
+Cluster env:
+  MEMORYD_CLUSTER_MODE=single|leader|follower
+  MEMORYD_CLUSTER_LEADER_URL=http://memoryd-leader:8757
+  MEMORYD_CLUSTER_PEERS=http://memoryd-0:8757,http://memoryd-1:8757
+  MEMORYD_CLUSTER_DISCOVERY=none|static|kubernetes
+  MEMORYD_ADVERTISE_URL=http://pod-ip:8757
+  MEMORYD_CLUSTER_FORWARD_AUTH_TOKEN=<leader-token>
 `);
 }

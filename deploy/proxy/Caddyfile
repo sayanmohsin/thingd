@@ -1,0 +1,13 @@
+{
+  email you@example.com
+}
+
+memoryd.example.com {
+  encode zstd gzip
+
+  @mcp path /mcp
+  reverse_proxy @mcp memoryd-leader:8757
+
+  @health path /healthz /cluster/status /cluster/peers
+  reverse_proxy @health memoryd-leader:8757
+}

@@ -1,0 +1,73 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: memoryd-auth
+type: Opaque
+stringData:
+  MEMORYD_AUTH_TOKEN: change-me
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: memoryd-sidecar-example
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: memoryd-sidecar-example
+  template:
+    metadata:
+      labels:
+        app: memoryd-sidecar-example
+    spec:
+      containers:
+        - name: app
+          image: your-node-app:latest
+          env:
+            - name: MEMORYD_URL
+              value: http://127.0.0.1:8757
+            - name: MEMORYD_AUTH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: memoryd-auth
+                  key: MEMORYD_AUTH_TOKEN
+
+        - name: memoryd
+          image: ghcr.io/sayanmohsin/memoryd:latest
+          env:
+            - name: MEMORYD_PATH
+              value: /data/memoryd.db
+            - name: MEMORYD_DRIVER
+              value: native
+            - name: MEMORYD_HOST
+              value: 0.0.0.0
+            - name: MEMORYD_PORT
+              value: "8757"
+            - name: MEMORYD_CLUSTER_MODE
+              value: single
+            - name: MEMORYD_AUTH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: memoryd-auth
+                  key: MEMORYD_AUTH_TOKEN
+          ports:
+            - name: memoryd
+              containerPort: 8757
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: memoryd
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: memoryd
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          volumeMounts:
+            - name: memoryd-data
+              mountPath: /data
+      volumes:
+        - name: memoryd-data
+          emptyDir: {}

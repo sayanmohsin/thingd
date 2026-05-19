@@ -73,9 +73,8 @@ Cons:
 
 - vector search requires extension strategy
 - schema/migration discipline required
-- existing development databases may need explicit migrations as queue columns evolve
 
-Current fit: selected first durable backend. The adapter uses `rusqlite` for object, event, and trait-level queue persistence, including delayed jobs, configurable lease expiration, retry delay, and dead-letter state.
+Current fit: selected first durable backend. The adapter uses `rusqlite` for object, event, and trait-level queue persistence, including delayed jobs, configurable lease expiration, retry delay, dead-letter state, and schema version tracking in `memoryd_schema_migrations`.
 
 ### redb
 
@@ -161,7 +160,7 @@ queue.nack
 queue.dead
 ```
 
-The native binding satisfies the existing Node behavior tests when the private native package has been built locally. It should remain opt-in until prebuilds, migrations, and release packaging are ready.
+The native binding satisfies the existing Node behavior tests when the private native package has been built locally. It should remain opt-in until prebuilds and release packaging are ready.
 
 ## Non-goals For This Phase
 
@@ -205,9 +204,14 @@ Completed in Phase 7:
 2. Add a TypeScript `NativeMemoryStore` adapter.
 3. Run the existing SDK tests against both in-memory and native stores.
 
+Completed in Phase 10:
+
+1. Add SQLite schema version tracking in `memoryd_schema_migrations`.
+2. Add a guard that rejects databases created by newer unsupported schema versions.
+3. Keep the initial object/event/queue schema as migration version 1.
+
 Remaining:
 
 1. Add a native prebuild and package loading strategy.
-2. Add schema migrations before changing SQLite tables again.
-3. Add Node.js native performance benchmarks.
-4. Decide when the native store becomes the default SDK driver.
+2. Add Node.js native performance benchmarks.
+3. Decide when the native store becomes the default SDK driver.

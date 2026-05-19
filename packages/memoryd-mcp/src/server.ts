@@ -1,8 +1,16 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { MemoryD } from "@sayanmohsin/memoryd";
+import type { MemorydMcpAuditOptions } from "./audit.js";
 import { registerMemorydTools } from "./tools.js";
 
-export function createMemorydMcpServer(db: MemoryD): McpServer {
+export type MemorydMcpServerOptions = {
+  audit?: MemorydMcpAuditOptions | false;
+};
+
+export function createMemorydMcpServer(
+  db: MemoryD,
+  options: MemorydMcpServerOptions = {},
+): McpServer {
   const server = new McpServer(
     {
       name: "memoryd",
@@ -14,6 +22,6 @@ export function createMemorydMcpServer(db: MemoryD): McpServer {
     },
   );
 
-  registerMemorydTools(server, db);
+  registerMemorydTools(server, db, options);
   return server;
 }

@@ -7,16 +7,20 @@ tools. It does not reach into internal store implementations.
 
 ## Status
 
-Phase 9 runtime skeleton:
+Runtime skeleton:
 
 - stdio MCP transport
 - Streamable HTTP MCP transport
 - bearer token auth for HTTP MCP
 - `/healthz`
+- non-loopback HTTP auth guardrails
+- bridge-mode cluster status endpoints
+- follower MCP forwarding to a configured leader
 - object tools
 - event tools
 - search tool
 - queue tools
+- audit events for write tools
 - tests using the official MCP SDK in-memory and Streamable HTTP transports
 
 Docker runtime and production hardening are still early.
@@ -79,6 +83,15 @@ MEMORYD_DRIVER=native
 MEMORYD_HOST=0.0.0.0
 MEMORYD_PORT=8757
 MEMORYD_AUTH_TOKEN=change-me
+MEMORYD_ALLOW_UNAUTHENTICATED=false
+MEMORYD_MCP_AUDIT=true
+MEMORYD_MCP_ACTOR=mcp-client
+MEMORYD_MCP_SOURCE=memoryd-mcp
+MEMORYD_MCP_AUDIT_STREAM=__memoryd:mcp:audit
+MEMORYD_CLUSTER_MODE=single
+MEMORYD_CLUSTER_LEADER_URL=
+MEMORYD_CLUSTER_FORWARD_AUTH_TOKEN=
+MEMORYD_CLUSTER_PEERS=
 ```
 
 Endpoints:
@@ -86,7 +99,29 @@ Endpoints:
 ```txt
 GET  /healthz
 POST /mcp
+GET  /cluster/status
+GET  /cluster/peers
 ```
+
+When binding to `0.0.0.0` or another non-loopback host, the HTTP runtime
+requires `MEMORYD_AUTH_TOKEN` unless `MEMORYD_ALLOW_UNAUTHENTICATED=true` is set.
+
+### Audit Events
+
+Write tools append audit events to `__memoryd:mcp:audit` by default. Tool calls
+can pass optional `actor` and `source` inputs.
+
+### Bridge Mode
+
+```txt
+MEMORYD_CLUSTER_MODE=single|leader|follower
+MEMORYD_CLUSTER_LEADER_URL=http://memoryd-leader:8757
+MEMORYD_CLUSTER_FORWARD_AUTH_TOKEN=change-me
+MEMORYD_CLUSTER_DISCOVERY=none|static|kubernetes
+```
+
+Followers forward MCP traffic to the leader. Local follower replica catch-up is
+not implemented yet.
 
 ## Tools
 
@@ -110,5 +145,5 @@ memory.queue.dead
 - Keep app-facing APIs in `@sayanmohsin/memoryd`.
 - Keep MCP tools object-shaped and model-readable.
 - Prefer safe tool descriptions and explicit inputs.
-- Add audit metadata later when the server/runtime layer exists.
+- Keep MCP write audit events enabled unless a runtime explicitly disables them.
 - Do not expose SQL as the MCP interface.

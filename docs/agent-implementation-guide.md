@@ -15,6 +15,7 @@ Current implementation:
 - `crates/memoryd-core` contains the Rust storage boundary, in-memory Rust engine, and `SqliteMemoryStore` behind the `sqlite` feature.
 - `packages/memoryd-native` is a private N-API binding for local native driver testing.
 - `packages/memoryd-mcp` exposes the SDK through stdio and Streamable HTTP MCP servers.
+- the HTTP MCP runtime supports `single`, `leader`, and `follower` bridge modes.
 - `examples/nestjs-basic` demonstrates app integration shape.
 
 Do not present the public Node package as production-ready persistent storage yet.
@@ -46,7 +47,9 @@ cluster sidecar mode:
 ```
 
 Current Node.js code uses the TypeScript in-memory proof layer by default.
-The Rust crate includes `SqliteMemoryStore` for object, event, and queue persistence, including delayed jobs, configurable lease expiration, retry delay, and dead-letter state. The SDK can opt into the private native bridge with `driver: "native"` after `@sayanmohsin/memoryd-native` is built locally.
+The Rust crate includes `SqliteMemoryStore` for object, event, and queue persistence, including delayed jobs, configurable lease expiration, retry delay, dead-letter state, and schema migration guardrails. The SDK can opt into the private native bridge with `driver: "native"` after `@sayanmohsin/memoryd-native` is built locally.
+The HTTP MCP runtime can run as a bridge follower and forward MCP traffic to a
+configured leader. It does not yet replicate local follower stores.
 
 ## Integration Checklist
 
@@ -227,9 +230,10 @@ memory.queue.list
 memory.queue.dead
 ```
 
-The MCP package has stdio and Streamable HTTP entrypoints. Each future remote
-MCP write should include actor/source metadata and should append an audit event
-when practical. The current skeleton does not yet implement audit writes.
+The MCP package has stdio and Streamable HTTP entrypoints. MCP write tools append
+audit events to `__memoryd:mcp:audit` by default. Tool callers can pass optional
+`actor` and `source` fields, and runtimes can set defaults with
+`MEMORYD_MCP_ACTOR` and `MEMORYD_MCP_SOURCE`.
 
 ## Rust And Native Binding Direction
 
@@ -267,7 +271,7 @@ For sidecar and cluster planning, read [sidecar-cluster.md](./sidecar-cluster.md
 - Add or update tests in `packages/memoryd/test/memoryd.test.mjs` for behavior changes.
 - Update README/docs when changing integration behavior.
 - Do not use internal store classes from app examples unless the example is explicitly about custom stores.
-- Do not present native persistence as the default SDK path until prebuilds, migrations, and package loading are production-ready.
+- Do not present native persistence as the default SDK path until prebuilds and package loading are production-ready.
 - Do not add a separate app-facing API to `@sayanmohsin/memoryd-native`; keep the public API in `@sayanmohsin/memoryd`.
 - Do not claim exactly-once queue delivery. The queue is at-least-once.
 - Do not hide distributed-system tradeoffs. Multi-pod writes need server/sidecar or primary-writer mode.

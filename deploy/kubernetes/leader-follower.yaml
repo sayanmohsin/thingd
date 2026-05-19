@@ -1,0 +1,134 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: memoryd-cluster-auth
+type: Opaque
+stringData:
+  MEMORYD_AUTH_TOKEN: change-me
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: memoryd-leader
+spec:
+  selector:
+    app: memoryd-leader
+  ports:
+    - name: memoryd
+      port: 8757
+      targetPort: memoryd
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: memoryd-leader
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: memoryd-leader
+  template:
+    metadata:
+      labels:
+        app: memoryd-leader
+    spec:
+      containers:
+        - name: memoryd
+          image: ghcr.io/sayanmohsin/memoryd:latest
+          env:
+            - name: MEMORYD_PATH
+              value: /data/memoryd.db
+            - name: MEMORYD_DRIVER
+              value: native
+            - name: MEMORYD_HOST
+              value: 0.0.0.0
+            - name: MEMORYD_PORT
+              value: "8757"
+            - name: MEMORYD_CLUSTER_MODE
+              value: leader
+            - name: MEMORYD_ADVERTISE_URL
+              value: http://memoryd-leader:8757
+            - name: MEMORYD_AUTH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: memoryd-cluster-auth
+                  key: MEMORYD_AUTH_TOKEN
+          ports:
+            - name: memoryd
+              containerPort: 8757
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: memoryd
+          volumeMounts:
+            - name: memoryd-data
+              mountPath: /data
+      volumes:
+        - name: memoryd-data
+          persistentVolumeClaim:
+            claimName: memoryd-leader-data
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: memoryd-leader-data
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: memoryd-follower
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: memoryd-follower
+  template:
+    metadata:
+      labels:
+        app: memoryd-follower
+    spec:
+      containers:
+        - name: memoryd
+          image: ghcr.io/sayanmohsin/memoryd:latest
+          env:
+            - name: MEMORYD_PATH
+              value: /data/memoryd.db
+            - name: MEMORYD_DRIVER
+              value: native
+            - name: MEMORYD_HOST
+              value: 0.0.0.0
+            - name: MEMORYD_PORT
+              value: "8757"
+            - name: MEMORYD_CLUSTER_MODE
+              value: follower
+            - name: MEMORYD_CLUSTER_LEADER_URL
+              value: http://memoryd-leader:8757
+            - name: MEMORYD_CLUSTER_FORWARD_AUTH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: memoryd-cluster-auth
+                  key: MEMORYD_AUTH_TOKEN
+            - name: MEMORYD_AUTH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: memoryd-cluster-auth
+                  key: MEMORYD_AUTH_TOKEN
+          ports:
+            - name: memoryd
+              containerPort: 8757
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: memoryd
+          volumeMounts:
+            - name: memoryd-data
+              mountPath: /data
+      volumes:
+        - name: memoryd-data
+          emptyDir: {}

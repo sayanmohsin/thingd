@@ -1,13 +1,33 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { MemoryD } from "@sayanmohsin/memoryd";
 import { z } from "zod";
+import {
+  appendMcpAuditEvent,
+  type MemorydMcpAuditMetadata,
+  type MemorydMcpAuditOptions,
+  resolveMemorydMcpAuditOptions,
+} from "./audit.js";
 import { jsonResult } from "./result.js";
 
 const memoryObjectSchema = z.object({ id: z.string().min(1) }).catchall(z.unknown());
 const memoryEventSchema = z.object({ type: z.string().min(1) }).catchall(z.unknown());
 const objectPayloadSchema = z.record(z.string(), z.unknown());
+const auditInputSchema = {
+  actor: z.string().min(1).optional(),
+  source: z.string().min(1).optional(),
+};
 
-export function registerMemorydTools(server: McpServer, db: MemoryD): void {
+export type RegisterMemorydToolsOptions = {
+  audit?: MemorydMcpAuditOptions | false;
+};
+
+export function registerMemorydTools(
+  server: McpServer,
+  db: MemoryD,
+  options: RegisterMemorydToolsOptions = {},
+): void {
+  const audit = resolveMemorydMcpAuditOptions(options.audit);
+
   server.registerTool(
     "memory.search",
     {
@@ -56,6 +76,7 @@ export function registerMemorydTools(server: McpServer, db: MemoryD): void {
       inputSchema: {
         collection: z.string().min(1),
         object: memoryObjectSchema,
+        ...auditInputSchema,
       },
       annotations: {
         readOnlyHint: false,
@@ -64,7 +85,24 @@ export function registerMemorydTools(server: McpServer, db: MemoryD): void {
         openWorldHint: false,
       },
     },
-    async ({ collection, object }) => jsonResult(await db.put(collection, object)),
+    async ({ collection, object, actor, source }) => {
+      const stored = await db.put(collection, object);
+      await appendMcpAuditEvent(db, audit, {
+        action: "objects.put",
+        target: {
+          collection,
+          id: stored.id,
+        },
+        metadata: auditMetadata(actor, source),
+        result: {
+          collection: stored.collection,
+          id: stored.id,
+          version: stored.version,
+        },
+      });
+
+      return jsonResult(stored);
+    },
   );
 
   server.registerTool(
@@ -75,6 +113,7 @@ export function registerMemorydTools(server: McpServer, db: MemoryD): void {
       inputSchema: {
         collection: z.string().min(1),
         id: z.string().min(1),
+        ...auditInputSchema,
       },
       annotations: {
         readOnlyHint: false,
@@ -83,7 +122,20 @@ export function registerMemorydTools(server: McpServer, db: MemoryD): void {
         openWorldHint: false,
       },
     },
-    async ({ collection, id }) => jsonResult(await db.delete(collection, id)),
+    async ({ collection, id, actor, source }) => {
+      const result = await db.delete(collection, id);
+      await appendMcpAuditEvent(db, audit, {
+        action: "objects.delete",
+        target: {
+          collection,
+          id,
+        },
+        metadata: auditMetadata(actor, source),
+        result,
+      });
+
+      return jsonResult(result);
+    },
   );
 
   server.registerTool(
@@ -94,6 +146,7 @@ export function registerMemorydTools(server: McpServer, db: MemoryD): void {
       inputSchema: {
         stream: z.string().min(1),
         event: memoryEventSchema,
+        ...auditInputSchema,
       },
       annotations: {
         readOnlyHint: false,
@@ -102,7 +155,24 @@ export function registerMemorydTools(server: McpServer, db: MemoryD): void {
         openWorldHint: false,
       },
     },
-    async ({ stream, event }) => jsonResult(await db.events.append(stream, event)),
+    async ({ stream, event, actor, source }) => {
+      const stored = await db.events.append(stream, event);
+      await appendMcpAuditEvent(db, audit, {
+        action: "events.append",
+        target: {
+          stream,
+          eventType: stored.type,
+          eventId: stored.id,
+        },
+        metadata: auditMetadata(actor, source),
+        result: {
+          id: stored.id,
+          stream: stored.stream,
+        },
+      });
+
+      return jsonResult(stored);
+    },
   );
 
   server.registerTool(
@@ -134,6 +204,7 @@ export function registerMemorydTools(server: McpServer, db: MemoryD): void {
         idempotencyKey: z.string().min(1).optional(),
         maxAttempts: z.number().int().positive().max(100).optional(),
         delayMs: z.number().int().min(0).optional(),
+        ...auditInputSchema,
       },
       annotations: {
         readOnlyHint: false,
@@ -142,14 +213,28 @@ export function registerMemorydTools(server: McpServer, db: MemoryD): void {
         openWorldHint: false,
       },
     },
-    async ({ queue, payload, idempotencyKey, maxAttempts, delayMs }) =>
-      jsonResult(
-        await db.queue(queue).push(payload, {
-          idempotencyKey,
-          maxAttempts,
-          delayMs,
-        }),
-      ),
+    async ({ queue, payload, idempotencyKey, maxAttempts, delayMs, actor, source }) => {
+      const job = await db.queue(queue).push(payload, {
+        idempotencyKey,
+        maxAttempts,
+        delayMs,
+      });
+      await appendMcpAuditEvent(db, audit, {
+        action: "queue.push",
+        target: {
+          queue,
+          id: job.id,
+        },
+        metadata: auditMetadata(actor, source),
+        result: {
+          id: job.id,
+          queue: job.queue,
+          status: job.status,
+        },
+      });
+
+      return jsonResult(job);
+    },
   );
 
   server.registerTool(
@@ -160,6 +245,7 @@ export function registerMemorydTools(server: McpServer, db: MemoryD): void {
       inputSchema: {
         queue: z.string().min(1),
         leaseMs: z.number().int().optional(),
+        ...auditInputSchema,
       },
       annotations: {
         readOnlyHint: false,
@@ -168,7 +254,27 @@ export function registerMemorydTools(server: McpServer, db: MemoryD): void {
         openWorldHint: false,
       },
     },
-    async ({ queue, leaseMs }) => jsonResult(await db.queue(queue).claim({ leaseMs })),
+    async ({ queue, leaseMs, actor, source }) => {
+      const job = await db.queue(queue).claim({ leaseMs });
+      if (job) {
+        await appendMcpAuditEvent(db, audit, {
+          action: "queue.claim",
+          target: {
+            queue,
+            id: job.id,
+          },
+          metadata: auditMetadata(actor, source),
+          result: {
+            id: job.id,
+            queue: job.queue,
+            status: job.status,
+            attempts: job.attempts,
+          },
+        });
+      }
+
+      return jsonResult(job);
+    },
   );
 
   server.registerTool(
@@ -179,6 +285,7 @@ export function registerMemorydTools(server: McpServer, db: MemoryD): void {
       inputSchema: {
         queue: z.string().min(1),
         id: z.string().min(1),
+        ...auditInputSchema,
       },
       annotations: {
         readOnlyHint: false,
@@ -187,7 +294,25 @@ export function registerMemorydTools(server: McpServer, db: MemoryD): void {
         openWorldHint: false,
       },
     },
-    async ({ queue, id }) => jsonResult(await db.queue(queue).ack(id)),
+    async ({ queue, id, actor, source }) => {
+      const result = await db.queue(queue).ack(id);
+      if (result.ok) {
+        await appendMcpAuditEvent(db, audit, {
+          action: "queue.ack",
+          target: {
+            queue,
+            id,
+          },
+          metadata: auditMetadata(actor, source),
+          result: {
+            ok: true,
+            status: result.job.status,
+          },
+        });
+      }
+
+      return jsonResult(result);
+    },
   );
 
   server.registerTool(
@@ -200,6 +325,7 @@ export function registerMemorydTools(server: McpServer, db: MemoryD): void {
         id: z.string().min(1),
         delayMs: z.number().int().min(0).optional(),
         error: z.string().optional(),
+        ...auditInputSchema,
       },
       annotations: {
         readOnlyHint: false,
@@ -208,8 +334,25 @@ export function registerMemorydTools(server: McpServer, db: MemoryD): void {
         openWorldHint: false,
       },
     },
-    async ({ queue, id, delayMs, error }) =>
-      jsonResult(await db.queue(queue).nack(id, { delayMs, error })),
+    async ({ queue, id, delayMs, error, actor, source }) => {
+      const result = await db.queue(queue).nack(id, { delayMs, error });
+      if (result.ok) {
+        await appendMcpAuditEvent(db, audit, {
+          action: "queue.nack",
+          target: {
+            queue,
+            id,
+          },
+          metadata: auditMetadata(actor, source),
+          result: {
+            ok: true,
+            status: result.job.status,
+          },
+        });
+      }
+
+      return jsonResult(result);
+    },
   );
 
   server.registerTool(
@@ -247,4 +390,14 @@ export function registerMemorydTools(server: McpServer, db: MemoryD): void {
     },
     async ({ queue }) => jsonResult(await db.queue(queue).dead()),
   );
+}
+
+function auditMetadata(
+  actor: string | undefined,
+  source: string | undefined,
+): MemorydMcpAuditMetadata {
+  return {
+    actor,
+    source,
+  };
 }

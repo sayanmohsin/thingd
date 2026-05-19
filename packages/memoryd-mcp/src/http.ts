@@ -1,6 +1,15 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { MemoryD, type MemoryDDriver } from "@sayanmohsin/memoryd";
+import type { MemorydMcpAuditOptions } from "./audit.js";
+import {
+  clusterStatus,
+  forwardMcpRequestToLeader,
+  type MemorydClusterOptions,
+  type ResolvedMemorydClusterOptions,
+  resolveClusterOptions,
+} from "./cluster.js";
+import { ensureHttpRuntimeIsSafe } from "./config.js";
 import { createMemorydMcpServer } from "./server.js";
 
 export type MemorydHttpServerOptions = {
@@ -9,6 +18,9 @@ export type MemorydHttpServerOptions = {
   host?: string;
   port?: number;
   authToken?: string;
+  allowUnauthenticated?: boolean;
+  audit?: MemorydMcpAuditOptions | false;
+  cluster?: MemorydClusterOptions;
   mcpPath?: string;
   healthPath?: string;
 };
@@ -26,32 +38,45 @@ type RuntimeState = {
   mcpPath: string;
   healthPath: string;
   driver: MemoryDDriver | "memory";
+  audit?: MemorydMcpAuditOptions | false;
+  cluster: ResolvedMemorydClusterOptions;
 };
 
 export async function startMemorydHttpServer(
   options: MemorydHttpServerOptions,
 ): Promise<RunningMemorydHttpServer> {
+  const host = options.host ?? "127.0.0.1";
+  const port = options.port ?? 8757;
+  ensureHttpRuntimeIsSafe({
+    host,
+    authToken: options.authToken,
+    allowUnauthenticated: options.allowUnauthenticated,
+  });
+
   const db = await MemoryD.open({
     path: options.path,
     driver: options.driver,
   });
+  const cluster = resolveClusterOptions(options.cluster);
   const state: RuntimeState = {
     db,
     authToken: options.authToken,
     mcpPath: options.mcpPath ?? "/mcp",
     healthPath: options.healthPath ?? "/healthz",
     driver: options.driver ?? "memory",
+    audit: options.audit,
+    cluster,
   };
   const server = createServer((request, response) => {
     void handleRequest(state, request, response);
   });
 
-  await listen(server, options.port ?? 8757, options.host ?? "127.0.0.1");
+  await listen(server, port, host);
 
   const address = server.address();
-  const port = typeof address === "object" && address ? address.port : options.port;
-  const host = options.host === "0.0.0.0" || !options.host ? "127.0.0.1" : options.host;
-  const url = `http://${host}:${port}`;
+  const resolvedPort = typeof address === "object" && address ? address.port : port;
+  const displayHost = host === "0.0.0.0" ? "127.0.0.1" : host;
+  const url = `http://${displayHost}:${resolvedPort}`;
 
   return {
     server,
@@ -82,6 +107,16 @@ async function handleRequest(
       return;
     }
 
+    if (path === state.cluster.statusPath) {
+      handleClusterStatus(state, request, response);
+      return;
+    }
+
+    if (path === state.cluster.peersPath) {
+      handleClusterPeers(state, request, response);
+      return;
+    }
+
     if (path !== state.mcpPath) {
       writeJson(response, 404, {
         error: "not_found",
@@ -107,6 +142,11 @@ async function handleRequest(
         },
         id: null,
       });
+      return;
+    }
+
+    if (state.cluster.mode === "follower") {
+      await forwardMcpRequestToLeader(state.cluster, state.mcpPath, request, response);
       return;
     }
 
@@ -149,6 +189,47 @@ function handleHealth(
       service: "memoryd-mcp",
       driver: state.driver,
       mcpPath: state.mcpPath,
+      cluster: clusterStatus(state.cluster),
+    },
+    request.method === "HEAD",
+  );
+}
+
+function handleClusterStatus(
+  state: RuntimeState,
+  request: IncomingMessage,
+  response: ServerResponse,
+): void {
+  if (request.method !== "GET" && request.method !== "HEAD") {
+    response.setHeader("Allow", "GET, HEAD, OPTIONS");
+    writeJson(response, 405, {
+      error: "method_not_allowed",
+    });
+    return;
+  }
+
+  writeJson(response, 200, clusterStatus(state.cluster), request.method === "HEAD");
+}
+
+function handleClusterPeers(
+  state: RuntimeState,
+  request: IncomingMessage,
+  response: ServerResponse,
+): void {
+  if (request.method !== "GET" && request.method !== "HEAD") {
+    response.setHeader("Allow", "GET, HEAD, OPTIONS");
+    writeJson(response, 405, {
+      error: "method_not_allowed",
+    });
+    return;
+  }
+
+  writeJson(
+    response,
+    200,
+    {
+      peers: state.cluster.peers,
+      discovery: state.cluster.discovery,
     },
     request.method === "HEAD",
   );
@@ -159,7 +240,9 @@ async function handleMcpRequest(
   request: IncomingMessage,
   response: ServerResponse,
 ): Promise<void> {
-  const server = createMemorydMcpServer(state.db);
+  const server = createMemorydMcpServer(state.db, {
+    audit: state.audit,
+  });
   const transport = new StreamableHTTPServerTransport({
     sessionIdGenerator: undefined,
   });

@@ -28,7 +28,7 @@ Server/sidecar
   localhost app bridge
   Kubernetes peer discovery
   leader write forwarding
-  event replication
+  future event replication
 ```
 
 The public Node SDK should remain the app-facing contract. Native bindings should sit underneath that SDK rather than creating a separate API surface.
@@ -63,7 +63,11 @@ MemoryStore
 
 Future durable adapters should implement those traits.
 
-The first durable adapter is `SqliteMemoryStore`, enabled by the Rust crate's `sqlite` feature. It currently persists objects, events, and trait-level queue jobs with `rusqlite`. Queue claim, ack, nack, retry delay, delayed availability, lease expiration, and dead-letter updates are transactional.
+The first durable adapter is `SqliteMemoryStore`, enabled by the Rust crate's
+`sqlite` feature. It currently persists objects, events, and trait-level queue
+jobs with `rusqlite`. Queue claim, ack, nack, retry delay, delayed
+availability, lease expiration, and dead-letter updates are transactional.
+Schema version tracking lives in `memoryd_schema_migrations`.
 
 ## Queue Model
 
@@ -89,8 +93,9 @@ The practical path is:
 
 Sidecar cluster mode is planned as a runtime layer above SQLite, not a
 multi-primary SQLite design. Each app talks to a local `memoryd` sidecar. The
-sidecar discovers peers, elects or follows a leader, forwards writes to the
-leader, and replicates the leader event log into local follower stores.
+current bridge scaffold exposes peer metadata and can run as `single`,
+`leader`, or `follower`. Followers forward MCP traffic to the configured leader.
+Follower replica catch-up is still planned.
 
 For the detailed API, environment, Kubernetes, and phase plan, read
 [sidecar-cluster.md](./sidecar-cluster.md).
@@ -108,11 +113,13 @@ For target APIs, storage shapes, MCP surfaces, and phase planning, read
 ## MCP Server Direction
 
 `packages/memoryd-mcp` wraps the public SDK as MCP tools. It provides stdio for
-local MCP clients and Streamable HTTP for remote-capable runtimes. The Docker
-runtime starts the HTTP MCP endpoint and persists data under `/data`.
+local MCP clients and Streamable HTTP for remote-capable runtimes. Write tools
+append audit events by default. The Docker runtime starts the HTTP MCP endpoint,
+exposes bridge status endpoints, and persists data under `/data`.
 
 For current tools and local usage, read [mcp-server.md](./mcp-server.md) and
-[docker-runtime.md](./docker-runtime.md).
+[docker-runtime.md](./docker-runtime.md). Runtime env vars are centralized in
+[runtime-env.md](./runtime-env.md).
 
 ## Native Binding Direction
 
@@ -130,4 +137,4 @@ crates/memoryd-core
   durable engine traits and adapters
 ```
 
-The native binding package now has an initial private `napi-rs` bridge. The public SDK can opt into it with `driver: "native"` after the native package is built locally. The default SDK path remains the in-memory store until native prebuilds, migrations, and release packaging are ready.
+The native binding package now has an initial private `napi-rs` bridge. The public SDK can opt into it with `driver: "native"` after the native package is built locally. The default SDK path remains the in-memory store until native prebuilds and release packaging are ready.

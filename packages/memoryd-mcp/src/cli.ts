@@ -2,7 +2,7 @@
 
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { MemoryD, type MemoryDDriver } from "@sayanmohsin/memoryd";
-import { parseMemorydDriver, readCliValue } from "./config.js";
+import { parseMemorydDriver, readCliValue, readMcpAuditOptionsFromEnv } from "./config.js";
 import { createMemorydMcpServer } from "./server.js";
 
 type CliOptions = {
@@ -15,7 +15,9 @@ const db = await MemoryD.open({
   path: options.path,
   driver: options.driver,
 });
-const server = createMemorydMcpServer(db);
+const server = createMemorydMcpServer(db, {
+  audit: readMcpAuditOptionsFromEnv(process.env),
+});
 const transport = new StdioServerTransport();
 
 await server.connect(transport);

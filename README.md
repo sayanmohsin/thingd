@@ -33,9 +33,12 @@ The repository currently contains:
 - npm package smoke testing without publishing
 - stdio and Streamable HTTP MCP server package with object, event, search, and queue tools
 - Docker runtime scaffold for the HTTP MCP server
+- bridge-mode env vars with leader/follower MCP forwarding
+- SQLite schema version tracking and migration guardrails
+- MCP audit events for write tools
 - architecture, release, persistence, and agent integration docs
 
-It is not production-ready yet. The default public Node.js SDK path still uses the TypeScript in-memory store for API exploration and local integration tests. The Rust core has SQLite-backed object, event, and queue persistence behind the `sqlite` feature, and the repo now has an opt-in private native driver for local testing. Native prebuilds, migrations, and production hardening are still next.
+It is not production-ready yet. The default public Node.js SDK path still uses the TypeScript in-memory store for API exploration and local integration tests. The Rust core has SQLite-backed object, event, and queue persistence behind the `sqlite` feature, and the repo now has an opt-in private native driver for local testing. Native prebuilds, production packaging, and deployment hardening are still next.
 
 ## Why memoryd?
 
@@ -357,14 +360,46 @@ docker build -t memoryd:local .
 
 See [docs/mcp-server.md](./docs/mcp-server.md) and [docs/docker-runtime.md](./docs/docker-runtime.md) for the current MCP boundary and runtime details.
 
-The MCP layer should enforce:
+Smoke-test the Docker runtime:
+
+```bash
+npm run smoke:docker
+```
+
+The MCP layer now appends audit events for write tools to
+`__memoryd:mcp:audit`. Tool callers can pass optional `actor` and `source`
+fields, and runtime defaults can be set with:
+
+```txt
+MEMORYD_MCP_AUDIT=true
+MEMORYD_MCP_ACTOR=mcp-client
+MEMORYD_MCP_SOURCE=memoryd-mcp
+MEMORYD_MCP_AUDIT_STREAM=__memoryd:mcp:audit
+```
+
+The HTTP runtime refuses to bind to non-loopback hosts without
+`MEMORYD_AUTH_TOKEN`, unless `MEMORYD_ALLOW_UNAUTHENTICATED=true` is set for a
+local experiment.
+
+Bridge mode is env-driven:
+
+```txt
+MEMORYD_CLUSTER_MODE=single|leader|follower
+MEMORYD_CLUSTER_LEADER_URL=http://memoryd-leader:8757
+MEMORYD_CLUSTER_FORWARD_AUTH_TOKEN=change-me
+MEMORYD_CLUSTER_PEERS=http://memoryd-0:8757,http://memoryd-1:8757
+```
+
+Followers forward MCP traffic to the configured leader. Local follower replica
+catch-up is still future work.
+
+The MCP layer should continue to enforce:
 
 - allowed collections
 - read/write permissions
 - tool-level validation
 - safe mutation boundaries
 - source and actor attribution
-- audit events for agent writes
 
 ## Sidecar and cluster mode
 
@@ -389,8 +424,9 @@ Pod C memoryd sidecar = follower, forwards writes
 Apps keep using `MemoryD`; deployment decides whether `MemoryD.open()` uses an
 embedded store or connects to `MEMORYD_URL`.
 
-See [docs/sidecar-cluster.md](./docs/sidecar-cluster.md) for the planned Node
-API, environment variables, Kubernetes shape, and bridge helpers.
+See [docs/sidecar-cluster.md](./docs/sidecar-cluster.md),
+[docs/runtime-env.md](./docs/runtime-env.md), and the [deploy](./deploy)
+examples for the current bridge env, Kubernetes shape, and reverse proxy shape.
 
 ## Multi-pod direction
 
@@ -618,16 +654,18 @@ npm run test:rust
 - [ ] object-to-text indexing
 - [x] stdio MCP server skeleton
 - [x] remote HTTP MCP server skeleton
-- [ ] audit events for MCP writes
+- [x] audit events for MCP writes
 
 ### v0.3 - production shape
 
-- [ ] migrations
+- [x] SQLite schema migration guardrails
 - [ ] worker heartbeats
 - [x] idempotency keys in the Node SDK proof store
 - [x] delayed jobs in the Node SDK proof store
 - [x] persistent SDK store backed by native Rust for local repo testing
 - [x] Docker runtime scaffold
+- [x] bridge-mode env vars and follower MCP forwarding
+- [x] Docker/Kubernetes/proxy deployment examples
 - [ ] inspector UI
 
 ### later
@@ -643,9 +681,10 @@ npm run test:rust
 - [ ] local read replicas
 - [ ] server binary
 - [ ] Docker sidecar image
-- [ ] Kubernetes sidecar mode
-- [ ] cluster bridge with leader write forwarding
+- [x] Kubernetes sidecar mode example
+- [x] cluster bridge with leader write forwarding
 - [ ] tenant partitioning
+- [ ] follower replica catch-up
 - [ ] sync and compaction
 
 ## Design principles

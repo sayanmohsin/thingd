@@ -9,7 +9,7 @@ knowing SQL or internal storage details.
 
 ## Current Status
 
-Phase 9 implements the local stdio skeleton plus a remote-capable Streamable
+The package implements the local stdio server plus a remote-capable Streamable
 HTTP runtime.
 
 Implemented:
@@ -24,12 +24,16 @@ Implemented:
 - queue push/claim/ack/nack/list/dead tools
 - in-process MCP client tests
 - Streamable HTTP MCP client tests
+- audit events for MCP write tools
+- non-loopback HTTP auth guardrails
+- bridge-mode cluster status endpoints
+- follower MCP forwarding to a configured leader
 
 Not implemented yet:
 
-- audit events for MCP writes
 - hosted/cloud gateway
 - TLS termination
+- follower local replica catch-up
 
 ## Tool Surface
 
@@ -112,13 +116,71 @@ MEMORYD_DRIVER=native
 MEMORYD_HOST=0.0.0.0
 MEMORYD_PORT=8757
 MEMORYD_AUTH_TOKEN=change-me
+MEMORYD_ALLOW_UNAUTHENTICATED=false
+MEMORYD_MCP_AUDIT=true
+MEMORYD_MCP_ACTOR=mcp-client
+MEMORYD_MCP_SOURCE=memoryd-mcp
+MEMORYD_MCP_AUDIT_STREAM=__memoryd:mcp:audit
+MEMORYD_CLUSTER_MODE=single
+MEMORYD_CLUSTER_LEADER_URL=
+MEMORYD_CLUSTER_FORWARD_AUTH_TOKEN=
+MEMORYD_CLUSTER_PEERS=
 ```
 
 Health check:
 
 ```bash
 curl http://127.0.0.1:8757/healthz
+curl http://127.0.0.1:8757/cluster/status
+curl http://127.0.0.1:8757/cluster/peers
 ```
+
+When the HTTP runtime binds to a non-loopback host such as `0.0.0.0`, it
+requires `MEMORYD_AUTH_TOKEN`. Set `MEMORYD_ALLOW_UNAUTHENTICATED=true` only for
+local experiments.
+
+## Audit Events
+
+MCP write tools append audit events to `__memoryd:mcp:audit` by default.
+
+Audited tools:
+
+```txt
+memory.objects.put
+memory.objects.delete
+memory.events.append
+memory.queue.push
+memory.queue.claim
+memory.queue.ack
+memory.queue.nack
+```
+
+Each write tool accepts optional `actor` and `source` inputs. If omitted, the
+runtime uses `MEMORYD_MCP_ACTOR` and `MEMORYD_MCP_SOURCE`, falling back to
+`mcp-client` and `memoryd-mcp`.
+
+Disable audit events with:
+
+```txt
+MEMORYD_MCP_AUDIT=false
+```
+
+## Bridge Mode
+
+The HTTP MCP runtime can run as `single`, `leader`, or `follower`:
+
+```txt
+MEMORYD_CLUSTER_MODE=single|leader|follower
+MEMORYD_CLUSTER_LEADER_URL=http://memoryd-leader:8757
+MEMORYD_CLUSTER_FORWARD_AUTH_TOKEN=change-me
+MEMORYD_CLUSTER_DISCOVERY=none|static|kubernetes
+MEMORYD_CLUSTER_PEERS=http://memoryd-0:8757,http://memoryd-1:8757
+MEMORYD_ADVERTISE_URL=http://memoryd-0:8757
+```
+
+Followers forward MCP traffic to the leader. This gives Kubernetes pods one
+local endpoint while avoiding multi-writer SQLite. Local follower replica
+catch-up is still future work.
 
 ## Docker Usage
 
@@ -139,5 +201,5 @@ ChatGPT / agent
   -> memoryd database
 ```
 
-The next phase should harden this runtime with migrations, audit events, TLS
-deployment guidance, and production packaging.
+See [docker-runtime.md](./docker-runtime.md), [runtime-env.md](./runtime-env.md),
+and the [deploy examples](../deploy).

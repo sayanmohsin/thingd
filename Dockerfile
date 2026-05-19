@@ -30,6 +30,10 @@ ENV MEMORYD_PATH=/data/memoryd.db
 ENV MEMORYD_DRIVER=native
 ENV MEMORYD_HOST=0.0.0.0
 ENV MEMORYD_PORT=8757
+ENV MEMORYD_CLUSTER_MODE=single
+ENV MEMORYD_CLUSTER_DISCOVERY=none
+ENV MEMORYD_CLUSTER_PORT=8757
+ENV MEMORYD_MCP_AUDIT=true
 
 COPY --from=build /app/package.json /app/package-lock.json ./
 COPY --from=build /app/node_modules ./node_modules

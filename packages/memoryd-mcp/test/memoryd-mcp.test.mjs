@@ -43,6 +43,35 @@ test("stores and searches objects through MCP tools", async () => {
   await server.close();
 });
 
+test("writes audit events for MCP mutations", async () => {
+  const { client, server } = await connectTestClient();
+
+  await callJsonTool(client, "memory.objects.put", {
+    collection: "decisions",
+    object: {
+      id: "audit-events",
+      text: "MCP writes append audit events.",
+    },
+    actor: "test-agent",
+    source: "unit-test",
+  });
+  const events = await callJsonTool(client, "memory.events.list", {
+    stream: "__memoryd:mcp:audit",
+  });
+
+  assert.equal(events.length, 1);
+  assert.equal(events[0].type, "mcp.objects.put");
+  assert.equal(events[0].actor, "test-agent");
+  assert.equal(events[0].source, "unit-test");
+  assert.deepEqual(events[0].target, {
+    collection: "decisions",
+    id: "audit-events",
+  });
+
+  await client.close();
+  await server.close();
+});
+
 test("pushes, claims, and acks queue jobs through MCP tools", async () => {
   const { client, server } = await connectTestClient();
 

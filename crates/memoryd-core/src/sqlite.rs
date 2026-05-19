@@ -12,6 +12,9 @@ use crate::{
     QueueNackOptions, QueueStore,
 };
 
+/// Current `SQLite` schema version.
+pub const SQLITE_SCHEMA_VERSION: u32 = 1;
+
 /// `SQLite`-backed memory store.
 pub struct SqliteMemoryStore {
     connection: Connection,
@@ -48,6 +51,53 @@ impl SqliteMemoryStore {
                 r"
                 PRAGMA journal_mode = WAL;
                 PRAGMA foreign_keys = ON;
+
+                CREATE TABLE IF NOT EXISTS memoryd_schema_migrations (
+                    version INTEGER PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    applied_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+                );
+                ",
+            )
+            .map_err(MemorydError::from)?;
+
+        let current_version = self.schema_version()?;
+        if current_version > SQLITE_SCHEMA_VERSION {
+            return Err(MemorydError::Storage(format!(
+                "database schema version {current_version} is newer than supported version {SQLITE_SCHEMA_VERSION}"
+            )));
+        }
+
+        if current_version < 1 {
+            self.apply_schema_v1()?;
+        }
+
+        Ok(())
+    }
+
+    /// Return the latest applied `SQLite` schema version.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the migration metadata cannot be read.
+    pub fn schema_version(&self) -> MemorydResult<u32> {
+        let version = self
+            .connection
+            .query_row(
+                "SELECT COALESCE(MAX(version), 0) FROM memoryd_schema_migrations",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .map_err(MemorydError::from)?;
+
+        u32::try_from(version).map_err(|error| MemorydError::Storage(error.to_string()))
+    }
+
+    fn apply_schema_v1(&self) -> MemorydResult<()> {
+        self.connection
+            .execute_batch(
+                r"
+                BEGIN;
 
                 CREATE TABLE IF NOT EXISTS objects (
                     collection TEXT NOT NULL,
@@ -89,6 +139,11 @@ impl SqliteMemoryStore {
 
                 CREATE INDEX IF NOT EXISTS idx_queue_jobs_queue_status_created
                     ON queue_jobs (queue, status, created_at);
+
+                INSERT OR IGNORE INTO memoryd_schema_migrations (version, name, applied_at)
+                VALUES (1, 'initial_objects_events_queues', strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));
+
+                COMMIT;
                 ",
             )
             .map_err(MemorydError::from)?;
@@ -674,9 +729,43 @@ fn u32_to_i64(value: u32) -> i64 {
 
 #[cfg(test)]
 mod tests {
+    use rusqlite::Connection;
     use tempfile::NamedTempFile;
 
     use super::*;
+
+    #[test]
+    fn records_schema_version_on_initialize() {
+        let store = SqliteMemoryStore::open_in_memory().unwrap();
+
+        assert_eq!(store.schema_version().unwrap(), SQLITE_SCHEMA_VERSION);
+    }
+
+    #[test]
+    fn rejects_newer_schema_versions() {
+        let file = NamedTempFile::new().unwrap();
+        let connection = Connection::open(file.path()).unwrap();
+        connection
+            .execute_batch(
+                r"
+                CREATE TABLE memoryd_schema_migrations (
+                    version INTEGER PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    applied_at TEXT NOT NULL
+                );
+
+                INSERT INTO memoryd_schema_migrations (version, name, applied_at)
+                VALUES (999, 'future', strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));
+                ",
+            )
+            .unwrap();
+
+        let Err(error) = SqliteMemoryStore::open(file.path()) else {
+            panic!("expected newer schema version to be rejected");
+        };
+
+        assert!(error.to_string().contains("newer than supported version"));
+    }
 
     #[test]
     fn stores_objects_across_reopen() {

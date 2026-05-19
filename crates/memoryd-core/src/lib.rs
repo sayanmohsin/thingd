@@ -24,7 +24,7 @@ pub use model::{
     QueueNackOptions, DEFAULT_QUEUE_LEASE_MS,
 };
 #[cfg(feature = "sqlite")]
-pub use sqlite::SqliteMemoryStore;
+pub use sqlite::{SqliteMemoryStore, SQLITE_SCHEMA_VERSION};
 pub use store::{EventLog, MemoryStore, ObjectStore, QueueStore};
 
 pub(crate) fn unix_timestamp_millis() -> i64 {

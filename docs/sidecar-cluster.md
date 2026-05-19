@@ -1,7 +1,22 @@
-# Sidecar And Cluster Plan
+# Sidecar And Cluster Runtime
 
-This document plans the future `memoryd` sidecar/server mode. It is not
-implemented yet.
+This document describes the current sidecar/bridge shape and the remaining
+cluster work.
+
+Current implementation:
+
+- Docker runtime starts the Streamable HTTP MCP server.
+- `/healthz`, `/cluster/status`, and `/cluster/peers` are available.
+- `MEMORYD_CLUSTER_MODE=single|leader|follower` is parsed by the runtime.
+- followers forward MCP traffic to `MEMORYD_CLUSTER_LEADER_URL`.
+- static peer lists and Kubernetes service hints are exposed in status.
+
+Not implemented yet:
+
+- automatic leader election
+- follower local replica catch-up
+- event-log streaming replication
+- consensus/failover
 
 The goal is to keep app integration simple while letting `memoryd` handle the
 bridge between pods when an app runs in Kubernetes or another clustered
@@ -72,7 +87,8 @@ tools, and future bridge behavior.
 
 ### Cluster Mode
 
-Every pod has a sidecar. Sidecars discover each other and pick one leader.
+Every pod can have a sidecar. In the current bridge scaffold, deployment tells
+each sidecar whether it is `leader` or `follower`.
 
 ```txt
 Pod A sidecar = leader
@@ -80,22 +96,20 @@ Pod B sidecar = follower
 Pod C sidecar = follower
 ```
 
-Writes from any pod go to the local sidecar first. If that sidecar is not the
-leader, it forwards the write to the leader.
+MCP traffic from any pod goes to the local sidecar first. If that sidecar is a
+follower, it forwards the request to the configured leader.
 
 ```txt
 Pod B app
   -> Pod B memoryd sidecar
-  -> forwards write to Pod A leader
+  -> forwards MCP request to Pod A leader
   -> leader writes SQLite
   -> leader appends event
-  -> followers replicate event
-  -> followers update local SQLite replicas
 ```
 
 This is the major difference from plain SQLite: SQLite stores local state, while
-`memoryd` owns discovery, write routing, event replication, queue leasing, and
-agent-safe APIs.
+`memoryd` starts to own discovery metadata, write routing, queue leasing, and
+agent-safe APIs. Replicated local reads are intentionally not claimed yet.
 
 ## Node API Shape
 
@@ -146,6 +160,9 @@ type MemoryDOpenOptions = {
 
 `store` remains useful for tests and custom adapters.
 
+The remote `MemoryD.open("http://...")` client adapter is still future work.
+The implemented remote protocol today is MCP over Streamable HTTP.
+
 ## Server API Shape
 
 The first server protocol can be HTTP+JSON because it is easy to debug and easy
@@ -169,13 +186,18 @@ GET    /v1/queues/:queue/dead
 POST   /v1/search
 ```
 
-Planned cluster routes:
+Current cluster routes:
 
 ```txt
-GET    /v1/health
-GET    /v1/cluster/status
-GET    /v1/cluster/peers
-POST   /v1/cluster/forward
+GET    /healthz
+GET    /cluster/status
+GET    /cluster/peers
+POST   /mcp
+```
+
+Planned app and replication routes:
+
+```txt
 GET    /v1/replication/events?after=:sequence
 POST   /v1/replication/apply
 ```
@@ -203,23 +225,22 @@ MEMORYD_DB=./memoryd.db
 Server or sidecar mode:
 
 ```bash
-MEMORYD_MODE=server
-MEMORYD_BIND=0.0.0.0:8757
-MEMORYD_DB=/data/memoryd.db
+MEMORYD_HOST=0.0.0.0
+MEMORYD_PORT=8757
+MEMORYD_PATH=/data/memoryd.db
+MEMORYD_CLUSTER_MODE=single
 ```
 
-Cluster mode:
+Current cluster/bridge mode:
 
 ```bash
-MEMORYD_MODE=cluster
-MEMORYD_BIND=0.0.0.0:8757
+MEMORYD_HOST=0.0.0.0
+MEMORYD_PORT=8757
 MEMORYD_ADVERTISE_URL=http://$(POD_IP):8757
 MEMORYD_CLUSTER_DISCOVERY=kubernetes
 MEMORYD_CLUSTER_SERVICE=memoryd
 MEMORYD_CLUSTER_NAMESPACE=default
-MEMORYD_CLUSTER_ROLE=auto
-MEMORYD_READ_CONSISTENCY=local
-MEMORYD_WRITE_POLICY=leader
+MEMORYD_CLUSTER_MODE=leader
 ```
 
 Static peer fallback:
@@ -229,9 +250,24 @@ MEMORYD_CLUSTER_DISCOVERY=static
 MEMORYD_CLUSTER_PEERS=http://memoryd-0:8757,http://memoryd-1:8757
 ```
 
+Follower forwarding:
+
+```bash
+MEMORYD_CLUSTER_MODE=follower
+MEMORYD_CLUSTER_LEADER_URL=http://memoryd-leader:8757
+MEMORYD_CLUSTER_FORWARD_AUTH_TOKEN=change-me
+```
+
 ## Kubernetes Shape
 
-App pod with sidecar:
+App pod with sidecar examples live in:
+
+```txt
+deploy/kubernetes/sidecar.yaml
+deploy/kubernetes/leader-follower.yaml
+```
+
+Minimal app pod with sidecar:
 
 ```yaml
 containers:
@@ -243,19 +279,13 @@ containers:
 
   - name: memoryd
     image: ghcr.io/sayanmohsin/memoryd
-    args:
-      - server
     env:
-      - name: MEMORYD_MODE
-        value: cluster
-      - name: MEMORYD_DB
+      - name: MEMORYD_PATH
         value: /data/memoryd.db
-      - name: MEMORYD_BIND
-        value: 0.0.0.0:8757
-      - name: MEMORYD_CLUSTER_DISCOVERY
-        value: kubernetes
-      - name: MEMORYD_CLUSTER_SERVICE
-        value: memoryd
+      - name: MEMORYD_HOST
+        value: 0.0.0.0
+      - name: MEMORYD_CLUSTER_MODE
+        value: single
     ports:
       - containerPort: 8757
     volumeMounts:
@@ -263,7 +293,7 @@ containers:
         mountPath: /data
 ```
 
-Headless service for peer discovery:
+Service for peer discovery metadata:
 
 ```yaml
 apiVersion: v1
@@ -281,18 +311,21 @@ spec:
 
 ## Bridge Helpers
 
-The sidecar should hide cluster details behind helpers:
+The sidecar should hide cluster details behind helpers. Current helpers:
 
 - peer discovery
-- leader election
 - write forwarding
+- health/readiness status
+- MCP write attribution
+
+Future helpers:
+
+- leader election
 - idempotent forwarded writes
 - event-log streaming
 - follower catch-up
 - local versus strong reads
-- health/readiness status
-- queue claim forwarding
-- MCP write attribution
+- queue claim forwarding with failover semantics
 
 The app should not call these helpers directly. They are server-side internals
 used by the sidecar and cluster runtime.
@@ -306,12 +339,17 @@ Writes:
 - queue `claim`, `ack`, and `nack` are writes
 - forwarded writes must be idempotent
 
-Reads:
+Reads today:
+
+- follower MCP traffic is forwarded to the leader
+- local follower reads are not exposed as a consistency mode yet
+
+Future reads:
 
 - `strong`: route to leader
-- `local`: read local follower replica
+- `local`: read local follower replica after catch-up exists
 
-Events:
+Future events:
 
 - leader assigns monotonic event sequence
 - followers replicate events from the leader
@@ -336,22 +374,25 @@ Events:
 
 ### Sidecar Phase B - Docker And Sidecar Mode
 
-- build `memoryd` Rust binary Docker image
+- build `memoryd` Docker image
 - add Kubernetes sidecar example
 - app connects through `MEMORYD_URL=http://127.0.0.1:8757`
 - document readiness/liveness checks
 
 ### Sidecar Phase C - Cluster Bridge
 
-- add peer discovery
+- add peer metadata
 - add static peer mode first
-- add Kubernetes headless-service discovery
+- add Kubernetes service discovery metadata
+- add follower MCP forwarding to configured leader
+
+### Sidecar Phase D - Replication
+
 - add leader election
-- add write forwarding
 - add event replication from leader to followers
 - add local/strong read consistency option
 
-### Sidecar Phase D - Cluster Hardening
+### Sidecar Phase E - Cluster Hardening
 
 - follower catch-up tests
 - leader failover tests
