@@ -58,6 +58,8 @@ The package is configured with npm provenance enabled through `publishConfig.pro
 
 Release packaging intentionally avoids `workspace:*` dependency specs in `package.json` files. The repo uses pnpm for development, but `@semantic-release/npm` calls the npm CLI internally during publish, and npm rejects pnpm-only workspace protocol dependencies.
 
+The release workflow pins Node.js 22 so semantic-release runs with npm 10. npm 10 supports provenance and avoids npm 11 workspace crashes observed during `npm version` inside pnpm monorepos.
+
 ## First npm Publish From CI
 
 Use this path when the package does not exist on npm yet.
