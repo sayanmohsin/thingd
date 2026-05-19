@@ -47,6 +47,8 @@ MemoryStore
 
 Future durable adapters should implement those traits.
 
+The first durable adapter is `SqliteMemoryStore`, enabled by the Rust crate's `sqlite` feature. It currently persists objects and events with `rusqlite`; queue persistence remains in the next phase because leasing and dead-letter behavior need transactional implementation.
+
 ## Queue Model
 
 Queues should use at-least-once delivery:
@@ -86,3 +88,4 @@ crates/memoryd-core
 ```
 
 The native binding package is a scaffold only right now.
+The Rust core has SQLite object/event persistence, but the public Node SDK does not call it yet.

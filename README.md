@@ -23,6 +23,7 @@ The repository currently contains:
 
 - a Rust workspace
 - Rust storage boundary traits and an in-memory Rust engine
+- a feature-gated SQLite adapter for durable Rust object and event storage
 - a working TypeScript Node.js SDK with an in-memory store
 - object, event, search, and queue APIs
 - queue semantics for leases, `ack`, `nack`, delayed jobs, and dead-letter jobs
@@ -31,7 +32,7 @@ The repository currently contains:
 - MCP package scaffolding
 - architecture, release, persistence, and agent integration docs
 
-It is not production-ready yet. The current SDK is useful for API exploration and local integration tests, but it does not persist data across process restarts. The next major implementation milestone is a Rust-backed persistent store.
+It is not production-ready yet. The current public Node.js SDK is useful for API exploration and local integration tests, but it does not persist data across process restarts. The Rust core now has SQLite-backed object and event persistence behind the `sqlite` feature; durable queue persistence and the Node native adapter are still next.
 
 ## Why memoryd?
 
@@ -339,6 +340,8 @@ Rust core
   |-- queue engine
   |-- search indexes
   |-- storage adapters
+      |-- in-memory engine
+      |-- SQLite objects/events adapter
   |
   +-- MCP server
 ```
@@ -435,6 +438,13 @@ npm run rust:clippy
 npm test
 ```
 
+Rust checks run all crate features, including the SQLite adapter:
+
+```bash
+npm run rust:check
+npm run test:rust
+```
+
 ## Releases
 
 `memoryd` uses semantic-release on `main` for automatic npm versioning and publishing.
@@ -479,6 +489,7 @@ npm run test:local
 If Rust is installed, also run:
 
 ```bash
+npm run rust:check
 npm run rust:fmt:check
 npm run rust:clippy
 npm run test:rust
@@ -494,7 +505,9 @@ npm run test:rust
 - [x] delayed jobs and dead-letter queue in the Node SDK proof store
 - [x] basic Node.js SDK
 - [x] Rust storage boundary traits
-- [ ] durable Rust-backed storage
+- [x] SQLite object/event adapter in the Rust core
+- [ ] durable Rust-backed queue storage
+- [ ] native Node adapter to the Rust store
 
 ### v0.2 - agent memory
 
@@ -506,11 +519,11 @@ npm run test:rust
 
 ### v0.3 - production shape
 
-- [ ] persistent storage adapter
 - [ ] migrations
 - [ ] worker heartbeats
 - [x] idempotency keys in the Node SDK proof store
 - [x] delayed jobs in the Node SDK proof store
+- [ ] persistent SDK store backed by native Rust
 - [ ] inspector UI
 
 ### later

@@ -26,6 +26,7 @@ Standards:
 Use `rustfmt` and Clippy for Rust code.
 
 ```bash
+npm run rust:check
 npm run rust:fmt:check
 npm run rust:clippy
 npm test
@@ -38,6 +39,7 @@ Standards:
 - no unsafe code
 - public API docs for exported engine types
 - workspace-level Rust and Clippy lints
+- Rust check/test scripts run with all features enabled so storage adapters are covered
 - no panic-heavy or allocation-heavy API design without a clear reason
 - prefer explicit result types once storage, IO, or network behavior is introduced
 

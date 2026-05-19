@@ -6,6 +6,16 @@ license.workspace = true
 repository.workspace = true
 description = "Core primitives for memoryd, an object-shaped local memory engine for apps and agents."
 
+[features]
+default = []
+sqlite = ["dep:rusqlite"]
+
+[dependencies]
+rusqlite = { version = "0.37.0", features = ["bundled"], optional = true }
+
+[dev-dependencies]
+tempfile = "3.23.0"
+
 [lib]
 path = "src/lib.rs"
 

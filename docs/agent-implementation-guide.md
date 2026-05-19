@@ -6,18 +6,18 @@ Read this file before making integration changes. It explains the current projec
 
 ## Current State
 
-`memoryd` is an early open source project. The public Node.js API is real enough to test locally, but the durable Rust-backed engine is not implemented yet.
+`memoryd` is an early open source project. The public Node.js API is real enough to test locally, but it still uses the TypeScript in-memory proof store. The Rust core has started durable storage with a feature-gated SQLite adapter for objects and events.
 
 Current implementation:
 
 - `packages/memoryd` exposes the Node.js SDK.
 - `packages/memoryd/src/stores/in-memory-memory-store.ts` is the current proof store.
-- `crates/memoryd-core` contains the Rust storage boundary and in-memory Rust engine.
+- `crates/memoryd-core` contains the Rust storage boundary, in-memory Rust engine, and `SqliteMemoryStore` behind the `sqlite` feature.
 - `packages/memoryd-native` is a private scaffold for future N-API bindings.
 - `examples/nestjs-basic` demonstrates app integration shape.
 - `packages/memoryd-mcp` is a placeholder for future MCP tools.
 
-Do not present the package as production-ready persistent storage yet.
+Do not present the public Node package as production-ready persistent storage yet.
 
 ## Mental Model
 
@@ -42,8 +42,8 @@ server/sidecar mode:
   Node.js app -> HTTP/gRPC/Unix socket -> memoryd server -> local memoryd file
 ```
 
-Current code only implements the TypeScript in-memory proof layer.
-The Rust crate now defines the storage boundary, but the Node SDK does not call Rust yet.
+Current Node.js code only implements the TypeScript in-memory proof layer.
+The Rust crate now includes `SqliteMemoryStore` for object and event persistence, but the Node SDK does not call Rust yet and SQLite queue storage is not implemented yet.
 
 ## Integration Checklist
 
@@ -241,6 +241,7 @@ crates/memoryd-core
   EventLog
   QueueStore
   MemoryStore
+  SqliteMemoryStore behind the sqlite feature
 ```
 
 Do not introduce a second app-facing API from the native package. The native path should pass the same SDK tests that the in-memory store passes.
@@ -254,7 +255,8 @@ For storage decisions, read [persistence-and-native-bindings.md](./persistence-a
 - Add or update tests in `packages/memoryd/test/memoryd.test.mjs` for behavior changes.
 - Update README/docs when changing integration behavior.
 - Do not use internal store classes from app examples unless the example is explicitly about custom stores.
-- Do not promise persistence until the Rust-backed durable store exists.
+- Do not promise persistence through the Node SDK until the native adapter exists.
+- Do not claim SQLite queue support until `SqliteMemoryStore` implements `QueueStore` semantics.
 - Do not claim exactly-once queue delivery. The queue is at-least-once.
 - Do not hide distributed-system tradeoffs. Multi-pod writes need server/sidecar or primary-writer mode.
 - Keep package publish behavior in `release.config.mjs` and `docs/release.md` aligned.
@@ -270,10 +272,13 @@ npm run test:local
 If Rust is installed:
 
 ```bash
+npm run rust:check
 npm run rust:fmt:check
 npm run rust:clippy
 npm run test:rust
 ```
+
+Rust checks run with all features enabled so the SQLite adapter is covered in CI.
 
 `npm run test:local` does not run Rust checks because some local environments may not have `cargo` installed.
 
@@ -286,3 +291,4 @@ npm run test:rust
 - Treating `nack` as failure instead of retry/dead-letter routing.
 - Adding npm publish assumptions before `NPM_TOKEN` is configured.
 - Using queue consumers without idempotency keys for repeatable work.
+- Assuming `MemoryD.open("./memoryd.db")` persists through the Node SDK before native bindings are wired.

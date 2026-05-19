@@ -1,6 +1,6 @@
 # Persistence And Native Bindings
 
-This document captures the Phase 3 direction for turning `memoryd` from a TypeScript in-memory proof into a Rust-backed local engine.
+This document captures the direction for turning `memoryd` from a TypeScript in-memory proof into a Rust-backed local engine.
 
 ## Current Decision
 
@@ -45,6 +45,7 @@ crates/memoryd-core
 - queue model types
 - storage traits
 - in-memory engine used for tests and API design
+- feature-gated SQLite adapter for durable object and event storage
 
 The important traits are:
 
@@ -74,7 +75,7 @@ Cons:
 - vector search requires extension strategy
 - schema/migration discipline required
 
-Current fit: best first durable backend candidate.
+Current fit: selected first durable backend. The Phase 4 adapter uses `rusqlite` for object and event persistence.
 
 ### redb
 
@@ -120,11 +121,18 @@ Use SQLite for:
 - metadata indexes
 - future FTS tables
 
+Current implementation status:
+
+- objects: implemented in `SqliteMemoryStore`
+- events: implemented in `SqliteMemoryStore`
+- queue jobs: not implemented in SQLite yet
+- Node SDK native adapter: not implemented yet
+
 Keep vector search and multi-pod replication out of the first durable milestone.
 
 ## N-API Direction
 
-Use `napi-rs` for embedded Node.js bindings when Phase 4 begins.
+Use `napi-rs` for embedded Node.js bindings after the Rust SQLite adapter has the storage behavior the SDK needs.
 
 Expected shape:
 
@@ -156,18 +164,27 @@ The native binding should satisfy the existing Node tests before it becomes the 
 
 ## Non-goals For This Phase
 
-- no SQLite implementation yet
 - no native binary build yet
 - no prebuild matrix yet
 - no server/sidecar mode yet
 - no MCP implementation yet
+- no SQLite queue persistence yet
 
-## Phase 4 Candidate Scope
+## Phase 4 Scope
 
-The next phase should likely be:
+Phase 4 starts the SQLite adapter without switching the public Node SDK to it yet.
 
-1. Add a SQLite-backed Rust adapter.
-2. Add Rust tests for object/event/queue persistence.
-3. Add a `napi-rs` binding that can open a database file.
-4. Add a TypeScript `NativeMemoryStore` adapter.
-5. Run the existing SDK tests against both in-memory and native stores.
+Implemented:
+
+1. Add a `rusqlite`-backed Rust adapter behind the `sqlite` feature.
+2. Persist objects with version increments.
+3. Persist append-only events with monotonic sequences.
+4. Add Rust tests for object and event persistence across database reopen.
+5. Run Rust CI checks with all features enabled.
+
+Remaining:
+
+1. Add SQLite queue persistence with lease-safe transactional semantics.
+2. Add a `napi-rs` binding that can open a database file.
+3. Add a TypeScript `NativeMemoryStore` adapter.
+4. Run the existing SDK tests against both in-memory and native stores.
