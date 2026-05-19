@@ -73,8 +73,9 @@ Expected shape:
 - `sqlite-file` shows the current durable write path with one transaction per
   object or queue write.
 
-Node.js SDK benchmarks should be added after the N-API `NativeMemoryStore`
-exists, so the benchmark can exercise the real public package path.
+Node.js SDK benchmarks should be added next now that the private N-API
+`NativeMemoryStore` exists and can exercise the real public package path with
+`driver: "native"`.
 
 ## Latest Local Baseline
 

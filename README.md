@@ -27,14 +27,14 @@ The repository currently contains:
 - Rust storage boundary traits and an in-memory Rust engine
 - a feature-gated SQLite adapter for durable Rust object, event, and queue storage
 - a working TypeScript Node.js SDK with an in-memory store
+- an opt-in private N-API native driver that opens the Rust SQLite store locally
 - object, event, search, and queue APIs
 - queue semantics for leases, `ack`, `nack`, delayed jobs, retry delays, and dead-letter jobs
 - npm package smoke testing without publishing
-- a private native-binding scaffold for future N-API work
 - MCP package scaffolding
 - architecture, release, persistence, and agent integration docs
 
-It is not production-ready yet. The current public Node.js SDK is useful for API exploration and local integration tests, but it does not persist data across process restarts. The Rust core now has SQLite-backed object, event, and queue persistence behind the `sqlite` feature, including delayed jobs and configurable lease expiration; the Node native adapter is still next.
+It is not production-ready yet. The default public Node.js SDK path still uses the TypeScript in-memory store for API exploration and local integration tests. The Rust core has SQLite-backed object, event, and queue persistence behind the `sqlite` feature, and the repo now has an opt-in private native driver for local testing. Native prebuilds, migrations, and production hardening are still next.
 
 ## Why memoryd?
 
@@ -104,7 +104,7 @@ This is the target developer experience.
 ```ts
 import { MemoryD } from "@sayanmohsin/memoryd";
 
-const db = await MemoryD.open("./memoryd.db");
+const db = await MemoryD.open(":memory:");
 
 await db.put("decisions", {
   id: "rust-core",
@@ -128,6 +128,20 @@ await db.queue("embed").push({
 const hits = await db.search("why did we choose rust?", {
   collections: ["decisions"],
   limit: 5,
+});
+```
+
+For the local Rust-backed SQLite path, build the private native package and
+request the native driver:
+
+```bash
+npm run build --workspace @sayanmohsin/memoryd-native
+```
+
+```ts
+const db = await MemoryD.open({
+  path: "./memoryd.db",
+  driver: "native",
 });
 ```
 
@@ -565,7 +579,8 @@ npm run test:rust
 - [x] SQLite object/event adapter in the Rust core
 - [x] SQLite queue adapter in the Rust core
 - [x] delayed jobs and configurable lease expiration in the Rust core
-- [ ] native Node adapter to the Rust store
+- [x] opt-in native Node adapter to the Rust store
+- [ ] native prebuild/release strategy
 
 ### v0.2 - agent memory
 
@@ -581,7 +596,7 @@ npm run test:rust
 - [ ] worker heartbeats
 - [x] idempotency keys in the Node SDK proof store
 - [x] delayed jobs in the Node SDK proof store
-- [ ] persistent SDK store backed by native Rust
+- [x] persistent SDK store backed by native Rust for local repo testing
 - [ ] inspector UI
 
 ### later

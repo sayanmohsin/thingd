@@ -327,21 +327,21 @@ Events:
 
 ## Phase Plan
 
-### Phase 7 - Server Binary
+### Sidecar Phase A - Server Binary
 
 - add `crates/memoryd-server`
 - expose HTTP+JSON API over `memoryd-core`
 - support `MEMORYD_DB`, `MEMORYD_BIND`, and health checks
 - keep cluster disabled
 
-### Phase 8 - Docker And Sidecar Mode
+### Sidecar Phase B - Docker And Sidecar Mode
 
 - build `memoryd` Rust binary Docker image
 - add Kubernetes sidecar example
 - app connects through `MEMORYD_URL=http://127.0.0.1:8757`
 - document readiness/liveness checks
 
-### Phase 9 - Cluster Bridge
+### Sidecar Phase C - Cluster Bridge
 
 - add peer discovery
 - add static peer mode first
@@ -351,7 +351,7 @@ Events:
 - add event replication from leader to followers
 - add local/strong read consistency option
 
-### Phase 10 - Cluster Hardening
+### Sidecar Phase D - Cluster Hardening
 
 - follower catch-up tests
 - leader failover tests

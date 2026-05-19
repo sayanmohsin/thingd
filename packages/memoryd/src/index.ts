@@ -1,5 +1,7 @@
+export type { MemoryDDriver, MemoryDOpenConfig, MemoryDOpenOptions } from "./memoryd.js";
 export { MemoryD } from "./memoryd.js";
 export { InMemoryMemoryStore } from "./stores/in-memory-memory-store.js";
+export { NativeMemoryStore } from "./stores/native-memory-store.js";
 export type {
   MemoryDeleteResult,
   MemoryEvent,

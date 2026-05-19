@@ -167,6 +167,44 @@ impl ObjectStore for SqliteMemoryStore {
             .map_err(MemorydError::from)
     }
 
+    fn list_objects(&self, collections: Option<&[String]>) -> MemorydResult<Vec<MemoryObject>> {
+        let mut objects = Vec::new();
+
+        if let Some(collections) = collections {
+            for collection in collections {
+                let mut statement = self
+                    .connection
+                    .prepare(
+                        "SELECT collection, id, body, version FROM objects WHERE collection = ?1 ORDER BY collection, id",
+                    )
+                    .map_err(MemorydError::from)?;
+                let rows = statement
+                    .query_map(params![collection], row_to_object)
+                    .map_err(MemorydError::from)?;
+
+                for row in rows {
+                    objects.push(row.map_err(MemorydError::from)?);
+                }
+            }
+        } else {
+            let mut statement = self
+                .connection
+                .prepare(
+                    "SELECT collection, id, body, version FROM objects ORDER BY collection, id",
+                )
+                .map_err(MemorydError::from)?;
+            let rows = statement
+                .query_map([], row_to_object)
+                .map_err(MemorydError::from)?;
+
+            for row in rows {
+                objects.push(row.map_err(MemorydError::from)?);
+            }
+        }
+
+        Ok(objects)
+    }
+
     fn delete_object(&mut self, collection: &str, id: &str) -> MemorydResult<bool> {
         let changed = self
             .connection
@@ -322,7 +360,7 @@ impl QueueStore for SqliteMemoryStore {
         let Some(mut job) = transaction
             .query_row(
                 &queue_job_select_sql(
-                    "WHERE queue = ?1 AND status = 'ready' AND available_at_ms <= ?2 ORDER BY created_at, id LIMIT 1",
+                    "WHERE queue = ?1 AND status = 'ready' AND available_at_ms <= ?2 ORDER BY rowid LIMIT 1",
                 ),
                 params![queue, now],
                 row_to_queue_job,
@@ -479,9 +517,7 @@ impl QueueStore for SqliteMemoryStore {
     fn list_jobs(&self, queue: &str) -> MemorydResult<Vec<QueueJob>> {
         let mut statement = self
             .connection
-            .prepare(&queue_job_select_sql(
-                "WHERE queue = ?1 ORDER BY created_at, id",
-            ))
+            .prepare(&queue_job_select_sql("WHERE queue = ?1 ORDER BY rowid"))
             .map_err(MemorydError::from)?;
         let rows = statement
             .query_map(params![queue], row_to_queue_job)
@@ -499,7 +535,7 @@ impl QueueStore for SqliteMemoryStore {
         let mut statement = self
             .connection
             .prepare(&queue_job_select_sql(
-                "WHERE queue = ?1 AND status = 'dead' ORDER BY created_at, id",
+                "WHERE queue = ?1 AND status = 'dead' ORDER BY rowid",
             ))
             .map_err(MemorydError::from)?;
         let rows = statement
@@ -513,6 +549,22 @@ impl QueueStore for SqliteMemoryStore {
 
         Ok(jobs)
     }
+}
+
+fn row_to_object(row: &rusqlite::Row<'_>) -> rusqlite::Result<MemoryObject> {
+    let version = row.get::<_, i64>(3)?;
+
+    Ok(MemoryObject {
+        key: ObjectKey::new(row.get::<_, String>(0)?, row.get::<_, String>(1)?),
+        body: row.get(2)?,
+        version: u64::try_from(version).map_err(|error| {
+            rusqlite::Error::FromSqlConversionFailure(
+                3,
+                rusqlite::types::Type::Integer,
+                Box::new(error),
+            )
+        })?,
+    })
 }
 
 fn row_to_event(row: &rusqlite::Row<'_>) -> rusqlite::Result<MemoryEvent> {
@@ -666,6 +718,26 @@ mod tests {
 
         assert_eq!(first.version, 1);
         assert_eq!(second.version, 2);
+    }
+
+    #[test]
+    fn lists_objects_with_optional_collection_filter() {
+        let mut store = SqliteMemoryStore::open_in_memory().unwrap();
+
+        store
+            .put_object(MemoryObject::new("decisions", "sqlite-backend", "{}"))
+            .unwrap();
+        store
+            .put_object(MemoryObject::new("notes", "agent-guide", "{}"))
+            .unwrap();
+
+        let filtered = store
+            .list_objects(Some(&["decisions".to_string()]))
+            .unwrap();
+
+        assert_eq!(store.list_objects(None).unwrap().len(), 2);
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(filtered[0].key.collection, "decisions");
     }
 
     #[test]

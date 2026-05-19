@@ -121,5 +121,4 @@ crates/memoryd-core
   durable engine traits and adapters
 ```
 
-The native binding package is a scaffold only right now.
-The Rust core has SQLite object/event persistence, but the public Node SDK does not call it yet.
+The native binding package now has an initial private `napi-rs` bridge. The public SDK can opt into it with `driver: "native"` after the native package is built locally. The default SDK path remains the in-memory store until native prebuilds, migrations, and release packaging are ready.

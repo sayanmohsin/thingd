@@ -126,19 +126,19 @@ Current implementation status:
 - objects: implemented in `SqliteMemoryStore`
 - events: implemented in `SqliteMemoryStore`
 - queue jobs: implemented in `SqliteMemoryStore`
-- Node SDK native adapter: not implemented yet
+- Node SDK native adapter: implemented as an opt-in private local driver
 - benchmarks: `npm run bench:rust` covers the Rust object/event/queue storage path
 
 Keep vector search and multi-pod replication out of the first durable milestone.
 
 ## N-API Direction
 
-Use `napi-rs` for embedded Node.js bindings after the Rust SQLite adapter has the storage behavior the SDK needs.
+Use `napi-rs` for embedded Node.js bindings now that the Rust SQLite adapter has the storage behavior the SDK needs.
 
 Expected shape:
 
 ```txt
-MemoryD.open("./memoryd.db")
+MemoryD.open({ path: "./memoryd.db", driver: "native" })
   -> TypeScript SDK
   -> NativeMemoryStore
   -> napi-rs binding
@@ -161,15 +161,13 @@ queue.nack
 queue.dead
 ```
 
-The native binding should satisfy the existing Node tests before it becomes the default store.
+The native binding satisfies the existing Node behavior tests when the private native package has been built locally. It should remain opt-in until prebuilds, migrations, and release packaging are ready.
 
 ## Non-goals For This Phase
 
-- no native binary build yet
 - no prebuild matrix yet
 - no server/sidecar mode yet
 - no MCP implementation yet
-- no Node SDK native adapter yet
 
 ## Phase 4 Scope
 
@@ -201,8 +199,15 @@ Completed in Phase 6:
 4. Reclaim expired leases before queue claim.
 5. Add in-memory and SQLite Rust tests for delay, lease expiration, retry delay, and queue timestamps.
 
-Remaining:
+Completed in Phase 7:
 
 1. Add a `napi-rs` binding that can open a database file.
 2. Add a TypeScript `NativeMemoryStore` adapter.
 3. Run the existing SDK tests against both in-memory and native stores.
+
+Remaining:
+
+1. Add a native prebuild and package loading strategy.
+2. Add schema migrations before changing SQLite tables again.
+3. Add Node.js native performance benchmarks.
+4. Decide when the native store becomes the default SDK driver.

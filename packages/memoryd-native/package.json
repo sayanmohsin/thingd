@@ -1,7 +1,7 @@
 {
   "name": "@sayanmohsin/memoryd-native",
   "version": "0.0.0-development",
-  "description": "Native Node.js binding scaffold for memoryd.",
+  "description": "Private native Node.js binding for memoryd.",
   "type": "module",
   "private": true,
   "author": "Sayan Mohsin",
@@ -9,5 +9,17 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/sayanmohsin/memoryd.git"
+  },
+  "main": "./index.js",
+  "types": "./index.d.ts",
+  "files": [
+    "dist",
+    "index.js",
+    "index.d.ts",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "cargo build -p memoryd-native --release && node scripts/copy-native.mjs",
+    "clean": "node scripts/clean-native.mjs"
   }
 }

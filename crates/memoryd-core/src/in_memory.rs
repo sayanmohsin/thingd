@@ -41,6 +41,19 @@ impl ObjectStore for MemoryEngine {
         Ok(self.objects.get(&ObjectKey::new(collection, id)).cloned())
     }
 
+    fn list_objects(&self, collections: Option<&[String]>) -> MemorydResult<Vec<MemoryObject>> {
+        let objects = self
+            .objects
+            .values()
+            .filter(|object| {
+                collections.is_none_or(|allowed| allowed.contains(&object.key.collection))
+            })
+            .cloned()
+            .collect();
+
+        Ok(objects)
+    }
+
     fn delete_object(&mut self, collection: &str, id: &str) -> MemorydResult<bool> {
         Ok(self
             .objects
@@ -220,6 +233,26 @@ mod tests {
         assert_eq!(object.version, 1);
         assert_eq!(stored.key.collection, "decisions");
         assert_eq!(stored.key.id, "rust-core");
+    }
+
+    #[test]
+    fn lists_objects_with_optional_collection_filter() {
+        let mut engine = MemoryEngine::new();
+
+        engine
+            .put_object(MemoryObject::new("decisions", "rust-core", "{}"))
+            .unwrap();
+        engine
+            .put_object(MemoryObject::new("notes", "agent-guide", "{}"))
+            .unwrap();
+
+        let filtered = engine
+            .list_objects(Some(&["decisions".to_string()]))
+            .unwrap();
+
+        assert_eq!(engine.list_objects(None).unwrap().len(), 2);
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(filtered[0].key.collection, "decisions");
     }
 
     #[test]

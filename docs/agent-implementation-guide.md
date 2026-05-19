@@ -45,8 +45,8 @@ cluster sidecar mode:
   Node.js app -> localhost memoryd sidecar -> leader/follower memoryd cluster
 ```
 
-Current Node.js code only implements the TypeScript in-memory proof layer.
-The Rust crate now includes `SqliteMemoryStore` for object, event, and queue persistence, including delayed jobs, configurable lease expiration, retry delay, and dead-letter state. The Node SDK does not call Rust yet, so the native adapter is still required before public Node.js storage is durable.
+Current Node.js code uses the TypeScript in-memory proof layer by default.
+The Rust crate includes `SqliteMemoryStore` for object, event, and queue persistence, including delayed jobs, configurable lease expiration, retry delay, and dead-letter state. The SDK can opt into the private native bridge with `driver: "native"` after `@sayanmohsin/memoryd-native` is built locally.
 
 ## Integration Checklist
 
@@ -238,11 +238,11 @@ The public API should stay in `@sayanmohsin/memoryd`. Native support should be a
   MemoryD public API
   MemoryStore interface
   in-memory proof store
-  future NativeMemoryStore adapter
+  NativeMemoryStore adapter
 
 @sayanmohsin/memoryd-native
-  private N-API binding scaffold
-  should wrap crates/memoryd-core
+  private N-API binding
+  wraps crates/memoryd-core
 
 crates/memoryd-core
   ObjectStore
@@ -265,8 +265,8 @@ For sidecar and cluster planning, read [sidecar-cluster.md](./sidecar-cluster.md
 - Add or update tests in `packages/memoryd/test/memoryd.test.mjs` for behavior changes.
 - Update README/docs when changing integration behavior.
 - Do not use internal store classes from app examples unless the example is explicitly about custom stores.
-- Do not promise persistence through the Node SDK until the native adapter exists.
-- Do not claim Node SDK persistence until `NativeMemoryStore` exists.
+- Do not present native persistence as the default SDK path until prebuilds, migrations, and package loading are production-ready.
+- Do not add a separate app-facing API to `@sayanmohsin/memoryd-native`; keep the public API in `@sayanmohsin/memoryd`.
 - Do not claim exactly-once queue delivery. The queue is at-least-once.
 - Do not hide distributed-system tradeoffs. Multi-pod writes need server/sidecar or primary-writer mode.
 - Do not add multi-primary cluster behavior. Planned cluster mode is leader-writer with forwarding and event replication.

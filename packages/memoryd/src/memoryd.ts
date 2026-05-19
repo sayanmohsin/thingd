@@ -1,4 +1,5 @@
 import { InMemoryMemoryStore } from "./stores/in-memory-memory-store.js";
+import { NativeMemoryStore } from "./stores/native-memory-store.js";
 import type {
   MemoryDeleteResult,
   MemoryEvent,
@@ -15,13 +16,32 @@ import type {
   StoredMemoryObject,
 } from "./types.js";
 
+export type MemoryDDriver = "memory" | "native";
+
 export type MemoryDOpenOptions = {
+  driver?: MemoryDDriver;
   store?: MemoryStore;
 };
 
+export type MemoryDOpenConfig = MemoryDOpenOptions & {
+  path: string;
+};
+
 export class MemoryD {
-  static async open(path: string, options: MemoryDOpenOptions = {}): Promise<MemoryD> {
-    return new MemoryD(path, options.store ?? new InMemoryMemoryStore());
+  static async open(
+    pathOrConfig: string | MemoryDOpenConfig,
+    options: MemoryDOpenOptions = {},
+  ): Promise<MemoryD> {
+    const path = typeof pathOrConfig === "string" ? pathOrConfig : pathOrConfig.path;
+    const resolvedOptions =
+      typeof pathOrConfig === "string"
+        ? options
+        : {
+            ...pathOrConfig,
+            ...options,
+          };
+
+    return new MemoryD(path, await openStore(path, resolvedOptions));
   }
 
   private constructor(
@@ -62,4 +82,16 @@ export class MemoryD {
       dead: () => this.store.listDeadJobs(name),
     };
   }
+}
+
+async function openStore(path: string, options: MemoryDOpenOptions): Promise<MemoryStore> {
+  if (options.store) {
+    return options.store;
+  }
+
+  if (options.driver === "native") {
+    return NativeMemoryStore.open(path);
+  }
+
+  return new InMemoryMemoryStore();
 }

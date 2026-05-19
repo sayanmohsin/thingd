@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/memoryd-core"]
+members = ["crates/memoryd-core", "packages/memoryd-native"]
 resolver = "2"
 
 [workspace.package]

@@ -20,6 +20,13 @@ pub trait ObjectStore {
     /// Returns an error when the backing store cannot read the object.
     fn get_object(&self, collection: &str, id: &str) -> MemorydResult<Option<MemoryObject>>;
 
+    /// List objects, optionally restricted to the provided collections.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the backing store cannot list objects.
+    fn list_objects(&self, collections: Option<&[String]>) -> MemorydResult<Vec<MemoryObject>>;
+
     /// Delete an object by collection and id.
     ///
     /// # Errors
