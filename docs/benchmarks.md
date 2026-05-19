@@ -9,7 +9,7 @@ directly, which is where the durable `rusqlite` adapter lives today.
 Run:
 
 ```bash
-npm run bench:rust
+pnpm bench:rust
 ```
 
 The benchmark compares:
@@ -30,7 +30,7 @@ It measures:
 Use `MEMORYD_BENCH_ITERS` to change the operation count:
 
 ```bash
-MEMORYD_BENCH_ITERS=20000 npm run bench:rust
+MEMORYD_BENCH_ITERS=20000 pnpm bench:rust
 ```
 
 Or pass the iteration count directly to the benchmark example:
@@ -41,7 +41,7 @@ cargo run --release -p memoryd-core --example storage_bench --features sqlite --
 
 ## Enforcement
 
-Rerunning `npm run bench:rust` does not update this file. Baseline updates are
+Rerunning `pnpm bench:rust` does not update this file. Baseline updates are
 intentional documentation changes: run the benchmark, review the output, update
 the "Latest Local Baseline" section, and commit that change.
 
@@ -49,7 +49,7 @@ CI enforces that the benchmark stays buildable and runnable with a small smoke
 run:
 
 ```bash
-npm run bench:rust:smoke
+pnpm bench:rust:smoke
 ```
 
 The smoke run uses 100 iterations. It should catch broken benchmark code or a
@@ -84,7 +84,7 @@ Run date: 2026-05-19
 Command:
 
 ```bash
-npm run bench:rust
+pnpm bench:rust
 ```
 
 Environment:

@@ -37,17 +37,21 @@ const runJson = (command, args, options = {}) => {
 
 const tempDir = await mkdtemp(join(tmpdir(), "memoryd-package-smoke-"));
 const originalCwd = cwd();
-const npmEnv = {
+const packageManagerEnv = {
   ...processEnv,
   npm_config_cache: join(tempDir, ".npm-cache"),
+  pnpm_config_store_dir: join(tempDir, ".pnpm-store"),
 };
 
 try {
-  const packOutput = runJson("npm", ["pack", "--json", "--pack-destination", tempDir], {
+  const packOutput = runJson("pnpm", ["pack", "--json", "--pack-destination", tempDir], {
     cwd: packageDir,
-    env: npmEnv,
+    env: packageManagerEnv,
   });
-  const tarball = join(tempDir, packOutput[0].filename);
+  const packedPackage = Array.isArray(packOutput) ? packOutput[0] : packOutput;
+  const tarball = packedPackage.filename.startsWith("/")
+    ? packedPackage.filename
+    : join(tempDir, packedPackage.filename);
 
   await writeFile(
     join(tempDir, "package.json"),
@@ -61,9 +65,9 @@ try {
     ),
   );
 
-  run("npm", ["install", tarball, "--ignore-scripts", "--no-audit", "--fund=false"], {
+  run("pnpm", ["add", tarball, "--ignore-scripts"], {
     cwd: tempDir,
-    env: npmEnv,
+    env: packageManagerEnv,
   });
 
   await writeFile(

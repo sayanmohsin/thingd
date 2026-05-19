@@ -17,25 +17,31 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.1.3
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 24
+          cache: pnpm
 
       - name: Install dependencies
-        run: npm install
+        run: pnpm install --frozen-lockfile
 
       - name: Biome check
-        run: npm run check
+        run: pnpm check
 
       - name: Build packages
-        run: npm run build
+        run: pnpm build
 
       - name: Node unit tests
-        run: npm run test:node
+        run: pnpm test:node
 
       - name: Package smoke test
-        run: npm run test:package
+        run: pnpm test:package
 
   rust:
     name: Rust checks
@@ -44,19 +50,33 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.1.3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt
 
       - name: Rust format check
-        run: npm run rust:fmt:check
+        run: pnpm rust:fmt:check
 
       - name: Clippy
-        run: npm run rust:clippy
+        run: pnpm rust:clippy
 
       - name: Rust unit tests
-        run: npm run test:rust
+        run: pnpm test:rust
 
       - name: Rust benchmark smoke test
-        run: npm run bench:rust:smoke
+        run: pnpm bench:rust:smoke

@@ -19,7 +19,7 @@ The in-memory store is for API design and local integration testing. It is not p
 To test the Rust-backed path locally:
 
 ```bash
-npm run build --workspace @sayanmohsin/memoryd-native
+pnpm --filter @sayanmohsin/memoryd-native build
 ```
 
 ```ts

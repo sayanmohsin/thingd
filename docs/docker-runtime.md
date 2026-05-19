@@ -138,7 +138,7 @@ write routing before attempting true replicated local reads.
 ## Smoke Test
 
 ```bash
-npm run smoke:docker
+pnpm smoke:docker
 ```
 
 The smoke script builds the image, starts a container, checks `/healthz`,

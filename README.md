@@ -29,9 +29,10 @@ The repository currently contains:
 - a working TypeScript Node.js SDK with an in-memory store
 - an opt-in private N-API native driver that opens the Rust SQLite store locally
 - a remote Node.js SDK driver that talks to the sidecar over Streamable HTTP MCP
+- a first-pass `memoryd` admin/operator CLI with local and remote JSON output
 - object, event, search, and queue APIs
 - queue semantics for leases, `ack`, `nack`, delayed jobs, retry delays, and dead-letter jobs
-- npm package smoke testing without publishing
+- package smoke testing without publishing
 - stdio and Streamable HTTP MCP server package with object, event, search, and queue tools
 - Docker runtime scaffold for the HTTP MCP server
 - bridge-mode env vars with leader/follower MCP forwarding
@@ -140,7 +141,7 @@ For the local Rust-backed SQLite path, build the private native package and
 request the native driver:
 
 ```bash
-npm run build --workspace @sayanmohsin/memoryd-native
+pnpm --filter @sayanmohsin/memoryd-native build
 ```
 
 ```ts
@@ -356,21 +357,21 @@ memory.queue.dead
 Run it locally:
 
 ```bash
-npm run build --workspace @sayanmohsin/memoryd-mcp
+pnpm --filter @sayanmohsin/memoryd-mcp build
 node packages/memoryd-mcp/dist/cli.js --path :memory:
 ```
 
 Run the HTTP runtime:
 
 ```bash
-npm run build
-MEMORYD_AUTH_TOKEN=change-me npm run serve:mcp
+pnpm build
+MEMORYD_AUTH_TOKEN=change-me pnpm serve:mcp
 ```
 
 For the native Rust-backed store:
 
 ```bash
-npm run build --workspace @sayanmohsin/memoryd-native
+pnpm --filter @sayanmohsin/memoryd-native build
 node packages/memoryd-mcp/dist/cli.js --path ./memoryd.db --driver native
 ```
 
@@ -385,7 +386,7 @@ See [docs/mcp-server.md](./docs/mcp-server.md) and [docs/docker-runtime.md](./do
 Smoke-test the Docker runtime:
 
 ```bash
-npm run smoke:docker
+pnpm smoke:docker
 ```
 
 The MCP layer now appends audit events for write tools to
@@ -542,25 +543,25 @@ You can test the Node.js package locally before publishing anything to npm.
 From the repository root:
 
 ```bash
-npm install
-npm run build
-npm run test:node
-npm run test:package
+pnpm install
+pnpm build
+pnpm test:node
+pnpm test:package
 ```
 
-`npm run test:package` builds `@sayanmohsin/memoryd`, creates a local npm tarball, installs that tarball into a temporary app, imports the package, and runs a smoke test. This is the closest local check to "will this work after npm publish?" without publishing anything.
+`pnpm test:package` builds `@sayanmohsin/memoryd`, creates a local package tarball, installs that tarball into a temporary app, imports the package, and runs a smoke test. This is the closest local check to "will this work after npm publish?" without publishing anything.
 
 The included examples can consume the local package through the workspace/file dependency. For the NestJS example:
 
 ```bash
 cd examples/nestjs-basic
-npm run start:dev
+pnpm start:dev
 ```
 
 For a separate Node.js app outside this repository, install the local package by path:
 
 ```bash
-npm install /Users/sayan/Documents/Experimental/memoryd/packages/memoryd
+pnpm add /Users/sayan/Documents/Experimental/memoryd/packages/memoryd
 ```
 
 Or add it to that app's `package.json`:
@@ -584,7 +585,9 @@ Project conventions live in checked-in files so this private repo stays easy to 
 - [Cargo.toml](./Cargo.toml) defines workspace Rust and Clippy lints.
 - [docs/agent-implementation-guide.md](./docs/agent-implementation-guide.md) explains how AI agents and contributors should integrate `memoryd` into apps.
 - [docs/ai-primitives.md](./docs/ai-primitives.md) plans graph links, hybrid search, locks, workflow DAGs, semantic cache, tool ledger, and compaction.
+- [docs/cli.md](./docs/cli.md) describes the current runtime CLIs and the planned admin/operator CLI phases.
 - [docs/coding-standards.md](./docs/coding-standards.md) explains the coding standards.
+- [docs/handoff.md](./docs/handoff.md) is the quick restart point for future work.
 - [docs/persistence-and-native-bindings.md](./docs/persistence-and-native-bindings.md) explains the Rust persistence boundary and native binding direction.
 - [docs/sidecar-cluster.md](./docs/sidecar-cluster.md) explains the planned sidecar, Kubernetes, and cluster bridge shape.
 - [docs/benchmarks.md](./docs/benchmarks.md) explains local benchmark commands and how to interpret them.
@@ -593,21 +596,22 @@ Project conventions live in checked-in files so this private repo stays easy to 
 Useful commands:
 
 ```bash
-npm run check
-npm run check:write
-npm run test:local
-npm run rust:fmt:check
-npm run rust:clippy
-npm test
+pnpm check
+pnpm check:write
+pnpm test:local
+pnpm test:cli
+pnpm rust:fmt:check
+pnpm rust:clippy
+pnpm test
 ```
 
 Rust checks run all crate features, including the SQLite adapter:
 
 ```bash
-npm run rust:check
-npm run bench:rust
-npm run bench:rust:smoke
-npm run test:rust
+pnpm rust:check
+pnpm bench:rust
+pnpm bench:rust:smoke
+pnpm test:rust
 ```
 
 ## Releases
@@ -625,8 +629,8 @@ The npm package is published from [packages/memoryd](./packages/memoryd). Publis
 Before enabling publish, run:
 
 ```bash
-npm run test:local
-npm run release:dry-run
+pnpm test:local
+pnpm release:dry-run
 ```
 
 ## Comparison
@@ -647,20 +651,24 @@ Start with the local Node/package gate:
 ```bash
 git clone https://github.com/sayanmohsin/memoryd.git
 cd memoryd
-npm install
-npm run test:local
+pnpm install
+pnpm test:local
 ```
 
 If Rust is installed, also run:
 
 ```bash
-npm run rust:check
-npm run rust:fmt:check
-npm run rust:clippy
-npm run test:rust
+pnpm rust:check
+pnpm rust:fmt:check
+pnpm rust:clippy
+pnpm test:rust
 ```
 
 ## Roadmap
+
+The recommended next build phase is **CLI-B**, which adds operator polish on top
+of the first-pass `memoryd` CLI. See [docs/cli.md](./docs/cli.md) and
+[docs/handoff.md](./docs/handoff.md).
 
 ### v0.1 - local core
 
@@ -696,7 +704,14 @@ npm run test:rust
 - [x] Docker runtime scaffold
 - [x] bridge-mode env vars and follower MCP forwarding
 - [x] Docker/Kubernetes/proxy deployment examples
+- [x] admin/operator CLI
 - [ ] inspector UI
+
+### CLI phases
+
+- [x] CLI-A: `packages/memoryd-cli`, `memoryd` binary, remote/local connection handling, JSON output, object/event/queue inspection
+- [ ] CLI-B: pretty tables, `doctor`, queue stats, benchmark wrappers, clearer runtime errors
+- [ ] CLI-C: export/import, snapshots, and redaction-friendly handoff flows
 
 ### later
 

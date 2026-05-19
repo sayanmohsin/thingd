@@ -1,0 +1,8 @@
+packages:
+  - "packages/*"
+  - "examples/nestjs-basic"
+
+onlyBuiltDependencies:
+  - "@nestjs/core"
+allowBuilds:
+  '@nestjs/core': true

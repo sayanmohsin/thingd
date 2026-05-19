@@ -21,6 +21,11 @@ Node SDK
   remote sidecar client
   local process management
 
+CLI
+  developer inspection
+  operator diagnostics
+  script-friendly admin output
+
 MCP server
   agent-facing tools
   safe read/write surface
@@ -123,6 +128,16 @@ exposes bridge status endpoints, and persists data under `/data`.
 For current tools and local usage, read [mcp-server.md](./mcp-server.md) and
 [docker-runtime.md](./docker-runtime.md). Runtime env vars are centralized in
 [runtime-env.md](./runtime-env.md).
+
+## CLI Direction
+
+The MCP package has runtime entrypoints, and `packages/memoryd-cli` now provides
+the first-pass `memoryd` admin/operator CLI. The CLI uses the public SDK for
+local and remote access and can inspect objects, events, queues, dead jobs, MCP
+tools, and runtime status. The next CLI phase should add operator polish before
+any inspector UI is built.
+
+For command phases and handoff details, read [cli.md](./cli.md).
 
 ## Native Binding Direction
 

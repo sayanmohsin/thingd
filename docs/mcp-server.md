@@ -57,7 +57,7 @@ memory.queue.dead
 Build the repo:
 
 ```bash
-npm run build
+pnpm build
 ```
 
 Run with the in-memory SDK store:
@@ -69,7 +69,7 @@ node packages/memoryd-mcp/dist/cli.js --path :memory:
 Run with the private native Rust-backed SQLite driver:
 
 ```bash
-npm run build --workspace @sayanmohsin/memoryd-native
+pnpm --filter @sayanmohsin/memoryd-native build
 node packages/memoryd-mcp/dist/cli.js --path ./memoryd.db --driver native
 ```
 
@@ -87,8 +87,8 @@ MEMORYD_DRIVER
 Run the HTTP MCP server:
 
 ```bash
-npm run build
-MEMORYD_AUTH_TOKEN=change-me npm run serve:mcp
+pnpm build
+MEMORYD_AUTH_TOKEN=change-me pnpm serve:mcp
 ```
 
 Default local URL:

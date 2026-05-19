@@ -21,7 +21,7 @@ Current shape:
 Build locally:
 
 ```bash
-npm run build --workspace @sayanmohsin/memoryd-native
+pnpm --filter @sayanmohsin/memoryd-native build
 ```
 
 Then use it through the public SDK:

@@ -30,15 +30,15 @@ The release workflow only runs on pushes to `main`. It validates the same checks
 Before configuring `NPM_TOKEN`, use the local package smoke test:
 
 ```bash
-npm run test:package
+pnpm test:package
 ```
 
-This command builds `@sayanmohsin/memoryd`, packs it into an npm tarball, installs that tarball into a temporary app, and imports the installed package.
+This command builds `@sayanmohsin/memoryd`, packs it into a package tarball, installs that tarball into a temporary app, and imports the installed package.
 
 You can also verify the release plan without publishing:
 
 ```bash
-npm run release:dry-run
+pnpm release:dry-run
 ```
 
 ## Required Secrets

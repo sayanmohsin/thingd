@@ -28,8 +28,8 @@ Docker runtime and production hardening are still early.
 ## Build And Test
 
 ```bash
-npm run build --workspace @sayanmohsin/memoryd-mcp
-npm run test --workspace @sayanmohsin/memoryd-mcp
+pnpm --filter @sayanmohsin/memoryd-mcp build
+pnpm --filter @sayanmohsin/memoryd-mcp test
 ```
 
 ## Run Locally
@@ -37,14 +37,14 @@ npm run test --workspace @sayanmohsin/memoryd-mcp
 ### Stdio
 
 ```bash
-npm run build
+pnpm build
 node packages/memoryd-mcp/dist/cli.js --path :memory:
 ```
 
 For the private native driver:
 
 ```bash
-npm run build --workspace @sayanmohsin/memoryd-native
+pnpm --filter @sayanmohsin/memoryd-native build
 node packages/memoryd-mcp/dist/cli.js --path ./memoryd.db --driver native
 ```
 
@@ -79,8 +79,8 @@ remote driver over Streamable HTTP MCP.
 ### Streamable HTTP
 
 ```bash
-npm run build
-MEMORYD_AUTH_TOKEN=change-me npm run serve:mcp
+pnpm build
+MEMORYD_AUTH_TOKEN=change-me pnpm serve:mcp
 ```
 
 Or directly:

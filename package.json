@@ -4,12 +4,13 @@
   "private": true,
   "author": "Sayan Mohsin",
   "license": "Apache-2.0",
+  "packageManager": "pnpm@11.1.3",
   "workspaces": [
     "packages/*",
     "examples/nestjs-basic"
   ],
   "scripts": {
-    "build": "npm run build --workspaces --if-present",
+    "build": "pnpm -r --if-present build",
     "bench:rust": "cargo run --release -p memoryd-core --example storage_bench --features sqlite",
     "bench:rust:smoke": "cargo run --release -p memoryd-core --example storage_bench --features sqlite -- 100",
     "check": "biome check .",
@@ -26,11 +27,12 @@
     "serve:mcp": "node packages/memoryd-mcp/dist/http-cli.js",
     "smoke:docker": "bash scripts/smoke-docker.sh",
     "smoke:mcp": "node scripts/smoke-mcp-http.mjs",
-    "test": "npm run test:node && npm run test:mcp && npm run test:package && npm run test:rust",
-    "test:local": "npm run check && npm run build && npm run test:node && npm run test:mcp && npm run test:package",
-    "test:mcp": "npm run test --workspace @sayanmohsin/memoryd-mcp",
-    "test:node": "npm run test --workspace @sayanmohsin/memoryd",
-    "test:package": "npm run build --workspace @sayanmohsin/memoryd && node scripts/verify-package.mjs",
+    "test": "pnpm test:node && pnpm test:mcp && pnpm test:cli && pnpm test:package && pnpm test:rust",
+    "test:cli": "pnpm --filter @sayanmohsin/memoryd-cli test",
+    "test:local": "pnpm check && pnpm build && pnpm test:node && pnpm test:mcp && pnpm test:cli && pnpm test:package",
+    "test:mcp": "pnpm --filter @sayanmohsin/memoryd-mcp test",
+    "test:node": "pnpm --filter @sayanmohsin/memoryd test",
+    "test:package": "pnpm --filter @sayanmohsin/memoryd build && node scripts/verify-package.mjs",
     "test:rust": "cargo test --workspace --all-targets --all-features"
   },
   "devDependencies": {
@@ -40,6 +42,7 @@
     "@semantic-release/npm": "13.1.5",
     "@semantic-release/release-notes-generator": "14.1.1",
     "@types/node": "25.9.0",
+    "@sayanmohsin/memoryd-native": "workspace:*",
     "conventional-changelog-conventionalcommits": "9.3.1",
     "semantic-release": "25.0.3",
     "typescript": "6.0.3"

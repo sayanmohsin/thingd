@@ -16,8 +16,10 @@ Current implementation:
 - `packages/memoryd-native` is a private N-API binding for local native driver testing.
 - `packages/memoryd/src/stores/remote-memory-store.ts` lets the SDK talk to a sidecar over Streamable HTTP MCP.
 - `packages/memoryd-mcp` exposes the SDK through stdio and Streamable HTTP MCP servers.
+- `packages/memoryd-cli` exposes the first-pass `memoryd` admin/operator CLI.
 - the HTTP MCP runtime supports `single`, `leader`, and `follower` bridge modes.
 - `examples/nestjs-basic` demonstrates app integration shape.
+- `docs/cli.md` is the handoff plan for remaining admin/operator CLI phases.
 
 Do not present the public Node package as production-ready persistent storage yet.
 
@@ -71,15 +73,15 @@ When integrating `memoryd` into a Node.js app:
 Inside this repository:
 
 ```bash
-npm install
-npm run build
-npm run test:local
+pnpm install
+pnpm build
+pnpm test:local
 ```
 
 In another local app before npm publish:
 
 ```bash
-npm install /Users/sayan/Documents/Experimental/memoryd/packages/memoryd
+pnpm add /Users/sayan/Documents/Experimental/memoryd/packages/memoryd
 ```
 
 Or use a `file:` dependency:
@@ -92,7 +94,7 @@ Or use a `file:` dependency:
 }
 ```
 
-Use `npm run test:package` to verify the packed package works without publishing to npm.
+Use `pnpm test:package` to verify the packed package works without publishing to npm.
 
 For sidecar mode:
 
@@ -105,7 +107,7 @@ MEMORYD_AUTH_TOKEN=change-me
 const db = await MemoryD.open();
 ```
 
-Use `npm run bench:rust` when storage performance changes. Read
+Use `pnpm bench:rust` when storage performance changes. Read
 [benchmarks.md](./benchmarks.md) before treating local numbers as product
 claims. Benchmark runs do not update docs automatically; baseline updates are
 intentional documentation edits.
@@ -277,6 +279,8 @@ Do not introduce a second app-facing API from the native package. The native pat
 For storage decisions, read [persistence-and-native-bindings.md](./persistence-and-native-bindings.md).
 For future AI-native data structures, read [ai-primitives.md](./ai-primitives.md).
 For sidecar and cluster planning, read [sidecar-cluster.md](./sidecar-cluster.md).
+For CLI work, read [cli.md](./cli.md) before creating commands or package structure.
+For a project restart summary, read [handoff.md](./handoff.md).
 
 ## Implementation Rules For Agents
 
@@ -293,39 +297,52 @@ For sidecar and cluster planning, read [sidecar-cluster.md](./sidecar-cluster.md
 - Do not add generic textbook structures as public features unless they map to an AI-native workflow primitive in `docs/ai-primitives.md`.
 - Keep sidecar environment variables and Kubernetes examples aligned with `docs/sidecar-cluster.md`.
 - Keep package publish behavior in `release.config.mjs` and `docs/release.md` aligned.
+- For CLI work, create a dedicated package and use the public SDK instead of reaching into internal stores.
+- Keep CLI command behavior documented in `docs/cli.md`.
+
+## Recommended Next Phase
+
+Start with **Phase CLI-B** from [cli.md](./cli.md).
+
+The first-pass `memoryd` binary can inspect and mutate local or remote stores
+with JSON output. The next goal is operator polish: pretty tables, `doctor`,
+queue stats, benchmark wrappers, and better runtime errors. This should land
+before an inspector UI because it helps local development, Docker sidecar
+debugging, Kubernetes handoff, and AI-agent integration immediately.
 
 ## Required Checks
 
 Before handing work back:
 
 ```bash
-npm run test:local
+pnpm test:local
+pnpm test:cli
 ```
 
 If Rust is installed:
 
 ```bash
-npm run rust:check
-npm run rust:fmt:check
-npm run rust:clippy
-npm run test:rust
+pnpm rust:check
+pnpm rust:fmt:check
+pnpm rust:clippy
+pnpm test:rust
 ```
 
 Rust checks run with all features enabled so the SQLite adapter is covered in CI.
 
-`npm run test:local` does not run Rust checks because some local environments may not have `cargo` installed.
+`pnpm test:local` does not run Rust checks because some local environments may not have `cargo` installed.
 
 For storage benchmark work:
 
 ```bash
-npm run bench:rust
-npm run bench:rust:smoke
+pnpm bench:rust
+pnpm bench:rust:smoke
 ```
 
 ## Common Mistakes
 
 - Importing from `src` or `dist` directly instead of `@sayanmohsin/memoryd`.
-- Forgetting `npm run build` before testing packed package behavior.
+- Forgetting `pnpm build` before testing packed package behavior.
 - Mutating returned queue jobs and assuming that changes the store.
 - Treating delayed jobs as claimable immediately.
 - Treating `nack` as failure instead of retry/dead-letter routing.

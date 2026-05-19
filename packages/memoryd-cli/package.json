@@ -1,13 +1,12 @@
 {
-  "name": "@sayanmohsin/memoryd-mcp",
+  "name": "@sayanmohsin/memoryd-cli",
   "version": "0.1.0",
-  "description": "MCP tools for memoryd.",
+  "description": "Admin and operator CLI for memoryd.",
   "type": "module",
   "author": "Sayan Mohsin",
   "license": "Apache-2.0",
   "bin": {
-    "memoryd-mcp": "./dist/cli.js",
-    "memoryd-mcp-http": "./dist/http-cli.js"
+    "memoryd": "./dist/index.js"
   },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -26,14 +25,11 @@
     "url": "git+https://github.com/sayanmohsin/memoryd.git"
   },
   "dependencies": {
-    "@sayanmohsin/memoryd": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.29.0",
-    "zod": "^4.4.3"
+    "@sayanmohsin/memoryd": "workspace:*"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "start:http": "node dist/http-cli.js",
-    "start:stdio": "node dist/cli.js",
     "test": "pnpm build && node --test test/*.test.mjs"
   },
   "engines": {

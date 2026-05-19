@@ -226,7 +226,7 @@ async function loadNativeModule(): Promise<NativeMemoryStoreModule> {
     return (await import(NATIVE_PACKAGE_NAME)) as NativeMemoryStoreModule;
   } catch (error) {
     throw new Error(
-      `The native memoryd driver is not available. Run "npm run build --workspace @sayanmohsin/memoryd-native" before using driver: "native". ${formatUnknownError(error)}`,
+      `The native memoryd driver is not available. Run "pnpm --filter @sayanmohsin/memoryd-native build" before using driver: "native". ${formatUnknownError(error)}`,
     );
   }
 }

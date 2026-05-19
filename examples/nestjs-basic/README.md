@@ -9,8 +9,8 @@ sidecar drivers.
 ## Run
 
 ```bash
-npm install
-npm run start:dev
+pnpm install
+pnpm start:dev
 ```
 
 The app listens on `http://localhost:3000`.

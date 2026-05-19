@@ -7,8 +7,8 @@ This repo uses checked-in project files as the source of truth for future human 
 Use Biome for formatting, linting, and safe source actions.
 
 ```bash
-npm run check
-npm run check:write
+pnpm check
+pnpm check:write
 ```
 
 Standards:
@@ -26,10 +26,10 @@ Standards:
 Use `rustfmt` and Clippy for Rust code.
 
 ```bash
-npm run rust:check
-npm run rust:fmt:check
-npm run rust:clippy
-npm test
+pnpm rust:check
+pnpm rust:fmt:check
+pnpm rust:clippy
+pnpm test
 ```
 
 Standards:
@@ -52,6 +52,8 @@ Because this repository is private, keep important design context in normal proj
 - [docs/ai-primitives.md](./ai-primitives.md) for future AI-native primitive planning
 - [docs/architecture.md](./architecture.md) for implementation direction
 - [docs/agent-implementation-guide.md](./agent-implementation-guide.md) for app integration guidance for AI agents and contributors
+- [docs/cli.md](./cli.md) for current CLI behavior and admin/operator CLI phases
+- [docs/handoff.md](./handoff.md) for the current restart point and next recommended phase
 - [docs/persistence-and-native-bindings.md](./persistence-and-native-bindings.md) for Rust persistence and N-API direction
 - [docs/sidecar-cluster.md](./sidecar-cluster.md) for sidecar, Kubernetes, and cluster bridge planning
 - [docs/benchmarks.md](./benchmarks.md) for storage benchmark commands and interpretation
