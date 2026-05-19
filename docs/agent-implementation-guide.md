@@ -46,7 +46,7 @@ cluster sidecar mode:
 ```
 
 Current Node.js code only implements the TypeScript in-memory proof layer.
-The Rust crate now includes `SqliteMemoryStore` for object, event, and queue persistence, but the Node SDK does not call Rust yet. Node-style delayed jobs and configurable lease durations still need Rust model/API alignment before the native adapter can fully mirror the TypeScript queue API.
+The Rust crate now includes `SqliteMemoryStore` for object, event, and queue persistence, including delayed jobs, configurable lease expiration, retry delay, and dead-letter state. The Node SDK does not call Rust yet, so the native adapter is still required before public Node.js storage is durable.
 
 ## Integration Checklist
 
@@ -267,7 +267,6 @@ For sidecar and cluster planning, read [sidecar-cluster.md](./sidecar-cluster.md
 - Do not use internal store classes from app examples unless the example is explicitly about custom stores.
 - Do not promise persistence through the Node SDK until the native adapter exists.
 - Do not claim Node SDK persistence until `NativeMemoryStore` exists.
-- Do not claim Rust delayed-job or configurable lease-expiration support until the Rust queue model includes those fields.
 - Do not claim exactly-once queue delivery. The queue is at-least-once.
 - Do not hide distributed-system tradeoffs. Multi-pod writes need server/sidecar or primary-writer mode.
 - Do not add multi-primary cluster behavior. Planned cluster mode is leader-writer with forwarding and event replication.

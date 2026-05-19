@@ -8,6 +8,8 @@
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 
+use std::time::{SystemTime, UNIX_EPOCH};
+
 mod error;
 mod in_memory;
 mod model;
@@ -17,7 +19,22 @@ mod store;
 
 pub use error::{MemorydError, MemorydResult};
 pub use in_memory::MemoryEngine;
-pub use model::{MemoryEvent, MemoryObject, ObjectKey, QueueJob, QueueJobStatus};
+pub use model::{
+    MemoryEvent, MemoryObject, ObjectKey, QueueClaimOptions, QueueJob, QueueJobStatus,
+    QueueNackOptions, DEFAULT_QUEUE_LEASE_MS,
+};
 #[cfg(feature = "sqlite")]
 pub use sqlite::SqliteMemoryStore;
 pub use store::{EventLog, MemoryStore, ObjectStore, QueueStore};
+
+pub(crate) fn unix_timestamp_millis() -> i64 {
+    let Ok(duration) = SystemTime::now().duration_since(UNIX_EPOCH) else {
+        return 0;
+    };
+
+    i64::try_from(duration.as_millis()).unwrap_or(i64::MAX)
+}
+
+pub(crate) fn u64_to_i64(value: u64) -> i64 {
+    i64::try_from(value).unwrap_or(i64::MAX)
+}

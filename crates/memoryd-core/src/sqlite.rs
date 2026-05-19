@@ -7,8 +7,9 @@ use std::path::Path;
 use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
 
 use crate::{
-    EventLog, MemoryEvent, MemoryObject, MemorydError, MemorydResult, ObjectKey, ObjectStore,
-    QueueJob, QueueJobStatus, QueueStore,
+    u64_to_i64, unix_timestamp_millis, EventLog, MemoryEvent, MemoryObject, MemorydError,
+    MemorydResult, ObjectKey, ObjectStore, QueueClaimOptions, QueueJob, QueueJobStatus,
+    QueueNackOptions, QueueStore,
 };
 
 /// `SQLite`-backed memory store.
@@ -76,6 +77,11 @@ impl SqliteMemoryStore {
                     attempts INTEGER NOT NULL,
                     max_attempts INTEGER NOT NULL,
                     status TEXT NOT NULL,
+                    available_at_ms INTEGER NOT NULL,
+                    leased_at_ms INTEGER,
+                    lease_expires_at_ms INTEGER,
+                    completed_at_ms INTEGER,
+                    dead_at_ms INTEGER,
                     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
                     updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
                     PRIMARY KEY (queue, id)
@@ -257,6 +263,11 @@ impl QueueStore for SqliteMemoryStore {
                     attempts,
                     max_attempts,
                     status,
+                    available_at_ms,
+                    leased_at_ms,
+                    lease_expires_at_ms,
+                    completed_at_ms,
+                    dead_at_ms,
                     created_at,
                     updated_at
                 )
@@ -267,6 +278,11 @@ impl QueueStore for SqliteMemoryStore {
                     ?4,
                     ?5,
                     ?6,
+                    ?7,
+                    ?8,
+                    ?9,
+                    ?10,
+                    ?11,
                     strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
                     strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
                 )
@@ -277,7 +293,12 @@ impl QueueStore for SqliteMemoryStore {
                     &job.body,
                     u32_to_i64(job.attempts),
                     u32_to_i64(job.max_attempts),
-                    status_to_str(job.status)
+                    status_to_str(job.status),
+                    job.available_at_ms,
+                    job.leased_at_ms,
+                    job.lease_expires_at_ms,
+                    job.completed_at_ms,
+                    job.dead_at_ms
                 ],
             )
             .map_err(MemorydError::from)?;
@@ -286,18 +307,24 @@ impl QueueStore for SqliteMemoryStore {
         Ok(job)
     }
 
-    fn claim_job(&mut self, queue: &str) -> MemorydResult<Option<QueueJob>> {
+    fn claim_job_with_options(
+        &mut self,
+        queue: &str,
+        options: QueueClaimOptions,
+    ) -> MemorydResult<Option<QueueJob>> {
         let transaction = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(MemorydError::from)?;
 
+        release_expired_leases(&transaction, queue)?;
+        let now = unix_timestamp_millis();
         let Some(mut job) = transaction
             .query_row(
                 &queue_job_select_sql(
-                    "WHERE queue = ?1 AND status = 'ready' ORDER BY created_at, id LIMIT 1",
+                    "WHERE queue = ?1 AND status = 'ready' AND available_at_ms <= ?2 ORDER BY created_at, id LIMIT 1",
                 ),
-                params![queue],
+                params![queue, now],
                 row_to_queue_job,
             )
             .optional()
@@ -309,6 +336,8 @@ impl QueueStore for SqliteMemoryStore {
 
         job.status = QueueJobStatus::Leased;
         job.attempts += 1;
+        job.leased_at_ms = Some(now);
+        job.lease_expires_at_ms = Some(now.saturating_add(u64_to_i64(options.lease_ms)));
 
         transaction
             .execute(
@@ -316,6 +345,8 @@ impl QueueStore for SqliteMemoryStore {
                 UPDATE queue_jobs
                 SET attempts = ?3,
                     status = ?4,
+                    leased_at_ms = ?5,
+                    lease_expires_at_ms = ?6,
                     updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
                 WHERE queue = ?1 AND id = ?2
                 ",
@@ -323,7 +354,9 @@ impl QueueStore for SqliteMemoryStore {
                     &job.queue,
                     &job.id,
                     u32_to_i64(job.attempts),
-                    status_to_str(job.status)
+                    status_to_str(job.status),
+                    job.leased_at_ms,
+                    job.lease_expires_at_ms
                 ],
             )
             .map_err(MemorydError::from)?;
@@ -358,15 +391,17 @@ impl QueueStore for SqliteMemoryStore {
         }
 
         job.status = QueueJobStatus::Completed;
+        job.completed_at_ms = Some(unix_timestamp_millis());
         transaction
             .execute(
                 r"
                 UPDATE queue_jobs
                 SET status = ?3,
+                    completed_at_ms = ?4,
                     updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
                 WHERE queue = ?1 AND id = ?2
                 ",
-                params![queue, id, status_to_str(job.status)],
+                params![queue, id, status_to_str(job.status), job.completed_at_ms],
             )
             .map_err(MemorydError::from)?;
 
@@ -374,7 +409,12 @@ impl QueueStore for SqliteMemoryStore {
         Ok(Some(job))
     }
 
-    fn nack_job(&mut self, queue: &str, id: &str) -> MemorydResult<Option<QueueJob>> {
+    fn nack_job_with_options(
+        &mut self,
+        queue: &str,
+        id: &str,
+        options: QueueNackOptions,
+    ) -> MemorydResult<Option<QueueJob>> {
         let transaction = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)
@@ -399,9 +439,14 @@ impl QueueStore for SqliteMemoryStore {
             )));
         }
 
+        let now = unix_timestamp_millis();
+        job.leased_at_ms = None;
+        job.lease_expires_at_ms = None;
         job.status = if job.attempts >= job.max_attempts {
+            job.dead_at_ms = Some(now);
             QueueJobStatus::Dead
         } else {
+            job.available_at_ms = now.saturating_add(u64_to_i64(options.delay_ms));
             QueueJobStatus::Ready
         };
 
@@ -410,10 +455,20 @@ impl QueueStore for SqliteMemoryStore {
                 r"
                 UPDATE queue_jobs
                 SET status = ?3,
+                    available_at_ms = ?4,
+                    leased_at_ms = NULL,
+                    lease_expires_at_ms = NULL,
+                    dead_at_ms = ?5,
                     updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
                 WHERE queue = ?1 AND id = ?2
                 ",
-                params![queue, id, status_to_str(job.status)],
+                params![
+                    queue,
+                    id,
+                    status_to_str(job.status),
+                    job.available_at_ms,
+                    job.dead_at_ms
+                ],
             )
             .map_err(MemorydError::from)?;
 
@@ -478,7 +533,9 @@ fn row_to_event(row: &rusqlite::Row<'_>) -> rusqlite::Result<MemoryEvent> {
 }
 
 fn queue_job_select_sql(predicate: &str) -> String {
-    format!("SELECT queue, id, body, attempts, max_attempts, status FROM queue_jobs {predicate}")
+    format!(
+        "SELECT queue, id, body, attempts, max_attempts, status, available_at_ms, leased_at_ms, lease_expires_at_ms, completed_at_ms, dead_at_ms FROM queue_jobs {predicate}"
+    )
 }
 
 fn row_to_queue_job(row: &rusqlite::Row<'_>) -> rusqlite::Result<QueueJob> {
@@ -499,7 +556,33 @@ fn row_to_queue_job(row: &rusqlite::Row<'_>) -> rusqlite::Result<QueueJob> {
                 Box::new(error),
             )
         })?,
+        available_at_ms: row.get(6)?,
+        leased_at_ms: row.get(7)?,
+        lease_expires_at_ms: row.get(8)?,
+        completed_at_ms: row.get(9)?,
+        dead_at_ms: row.get(10)?,
     })
+}
+
+fn release_expired_leases(connection: &rusqlite::Connection, queue: &str) -> MemorydResult<()> {
+    connection
+        .execute(
+            r"
+            UPDATE queue_jobs
+            SET status = 'ready',
+                leased_at_ms = NULL,
+                lease_expires_at_ms = NULL,
+                updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+            WHERE queue = ?1
+                AND status = 'leased'
+                AND lease_expires_at_ms IS NOT NULL
+                AND lease_expires_at_ms <= ?2
+            ",
+            params![queue, unix_timestamp_millis()],
+        )
+        .map_err(MemorydError::from)?;
+
+    Ok(())
 }
 
 const fn status_to_str(status: QueueJobStatus) -> &'static str {
@@ -660,7 +743,10 @@ mod tests {
 
         assert_eq!(claimed.status, QueueJobStatus::Leased);
         assert_eq!(claimed.attempts, 1);
+        assert!(claimed.leased_at_ms.is_some());
+        assert!(claimed.lease_expires_at_ms.is_some());
         assert_eq!(acked.status, QueueJobStatus::Completed);
+        assert!(acked.completed_at_ms.is_some());
         assert!(store.claim_job("embed").unwrap().is_none());
     }
 
@@ -681,7 +767,56 @@ mod tests {
         let dead = store.nack_job("embed", "job-1").unwrap().unwrap();
         assert_eq!(dead.status, QueueJobStatus::Dead);
         assert_eq!(dead.attempts, 2);
+        assert!(dead.dead_at_ms.is_some());
         assert_eq!(store.list_dead_jobs("embed").unwrap().len(), 1);
+    }
+
+    #[test]
+    fn does_not_claim_delayed_queue_jobs_before_available() {
+        let mut store = SqliteMemoryStore::open_in_memory().unwrap();
+
+        store
+            .push_job(QueueJob::new("embed", "job-1", "{\"doc\":\"doc-1\"}", 3).delay_by_ms(60_000))
+            .unwrap();
+
+        assert!(store.claim_job("embed").unwrap().is_none());
+    }
+
+    #[test]
+    fn reclaims_queue_jobs_after_lease_expiration() {
+        let mut store = SqliteMemoryStore::open_in_memory().unwrap();
+
+        store
+            .push_job(QueueJob::new("embed", "job-1", "{\"doc\":\"doc-1\"}", 3))
+            .unwrap();
+
+        let first = store
+            .claim_job_with_options("embed", QueueClaimOptions::new(0))
+            .unwrap()
+            .unwrap();
+        let second = store.claim_job("embed").unwrap().unwrap();
+
+        assert_eq!(first.status, QueueJobStatus::Leased);
+        assert_eq!(second.status, QueueJobStatus::Leased);
+        assert_eq!(second.attempts, 2);
+    }
+
+    #[test]
+    fn nacks_queue_jobs_with_retry_delay() {
+        let mut store = SqliteMemoryStore::open_in_memory().unwrap();
+
+        store
+            .push_job(QueueJob::new("embed", "job-1", "{\"doc\":\"doc-1\"}", 3))
+            .unwrap();
+
+        store.claim_job("embed").unwrap().unwrap();
+        let retried = store
+            .nack_job_with_options("embed", "job-1", QueueNackOptions::new(60_000))
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(retried.status, QueueJobStatus::Ready);
+        assert!(store.claim_job("embed").unwrap().is_none());
     }
 
     #[test]

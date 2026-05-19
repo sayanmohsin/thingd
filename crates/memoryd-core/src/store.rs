@@ -1,6 +1,8 @@
 //! Storage traits implemented by memoryd storage adapters.
 
-use crate::{MemoryEvent, MemoryObject, MemorydResult, QueueJob};
+use crate::{
+    MemoryEvent, MemoryObject, MemorydResult, QueueClaimOptions, QueueJob, QueueNackOptions,
+};
 
 /// Object storage operations.
 pub trait ObjectStore {
@@ -57,7 +59,20 @@ pub trait QueueStore {
     /// # Errors
     ///
     /// Returns an error when the backing store cannot claim a job.
-    fn claim_job(&mut self, queue: &str) -> MemorydResult<Option<QueueJob>>;
+    fn claim_job(&mut self, queue: &str) -> MemorydResult<Option<QueueJob>> {
+        self.claim_job_with_options(queue, QueueClaimOptions::default())
+    }
+
+    /// Claim the next ready job from a queue with explicit options.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the backing store cannot claim a job.
+    fn claim_job_with_options(
+        &mut self,
+        queue: &str,
+        options: QueueClaimOptions,
+    ) -> MemorydResult<Option<QueueJob>>;
 
     /// Acknowledge a leased job as completed.
     ///
@@ -71,7 +86,21 @@ pub trait QueueStore {
     /// # Errors
     ///
     /// Returns an error when the backing store cannot update the job.
-    fn nack_job(&mut self, queue: &str, id: &str) -> MemorydResult<Option<QueueJob>>;
+    fn nack_job(&mut self, queue: &str, id: &str) -> MemorydResult<Option<QueueJob>> {
+        self.nack_job_with_options(queue, id, QueueNackOptions::default())
+    }
+
+    /// Reject a leased job for retry or dead-letter routing with explicit options.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the backing store cannot update the job.
+    fn nack_job_with_options(
+        &mut self,
+        queue: &str,
+        id: &str,
+        options: QueueNackOptions,
+    ) -> MemorydResult<Option<QueueJob>>;
 
     /// List all jobs in a queue.
     ///

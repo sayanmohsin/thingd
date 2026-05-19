@@ -8,6 +8,6 @@ The optional `sqlite` feature enables the `rusqlite`-backed
 `SqliteMemoryStore` for durable object, event, and queue storage.
 
 Queue persistence in `SqliteMemoryStore` currently covers idempotent push,
-claim, ack, nack, retry, and dead-letter state. Delayed jobs and configurable
-lease expiration are planned for the Rust model/API alignment work before the
-Node native adapter becomes the default store.
+delayed jobs, configurable lease expiration, ack, nack with retry delay, and
+dead-letter state. The Node native adapter is still planned before this durable
+store becomes the default public Node.js path.

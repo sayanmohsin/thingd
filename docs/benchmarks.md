@@ -96,26 +96,27 @@ Results:
 
 | Store | Operation | Elapsed | Ops/sec |
 | --- | --- | ---: | ---: |
-| `in-memory` | object put | `3.345875ms` | `1,494,768` |
-| `in-memory` | object get | `1.637125ms` | `3,054,367` |
-| `in-memory` | event append | `1.580166ms` | `3,164,556` |
-| `in-memory` | event list | `502.416us` | `9,960,159` |
-| `in-memory` | queue push | `29.113791ms` | `171,744` |
-| `in-memory` | queue claim+ack | `29.841583ms` | `167,554` |
-| `sqlite-memory` | object put | `32.989416ms` | `151,565` |
-| `sqlite-memory` | object get | `8.891084ms` | `562,366` |
-| `sqlite-memory` | event append | `15.433917ms` | `323,981` |
-| `sqlite-memory` | event list | `841.666us` | `5,945,303` |
-| `sqlite-memory` | queue push | `36.469333ms` | `137,102` |
-| `sqlite-memory` | queue claim+ack | `115.987ms` | `43,108` |
-| `sqlite-file` | object put | `292.691166ms` | `17,082` |
-| `sqlite-file` | object get | `12.23875ms` | `408,563` |
-| `sqlite-file` | event append | `293.291792ms` | `17,047` |
-| `sqlite-file` | event list | `982.416us` | `5,091,649` |
-| `sqlite-file` | queue push | `246.495416ms` | `20,284` |
-| `sqlite-file` | queue claim+ack | `523.464958ms` | `9,551` |
+| `in-memory` | object put | `2.33ms` | `2,145,922` |
+| `in-memory` | object get | `1.908792ms` | `2,620,545` |
+| `in-memory` | event append | `926.542us` | `5,399,568` |
+| `in-memory` | event list | `285.459us` | `17,543,859` |
+| `in-memory` | queue push | `19.91375ms` | `251,092` |
+| `in-memory` | queue claim+ack | `44.285167ms` | `112,905` |
+| `sqlite-memory` | object put | `32.832167ms` | `152,290` |
+| `sqlite-memory` | object get | `9.6165ms` | `519,966` |
+| `sqlite-memory` | event append | `16.277375ms` | `307,181` |
+| `sqlite-memory` | event list | `817.625us` | `6,119,951` |
+| `sqlite-memory` | queue push | `45.531167ms` | `109,815` |
+| `sqlite-memory` | queue claim+ack | `163.144667ms` | `30,647` |
+| `sqlite-file` | object put | `233.239916ms` | `21,437` |
+| `sqlite-file` | object get | `12.801916ms` | `390,594` |
+| `sqlite-file` | event append | `201.404125ms` | `24,825` |
+| `sqlite-file` | event list | `823.792us` | `6,075,334` |
+| `sqlite-file` | queue push | `403.709708ms` | `12,385` |
+| `sqlite-file` | queue claim+ack | `943.060667ms` | `5,301` |
 
 Current read: the durable file path is already fine for early local-app
-workloads, but write-heavy object/event paths and queue claim+ack loops will
-benefit from explicit batching, fewer one-row transactions, and purpose-built
-claim indexes as the API grows.
+workloads, but queue claim+ack now does real lease-expiry maintenance and
+timestamp writes. Write-heavy object/event paths and queue loops will benefit
+from explicit batching, fewer one-row transactions, and purpose-built claim
+indexes as the API grows.

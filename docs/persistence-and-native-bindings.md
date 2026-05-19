@@ -71,11 +71,11 @@ Pros:
 
 Cons:
 
-- Node-style lease duration and delayed-job options still need Rust API alignment
 - vector search requires extension strategy
 - schema/migration discipline required
+- existing development databases may need explicit migrations as queue columns evolve
 
-Current fit: selected first durable backend. The adapter uses `rusqlite` for object, event, and trait-level queue persistence.
+Current fit: selected first durable backend. The adapter uses `rusqlite` for object, event, and trait-level queue persistence, including delayed jobs, configurable lease expiration, retry delay, and dead-letter state.
 
 ### redb
 
@@ -170,7 +170,6 @@ The native binding should satisfy the existing Node tests before it becomes the 
 - no server/sidecar mode yet
 - no MCP implementation yet
 - no Node SDK native adapter yet
-- no Rust API support for Node-style delayed jobs or configurable lease durations yet
 
 ## Phase 4 Scope
 
@@ -194,9 +193,16 @@ Completed in Phase 5:
 6. Support `nack` with `leased -> ready` or `leased -> dead`.
 7. Add Rust tests for queue persistence, duplicate push, ack, retry, dead-letter, and reopen behavior.
 
-Remaining:
+Completed in Phase 6:
 
 1. Add Rust model support for delayed jobs and configurable lease expiration.
-2. Add a `napi-rs` binding that can open a database file.
-3. Add a TypeScript `NativeMemoryStore` adapter.
-4. Run the existing SDK tests against both in-memory and native stores.
+2. Add Rust model support for retry delay on `nack`.
+3. Persist queue availability, lease, completion, and dead-letter timestamps in SQLite.
+4. Reclaim expired leases before queue claim.
+5. Add in-memory and SQLite Rust tests for delay, lease expiration, retry delay, and queue timestamps.
+
+Remaining:
+
+1. Add a `napi-rs` binding that can open a database file.
+2. Add a TypeScript `NativeMemoryStore` adapter.
+3. Run the existing SDK tests against both in-memory and native stores.

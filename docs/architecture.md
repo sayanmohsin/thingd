@@ -63,7 +63,7 @@ MemoryStore
 
 Future durable adapters should implement those traits.
 
-The first durable adapter is `SqliteMemoryStore`, enabled by the Rust crate's `sqlite` feature. It currently persists objects, events, and trait-level queue jobs with `rusqlite`. Queue claim, ack, nack, retry, and dead-letter updates are transactional; delayed jobs and configurable lease expiration still need Rust model/API alignment.
+The first durable adapter is `SqliteMemoryStore`, enabled by the Rust crate's `sqlite` feature. It currently persists objects, events, and trait-level queue jobs with `rusqlite`. Queue claim, ack, nack, retry delay, delayed availability, lease expiration, and dead-letter updates are transactional.
 
 ## Queue Model
 

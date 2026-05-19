@@ -28,13 +28,13 @@ The repository currently contains:
 - a feature-gated SQLite adapter for durable Rust object, event, and queue storage
 - a working TypeScript Node.js SDK with an in-memory store
 - object, event, search, and queue APIs
-- queue semantics for leases, `ack`, `nack`, delayed jobs, and dead-letter jobs
+- queue semantics for leases, `ack`, `nack`, delayed jobs, retry delays, and dead-letter jobs
 - npm package smoke testing without publishing
 - a private native-binding scaffold for future N-API work
 - MCP package scaffolding
 - architecture, release, persistence, and agent integration docs
 
-It is not production-ready yet. The current public Node.js SDK is useful for API exploration and local integration tests, but it does not persist data across process restarts. The Rust core now has SQLite-backed object, event, and queue persistence behind the `sqlite` feature; the Node native adapter is still next.
+It is not production-ready yet. The current public Node.js SDK is useful for API exploration and local integration tests, but it does not persist data across process restarts. The Rust core now has SQLite-backed object, event, and queue persistence behind the `sqlite` feature, including delayed jobs and configurable lease expiration; the Node native adapter is still next.
 
 ## Why memoryd?
 
@@ -564,6 +564,7 @@ npm run test:rust
 - [x] Rust storage boundary traits
 - [x] SQLite object/event adapter in the Rust core
 - [x] SQLite queue adapter in the Rust core
+- [x] delayed jobs and configurable lease expiration in the Rust core
 - [ ] native Node adapter to the Rust store
 
 ### v0.2 - agent memory

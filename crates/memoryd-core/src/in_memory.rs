@@ -3,8 +3,9 @@
 use std::collections::{BTreeMap, VecDeque};
 
 use crate::{
-    EventLog, MemoryEvent, MemoryObject, MemorydError, MemorydResult, ObjectKey, ObjectStore,
-    QueueJob, QueueJobStatus, QueueStore,
+    u64_to_i64, unix_timestamp_millis, EventLog, MemoryEvent, MemoryObject, MemorydError,
+    MemorydResult, ObjectKey, ObjectStore, QueueClaimOptions, QueueJob, QueueJobStatus,
+    QueueNackOptions, QueueStore,
 };
 
 /// In-memory engine used to prove the storage boundary.
@@ -81,20 +82,28 @@ impl QueueStore for MemoryEngine {
         Ok(job)
     }
 
-    fn claim_job(&mut self, queue: &str) -> MemorydResult<Option<QueueJob>> {
+    fn claim_job_with_options(
+        &mut self,
+        queue: &str,
+        options: QueueClaimOptions,
+    ) -> MemorydResult<Option<QueueJob>> {
+        self.release_expired_leases(queue);
+
         let Some(jobs) = self.queues.get_mut(queue) else {
             return Ok(None);
         };
 
-        let Some(job) = jobs
-            .iter_mut()
-            .find(|candidate| candidate.status == QueueJobStatus::Ready)
-        else {
+        let now = unix_timestamp_millis();
+        let Some(job) = jobs.iter_mut().find(|candidate| {
+            candidate.status == QueueJobStatus::Ready && candidate.available_at_ms <= now
+        }) else {
             return Ok(None);
         };
 
         job.status = QueueJobStatus::Leased;
         job.attempts += 1;
+        job.leased_at_ms = Some(now);
+        job.lease_expires_at_ms = Some(now.saturating_add(u64_to_i64(options.lease_ms)));
 
         Ok(Some(job.clone()))
     }
@@ -111,11 +120,17 @@ impl QueueStore for MemoryEngine {
         }
 
         job.status = QueueJobStatus::Completed;
+        job.completed_at_ms = Some(unix_timestamp_millis());
 
         Ok(Some(job.clone()))
     }
 
-    fn nack_job(&mut self, queue: &str, id: &str) -> MemorydResult<Option<QueueJob>> {
+    fn nack_job_with_options(
+        &mut self,
+        queue: &str,
+        id: &str,
+        options: QueueNackOptions,
+    ) -> MemorydResult<Option<QueueJob>> {
         let Some(job) = self.find_job_mut(queue, id) else {
             return Ok(None);
         };
@@ -126,9 +141,14 @@ impl QueueStore for MemoryEngine {
             )));
         }
 
+        let now = unix_timestamp_millis();
+        job.leased_at_ms = None;
+        job.lease_expires_at_ms = None;
         job.status = if job.attempts >= job.max_attempts {
+            job.dead_at_ms = Some(now);
             QueueJobStatus::Dead
         } else {
+            job.available_at_ms = now.saturating_add(u64_to_i64(options.delay_ms));
             QueueJobStatus::Ready
         };
 
@@ -158,6 +178,22 @@ impl MemoryEngine {
             .get_mut(queue)?
             .iter_mut()
             .find(|job| job.id == id)
+    }
+
+    fn release_expired_leases(&mut self, queue: &str) {
+        let now = unix_timestamp_millis();
+
+        for job in self.queues.get_mut(queue).into_iter().flatten() {
+            if job.status == QueueJobStatus::Leased
+                && job
+                    .lease_expires_at_ms
+                    .is_some_and(|lease_expires_at_ms| lease_expires_at_ms <= now)
+            {
+                job.status = QueueJobStatus::Ready;
+                job.leased_at_ms = None;
+                job.lease_expires_at_ms = None;
+            }
+        }
     }
 }
 
@@ -234,5 +270,53 @@ mod tests {
 
         assert_eq!(nacked.status, QueueJobStatus::Dead);
         assert_eq!(engine.list_dead_jobs("embed").unwrap().len(), 1);
+    }
+
+    #[test]
+    fn does_not_claim_delayed_jobs_before_available() {
+        let mut engine = MemoryEngine::new();
+
+        engine
+            .push_job(QueueJob::new("embed", "job-1", "doc-1", 3).delay_by_ms(60_000))
+            .unwrap();
+
+        assert!(engine.claim_job("embed").unwrap().is_none());
+    }
+
+    #[test]
+    fn reclaims_jobs_after_lease_expiration() {
+        let mut engine = MemoryEngine::new();
+
+        engine
+            .push_job(QueueJob::new("embed", "job-1", "doc-1", 3))
+            .unwrap();
+
+        let first = engine
+            .claim_job_with_options("embed", QueueClaimOptions::new(0))
+            .unwrap()
+            .unwrap();
+        let second = engine.claim_job("embed").unwrap().unwrap();
+
+        assert_eq!(first.status, QueueJobStatus::Leased);
+        assert_eq!(second.status, QueueJobStatus::Leased);
+        assert_eq!(second.attempts, 2);
+    }
+
+    #[test]
+    fn nacks_jobs_with_retry_delay() {
+        let mut engine = MemoryEngine::new();
+
+        engine
+            .push_job(QueueJob::new("embed", "job-1", "doc-1", 3))
+            .unwrap();
+
+        engine.claim_job("embed").unwrap().unwrap();
+        let retried = engine
+            .nack_job_with_options("embed", "job-1", QueueNackOptions::new(60_000))
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(retried.status, QueueJobStatus::Ready);
+        assert!(engine.claim_job("embed").unwrap().is_none());
     }
 }
