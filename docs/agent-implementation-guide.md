@@ -14,6 +14,7 @@ Current implementation:
 - `packages/memoryd/src/stores/in-memory-memory-store.ts` is the current proof store.
 - `crates/memoryd-core` contains the Rust storage boundary, in-memory Rust engine, and `SqliteMemoryStore` behind the `sqlite` feature.
 - `packages/memoryd-native` is a private N-API binding for local native driver testing.
+- `packages/memoryd/src/stores/remote-memory-store.ts` lets the SDK talk to a sidecar over Streamable HTTP MCP.
 - `packages/memoryd-mcp` exposes the SDK through stdio and Streamable HTTP MCP servers.
 - the HTTP MCP runtime supports `single`, `leader`, and `follower` bridge modes.
 - `examples/nestjs-basic` demonstrates app integration shape.
@@ -48,6 +49,8 @@ cluster sidecar mode:
 
 Current Node.js code uses the TypeScript in-memory proof layer by default.
 The Rust crate includes `SqliteMemoryStore` for object, event, and queue persistence, including delayed jobs, configurable lease expiration, retry delay, dead-letter state, and schema migration guardrails. The SDK can opt into the private native bridge with `driver: "native"` after `@sayanmohsin/memoryd-native` is built locally.
+The SDK can opt into sidecar mode with `driver: "remote"` or automatically when
+`MEMORYD_URL` is set.
 The HTTP MCP runtime can run as a bridge follower and forward MCP traffic to a
 configured leader. It does not yet replicate local follower stores.
 
@@ -91,6 +94,17 @@ Or use a `file:` dependency:
 
 Use `npm run test:package` to verify the packed package works without publishing to npm.
 
+For sidecar mode:
+
+```bash
+MEMORYD_URL=http://127.0.0.1:8757
+MEMORYD_AUTH_TOKEN=change-me
+```
+
+```ts
+const db = await MemoryD.open();
+```
+
 Use `npm run bench:rust` when storage performance changes. Read
 [benchmarks.md](./benchmarks.md) before treating local numbers as product
 claims. Benchmark runs do not update docs automatically; baseline updates are
@@ -101,7 +115,7 @@ intentional documentation edits.
 ```ts
 import { MemoryD } from "@sayanmohsin/memoryd";
 
-const db = await MemoryD.open("./memoryd.db");
+const db = await MemoryD.open();
 
 await db.put("decisions", {
   id: "rust-core",
@@ -171,7 +185,7 @@ export const MEMORYD = Symbol("MEMORYD");
   providers: [
     {
       provide: MEMORYD,
-      useFactory: () => MemoryD.open("./memoryd.db"),
+      useFactory: () => MemoryD.open(),
     },
   ],
   exports: [MEMORYD],
@@ -317,4 +331,5 @@ npm run bench:rust:smoke
 - Treating `nack` as failure instead of retry/dead-letter routing.
 - Adding npm publish assumptions before `NPM_TOKEN` is configured.
 - Using queue consumers without idempotency keys for repeatable work.
-- Assuming `MemoryD.open("./memoryd.db")` persists through the Node SDK before native bindings are wired.
+- Assuming `MemoryD.open("./memoryd.db")` persists. Use `driver: "native"` for
+  embedded SQLite or `MEMORYD_URL` for sidecar mode.

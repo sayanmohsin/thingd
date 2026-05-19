@@ -1,13 +1,18 @@
 #!/usr/bin/env node
 
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { MemoryD, type MemoryDDriver } from "@sayanmohsin/memoryd";
-import { parseMemorydDriver, readCliValue, readMcpAuditOptionsFromEnv } from "./config.js";
+import { MemoryD } from "@sayanmohsin/memoryd";
+import {
+  type MemoryDStorageDriver,
+  parseMemorydDriver,
+  readCliValue,
+  readMcpAuditOptionsFromEnv,
+} from "./config.js";
 import { createMemorydMcpServer } from "./server.js";
 
 type CliOptions = {
   path: string;
-  driver?: MemoryDDriver;
+  driver?: MemoryDStorageDriver;
 };
 
 const options = parseCliOptions(process.argv.slice(2));

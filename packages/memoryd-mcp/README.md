@@ -57,6 +57,25 @@ MEMORYD_DRIVER=memory
 
 `MEMORYD_DRIVER` can be `memory` or `native`.
 
+### Node SDK Sidecar Client
+
+Node apps can use this HTTP runtime through the normal `@sayanmohsin/memoryd`
+SDK. Set `MEMORYD_URL` and call `MemoryD.open()`:
+
+```bash
+MEMORYD_URL=http://127.0.0.1:8757
+MEMORYD_AUTH_TOKEN=change-me
+```
+
+```ts
+import { MemoryD } from "@sayanmohsin/memoryd";
+
+const db = await MemoryD.open();
+```
+
+If `MEMORYD_URL` has no path, the SDK appends `/mcp` automatically and uses the
+remote driver over Streamable HTTP MCP.
+
 ### Streamable HTTP
 
 ```bash

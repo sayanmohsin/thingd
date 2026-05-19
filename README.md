@@ -14,7 +14,7 @@ SQLite-like local deployment
 + durable queues for workers and agents
 + graph links, leases, workflows, and semantic cache later
 + MCP tools for safe AI access
-+ optional sidecar cluster bridge later
++ optional sidecar/cluster bridge mode
 ```
 
 ## Status
@@ -28,6 +28,7 @@ The repository currently contains:
 - a feature-gated SQLite adapter for durable Rust object, event, and queue storage
 - a working TypeScript Node.js SDK with an in-memory store
 - an opt-in private N-API native driver that opens the Rust SQLite store locally
+- a remote Node.js SDK driver that talks to the sidecar over Streamable HTTP MCP
 - object, event, search, and queue APIs
 - queue semantics for leases, `ack`, `nack`, delayed jobs, retry delays, and dead-letter jobs
 - npm package smoke testing without publishing
@@ -38,7 +39,7 @@ The repository currently contains:
 - MCP audit events for write tools
 - architecture, release, persistence, and agent integration docs
 
-It is not production-ready yet. The default public Node.js SDK path still uses the TypeScript in-memory store for API exploration and local integration tests. The Rust core has SQLite-backed object, event, and queue persistence behind the `sqlite` feature, and the repo now has an opt-in private native driver for local testing. Native prebuilds, production packaging, and deployment hardening are still next.
+It is not production-ready yet. The default public Node.js SDK path still uses the TypeScript in-memory store for API exploration and local integration tests. The Rust core has SQLite-backed object, event, and queue persistence behind the `sqlite` feature, and the repo now has an opt-in private native driver for local testing. Node apps can also use the remote driver to talk to a `memoryd` sidecar through `MEMORYD_URL`. Native prebuilds, production packaging, and deployment hardening are still next.
 
 ## Why memoryd?
 
@@ -68,7 +69,7 @@ AI agents and modern app workflows commonly need to:
 - a search layer across text, metadata, and vectors
 - an MCP server for controlled agent access
 - a Rust core with a friendly TypeScript/Node.js SDK
-- a future sidecar/server mode for Kubernetes-style deployments
+- a sidecar/server runtime shape for Kubernetes-style deployments
 
 ## What memoryd is not
 
@@ -146,6 +147,27 @@ npm run build --workspace @sayanmohsin/memoryd-native
 const db = await MemoryD.open({
   path: "./memoryd.db",
   driver: "native",
+});
+```
+
+For sidecar mode, point the SDK at the HTTP MCP runtime:
+
+```bash
+MEMORYD_URL=http://127.0.0.1:8757
+MEMORYD_AUTH_TOKEN=change-me
+```
+
+```ts
+const db = await MemoryD.open();
+```
+
+Or configure it explicitly:
+
+```ts
+const db = await MemoryD.open({
+  url: "http://127.0.0.1:8757/mcp",
+  driver: "remote",
+  authToken: "change-me",
 });
 ```
 
@@ -424,6 +446,13 @@ Pod C memoryd sidecar = follower, forwards writes
 Apps keep using `MemoryD`; deployment decides whether `MemoryD.open()` uses an
 embedded store or connects to `MEMORYD_URL`.
 
+```ts
+const db = await MemoryD.open();
+```
+
+With `MEMORYD_URL` set, this uses the remote SDK driver and talks to the local
+sidecar over Streamable HTTP MCP.
+
 See [docs/sidecar-cluster.md](./docs/sidecar-cluster.md),
 [docs/runtime-env.md](./docs/runtime-env.md), and the [deploy](./deploy)
 examples for the current bridge env, Kubernetes shape, and reverse proxy shape.
@@ -663,6 +692,7 @@ npm run test:rust
 - [x] idempotency keys in the Node SDK proof store
 - [x] delayed jobs in the Node SDK proof store
 - [x] persistent SDK store backed by native Rust for local repo testing
+- [x] remote SDK driver for sidecar mode over Streamable HTTP MCP
 - [x] Docker runtime scaffold
 - [x] bridge-mode env vars and follower MCP forwarding
 - [x] Docker/Kubernetes/proxy deployment examples
@@ -680,7 +710,7 @@ npm run test:rust
 - [ ] compaction snapshots
 - [ ] local read replicas
 - [ ] server binary
-- [ ] Docker sidecar image
+- [ ] published Docker sidecar image
 - [x] Kubernetes sidecar mode example
 - [x] cluster bridge with leader write forwarding
 - [ ] tenant partitioning

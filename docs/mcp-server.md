@@ -186,6 +186,22 @@ catch-up is still future work.
 
 See [docker-runtime.md](./docker-runtime.md).
 
+## Node SDK Remote Driver
+
+Node apps can use the same SDK against the Streamable HTTP runtime:
+
+```bash
+MEMORYD_URL=http://127.0.0.1:8757
+MEMORYD_AUTH_TOKEN=change-me
+```
+
+```ts
+const db = await MemoryD.open();
+```
+
+`MemoryD.open()` appends `/mcp` automatically when `MEMORYD_URL` points at the
+runtime root.
+
 ## ChatGPT And Remote MCP Direction
 
 The Streamable HTTP server is remote-capable, but ChatGPT-style cloud usage

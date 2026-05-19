@@ -2,6 +2,8 @@ export type { MemoryDDriver, MemoryDOpenConfig, MemoryDOpenOptions } from "./mem
 export { MemoryD } from "./memoryd.js";
 export { InMemoryMemoryStore } from "./stores/in-memory-memory-store.js";
 export { NativeMemoryStore } from "./stores/native-memory-store.js";
+export type { RemoteMemoryStoreOptions } from "./stores/remote-memory-store.js";
+export { RemoteMemoryStore } from "./stores/remote-memory-store.js";
 export type {
   MemoryDeleteResult,
   MemoryEvent,

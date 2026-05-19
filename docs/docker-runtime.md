@@ -74,6 +74,17 @@ Local URL:
 http://127.0.0.1:8757/mcp
 ```
 
+Node apps can use the SDK remote driver through the sidecar:
+
+```bash
+MEMORYD_URL=http://127.0.0.1:8757
+MEMORYD_AUTH_TOKEN=change-me
+```
+
+```ts
+const db = await MemoryD.open();
+```
+
 For ChatGPT or cloud-hosted agents, localhost is not enough. The MCP endpoint
 must be available at a public HTTPS URL with authentication.
 

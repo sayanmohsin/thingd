@@ -18,6 +18,7 @@ Rust core
 Node SDK
   app-facing API
   worker consumers
+  remote sidecar client
   local process management
 
 MCP server
@@ -32,6 +33,8 @@ Server/sidecar
 ```
 
 The public Node SDK should remain the app-facing contract. Native bindings should sit underneath that SDK rather than creating a separate API surface.
+Remote sidecar mode also stays underneath that SDK through the `remote` driver,
+which talks to the HTTP MCP runtime.
 
 ## Storage Model
 

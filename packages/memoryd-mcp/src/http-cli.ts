@@ -2,6 +2,7 @@
 
 import { readClusterOptionsFromEnv } from "./cluster.js";
 import {
+  type MemoryDStorageDriver,
   parseBooleanFlag,
   parseMemorydDriver,
   parsePort,
@@ -12,7 +13,7 @@ import { startMemorydHttpServer } from "./http.js";
 
 type HttpCliOptions = {
   path: string;
-  driver?: "memory" | "native";
+  driver?: MemoryDStorageDriver;
   host: string;
   port: number;
   authToken?: string;

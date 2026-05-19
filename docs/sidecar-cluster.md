@@ -122,13 +122,13 @@ const db = await MemoryD.open();
 Resolution order:
 
 1. `MEMORYD_URL` set: connect to server or sidecar.
-2. `MEMORYD_DB` set: open embedded SQLite through native binding.
-3. no env: use default local path for development once persistence is enabled.
+2. explicit `path` plus `driver: "native"`: open embedded SQLite through the
+   native binding.
+3. no env: use the in-memory proof store for development.
 
 Explicit targets:
 
 ```ts
-await MemoryD.open("./memoryd.db");
 await MemoryD.open("memoryd://127.0.0.1:8757");
 await MemoryD.open("http://127.0.0.1:8757");
 ```
@@ -136,32 +136,22 @@ await MemoryD.open("http://127.0.0.1:8757");
 Explicit options:
 
 ```ts
-await MemoryD.open("./memoryd.db", {
-  mode: "embedded",
-  driver: "sqlite",
+await MemoryD.open({
+  path: "./memoryd.db",
+  driver: "native",
 });
 
-await MemoryD.open("memoryd://127.0.0.1:8757", {
-  mode: "remote",
-  readConsistency: "strong",
+await MemoryD.open({
+  url: "http://127.0.0.1:8757/mcp",
+  driver: "remote",
+  authToken: "change-me",
 });
-```
-
-Planned option shape:
-
-```ts
-type MemoryDOpenOptions = {
-  mode?: "auto" | "embedded" | "remote";
-  driver?: "sqlite" | "memory";
-  store?: MemoryStore;
-  readConsistency?: "strong" | "local";
-};
 ```
 
 `store` remains useful for tests and custom adapters.
 
-The remote `MemoryD.open("http://...")` client adapter is still future work.
-The implemented remote protocol today is MCP over Streamable HTTP.
+The remote SDK driver uses MCP over Streamable HTTP. A separate HTTP+JSON app
+API may still come later if benchmarks or ergonomics justify it.
 
 ## Server API Shape
 
@@ -218,8 +208,8 @@ MEMORYD_URL=http://127.0.0.1:8757
 Embedded mode:
 
 ```bash
-MEMORYD_MODE=embedded
-MEMORYD_DB=./memoryd.db
+MEMORYD_DRIVER=native
+MEMORYD_PATH=./memoryd.db
 ```
 
 Server or sidecar mode:
@@ -369,22 +359,22 @@ Future events:
 
 - add `crates/memoryd-server`
 - expose HTTP+JSON API over `memoryd-core`
-- support `MEMORYD_DB`, `MEMORYD_BIND`, and health checks
+- support `MEMORYD_PATH`, `MEMORYD_HOST`, `MEMORYD_PORT`, and health checks
 - keep cluster disabled
 
 ### Sidecar Phase B - Docker And Sidecar Mode
 
-- build `memoryd` Docker image
-- add Kubernetes sidecar example
-- app connects through `MEMORYD_URL=http://127.0.0.1:8757`
-- document readiness/liveness checks
+- [x] build Docker runtime image scaffold
+- [x] add Kubernetes sidecar example
+- [x] app connects through `MEMORYD_URL=http://127.0.0.1:8757`
+- [x] document readiness/liveness checks
 
 ### Sidecar Phase C - Cluster Bridge
 
-- add peer metadata
-- add static peer mode first
-- add Kubernetes service discovery metadata
-- add follower MCP forwarding to configured leader
+- [x] add peer metadata
+- [x] add static peer mode first
+- [ ] add Kubernetes service discovery metadata
+- [x] add follower MCP forwarding to configured leader
 
 ### Sidecar Phase D - Replication
 

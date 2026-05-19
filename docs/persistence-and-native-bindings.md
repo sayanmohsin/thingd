@@ -165,8 +165,8 @@ The native binding satisfies the existing Node behavior tests when the private n
 ## Non-goals For This Phase
 
 - no prebuild matrix yet
-- no server/sidecar mode yet
-- no MCP implementation yet
+- no native package publishing yet
+- no follower replica catch-up yet
 
 ## Phase 4 Scope
 
@@ -209,6 +209,13 @@ Completed in Phase 10:
 1. Add SQLite schema version tracking in `memoryd_schema_migrations`.
 2. Add a guard that rejects databases created by newer unsupported schema versions.
 3. Keep the initial object/event/queue schema as migration version 1.
+
+Completed in Phase 12:
+
+1. Add a remote SDK store over Streamable HTTP MCP.
+2. Let `MemoryD.open()` infer sidecar mode from `MEMORYD_URL`.
+3. Keep native persistence opt-in while allowing app code to use the same SDK
+   methods against a sidecar.
 
 Remaining:
 

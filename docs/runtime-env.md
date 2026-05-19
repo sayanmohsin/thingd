@@ -3,6 +3,17 @@
 This is the current environment variable reference for the `memoryd` HTTP MCP
 runtime and Docker sidecar.
 
+## App SDK
+
+```txt
+MEMORYD_URL=http://127.0.0.1:8757
+MEMORYD_AUTH_TOKEN=change-me
+```
+
+When `MEMORYD_URL` is set, `MemoryD.open()` uses the SDK remote driver and
+talks to the sidecar over Streamable HTTP MCP. If the URL has no path, `/mcp` is
+used automatically.
+
 ## Storage
 
 ```txt

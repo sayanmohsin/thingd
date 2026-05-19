@@ -15,6 +15,19 @@ This starts:
 
 Both use the same demo bearer token: `change-me`.
 
+Point a Node app at either runtime with:
+
+```bash
+MEMORYD_URL=http://127.0.0.1:8757
+MEMORYD_AUTH_TOKEN=change-me
+```
+
+Then app code can use:
+
+```ts
+const db = await MemoryD.open();
+```
+
 ## Kubernetes
 
 ```bash

@@ -1,6 +1,6 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import { MemoryD, type MemoryDDriver } from "@sayanmohsin/memoryd";
+import { MemoryD } from "@sayanmohsin/memoryd";
 import type { MemorydMcpAuditOptions } from "./audit.js";
 import {
   clusterStatus,
@@ -9,12 +9,12 @@ import {
   type ResolvedMemorydClusterOptions,
   resolveClusterOptions,
 } from "./cluster.js";
-import { ensureHttpRuntimeIsSafe } from "./config.js";
+import { ensureHttpRuntimeIsSafe, type MemoryDStorageDriver } from "./config.js";
 import { createMemorydMcpServer } from "./server.js";
 
 export type MemorydHttpServerOptions = {
   path: string;
-  driver?: MemoryDDriver;
+  driver?: MemoryDStorageDriver;
   host?: string;
   port?: number;
   authToken?: string;
@@ -37,7 +37,7 @@ type RuntimeState = {
   authToken?: string;
   mcpPath: string;
   healthPath: string;
-  driver: MemoryDDriver | "memory";
+  driver: MemoryDStorageDriver | "memory";
   audit?: MemorydMcpAuditOptions | false;
   cluster: ResolvedMemorydClusterOptions;
 };

@@ -1,13 +1,15 @@
 import type { MemoryDDriver } from "@sayanmohsin/memoryd";
 import type { MemorydMcpAuditOptions } from "./audit.js";
 
+export type MemoryDStorageDriver = Exclude<MemoryDDriver, "remote">;
+
 export type HttpRuntimeSafetyOptions = {
   host: string;
   authToken?: string;
   allowUnauthenticated?: boolean;
 };
 
-export function parseMemorydDriver(value: string | undefined): MemoryDDriver | undefined {
+export function parseMemorydDriver(value: string | undefined): MemoryDStorageDriver | undefined {
   if (!value) {
     return undefined;
   }

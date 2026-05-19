@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { MemoryD } from "@sayanmohsin/memoryd";
 import { startMemorydHttpServer } from "../dist/index.js";
 
 test("serves health checks", async () => {
@@ -175,6 +176,35 @@ test("forwards follower MCP traffic to the leader", async () => {
   await client.close();
   await follower.close();
   await leader.close();
+});
+
+test("supports the Node SDK remote driver over Streamable HTTP", async () => {
+  const runtime = await startMemorydHttpServer({
+    path: ":memory:",
+    port: 0,
+    authToken: "test-token",
+  });
+  const db = await MemoryD.open({
+    url: runtime.mcpUrl,
+    driver: "remote",
+    authToken: "test-token",
+  });
+
+  const stored = await db.put("decisions", {
+    id: "remote-sdk",
+    text: "Node apps can use the memoryd sidecar through the SDK.",
+  });
+  const found = await db.get("decisions", "remote-sdk");
+  const hits = await db.search("sidecar", {
+    collections: ["decisions"],
+  });
+
+  assert.equal(stored.collection, "decisions");
+  assert.equal(found?.text, "Node apps can use the memoryd sidecar through the SDK.");
+  assert.equal(hits[0].id, "remote-sdk");
+
+  await db.close();
+  await runtime.close();
 });
 
 async function callJsonTool(client, name, args) {

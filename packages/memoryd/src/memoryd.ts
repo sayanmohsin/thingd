@@ -1,5 +1,6 @@
 import { InMemoryMemoryStore } from "./stores/in-memory-memory-store.js";
 import { NativeMemoryStore } from "./stores/native-memory-store.js";
+import { RemoteMemoryStore } from "./stores/remote-memory-store.js";
 import type {
   MemoryDeleteResult,
   MemoryEvent,
@@ -16,32 +17,30 @@ import type {
   StoredMemoryObject,
 } from "./types.js";
 
-export type MemoryDDriver = "memory" | "native";
+export type MemoryDDriver = "memory" | "native" | "remote";
 
 export type MemoryDOpenOptions = {
   driver?: MemoryDDriver;
   store?: MemoryStore;
+  authToken?: string;
 };
 
 export type MemoryDOpenConfig = MemoryDOpenOptions & {
-  path: string;
+  path?: string;
+  url?: string;
 };
 
 export class MemoryD {
   static async open(
-    pathOrConfig: string | MemoryDOpenConfig,
+    pathOrConfig?: string | MemoryDOpenConfig,
     options: MemoryDOpenOptions = {},
   ): Promise<MemoryD> {
-    const path = typeof pathOrConfig === "string" ? pathOrConfig : pathOrConfig.path;
-    const resolvedOptions =
-      typeof pathOrConfig === "string"
-        ? options
-        : {
-            ...pathOrConfig,
-            ...options,
-          };
+    const resolvedOptions = resolveOpenOptions(pathOrConfig, options);
 
-    return new MemoryD(path, await openStore(path, resolvedOptions));
+    return new MemoryD(
+      resolvedOptions.path,
+      await openStore(resolvedOptions.path, resolvedOptions),
+    );
   }
 
   private constructor(
@@ -82,11 +81,60 @@ export class MemoryD {
       dead: () => this.store.listDeadJobs(name),
     };
   }
+
+  async close(): Promise<void> {
+    await this.store.close?.();
+  }
 }
 
-async function openStore(path: string, options: MemoryDOpenOptions): Promise<MemoryStore> {
+type ResolvedMemoryDOpenOptions = MemoryDOpenOptions & {
+  path: string;
+};
+
+function resolveOpenOptions(
+  pathOrConfig: string | MemoryDOpenConfig | undefined,
+  options: MemoryDOpenOptions,
+): ResolvedMemoryDOpenOptions {
+  const config =
+    typeof pathOrConfig === "string"
+      ? {
+          path: pathOrConfig,
+        }
+      : (pathOrConfig ?? {});
+  const path = config.url ?? config.path ?? process.env.MEMORYD_URL ?? ":memory:";
+  const driver = options.driver ?? config.driver ?? inferDriver(path);
+
+  return {
+    ...config,
+    ...options,
+    path,
+    driver,
+    authToken: options.authToken ?? config.authToken ?? process.env.MEMORYD_AUTH_TOKEN,
+  };
+}
+
+function inferDriver(path: string): MemoryDDriver | undefined {
+  if (isRemotePath(path)) {
+    return "remote";
+  }
+
+  return undefined;
+}
+
+function isRemotePath(path: string): boolean {
+  return path.startsWith("http://") || path.startsWith("https://") || path.startsWith("memoryd://");
+}
+
+async function openStore(path: string, options: ResolvedMemoryDOpenOptions): Promise<MemoryStore> {
   if (options.store) {
     return options.store;
+  }
+
+  if (options.driver === "remote") {
+    return RemoteMemoryStore.open({
+      url: path,
+      authToken: options.authToken,
+    });
   }
 
   if (options.driver === "native") {

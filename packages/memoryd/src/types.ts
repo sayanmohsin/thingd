@@ -114,4 +114,5 @@ export interface MemoryStore {
   listJobs(queue: string): Promise<QueueJob[]>;
   listDeadJobs(queue: string): Promise<QueueJob[]>;
   search(query: string, options?: MemorySearchOptions): Promise<MemorySearchResult[]>;
+  close?(): Promise<void>;
 }
