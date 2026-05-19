@@ -49,6 +49,7 @@ AI agents and modern app workflows commonly need to:
 
 `memoryd` is intended to be:
 
+- an open source Apache-2.0 project
 - an object-shaped local data layer for apps
 - an AI-readable memory store
 - a durable queue engine for background jobs
@@ -346,6 +347,43 @@ docs/
 - [Node basic](./examples/node-basic) shows the intended SDK shape.
 - [NestJS basic](./examples/nestjs-basic) shows how `memoryd` can sit behind a normal NestJS module, service, and controller setup.
 
+## Local testing without npm publish
+
+You can test the Node.js package locally before publishing anything to npm.
+
+From the repository root:
+
+```bash
+npm install
+npm run build
+npm run test:node
+```
+
+The included examples can consume the local package through the workspace/file dependency. For the NestJS example:
+
+```bash
+cd examples/nestjs-basic
+npm run start:dev
+```
+
+For a separate Node.js app outside this repository, install the local package by path:
+
+```bash
+npm install /Users/sayan/Documents/Experimental/memoryd/packages/memoryd
+```
+
+Or add it to that app's `package.json`:
+
+```json
+{
+  "dependencies": {
+    "@sayanmohsin/memoryd": "file:/Users/sayan/Documents/Experimental/memoryd/packages/memoryd"
+  }
+}
+```
+
+Publishing to npm is only needed once you want other machines or users to install the package normally.
+
 ## Tooling and standards
 
 Project conventions live in checked-in files so this private repo stays easy to work on with normal dev tools and AI coding sessions:
@@ -456,4 +494,4 @@ cargo test
 
 ## License
 
-Apache-2.0. See [LICENSE](./LICENSE).
+`memoryd` is open source under the Apache-2.0 license. See [LICENSE](./LICENSE).
