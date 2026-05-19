@@ -32,7 +32,11 @@ pub struct MemoryObject {
 
 impl MemoryObject {
     /// Create a new object record.
-    pub fn new(collection: impl Into<String>, id: impl Into<String>, body: impl Into<String>) -> Self {
+    pub fn new(
+        collection: impl Into<String>,
+        id: impl Into<String>,
+        body: impl Into<String>,
+    ) -> Self {
         Self {
             key: ObjectKey::new(collection, id),
             body: body.into(),

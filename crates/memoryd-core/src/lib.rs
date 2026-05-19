@@ -2,7 +2,7 @@
 //!
 //! This crate owns the durable engine boundary: object storage, append-only
 //! events, and queue storage. The default implementation is in-memory, with a
-//! feature-gated SQLite adapter available for durable object and event storage.
+//! feature-gated `SQLite` adapter available for durable object and event storage.
 
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]

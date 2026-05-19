@@ -5,6 +5,9 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "Core primitives for memoryd, an object-shaped local memory engine for apps and agents."
+readme = "README.md"
+keywords = ["ai", "memory", "mcp", "sqlite"]
+categories = ["database-implementations"]
 
 [features]
 default = []

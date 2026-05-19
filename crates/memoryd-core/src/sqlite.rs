@@ -1,4 +1,4 @@
-//! SQLite-backed storage adapter.
+//! `SQLite`-backed storage adapter.
 //!
 //! This adapter currently implements durable object and event storage. Queue
 //! persistence is intentionally left for the next phase because queue leasing
@@ -13,31 +13,31 @@ use crate::{
     QueueJob, QueueStore,
 };
 
-/// SQLite-backed memory store.
+/// `SQLite`-backed memory store.
 pub struct SqliteMemoryStore {
     connection: Connection,
 }
 
 impl SqliteMemoryStore {
-    /// Open a SQLite database file and initialize the schema.
+    /// Open a `SQLite` database file and initialize the schema.
     ///
     /// # Errors
     ///
-    /// Returns an error when SQLite cannot open the path or initialize schema.
+    /// Returns an error when `SQLite` cannot open the path or initialize schema.
     pub fn open(path: impl AsRef<Path>) -> MemorydResult<Self> {
-        let connection = Connection::open(path).map_err(Self::storage_error)?;
+        let connection = Connection::open(path).map_err(MemorydError::from)?;
         let store = Self { connection };
         store.initialize()?;
         Ok(store)
     }
 
-    /// Open an in-memory SQLite database and initialize the schema.
+    /// Open an in-memory `SQLite` database and initialize the schema.
     ///
     /// # Errors
     ///
-    /// Returns an error when SQLite cannot initialize schema.
+    /// Returns an error when `SQLite` cannot initialize schema.
     pub fn open_in_memory() -> MemorydResult<Self> {
-        let connection = Connection::open_in_memory().map_err(Self::storage_error)?;
+        let connection = Connection::open_in_memory().map_err(MemorydError::from)?;
         let store = Self { connection };
         store.initialize()?;
         Ok(store)
@@ -72,19 +72,15 @@ impl SqliteMemoryStore {
                     ON events (stream, sequence);
                 ",
             )
-            .map_err(Self::storage_error)?;
+            .map_err(MemorydError::from)?;
 
         Ok(())
-    }
-
-    fn storage_error(error: rusqlite::Error) -> MemorydError {
-        MemorydError::Storage(error.to_string())
     }
 }
 
 impl ObjectStore for SqliteMemoryStore {
     fn put_object(&mut self, mut object: MemoryObject) -> MemorydResult<MemoryObject> {
-        let transaction = self.connection.transaction().map_err(Self::storage_error)?;
+        let transaction = self.connection.transaction().map_err(MemorydError::from)?;
         let version = transaction
             .query_row(
                 "SELECT version FROM objects WHERE collection = ?1 AND id = ?2",
@@ -92,7 +88,7 @@ impl ObjectStore for SqliteMemoryStore {
                 |row| row.get::<_, i64>(0),
             )
             .optional()
-            .map_err(Self::storage_error)?
+            .map_err(MemorydError::from)?
             .map_or(Ok::<u64, MemorydError>(1), |existing| {
                 u64::try_from(existing)
                     .map(|existing| existing + 1)
@@ -120,9 +116,9 @@ impl ObjectStore for SqliteMemoryStore {
                     stored_version
                 ],
             )
-            .map_err(Self::storage_error)?;
+            .map_err(MemorydError::from)?;
 
-        transaction.commit().map_err(Self::storage_error)?;
+        transaction.commit().map_err(MemorydError::from)?;
 
         Ok(object)
     }
@@ -149,7 +145,7 @@ impl ObjectStore for SqliteMemoryStore {
                 },
             )
             .optional()
-            .map_err(Self::storage_error)
+            .map_err(MemorydError::from)
     }
 
     fn delete_object(&mut self, collection: &str, id: &str) -> MemorydResult<bool> {
@@ -159,7 +155,7 @@ impl ObjectStore for SqliteMemoryStore {
                 "DELETE FROM objects WHERE collection = ?1 AND id = ?2",
                 params![collection, id],
             )
-            .map_err(Self::storage_error)?;
+            .map_err(MemorydError::from)?;
 
         Ok(changed > 0)
     }
@@ -175,7 +171,7 @@ impl EventLog for SqliteMemoryStore {
                 ",
                 params![&event.stream, &event.event_type, &event.body],
             )
-            .map_err(Self::storage_error)?;
+            .map_err(MemorydError::from)?;
 
         event.sequence = u64::try_from(self.connection.last_insert_rowid())
             .map_err(|error| MemorydError::Storage(error.to_string()))?;
@@ -192,25 +188,25 @@ impl EventLog for SqliteMemoryStore {
                 .prepare(
                     "SELECT stream, event_type, body, sequence FROM events WHERE stream = ?1 ORDER BY sequence",
                 )
-                .map_err(Self::storage_error)?;
+                .map_err(MemorydError::from)?;
             let rows = statement
                 .query_map(params![stream], row_to_event)
-                .map_err(Self::storage_error)?;
+                .map_err(MemorydError::from)?;
 
             for row in rows {
-                events.push(row.map_err(Self::storage_error)?);
+                events.push(row.map_err(MemorydError::from)?);
             }
         } else {
             let mut statement = self
                 .connection
                 .prepare("SELECT stream, event_type, body, sequence FROM events ORDER BY sequence")
-                .map_err(Self::storage_error)?;
+                .map_err(MemorydError::from)?;
             let rows = statement
                 .query_map([], row_to_event)
-                .map_err(Self::storage_error)?;
+                .map_err(MemorydError::from)?;
 
             for row in rows {
-                events.push(row.map_err(Self::storage_error)?);
+                events.push(row.map_err(MemorydError::from)?);
             }
         }
 

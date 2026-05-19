@@ -37,10 +37,7 @@ impl ObjectStore for MemoryEngine {
     }
 
     fn get_object(&self, collection: &str, id: &str) -> MemorydResult<Option<MemoryObject>> {
-        Ok(self
-            .objects
-            .get(&ObjectKey::new(collection, id))
-            .cloned())
+        Ok(self.objects.get(&ObjectKey::new(collection, id)).cloned())
     }
 
     fn delete_object(&mut self, collection: &str, id: &str) -> MemorydResult<bool> {
@@ -64,10 +61,7 @@ impl EventLog for MemoryEngine {
         let events = self
             .events
             .iter()
-            .filter(|event| match stream {
-                Some(target) => event.stream == target,
-                None => true,
-            })
+            .filter(|event| stream.is_none_or(|target| event.stream == target))
             .cloned()
             .collect();
 
@@ -149,15 +143,12 @@ impl QueueStore for MemoryEngine {
     }
 
     fn list_dead_jobs(&self, queue: &str) -> MemorydResult<Vec<QueueJob>> {
-        Ok(self
-            .queues
-            .get(queue)
-            .map_or_else(Vec::new, |jobs| {
-                jobs.iter()
-                    .filter(|job| job.status == QueueJobStatus::Dead)
-                    .cloned()
-                    .collect()
-            }))
+        Ok(self.queues.get(queue).map_or_else(Vec::new, |jobs| {
+            jobs.iter()
+                .filter(|job| job.status == QueueJobStatus::Dead)
+                .cloned()
+                .collect()
+        }))
     }
 }
 
@@ -186,7 +177,10 @@ mod tests {
             ))
             .unwrap();
 
-        let stored = engine.get_object("decisions", "rust-core").unwrap().unwrap();
+        let stored = engine
+            .get_object("decisions", "rust-core")
+            .unwrap()
+            .unwrap();
         assert_eq!(object.version, 1);
         assert_eq!(stored.key.collection, "decisions");
         assert_eq!(stored.key.id, "rust-core");
@@ -205,7 +199,10 @@ mod tests {
             .unwrap();
 
         assert_eq!(event.sequence, 1);
-        assert_eq!(engine.list_events(Some("project:memoryd")).unwrap().len(), 1);
+        assert_eq!(
+            engine.list_events(Some("project:memoryd")).unwrap().len(),
+            1
+        );
     }
 
     #[test]

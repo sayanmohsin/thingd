@@ -31,3 +31,10 @@ impl Display for MemorydError {
 }
 
 impl Error for MemorydError {}
+
+#[cfg(feature = "sqlite")]
+impl From<rusqlite::Error> for MemorydError {
+    fn from(error: rusqlite::Error) -> Self {
+        Self::Storage(error.to_string())
+    }
+}
