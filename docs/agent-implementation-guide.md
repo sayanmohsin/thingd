@@ -85,6 +85,11 @@ Or use a `file:` dependency:
 
 Use `npm run test:package` to verify the packed package works without publishing to npm.
 
+Use `npm run bench:rust` when storage performance changes. Read
+[benchmarks.md](./benchmarks.md) before treating local numbers as product
+claims. Benchmark runs do not update docs automatically; baseline updates are
+intentional documentation edits.
+
 ## Basic Node.js Pattern
 
 ```ts
@@ -281,6 +286,13 @@ npm run test:rust
 Rust checks run with all features enabled so the SQLite adapter is covered in CI.
 
 `npm run test:local` does not run Rust checks because some local environments may not have `cargo` installed.
+
+For storage benchmark work:
+
+```bash
+npm run bench:rust
+npm run bench:rust:smoke
+```
 
 ## Common Mistakes
 

@@ -127,6 +127,7 @@ Current implementation status:
 - events: implemented in `SqliteMemoryStore`
 - queue jobs: not implemented in SQLite yet
 - Node SDK native adapter: not implemented yet
+- benchmarks: `npm run bench:rust` covers the Rust object/event storage path
 
 Keep vector search and multi-pod replication out of the first durable milestone.
 

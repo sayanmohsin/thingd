@@ -367,6 +367,7 @@ docs/
   agent-implementation-guide.md
   coding-standards.md
   persistence-and-native-bindings.md
+  benchmarks.md
   release.md
 ```
 
@@ -425,6 +426,7 @@ Project conventions live in checked-in files so this private repo stays easy to 
 - [docs/agent-implementation-guide.md](./docs/agent-implementation-guide.md) explains how AI agents and contributors should integrate `memoryd` into apps.
 - [docs/coding-standards.md](./docs/coding-standards.md) explains the coding standards.
 - [docs/persistence-and-native-bindings.md](./docs/persistence-and-native-bindings.md) explains the Rust persistence boundary and native binding direction.
+- [docs/benchmarks.md](./docs/benchmarks.md) explains local benchmark commands and how to interpret them.
 - [docs/release.md](./docs/release.md) explains npm publishing and automatic versioning.
 
 Useful commands:
@@ -442,6 +444,8 @@ Rust checks run all crate features, including the SQLite adapter:
 
 ```bash
 npm run rust:check
+npm run bench:rust
+npm run bench:rust:smoke
 npm run test:rust
 ```
 

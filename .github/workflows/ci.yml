@@ -57,3 +57,6 @@ jobs:
 
       - name: Rust unit tests
         run: npm run test:rust
+
+      - name: Rust benchmark smoke test
+        run: npm run bench:rust:smoke

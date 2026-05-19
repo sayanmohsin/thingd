@@ -57,6 +57,9 @@ jobs:
       - name: Rust unit tests
         run: npm run test:rust
 
+      - name: Rust benchmark smoke test
+        run: npm run bench:rust:smoke
+
       - name: Skip release without npm token
         if: env.NPM_TOKEN == ''
         run: echo "NPM_TOKEN is not configured yet; skipping npm publish."
