@@ -107,11 +107,12 @@ For target APIs, storage shapes, MCP surfaces, and phase planning, read
 
 ## MCP Server Direction
 
-`packages/memoryd-mcp` wraps the public SDK as MCP tools. Phase 8 provides a
-stdio transport for local MCP clients and tests. The next runtime step is a
-remote Streamable HTTP endpoint with auth, followed by Docker/server mode.
+`packages/memoryd-mcp` wraps the public SDK as MCP tools. It provides stdio for
+local MCP clients and Streamable HTTP for remote-capable runtimes. The Docker
+runtime starts the HTTP MCP endpoint and persists data under `/data`.
 
-For current tools and local usage, read [mcp-server.md](./mcp-server.md).
+For current tools and local usage, read [mcp-server.md](./mcp-server.md) and
+[docker-runtime.md](./docker-runtime.md).
 
 ## Native Binding Direction
 

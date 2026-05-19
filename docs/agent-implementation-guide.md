@@ -14,7 +14,7 @@ Current implementation:
 - `packages/memoryd/src/stores/in-memory-memory-store.ts` is the current proof store.
 - `crates/memoryd-core` contains the Rust storage boundary, in-memory Rust engine, and `SqliteMemoryStore` behind the `sqlite` feature.
 - `packages/memoryd-native` is a private N-API binding for local native driver testing.
-- `packages/memoryd-mcp` exposes the SDK through a stdio MCP server.
+- `packages/memoryd-mcp` exposes the SDK through stdio and Streamable HTTP MCP servers.
 - `examples/nestjs-basic` demonstrates app integration shape.
 
 Do not present the public Node package as production-ready persistent storage yet.
@@ -227,7 +227,9 @@ memory.queue.list
 memory.queue.dead
 ```
 
-Each future remote MCP write should include actor/source metadata and should append an audit event when practical. The current stdio skeleton does not yet implement audit writes.
+The MCP package has stdio and Streamable HTTP entrypoints. Each future remote
+MCP write should include actor/source metadata and should append an audit event
+when practical. The current skeleton does not yet implement audit writes.
 
 ## Rust And Native Binding Direction
 

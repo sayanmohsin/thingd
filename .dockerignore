@@ -1,0 +1,12 @@
+.git
+.github
+node_modules
+target
+dist
+coverage
+*.db
+*.sqlite
+*.sqlite3
+*.log
+.DS_Store
+Dockerfile

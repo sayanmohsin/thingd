@@ -2,6 +2,7 @@
 
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { MemoryD, type MemoryDDriver } from "@sayanmohsin/memoryd";
+import { parseMemorydDriver, readCliValue } from "./config.js";
 import { createMemorydMcpServer } from "./server.js";
 
 type CliOptions = {
@@ -22,20 +23,20 @@ await server.connect(transport);
 function parseCliOptions(args: string[]): CliOptions {
   const options: CliOptions = {
     path: process.env.MEMORYD_PATH ?? ":memory:",
-    driver: parseDriver(process.env.MEMORYD_DRIVER),
+    driver: parseMemorydDriver(process.env.MEMORYD_DRIVER),
   };
 
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
 
     if (arg === "--path") {
-      options.path = readValue(args, index, "--path");
+      options.path = readCliValue(args, index, "--path");
       index += 1;
       continue;
     }
 
     if (arg === "--driver") {
-      options.driver = parseDriver(readValue(args, index, "--driver"));
+      options.driver = parseMemorydDriver(readCliValue(args, index, "--driver"));
       index += 1;
       continue;
     }
@@ -49,28 +50,6 @@ function parseCliOptions(args: string[]): CliOptions {
   }
 
   return options;
-}
-
-function readValue(args: string[], index: number, name: string): string {
-  const value = args[index + 1];
-
-  if (!value) {
-    throw new Error(`${name} requires a value`);
-  }
-
-  return value;
-}
-
-function parseDriver(value: string | undefined): MemoryDDriver | undefined {
-  if (!value) {
-    return undefined;
-  }
-
-  if (value === "memory" || value === "native") {
-    return value;
-  }
-
-  throw new Error(`Unsupported MEMORYD_DRIVER: ${value}`);
 }
 
 function printHelp(): void {

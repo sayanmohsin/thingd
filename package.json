@@ -23,6 +23,7 @@
     "rust:clippy": "cargo clippy --workspace --all-targets --all-features -- -D warnings",
     "rust:fmt": "cargo fmt --all",
     "rust:fmt:check": "cargo fmt --all --check",
+    "serve:mcp": "node packages/memoryd-mcp/dist/http-cli.js",
     "test": "npm run test:node && npm run test:mcp && npm run test:package && npm run test:rust",
     "test:local": "npm run check && npm run build && npm run test:node && npm run test:mcp && npm run test:package",
     "test:mcp": "npm run test --workspace @sayanmohsin/memoryd-mcp",

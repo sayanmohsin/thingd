@@ -6,7 +6,8 @@
   "author": "Sayan Mohsin",
   "license": "Apache-2.0",
   "bin": {
-    "memoryd-mcp": "./dist/cli.js"
+    "memoryd-mcp": "./dist/cli.js",
+    "memoryd-mcp-http": "./dist/http-cli.js"
   },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -31,6 +32,8 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
+    "start:http": "node dist/http-cli.js",
+    "start:stdio": "node dist/cli.js",
     "test": "npm run build && node --test test/*.test.mjs"
   },
   "engines": {

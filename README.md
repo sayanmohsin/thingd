@@ -31,7 +31,8 @@ The repository currently contains:
 - object, event, search, and queue APIs
 - queue semantics for leases, `ack`, `nack`, delayed jobs, retry delays, and dead-letter jobs
 - npm package smoke testing without publishing
-- stdio MCP server package with object, event, search, and queue tools
+- stdio and Streamable HTTP MCP server package with object, event, search, and queue tools
+- Docker runtime scaffold for the HTTP MCP server
 - architecture, release, persistence, and agent integration docs
 
 It is not production-ready yet. The default public Node.js SDK path still uses the TypeScript in-memory store for API exploration and local integration tests. The Rust core has SQLite-backed object, event, and queue persistence behind the `sqlite` feature, and the repo now has an opt-in private native driver for local testing. Native prebuilds, migrations, and production hardening are still next.
@@ -308,7 +309,7 @@ target APIs, storage shapes, MCP tools, and future phases.
 
 ## MCP-native access
 
-MCP is a core part of the design. The database ships with an initial stdio MCP server so agents can read and write through explicit tools instead of guessing internal schemas.
+MCP is a core part of the design. The database ships with stdio and Streamable HTTP MCP server entrypoints so agents can read and write through explicit tools instead of guessing internal schemas.
 
 Current tools:
 
@@ -334,6 +335,13 @@ npm run build --workspace @sayanmohsin/memoryd-mcp
 node packages/memoryd-mcp/dist/cli.js --path :memory:
 ```
 
+Run the HTTP runtime:
+
+```bash
+npm run build
+MEMORYD_AUTH_TOKEN=change-me npm run serve:mcp
+```
+
 For the native Rust-backed store:
 
 ```bash
@@ -341,7 +349,13 @@ npm run build --workspace @sayanmohsin/memoryd-native
 node packages/memoryd-mcp/dist/cli.js --path ./memoryd.db --driver native
 ```
 
-See [docs/mcp-server.md](./docs/mcp-server.md) for the current MCP boundary and next runtime steps.
+Build the Docker runtime:
+
+```bash
+docker build -t memoryd:local .
+```
+
+See [docs/mcp-server.md](./docs/mcp-server.md) and [docs/docker-runtime.md](./docs/docker-runtime.md) for the current MCP boundary and runtime details.
 
 The MCP layer should enforce:
 
@@ -603,7 +617,7 @@ npm run test:rust
 - [ ] metadata filters
 - [ ] object-to-text indexing
 - [x] stdio MCP server skeleton
-- [ ] remote HTTP MCP server
+- [x] remote HTTP MCP server skeleton
 - [ ] audit events for MCP writes
 
 ### v0.3 - production shape
@@ -613,6 +627,7 @@ npm run test:rust
 - [x] idempotency keys in the Node SDK proof store
 - [x] delayed jobs in the Node SDK proof store
 - [x] persistent SDK store backed by native Rust for local repo testing
+- [x] Docker runtime scaffold
 - [ ] inspector UI
 
 ### later

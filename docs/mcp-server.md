@@ -9,24 +9,27 @@ knowing SQL or internal storage details.
 
 ## Current Status
 
-Phase 8 implements the local stdio skeleton.
+Phase 9 implements the local stdio skeleton plus a remote-capable Streamable
+HTTP runtime.
 
 Implemented:
 
 - stdio MCP server entrypoint
+- Streamable HTTP MCP endpoint at `/mcp`
+- bearer token auth for `/mcp`
+- health endpoint at `/healthz`
 - `memory.search`
 - object read/write/delete tools
 - event append/list tools
 - queue push/claim/ack/nack/list/dead tools
 - in-process MCP client tests
+- Streamable HTTP MCP client tests
 
 Not implemented yet:
 
-- remote Streamable HTTP MCP endpoint
-- Docker image
-- bearer token auth
 - audit events for MCP writes
 - hosted/cloud gateway
+- TLS termination
 
 ## Tool Surface
 
@@ -75,12 +78,59 @@ MEMORYD_DRIVER
 
 `MEMORYD_DRIVER` can be `memory` or `native`.
 
+## Streamable HTTP Usage
+
+Run the HTTP MCP server:
+
+```bash
+npm run build
+MEMORYD_AUTH_TOKEN=change-me npm run serve:mcp
+```
+
+Default local URL:
+
+```txt
+http://127.0.0.1:8757/mcp
+```
+
+Direct command:
+
+```bash
+node packages/memoryd-mcp/dist/http-cli.js \
+  --path ./memoryd.db \
+  --driver native \
+  --host 127.0.0.1 \
+  --port 8757 \
+  --auth-token change-me
+```
+
+Environment variables:
+
+```txt
+MEMORYD_PATH=/data/memoryd.db
+MEMORYD_DRIVER=native
+MEMORYD_HOST=0.0.0.0
+MEMORYD_PORT=8757
+MEMORYD_AUTH_TOKEN=change-me
+```
+
+Health check:
+
+```bash
+curl http://127.0.0.1:8757/healthz
+```
+
+## Docker Usage
+
+See [docker-runtime.md](./docker-runtime.md).
+
 ## ChatGPT And Remote MCP Direction
 
-The current stdio server is for local MCP clients and tests. ChatGPT-style
-remote usage needs an HTTPS MCP endpoint, auth, and a Docker/server runtime.
+The Streamable HTTP server is remote-capable, but ChatGPT-style cloud usage
+needs a public HTTPS URL. `localhost` inside your laptop or Docker host is not
+reachable by ChatGPT.
 
-Planned shape:
+Expected deployment shape:
 
 ```txt
 ChatGPT / agent
@@ -89,4 +139,5 @@ ChatGPT / agent
   -> memoryd database
 ```
 
-That remote runtime belongs in the next phase.
+The next phase should harden this runtime with migrations, audit events, TLS
+deployment guidance, and production packaging.
