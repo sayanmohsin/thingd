@@ -13,6 +13,7 @@ SQLite-like local deployment
 + full-text and vector-ready search
 + durable queues for workers and agents
 + MCP tools for safe AI access
++ optional sidecar cluster bridge later
 ```
 
 ## Status
@@ -62,6 +63,7 @@ AI agents and modern app workflows commonly need to:
 - a search layer across text, metadata, and vectors
 - an MCP server for controlled agent access
 - a Rust core with a friendly TypeScript/Node.js SDK
+- a future sidecar/server mode for Kubernetes-style deployments
 
 ## What memoryd is not
 
@@ -300,6 +302,32 @@ The MCP layer should enforce:
 - source and actor attribution
 - audit events for agent writes
 
+## Sidecar and cluster mode
+
+The long-term deployment model has two simple modes:
+
+```txt
+embedded:
+  Node app -> native Rust binding -> SQLite file
+
+sidecar:
+  Node app -> localhost memoryd sidecar -> SQLite file
+```
+
+Cluster mode should be owned by the sidecar, not by app code:
+
+```txt
+Pod A memoryd sidecar = leader
+Pod B memoryd sidecar = follower, forwards writes
+Pod C memoryd sidecar = follower, forwards writes
+```
+
+Apps keep using `MemoryD`; deployment decides whether `MemoryD.open()` uses an
+embedded store or connects to `MEMORYD_URL`.
+
+See [docs/sidecar-cluster.md](./docs/sidecar-cluster.md) for the planned Node
+API, environment variables, Kubernetes shape, and bridge helpers.
+
 ## Multi-pod direction
 
 The honest multi-pod stance:
@@ -367,6 +395,7 @@ docs/
   agent-implementation-guide.md
   coding-standards.md
   persistence-and-native-bindings.md
+  sidecar-cluster.md
   benchmarks.md
   release.md
 ```
@@ -426,6 +455,7 @@ Project conventions live in checked-in files so this private repo stays easy to 
 - [docs/agent-implementation-guide.md](./docs/agent-implementation-guide.md) explains how AI agents and contributors should integrate `memoryd` into apps.
 - [docs/coding-standards.md](./docs/coding-standards.md) explains the coding standards.
 - [docs/persistence-and-native-bindings.md](./docs/persistence-and-native-bindings.md) explains the Rust persistence boundary and native binding direction.
+- [docs/sidecar-cluster.md](./docs/sidecar-cluster.md) explains the planned sidecar, Kubernetes, and cluster bridge shape.
 - [docs/benchmarks.md](./docs/benchmarks.md) explains local benchmark commands and how to interpret them.
 - [docs/release.md](./docs/release.md) explains npm publishing and automatic versioning.
 
@@ -535,7 +565,10 @@ npm run test:rust
 - [ ] vector search
 - [ ] graph links
 - [ ] local read replicas
-- [ ] sidecar/server mode
+- [ ] server binary
+- [ ] Docker sidecar image
+- [ ] Kubernetes sidecar mode
+- [ ] cluster bridge with leader write forwarding
 - [ ] tenant partitioning
 - [ ] sync and compaction
 

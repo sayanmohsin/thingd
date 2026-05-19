@@ -40,6 +40,9 @@ embedded mode:
 
 server/sidecar mode:
   Node.js app -> HTTP/gRPC/Unix socket -> memoryd server -> local memoryd file
+
+cluster sidecar mode:
+  Node.js app -> localhost memoryd sidecar -> leader/follower memoryd cluster
 ```
 
 Current Node.js code only implements the TypeScript in-memory proof layer.
@@ -252,6 +255,7 @@ crates/memoryd-core
 Do not introduce a second app-facing API from the native package. The native path should pass the same SDK tests that the in-memory store passes.
 
 For storage decisions, read [persistence-and-native-bindings.md](./persistence-and-native-bindings.md).
+For sidecar and cluster planning, read [sidecar-cluster.md](./sidecar-cluster.md).
 
 ## Implementation Rules For Agents
 
@@ -264,6 +268,8 @@ For storage decisions, read [persistence-and-native-bindings.md](./persistence-a
 - Do not claim SQLite queue support until `SqliteMemoryStore` implements `QueueStore` semantics.
 - Do not claim exactly-once queue delivery. The queue is at-least-once.
 - Do not hide distributed-system tradeoffs. Multi-pod writes need server/sidecar or primary-writer mode.
+- Do not add multi-primary cluster behavior. Planned cluster mode is leader-writer with forwarding and event replication.
+- Keep sidecar environment variables and Kubernetes examples aligned with `docs/sidecar-cluster.md`.
 - Keep package publish behavior in `release.config.mjs` and `docs/release.md` aligned.
 
 ## Required Checks

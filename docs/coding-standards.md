@@ -52,6 +52,7 @@ Because this repository is private, keep important design context in normal proj
 - [docs/architecture.md](./architecture.md) for implementation direction
 - [docs/agent-implementation-guide.md](./agent-implementation-guide.md) for app integration guidance for AI agents and contributors
 - [docs/persistence-and-native-bindings.md](./persistence-and-native-bindings.md) for Rust persistence and N-API direction
+- [docs/sidecar-cluster.md](./sidecar-cluster.md) for sidecar, Kubernetes, and cluster bridge planning
 - [docs/benchmarks.md](./benchmarks.md) for storage benchmark commands and interpretation
 - [docs/release.md](./release.md) for package publishing and versioning
 - this file for coding standards

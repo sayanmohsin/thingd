@@ -18,6 +18,12 @@ Node SDK
 MCP server
   agent-facing tools
   safe read/write surface
+
+Server/sidecar
+  localhost app bridge
+  Kubernetes peer discovery
+  leader write forwarding
+  event replication
 ```
 
 The public Node SDK should remain the app-facing contract. Native bindings should sit underneath that SDK rather than creating a separate API surface.
@@ -70,6 +76,14 @@ The practical path is:
 3. local read replicas
 4. tenant or queue partitioning
 5. consensus only if real demand proves it is worth the complexity
+
+Sidecar cluster mode is planned as a runtime layer above SQLite, not a
+multi-primary SQLite design. Each app talks to a local `memoryd` sidecar. The
+sidecar discovers peers, elects or follows a leader, forwards writes to the
+leader, and replicates the leader event log into local follower stores.
+
+For the detailed API, environment, Kubernetes, and phase plan, read
+[sidecar-cluster.md](./sidecar-cluster.md).
 
 ## Native Binding Direction
 
