@@ -25,7 +25,12 @@ CI runs on:
 - pull requests targeting `main`
 - pushes to `main`
 
-The release workflow only runs on pushes to `main`. It validates the same checks, then publishes to npm when the `NPM_TOKEN` repository secret exists.
+The release workflow runs on:
+
+- pushes to `main`
+- manual runs from GitHub Actions through `workflow_dispatch`
+
+It validates the same checks, then publishes to npm when the `NPM_TOKEN` repository secret exists.
 
 Before configuring `NPM_TOKEN`, use the local package smoke test:
 
@@ -50,6 +55,33 @@ NPM_TOKEN
 ```
 
 The package is configured with npm provenance enabled through `publishConfig.provenance`.
+
+## First npm Publish From CI
+
+Use this path when the package does not exist on npm yet.
+
+1. Add `NPM_TOKEN` in GitHub: repository Settings -> Secrets and variables -> Actions -> Repository secrets.
+2. Push the repo to GitHub with a conventional commit that creates a release. For the first release, use something like:
+
+```txt
+feat: initial memoryd release
+```
+
+3. Open GitHub -> Actions -> Release -> Run workflow -> branch `main`.
+4. The workflow runs checks, builds the package from `packages/memoryd`, publishes `@sayanmohsin/memoryd`, creates the Git tag, and creates the GitHub release.
+
+If semantic-release says there is no release, the commits on `main` did not include a releasable conventional commit. Add a `feat:`, `fix:`, `perf:`, or breaking-change commit and run the workflow again.
+
+After the first publish, configure npm Trusted Publishing for tokenless releases:
+
+```txt
+Organization or user: sayanmohsin
+Repository: memoryd
+Workflow filename: release.yml
+Environment name: leave blank unless GitHub environments are enabled
+```
+
+Once Trusted Publishing is verified, remove the `NPM_TOKEN` secret.
 
 ## Branch Protection
 
