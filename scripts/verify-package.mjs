@@ -89,10 +89,12 @@ await db.queue("verify").push({
 const object = await db.get("decisions", "package-smoke");
 const eventHits = await db.search("package smoke");
 const job = await db.queue("verify").claim();
+const acked = job ? await db.queue("verify").ack(job.id) : null;
 
 assert.equal(object?.id, "package-smoke");
 assert.equal(eventHits[0]?.kind, "event");
 assert.equal(job?.payload.object, "decisions/package-smoke");
+assert.equal(acked?.ok, true);
 `,
   );
 

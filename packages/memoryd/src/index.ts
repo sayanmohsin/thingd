@@ -8,9 +8,13 @@ export type {
   MemorySearchOptions,
   MemorySearchResult,
   MemoryStore,
+  QueueClaimOptions,
   QueueJob,
   QueueJobOptions,
   QueueJobPayload,
+  QueueJobResult,
+  QueueJobStatus,
+  QueueNackOptions,
   StoredMemoryEvent,
   StoredMemoryObject,
 } from "./types.js";

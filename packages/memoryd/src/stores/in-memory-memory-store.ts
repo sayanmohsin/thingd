@@ -6,12 +6,17 @@ import type {
   MemorySearchOptions,
   MemorySearchResult,
   MemoryStore,
+  QueueClaimOptions,
   QueueJob,
   QueueJobOptions,
   QueueJobPayload,
+  QueueJobResult,
+  QueueNackOptions,
   StoredMemoryEvent,
   StoredMemoryObject,
 } from "../types.js";
+
+const DEFAULT_LEASE_MS = 30_000;
 
 export class InMemoryMemoryStore implements MemoryStore {
   private readonly collections = new Map<string, Map<string, StoredMemoryObject>>();
@@ -85,19 +90,21 @@ export class InMemoryMemoryStore implements MemoryStore {
 
     const existing = jobs.find((candidate) => candidate.id === job.id);
     if (existing) {
-      return existing;
+      return this.cloneJob(existing);
     }
 
     jobs.push(job);
-    return job;
+    return this.cloneJob(job);
   }
 
-  async claimJob(queue: string): Promise<QueueJob | null> {
+  async claimJob(queue: string, options: QueueClaimOptions = {}): Promise<QueueJob | null> {
+    this.releaseExpiredLeases(queue);
+
+    const now = new Date();
     const job = this.queues
       .get(queue)
       ?.find(
-        (candidate) =>
-          candidate.status === "ready" && candidate.availableAt <= new Date().toISOString(),
+        (candidate) => candidate.status === "ready" && candidate.availableAt <= now.toISOString(),
       );
 
     if (!job) {
@@ -106,13 +113,101 @@ export class InMemoryMemoryStore implements MemoryStore {
 
     job.status = "leased";
     job.attempts += 1;
-    job.leasedAt = new Date().toISOString();
+    job.leasedAt = now.toISOString();
+    job.leaseExpiresAt = new Date(
+      now.getTime() + (options.leaseMs ?? DEFAULT_LEASE_MS),
+    ).toISOString();
 
-    return job;
+    return this.cloneJob(job);
+  }
+
+  async ackJob(queue: string, jobId: string): Promise<QueueJobResult> {
+    const job = this.findJob(queue, jobId);
+
+    if (!job) {
+      return {
+        ok: false,
+        reason: "not_found",
+      };
+    }
+
+    if (job.status === "completed" || job.status === "dead") {
+      return {
+        ok: false,
+        reason: "terminal",
+      };
+    }
+
+    if (job.status !== "leased") {
+      return {
+        ok: false,
+        reason: "not_leased",
+      };
+    }
+
+    job.status = "completed";
+    job.completedAt = new Date().toISOString();
+
+    return {
+      ok: true,
+      job: this.cloneJob(job),
+    };
+  }
+
+  async nackJob(
+    queue: string,
+    jobId: string,
+    options: QueueNackOptions = {},
+  ): Promise<QueueJobResult> {
+    const job = this.findJob(queue, jobId);
+
+    if (!job) {
+      return {
+        ok: false,
+        reason: "not_found",
+      };
+    }
+
+    if (job.status === "completed" || job.status === "dead") {
+      return {
+        ok: false,
+        reason: "terminal",
+      };
+    }
+
+    if (job.status !== "leased") {
+      return {
+        ok: false,
+        reason: "not_leased",
+      };
+    }
+
+    job.lastError = options.error;
+    job.leasedAt = undefined;
+    job.leaseExpiresAt = undefined;
+
+    if (job.attempts >= job.maxAttempts) {
+      job.status = "dead";
+      job.deadAt = new Date().toISOString();
+    } else {
+      job.status = "ready";
+      job.availableAt = new Date(Date.now() + (options.delayMs ?? 0)).toISOString();
+    }
+
+    return {
+      ok: true,
+      job: this.cloneJob(job),
+    };
   }
 
   async listJobs(queue: string): Promise<QueueJob[]> {
-    return [...(this.queues.get(queue) ?? [])];
+    return (this.queues.get(queue) ?? []).map((job) => this.cloneJob(job));
+  }
+
+  async listDeadJobs(queue: string): Promise<QueueJob[]> {
+    return (this.queues.get(queue) ?? [])
+      .filter((job) => job.status === "dead")
+      .map((job) => this.cloneJob(job));
   }
 
   async search(query: string, options: MemorySearchOptions = {}): Promise<MemorySearchResult[]> {
@@ -166,5 +261,30 @@ export class InMemoryMemoryStore implements MemoryStore {
     const jobs = this.queues.get(queue) ?? [];
     this.queues.set(queue, jobs);
     return jobs;
+  }
+
+  private findJob(queue: string, jobId: string): QueueJob | null {
+    return this.queues.get(queue)?.find((job) => job.id === jobId) ?? null;
+  }
+
+  private releaseExpiredLeases(queue: string) {
+    const now = new Date().toISOString();
+
+    for (const job of this.queues.get(queue) ?? []) {
+      if (job.status === "leased" && job.leaseExpiresAt && job.leaseExpiresAt <= now) {
+        job.status = "ready";
+        job.leasedAt = undefined;
+        job.leaseExpiresAt = undefined;
+      }
+    }
+  }
+
+  private cloneJob(job: QueueJob): QueueJob {
+    return {
+      ...job,
+      payload: {
+        ...job.payload,
+      },
+    };
   }
 }

@@ -24,7 +24,7 @@ export type StoredMemoryEvent = MemoryEvent & {
 
 export type QueueJobPayload = Record<string, unknown>;
 
-export type QueueJobStatus = "ready" | "leased" | "completed" | "failed";
+export type QueueJobStatus = "ready" | "leased" | "completed" | "dead";
 
 export type QueueJob = {
   id: string;
@@ -36,6 +36,10 @@ export type QueueJob = {
   createdAt: string;
   availableAt: string;
   leasedAt?: string;
+  leaseExpiresAt?: string;
+  completedAt?: string;
+  deadAt?: string;
+  lastError?: string;
 };
 
 export type QueueJobOptions = {
@@ -43,6 +47,25 @@ export type QueueJobOptions = {
   maxAttempts?: number;
   delayMs?: number;
 };
+
+export type QueueClaimOptions = {
+  leaseMs?: number;
+};
+
+export type QueueNackOptions = {
+  delayMs?: number;
+  error?: string;
+};
+
+export type QueueJobResult =
+  | {
+      ok: true;
+      job: QueueJob;
+    }
+  | {
+      ok: false;
+      reason: "not_found" | "not_leased" | "terminal";
+    };
 
 export type MemoryDeleteResult = {
   deleted: boolean;
@@ -71,8 +94,11 @@ export type MemorySearchResult =
 
 export type MemoryQueue = {
   push(payload: QueueJobPayload, options?: QueueJobOptions): Promise<QueueJob>;
-  claim(): Promise<QueueJob | null>;
+  claim(options?: QueueClaimOptions): Promise<QueueJob | null>;
+  ack(jobId: string): Promise<QueueJobResult>;
+  nack(jobId: string, options?: QueueNackOptions): Promise<QueueJobResult>;
   list(): Promise<QueueJob[]>;
+  dead(): Promise<QueueJob[]>;
 };
 
 export interface MemoryStore {
@@ -82,7 +108,10 @@ export interface MemoryStore {
   appendEvent(stream: string, event: MemoryEvent): Promise<StoredMemoryEvent>;
   listEvents(stream?: string): Promise<StoredMemoryEvent[]>;
   pushJob(queue: string, payload: QueueJobPayload, options?: QueueJobOptions): Promise<QueueJob>;
-  claimJob(queue: string): Promise<QueueJob | null>;
+  claimJob(queue: string, options?: QueueClaimOptions): Promise<QueueJob | null>;
+  ackJob(queue: string, jobId: string): Promise<QueueJobResult>;
+  nackJob(queue: string, jobId: string, options?: QueueNackOptions): Promise<QueueJobResult>;
   listJobs(queue: string): Promise<QueueJob[]>;
+  listDeadJobs(queue: string): Promise<QueueJob[]>;
   search(query: string, options?: MemorySearchOptions): Promise<MemorySearchResult[]>;
 }

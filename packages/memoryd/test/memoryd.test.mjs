@@ -72,6 +72,92 @@ test("queues jobs with idempotency and FIFO claiming", async () => {
   assert.equal(claimedSecond?.id, second.id);
 });
 
+test("acks leased jobs as completed", async () => {
+  const db = await MemoryD.open(":memory:");
+  const queue = db.queue("embed");
+
+  const pushed = await queue.push({ object: "docs/doc_123" });
+  const claimed = await queue.claim();
+  const acked = await queue.ack(pushed.id);
+
+  assert.equal(claimed?.id, pushed.id);
+  assert.equal(acked.ok, true);
+  assert.equal(acked.ok ? acked.job.status : null, "completed");
+  assert.equal(await queue.claim(), null);
+});
+
+test("nacks leased jobs back to ready with optional delay", async () => {
+  const db = await MemoryD.open(":memory:");
+  const queue = db.queue("embed");
+
+  const pushed = await queue.push({ object: "docs/doc_123" });
+  const claimed = await queue.claim();
+  const nacked = await queue.nack(pushed.id, {
+    error: "temporary embedding failure",
+  });
+  const reclaimed = await queue.claim();
+
+  assert.equal(claimed?.id, pushed.id);
+  assert.equal(nacked.ok, true);
+  assert.equal(nacked.ok ? nacked.job.status : null, "ready");
+  assert.equal(nacked.ok ? nacked.job.lastError : null, "temporary embedding failure");
+  assert.equal(reclaimed?.id, pushed.id);
+  assert.equal(reclaimed?.attempts, 2);
+});
+
+test("does not claim delayed jobs before they are available", async () => {
+  const db = await MemoryD.open(":memory:");
+  const queue = db.queue("embed");
+
+  await queue.push(
+    { object: "docs/doc_123" },
+    {
+      delayMs: 60_000,
+    },
+  );
+
+  assert.equal(await queue.claim(), null);
+});
+
+test("moves jobs to the dead-letter list after max attempts", async () => {
+  const db = await MemoryD.open(":memory:");
+  const queue = db.queue("embed");
+
+  const pushed = await queue.push(
+    { object: "docs/doc_123" },
+    {
+      maxAttempts: 1,
+    },
+  );
+
+  await queue.claim();
+  const nacked = await queue.nack(pushed.id, {
+    error: "permanent failure",
+  });
+  const dead = await queue.dead();
+
+  assert.equal(nacked.ok, true);
+  assert.equal(nacked.ok ? nacked.job.status : null, "dead");
+  assert.equal(dead.length, 1);
+  assert.equal(dead[0].id, pushed.id);
+  assert.equal(await queue.claim(), null);
+});
+
+test("reclaims jobs after lease expiration", async () => {
+  const db = await MemoryD.open(":memory:");
+  const queue = db.queue("embed");
+
+  const pushed = await queue.push({ object: "docs/doc_123" });
+  const firstClaim = await queue.claim({
+    leaseMs: -1,
+  });
+  const secondClaim = await queue.claim();
+
+  assert.equal(firstClaim?.id, pushed.id);
+  assert.equal(secondClaim?.id, pushed.id);
+  assert.equal(secondClaim?.attempts, 2);
+});
+
 test("searches objects and events", async () => {
   const db = await MemoryD.open(":memory:");
 

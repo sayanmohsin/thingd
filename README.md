@@ -193,7 +193,9 @@ Events are useful for:
 Target API:
 
 ```ts
-await db.queue("embed").push(
+const queue = db.queue("embed");
+
+await queue.push(
   { object: "docs/doc_123" },
   {
     idempotencyKey: "embed:docs/doc_123:v1",
@@ -202,16 +204,30 @@ await db.queue("embed").push(
   }
 );
 
-db.queue("embed").consume(async (job) => {
-  await embedDocument(job.payload.object);
-  await job.ack();
+const job = await queue.claim({
+  leaseMs: 30_000,
 });
+
+if (job) {
+  try {
+    await embedDocument(job.payload.object);
+    await queue.ack(job.id);
+  } catch (error) {
+    await queue.nack(job.id, {
+      delayMs: 5_000,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+const deadLetters = await queue.dead();
 ```
 
 Queue semantics:
 
 - at-least-once delivery
 - leases / visibility timeouts
+- explicit `ack` and `nack`
 - retries with backoff
 - dead-letter queue
 - delayed jobs

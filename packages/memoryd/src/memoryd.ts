@@ -7,8 +7,10 @@ import type {
   MemorySearchOptions,
   MemorySearchResult,
   MemoryStore,
+  QueueClaimOptions,
   QueueJobOptions,
   QueueJobPayload,
+  QueueNackOptions,
   StoredMemoryEvent,
   StoredMemoryObject,
 } from "./types.js";
@@ -53,8 +55,11 @@ export class MemoryD {
     return {
       push: (payload: QueueJobPayload, options?: QueueJobOptions) =>
         this.store.pushJob(name, payload, options),
-      claim: () => this.store.claimJob(name),
+      claim: (options?: QueueClaimOptions) => this.store.claimJob(name, options),
+      ack: (jobId: string) => this.store.ackJob(name, jobId),
+      nack: (jobId: string, options?: QueueNackOptions) => this.store.nackJob(name, jobId, options),
       list: () => this.store.listJobs(name),
+      dead: () => this.store.listDeadJobs(name),
     };
   }
 }
