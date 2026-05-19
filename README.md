@@ -357,7 +357,10 @@ From the repository root:
 npm install
 npm run build
 npm run test:node
+npm run test:package
 ```
+
+`npm run test:package` builds `@sayanmohsin/memoryd`, creates a local npm tarball, installs that tarball into a temporary app, imports the package, and runs a smoke test. This is the closest local check to "will this work after npm publish?" without publishing anything.
 
 The included examples can consume the local package through the workspace/file dependency. For the NestJS example:
 
@@ -399,6 +402,7 @@ Useful commands:
 ```bash
 npm run check
 npm run check:write
+npm run test:local
 npm run rust:fmt:check
 npm run rust:clippy
 npm test
@@ -415,6 +419,13 @@ Conventional commits map to SemVer like this:
 - `BREAKING CHANGE:` or `!` creates a major release
 
 The npm package is published from [packages/memoryd](./packages/memoryd). Publishing is skipped until the repository has an `NPM_TOKEN` secret configured.
+
+Before enabling publish, run:
+
+```bash
+npm run test:local
+npm run release:dry-run
+```
 
 ## Comparison
 

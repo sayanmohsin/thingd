@@ -27,6 +27,20 @@ CI runs on:
 
 The release workflow only runs on pushes to `main`. It validates the same checks, then publishes to npm when the `NPM_TOKEN` repository secret exists.
 
+Before configuring `NPM_TOKEN`, use the local package smoke test:
+
+```bash
+npm run test:package
+```
+
+This command builds `@sayanmohsin/memoryd`, packs it into an npm tarball, installs that tarball into a temporary app, and imports the installed package.
+
+You can also verify the release plan without publishing:
+
+```bash
+npm run release:dry-run
+```
+
 ## Required Secrets
 
 Add this repository secret before enabling npm publishing:

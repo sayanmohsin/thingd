@@ -34,6 +34,9 @@ jobs:
       - name: Node unit tests
         run: npm run test:node
 
+      - name: Package smoke test
+        run: npm run test:package
+
   rust:
     name: Rust checks
     runs-on: ubuntu-latest

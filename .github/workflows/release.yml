@@ -40,6 +40,9 @@ jobs:
       - name: Node unit tests
         run: npm run test:node
 
+      - name: Package smoke test
+        run: npm run test:package
+
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
         with:
