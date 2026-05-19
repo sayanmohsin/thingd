@@ -2,7 +2,7 @@
 
 This example shows how a NestJS app can treat `memoryd` as a local application memory layer for objects, events, and background jobs.
 
-Until the Node.js SDK is wired to the Rust engine, this example uses a small in-memory adapter with the same shape the SDK is expected to expose.
+This example currently uses a small in-memory NestJS adapter with the same shape the SDK exposes. The public SDK also has an in-memory store today; the Rust-backed persistent store is planned next.
 
 ## Run
 
@@ -47,9 +47,9 @@ List queued embedding jobs:
 curl http://localhost:3000/jobs/embed
 ```
 
-## Future SDK Integration
+## Future Rust-backed Integration
 
-The example currently uses `MemorydService` as an in-memory adapter. Once `@sayanmohsin/memoryd` is backed by the Rust engine, the service can be changed to open a real local database:
+Once `@sayanmohsin/memoryd` is backed by the Rust engine, the service can be changed to open a real local database:
 
 ```ts
 const db = await MemoryD.open("./memoryd.db");

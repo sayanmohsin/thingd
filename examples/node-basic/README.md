@@ -20,4 +20,12 @@ await db.events.append("project:memoryd", {
 await db.queue("embed").push({
   object: "decisions/rust-core",
 });
+
+const job = await db.queue("embed").claim({
+  leaseMs: 30_000,
+});
+
+if (job) {
+  await db.queue("embed").ack(job.id);
+}
 ```

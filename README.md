@@ -22,12 +22,16 @@ SQLite-like local deployment
 The repository currently contains:
 
 - a Rust workspace
-- a tiny in-memory `memoryd-core` API sketch
-- Node.js package scaffolding
+- Rust storage boundary traits and an in-memory Rust engine
+- a working TypeScript Node.js SDK with an in-memory store
+- object, event, search, and queue APIs
+- queue semantics for leases, `ack`, `nack`, delayed jobs, and dead-letter jobs
+- npm package smoke testing without publishing
+- a private native-binding scaffold for future N-API work
 - MCP package scaffolding
-- architecture and vision notes
+- architecture, release, persistence, and agent integration docs
 
-It is not production-ready yet. The first useful milestone is a local engine that can store objects, append events, run durable queues, expose a Node.js SDK, and provide MCP tools.
+It is not production-ready yet. The current SDK is useful for API exploration and local integration tests, but it does not persist data across process restarts. The next major implementation milestone is a Rust-backed persistent store.
 
 ## Why memoryd?
 
@@ -282,6 +286,8 @@ memory.events.list
 memory.queue.push
 memory.queue.claim
 memory.queue.ack
+memory.queue.nack
+memory.queue.dead
 ```
 
 The MCP layer should enforce:
@@ -461,32 +467,34 @@ npm run release:dry-run
 
 ## Development
 
-Rust is required for the core crate.
-
-```bash
-cargo test
-```
-
-Node package tooling will be added once the SDK becomes executable.
-
-Current repo layout:
+Start with the local Node/package gate:
 
 ```bash
 git clone https://github.com/sayanmohsin/memoryd.git
 cd memoryd
-cargo test
+npm install
+npm run test:local
+```
+
+If Rust is installed, also run:
+
+```bash
+npm run rust:fmt:check
+npm run rust:clippy
+npm run test:rust
 ```
 
 ## Roadmap
 
 ### v0.1 - local core
 
-- [ ] object put/get/delete
-- [ ] append-only event log
-- [ ] durable queue storage
-- [ ] queue claim/ack/nack
-- [ ] retry and dead-letter queue
-- [ ] basic Node.js SDK
+- [x] object put/get/delete in the Node SDK proof store
+- [x] append-only event API in the Node SDK proof store
+- [x] queue claim/ack/nack in the Node SDK proof store
+- [x] delayed jobs and dead-letter queue in the Node SDK proof store
+- [x] basic Node.js SDK
+- [x] Rust storage boundary traits
+- [ ] durable Rust-backed storage
 
 ### v0.2 - agent memory
 
@@ -501,8 +509,8 @@ cargo test
 - [ ] persistent storage adapter
 - [ ] migrations
 - [ ] worker heartbeats
-- [ ] idempotency keys
-- [ ] delayed jobs
+- [x] idempotency keys in the Node SDK proof store
+- [x] delayed jobs in the Node SDK proof store
 - [ ] inspector UI
 
 ### later

@@ -48,6 +48,9 @@ Because this repository is private, keep important design context in normal proj
 - [README.md](../README.md) for the product shape and roadmap
 - [docs/vision.md](./vision.md) for project direction
 - [docs/architecture.md](./architecture.md) for implementation direction
+- [docs/agent-implementation-guide.md](./agent-implementation-guide.md) for app integration guidance for AI agents and contributors
+- [docs/persistence-and-native-bindings.md](./persistence-and-native-bindings.md) for Rust persistence and N-API direction
+- [docs/release.md](./release.md) for package publishing and versioning
 - this file for coding standards
 
 When implementation behavior changes, update the closest doc in the same change.
