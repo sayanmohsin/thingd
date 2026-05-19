@@ -8,3 +8,6 @@ description = "Core primitives for memoryd, an object-shaped local memory engine
 
 [lib]
 path = "src/lib.rs"
+
+[lints]
+workspace = true

@@ -4,31 +4,49 @@
 //! and queues. The current implementation is intentionally in-memory so the
 //! API can settle before the durable storage layer is introduced.
 
+#![forbid(unsafe_code)]
+#![warn(missing_docs)]
+
 use std::collections::{BTreeMap, VecDeque};
 
+/// An object stored in a memoryd collection.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MemoryObject {
+    /// Collection name, such as `decisions`, `documents`, or `customers`.
     pub collection: String,
+    /// Stable object identifier inside the collection.
     pub id: String,
+    /// Serialized object body.
     pub body: String,
 }
 
+/// An append-only event stored in a memoryd stream.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MemoryEvent {
+    /// Stream name, such as `project:memoryd` or `customer:cus_123`.
     pub stream: String,
+    /// Event kind, such as `decision.made`.
     pub event_type: String,
+    /// Serialized event body.
     pub body: String,
 }
 
+/// A queued unit of work.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct QueueJob {
+    /// Queue name.
     pub queue: String,
+    /// Stable job identifier.
     pub id: String,
+    /// Serialized job payload.
     pub body: String,
+    /// Number of attempts already made.
     pub attempts: u32,
+    /// Maximum attempts before the job should be considered failed.
     pub max_attempts: u32,
 }
 
+/// In-memory engine used to prove the public API shape.
 #[derive(Default)]
 pub struct MemoryEngine {
     objects: BTreeMap<(String, String), MemoryObject>,
@@ -37,11 +55,18 @@ pub struct MemoryEngine {
 }
 
 impl MemoryEngine {
+    /// Create a new empty in-memory engine.
     pub fn new() -> Self {
         Self::default()
     }
 
-    pub fn put_object(&mut self, collection: impl Into<String>, id: impl Into<String>, body: impl Into<String>) {
+    /// Insert or replace an object.
+    pub fn put_object(
+        &mut self,
+        collection: impl Into<String>,
+        id: impl Into<String>,
+        body: impl Into<String>,
+    ) {
         let object = MemoryObject {
             collection: collection.into(),
             id: id.into(),
@@ -52,14 +77,17 @@ impl MemoryEngine {
             .insert((object.collection.clone(), object.id.clone()), object);
     }
 
+    /// Read an object by collection and id.
     pub fn get_object(&self, collection: &str, id: &str) -> Option<&MemoryObject> {
         self.objects.get(&(collection.to_owned(), id.to_owned()))
     }
 
+    /// Delete an object by collection and id.
     pub fn delete_object(&mut self, collection: &str, id: &str) -> Option<MemoryObject> {
         self.objects.remove(&(collection.to_owned(), id.to_owned()))
     }
 
+    /// Append an event to a stream.
     pub fn append_event(
         &mut self,
         stream: impl Into<String>,
@@ -73,10 +101,12 @@ impl MemoryEngine {
         });
     }
 
+    /// Return all events in append order.
     pub fn events(&self) -> &[MemoryEvent] {
         &self.events
     }
 
+    /// Push a job onto the back of a named queue.
     pub fn push_job(
         &mut self,
         queue: impl Into<String>,
@@ -96,6 +126,7 @@ impl MemoryEngine {
         self.queues.entry(queue).or_default().push_back(job);
     }
 
+    /// Claim the next ready job from a queue.
     pub fn claim_job(&mut self, queue: &str) -> Option<QueueJob> {
         self.queues.get_mut(queue).and_then(VecDeque::pop_front)
     }

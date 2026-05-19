@@ -332,11 +332,51 @@ packages/
 
 examples/
   node-basic/         Minimal Node.js example
+  nestjs-basic/       NestJS API example
 
 docs/
   vision.md
   architecture.md
+  coding-standards.md
+  release.md
 ```
+
+## Examples
+
+- [Node basic](./examples/node-basic) shows the intended SDK shape.
+- [NestJS basic](./examples/nestjs-basic) shows how `memoryd` can sit behind a normal NestJS module, service, and controller setup.
+
+## Tooling and standards
+
+Project conventions live in checked-in files so this private repo stays easy to work on with normal dev tools and AI coding sessions:
+
+- [biome.json](./biome.json) controls TypeScript, JavaScript, and JSON formatting/linting.
+- [rustfmt.toml](./rustfmt.toml) controls Rust formatting.
+- [Cargo.toml](./Cargo.toml) defines workspace Rust and Clippy lints.
+- [docs/coding-standards.md](./docs/coding-standards.md) explains the coding standards.
+- [docs/release.md](./docs/release.md) explains npm publishing and automatic versioning.
+
+Useful commands:
+
+```bash
+npm run check
+npm run check:write
+npm run rust:fmt:check
+npm run rust:clippy
+npm test
+```
+
+## Releases
+
+`memoryd` uses semantic-release on `main` for automatic npm versioning and publishing.
+
+Conventional commits map to SemVer like this:
+
+- `fix:` creates a patch release
+- `feat:` creates a minor release
+- `BREAKING CHANGE:` or `!` creates a major release
+
+The npm package is published from [packages/memoryd](./packages/memoryd). Publishing is skipped until the repository has an `NPM_TOKEN` secret configured.
 
 ## Comparison
 

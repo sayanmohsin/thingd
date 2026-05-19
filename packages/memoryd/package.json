@@ -1,14 +1,35 @@
 {
   "name": "@sayanmohsin/memoryd",
-  "version": "0.1.0",
+  "version": "0.0.0-development",
   "description": "Object-shaped local memory for AI-native apps.",
   "type": "module",
   "license": "Apache-2.0",
+  "sideEffects": false,
   "repository": {
     "type": "git",
     "url": "git+https://github.com/sayanmohsin/memoryd.git"
   },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "exports": {
-    ".": "./src/index.ts"
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "npm run build && node --test test/*.test.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
   }
 }

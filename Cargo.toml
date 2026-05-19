@@ -6,3 +6,18 @@ resolver = "2"
 edition = "2021"
 license = "Apache-2.0"
 repository = "https://github.com/sayanmohsin/memoryd"
+
+[workspace.lints.rust]
+missing_docs = "warn"
+rust_2018_idioms = "warn"
+unsafe_code = "forbid"
+unreachable_pub = "warn"
+unused_crate_dependencies = "warn"
+
+[workspace.lints.clippy]
+all = "warn"
+cargo = "warn"
+nursery = "warn"
+pedantic = "warn"
+module_name_repetitions = "allow"
+must_use_candidate = "allow"

@@ -1,0 +1,37 @@
+{
+  "name": "memoryd-repo",
+  "version": "0.1.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "workspaces": [
+    "packages/*",
+    "examples/nestjs-basic"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "check": "biome check .",
+    "check:write": "biome check --write .",
+    "format": "biome format --write .",
+    "format:check": "biome format .",
+    "lint": "biome lint .",
+    "release": "semantic-release",
+    "rust:check": "cargo check --workspace --all-targets",
+    "rust:clippy": "cargo clippy --workspace --all-targets -- -D warnings",
+    "rust:fmt": "cargo fmt --all",
+    "rust:fmt:check": "cargo fmt --all --check",
+    "test": "npm run test:node && npm run test:rust",
+    "test:node": "npm run test --workspace @sayanmohsin/memoryd",
+    "test:rust": "cargo test --workspace --all-targets"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.4.15",
+    "@semantic-release/commit-analyzer": "13.0.1",
+    "@semantic-release/github": "12.0.8",
+    "@semantic-release/npm": "13.1.5",
+    "@semantic-release/release-notes-generator": "14.1.1",
+    "@types/node": "25.9.0",
+    "conventional-changelog-conventionalcommits": "9.3.1",
+    "semantic-release": "25.0.3",
+    "typescript": "6.0.3"
+  }
+}
