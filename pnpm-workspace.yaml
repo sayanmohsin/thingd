@@ -4,3 +4,6 @@ packages:
 
 allowBuilds:
   '@nestjs/core': true
+
+minimumReleaseAgeExclude:
+  - '@types/node@25.9.1'
