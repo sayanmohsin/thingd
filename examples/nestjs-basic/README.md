@@ -6,6 +6,12 @@ This example currently uses a small in-memory NestJS adapter with the same shape
 the SDK exposes. The public SDK also supports in-memory, native, and remote
 sidecar drivers.
 
+## Installation
+
+```bash
+npm install @sayanmohsin/memoryd
+```
+
 ## Run
 
 ```bash

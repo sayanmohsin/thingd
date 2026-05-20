@@ -103,6 +103,14 @@ memoryd
   mcp         agent-facing tools and resources
 ```
 
+## Installation
+
+Install the Node.js SDK from npm:
+
+```bash
+npm install @sayanmohsin/memoryd
+```
+
 ## Example API
 
 This is the target developer experience.

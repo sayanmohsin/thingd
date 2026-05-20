@@ -31,8 +31,13 @@ const db = await MemoryD.open({
 });
 ```
 
-The native driver is private for now. Do not rely on native prebuilds or npm
-installation until the release strategy is added.
+The native driver is private for now.
+
+You can install the published SDK from npm:
+
+```bash
+npm install @sayanmohsin/memoryd
+```
 
 To use a running `memoryd` sidecar or Docker runtime:
 

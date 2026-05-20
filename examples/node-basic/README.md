@@ -1,6 +1,14 @@
 # Node Basic Example
 
-Planned example for the first Node.js SDK release:
+Planned example for the first Node.js SDK release.
+
+## Installation
+
+```bash
+npm install @sayanmohsin/memoryd
+```
+
+## Usage
 
 ```ts
 import { MemoryD } from "@sayanmohsin/memoryd";
