@@ -23,6 +23,7 @@ jobs:
       NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
       NPM_CONFIG_AUDIT: "false"
       NPM_CONFIG_FUND: "false"
+      NPM_CONFIG_WORKSPACES: "false"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
