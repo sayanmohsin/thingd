@@ -46,6 +46,14 @@ jobs:
           npm --version
           pnpm --version
 
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
@@ -60,14 +68,6 @@ jobs:
 
       - name: Package smoke test
         run: pnpm test:package
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy, rustfmt
-
-      - name: Rust Cache
-        uses: Swatinem/rust-cache@v2
 
       - name: Rust format check
         run: pnpm rust:fmt:check
