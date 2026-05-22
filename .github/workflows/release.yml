@@ -66,6 +66,9 @@ jobs:
         with:
           components: clippy, rustfmt
 
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+
       - name: Rust format check
         run: pnpm rust:fmt:check
 
