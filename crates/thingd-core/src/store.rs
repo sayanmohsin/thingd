@@ -1,0 +1,130 @@
+//! Storage traits implemented by thingd storage adapters.
+
+use crate::{
+    MemoryEvent, MemoryObject, ThingdResult, QueueClaimOptions, QueueJob, QueueNackOptions,
+};
+
+/// Object storage operations.
+pub trait ObjectStore {
+    /// Insert or replace an object.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the backing store cannot persist the object.
+    fn put_object(&mut self, object: MemoryObject) -> ThingdResult<MemoryObject>;
+
+    /// Read an object by collection and id.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the backing store cannot read the object.
+    fn get_object(&self, collection: &str, id: &str) -> ThingdResult<Option<MemoryObject>>;
+
+    /// List objects, optionally restricted to the provided collections.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the backing store cannot list objects.
+    fn list_objects(&self, collections: Option<&[String]>) -> ThingdResult<Vec<MemoryObject>>;
+
+    /// Delete an object by collection and id.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the backing store cannot delete the object.
+    fn delete_object(&mut self, collection: &str, id: &str) -> ThingdResult<bool>;
+}
+
+/// Append-only event log operations.
+pub trait EventLog {
+    /// Append an event to a stream.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the backing store cannot append the event.
+    fn append_event(&mut self, event: MemoryEvent) -> ThingdResult<MemoryEvent>;
+
+    /// List events, optionally filtered by stream.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the backing store cannot read events.
+    fn list_events(&self, stream: Option<&str>) -> ThingdResult<Vec<MemoryEvent>>;
+}
+
+/// Queue storage operations.
+pub trait QueueStore {
+    /// Push a job onto a queue.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the backing store cannot persist the job.
+    fn push_job(&mut self, job: QueueJob) -> ThingdResult<QueueJob>;
+
+    /// Claim the next ready job from a queue.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the backing store cannot claim a job.
+    fn claim_job(&mut self, queue: &str) -> ThingdResult<Option<QueueJob>> {
+        self.claim_job_with_options(queue, QueueClaimOptions::default())
+    }
+
+    /// Claim the next ready job from a queue with explicit options.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the backing store cannot claim a job.
+    fn claim_job_with_options(
+        &mut self,
+        queue: &str,
+        options: QueueClaimOptions,
+    ) -> ThingdResult<Option<QueueJob>>;
+
+    /// Acknowledge a leased job as completed.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the backing store cannot update the job.
+    fn ack_job(&mut self, queue: &str, id: &str) -> ThingdResult<Option<QueueJob>>;
+
+    /// Reject a leased job for retry or dead-letter routing.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the backing store cannot update the job.
+    fn nack_job(&mut self, queue: &str, id: &str) -> ThingdResult<Option<QueueJob>> {
+        self.nack_job_with_options(queue, id, QueueNackOptions::default())
+    }
+
+    /// Reject a leased job for retry or dead-letter routing with explicit options.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the backing store cannot update the job.
+    fn nack_job_with_options(
+        &mut self,
+        queue: &str,
+        id: &str,
+        options: QueueNackOptions,
+    ) -> ThingdResult<Option<QueueJob>>;
+
+    /// List all jobs in a queue.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the backing store cannot read queue jobs.
+    fn list_jobs(&self, queue: &str) -> ThingdResult<Vec<QueueJob>>;
+
+    /// List dead-letter jobs in a queue.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the backing store cannot read dead-letter jobs.
+    fn list_dead_jobs(&self, queue: &str) -> ThingdResult<Vec<QueueJob>>;
+}
+
+/// Full storage interface expected from thingd engine adapters.
+pub trait ThingStore: EventLog + ObjectStore + QueueStore {}
+
+impl<T> ThingStore for T where T: EventLog + ObjectStore + QueueStore {}

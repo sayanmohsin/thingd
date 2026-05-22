@@ -28,14 +28,14 @@ FROM node:22-bookworm-slim AS runtime
 WORKDIR /app
 
 ENV NODE_ENV=production
-ENV MEMORYD_PATH=/data/memoryd.db
-ENV MEMORYD_DRIVER=native
-ENV MEMORYD_HOST=0.0.0.0
-ENV MEMORYD_PORT=8757
-ENV MEMORYD_CLUSTER_MODE=single
-ENV MEMORYD_CLUSTER_DISCOVERY=none
-ENV MEMORYD_CLUSTER_PORT=8757
-ENV MEMORYD_MCP_AUDIT=true
+ENV THINGD_PATH=/data/thingd.db
+ENV THINGD_DRIVER=native
+ENV THINGD_HOST=0.0.0.0
+ENV THINGD_PORT=8757
+ENV THINGD_CLUSTER_MODE=single
+ENV THINGD_CLUSTER_DISCOVERY=none
+ENV THINGD_CLUSTER_PORT=8757
+ENV THINGD_MCP_AUDIT=true
 
 COPY --from=build /app/package.json /app/pnpm-lock.yaml /app/pnpm-workspace.yaml ./
 COPY --from=build /app/node_modules ./node_modules
@@ -46,4 +46,4 @@ RUN mkdir -p /data
 EXPOSE 8757
 VOLUME ["/data"]
 
-CMD ["node", "packages/memoryd-mcp/dist/http-cli.js"]
+CMD ["node", "packages/thingd-mcp/dist/http-cli.js"]

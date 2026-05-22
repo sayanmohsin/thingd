@@ -1,0 +1,38 @@
+{
+  "name": "thingd-cli",
+  "version": "0.1.0",
+  "description": "Admin and operator CLI for thingd.",
+  "type": "module",
+  "author": "Sayan Mohsin",
+  "license": "Apache-2.0",
+  "bin": {
+    "thingd": "./dist/index.js"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sayanmohsin/thingd.git"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "thingd": "file:../thingd"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "pnpm build && node --test test/*.test.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

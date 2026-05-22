@@ -1,13 +1,13 @@
 # Persistence And Native Bindings
 
-This document captures the direction for turning `memoryd` from a TypeScript in-memory proof into a Rust-backed local engine.
+This document captures the direction for turning `thingd` from a TypeScript in-memory proof into a Rust-backed local engine.
 
 ## Current Decision
 
 Keep the public package as:
 
 ```txt
-@sayanmohsin/memoryd
+thingd
 ```
 
 Add native support underneath it rather than making users learn a second API.
@@ -18,18 +18,18 @@ The intended layering is:
 Node app
   |
   v
-@sayanmohsin/memoryd
+thingd
   TypeScript API and types
-  MemoryStore interface
+  ThingStore interface
   in-memory fallback/proof store
   native store adapter later
   |
   v
-@sayanmohsin/memoryd-native
+thingd-native
   napi-rs binding package
   |
   v
-crates/memoryd-core
+crates/thingd-core
   object store traits
   event log traits
   queue store traits
@@ -38,7 +38,7 @@ crates/memoryd-core
 
 ## Rust Boundary
 
-`crates/memoryd-core` owns the durable engine boundary:
+`crates/thingd-core` owns the durable engine boundary:
 
 - object model types
 - event model types
@@ -53,7 +53,7 @@ The important traits are:
 ObjectStore
 EventLog
 QueueStore
-MemoryStore
+ThingStore
 ```
 
 Future storage adapters should implement those traits instead of exposing storage-specific APIs directly to Node.js.
@@ -74,7 +74,7 @@ Cons:
 - vector search requires extension strategy
 - schema/migration discipline required
 
-Current fit: selected first durable backend. The adapter uses `rusqlite` for object, event, and trait-level queue persistence, including delayed jobs, configurable lease expiration, retry delay, dead-letter state, and schema version tracking in `memoryd_schema_migrations`.
+Current fit: selected first durable backend. The adapter uses `rusqlite` for object, event, and trait-level queue persistence, including delayed jobs, configurable lease expiration, retry delay, dead-letter state, and schema version tracking in `thingd_schema_migrations`.
 
 ### redb
 
@@ -122,9 +122,9 @@ Use SQLite for:
 
 Current implementation status:
 
-- objects: implemented in `SqliteMemoryStore`
-- events: implemented in `SqliteMemoryStore`
-- queue jobs: implemented in `SqliteMemoryStore`
+- objects: implemented in `SqliteThingStore`
+- events: implemented in `SqliteThingStore`
+- queue jobs: implemented in `SqliteThingStore`
 - Node SDK native adapter: implemented as an opt-in private local driver
 - benchmarks: `pnpm bench:rust` covers the Rust object/event/queue storage path
 
@@ -137,11 +137,11 @@ Use `napi-rs` for embedded Node.js bindings now that the Rust SQLite adapter has
 Expected shape:
 
 ```txt
-MemoryD.open({ path: "./memoryd.db", driver: "native" })
+ThingD.open({ path: "./thingd.db", driver: "native" })
   -> TypeScript SDK
-  -> NativeMemoryStore
+  -> NativeThingStore
   -> napi-rs binding
-  -> memoryd-core SQLite adapter
+  -> thingd-core SQLite adapter
 ```
 
 The TypeScript SDK should keep the same app-facing methods:
@@ -201,19 +201,19 @@ Completed in Phase 6:
 Completed in Phase 7:
 
 1. Add a `napi-rs` binding that can open a database file.
-2. Add a TypeScript `NativeMemoryStore` adapter.
+2. Add a TypeScript `NativeThingStore` adapter.
 3. Run the existing SDK tests against both in-memory and native stores.
 
 Completed in Phase 10:
 
-1. Add SQLite schema version tracking in `memoryd_schema_migrations`.
+1. Add SQLite schema version tracking in `thingd_schema_migrations`.
 2. Add a guard that rejects databases created by newer unsupported schema versions.
 3. Keep the initial object/event/queue schema as migration version 1.
 
 Completed in Phase 12:
 
 1. Add a remote SDK store over Streamable HTTP MCP.
-2. Let `MemoryD.open()` infer sidecar mode from `MEMORYD_URL`.
+2. Let `ThingD.open()` infer sidecar mode from `THINGD_URL`.
 3. Keep native persistence opt-in while allowing app code to use the same SDK
    methods against a sidecar.
 

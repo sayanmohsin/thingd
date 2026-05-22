@@ -2,12 +2,14 @@
   email you@example.com
 }
 
-memoryd.example.com {
-  encode zstd gzip
+thingd.example.com {
+  @mcp {
+    path /mcp/*
+  }
+  reverse_proxy @mcp thingd-leader:8757
 
-  @mcp path /mcp
-  reverse_proxy @mcp memoryd-leader:8757
-
-  @health path /healthz /cluster/status /cluster/peers
-  reverse_proxy @health memoryd-leader:8757
+  @health {
+    path /health
+  }
+  reverse_proxy @health thingd-leader:8757
 }

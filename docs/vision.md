@@ -1,6 +1,6 @@
 # Vision
 
-`memoryd` is a local data runtime for software that needs to be readable by both application code and AI agents.
+`thingd` is a local data runtime for software that needs to be readable by both application code and AI agents.
 
 The first principle is simple: keep the deployment feel close to SQLite, but expose primitives closer to how modern AI-native apps work.
 
@@ -8,7 +8,7 @@ The first principle is simple: keep the deployment feel close to SQLite, but exp
 
 ### Object-shaped storage
 
-Apps should be able to store records as objects without designing a relational schema first. Under the hood, `memoryd` can still use mature storage engines, but the public API should feel like:
+Apps should be able to store records as objects without designing a relational schema first. Under the hood, `thingd` can still use mature storage engines, but the public API should feel like:
 
 ```ts
 await db.put("customers", { id: "cus_123", name: "Acme", plan: "pro" });
@@ -19,12 +19,12 @@ await db.put("customers", { id: "cus_123", name: "Acme", plan: "pro" });
 The database should ship with safe MCP tools so agents can search, read, write, and append events without learning internal table layouts.
 
 ```txt
-memory.search
+thing.search
 memory.get
 memory.put
 memory.patch
-memory.events.append
-memory.queue.push
+thing.events.append
+thing.queue.push
 ```
 
 ### AI-readable by default

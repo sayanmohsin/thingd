@@ -1,49 +1,49 @@
 # CLI Roadmap
 
 This document describes the current command-line surface and the remaining
-operator/developer CLI phases for `memoryd`.
+operator/developer CLI phases for `thingd`.
 
-The project now has runtime CLIs through `@sayanmohsin/memoryd-mcp` and a
-first-pass admin CLI through `@sayanmohsin/memoryd-cli`.
+The project now has runtime CLIs through `thingd-mcp` and a
+first-pass admin CLI through `thingd-cli`.
 
 ## Current CLIs
 
-### `memoryd`
+### `thingd`
 
-Inspects and mutates local or remote `memoryd` stores through the public SDK.
+Inspects and mutates local or remote `thingd` stores through the public SDK.
 
 ```bash
-node packages/memoryd-cli/dist/index.js status
-node packages/memoryd-cli/dist/index.js objects put decisions cli --text "Built the CLI."
-node packages/memoryd-cli/dist/index.js queues push embed --payload '{"object":"docs/readme"}'
+node packages/thingd-cli/dist/index.js status
+node packages/thingd-cli/dist/index.js objects put decisions cli --text "Built the CLI."
+node packages/thingd-cli/dist/index.js queues push embed --payload '{"object":"docs/readme"}'
 ```
 
 Commands:
 
 ```txt
-memoryd status
-memoryd tools
-memoryd search <query>
-memoryd objects get <collection> <id>
-memoryd objects put <collection> <id> --text <text>
-memoryd objects put <collection> <id> --data '{"field":"value"}'
-memoryd objects delete <collection> <id>
-memoryd events append <stream> <type> [--text <text>] [--data '{"field":"value"}']
-memoryd events list [stream]
-memoryd queues push <queue> --payload '{"key":"value"}'
-memoryd queues claim <queue>
-memoryd queues ack <queue> <jobId>
-memoryd queues nack <queue> <jobId>
-memoryd queues list <queue>
-memoryd queues dead <queue>
+thingd status
+thingd tools
+thingd search <query>
+thingd objects get <collection> <id>
+thingd objects put <collection> <id> --text <text>
+thingd objects put <collection> <id> --data '{"field":"value"}'
+thingd objects delete <collection> <id>
+thingd events append <stream> <type> [--text <text>] [--data '{"field":"value"}']
+thingd events list [stream]
+thingd queues push <queue> --payload '{"key":"value"}'
+thingd queues claim <queue>
+thingd queues ack <queue> <jobId>
+thingd queues nack <queue> <jobId>
+thingd queues list <queue>
+thingd queues dead <queue>
 ```
 
 Common options:
 
 ```txt
---url <url>          remote memoryd URL. Defaults to MEMORYD_URL
---auth-token <tok>  remote bearer token. Defaults to MEMORYD_AUTH_TOKEN
---path <path>       local database path. Defaults to MEMORYD_PATH or :memory:
+--url <url>          remote thingd URL. Defaults to THINGD_URL
+--auth-token <tok>  remote bearer token. Defaults to THINGD_AUTH_TOKEN
+--path <path>       local database path. Defaults to THINGD_PATH or :memory:
 --driver <driver>   memory, native, or remote
 --pretty            pretty-print JSON output
 --limit <n>         result limit for search and list commands
@@ -52,46 +52,46 @@ Common options:
 Remote sidecar usage:
 
 ```bash
-MEMORYD_URL=http://127.0.0.1:8757
-MEMORYD_AUTH_TOKEN=change-me
-node packages/memoryd-cli/dist/index.js status
-node packages/memoryd-cli/dist/index.js tools
+THINGD_URL=http://127.0.0.1:8757
+THINGD_AUTH_TOKEN=change-me
+node packages/thingd-cli/dist/index.js status
+node packages/thingd-cli/dist/index.js tools
 ```
 
-### `memoryd-mcp`
+### `thingd-mcp`
 
 Runs the MCP server over stdio for local MCP clients.
 
 ```bash
-node packages/memoryd-mcp/dist/cli.js --path :memory:
+node packages/thingd-mcp/dist/cli.js --path :memory:
 ```
 
 Options:
 
 ```txt
---path <path>      memoryd database path. Defaults to MEMORYD_PATH or :memory:
---driver <driver> memory or native. Defaults to MEMORYD_DRIVER or memory
+--path <path>      thingd database path. Defaults to THINGD_PATH or :memory:
+--driver <driver> memory or native. Defaults to THINGD_DRIVER or memory
 -h, --help        show help
 ```
 
 Environment:
 
 ```txt
-MEMORYD_PATH=:memory:
-MEMORYD_DRIVER=memory
-MEMORYD_MCP_AUDIT=true
-MEMORYD_MCP_ACTOR=mcp-client
-MEMORYD_MCP_SOURCE=memoryd-mcp
-MEMORYD_MCP_AUDIT_STREAM=__memoryd:mcp:audit
+THINGD_PATH=:memory:
+THINGD_DRIVER=memory
+THINGD_MCP_AUDIT=true
+THINGD_MCP_ACTOR=mcp-client
+THINGD_MCP_SOURCE=thingd-mcp
+THINGD_MCP_AUDIT_STREAM=__thingd:mcp:audit
 ```
 
-### `memoryd-mcp-http`
+### `thingd-mcp-http`
 
 Runs the MCP server over Streamable HTTP.
 
 ```bash
-node packages/memoryd-mcp/dist/http-cli.js \
-  --path ./memoryd.db \
+node packages/thingd-mcp/dist/http-cli.js \
+  --path ./thingd.db \
   --driver native \
   --host 127.0.0.1 \
   --port 8757 \
@@ -101,7 +101,7 @@ node packages/memoryd-mcp/dist/http-cli.js \
 Options:
 
 ```txt
---path <path>             memoryd database path
+--path <path>             thingd database path
 --driver <driver>        memory or native
 --host <host>            bind host
 --port <port>            bind port
@@ -122,22 +122,22 @@ GET  /cluster/peers
 Cluster environment:
 
 ```txt
-MEMORYD_CLUSTER_MODE=single|leader|follower
-MEMORYD_CLUSTER_LEADER_URL=http://memoryd-leader:8757
-MEMORYD_CLUSTER_PEERS=http://memoryd-0:8757,http://memoryd-1:8757
-MEMORYD_CLUSTER_DISCOVERY=none|static|kubernetes
-MEMORYD_ADVERTISE_URL=http://pod-ip:8757
-MEMORYD_CLUSTER_FORWARD_AUTH_TOKEN=<leader-token>
+THINGD_CLUSTER_MODE=single|leader|follower
+THINGD_CLUSTER_LEADER_URL=http://thingd-leader:8757
+THINGD_CLUSTER_PEERS=http://thingd-0:8757,http://thingd-1:8757
+THINGD_CLUSTER_DISCOVERY=none|static|kubernetes
+THINGD_ADVERTISE_URL=http://pod-ip:8757
+THINGD_CLUSTER_FORWARD_AUTH_TOKEN=<leader-token>
 ```
 
 ## CLI Goals
 
-The admin CLI should make `memoryd` easy to inspect and operate from a
+The admin CLI should make `thingd` easy to inspect and operate from a
 terminal. It should work against:
 
 - local in-memory stores for quick tests
-- native SQLite stores when `@sayanmohsin/memoryd-native` is built
-- remote sidecars through `MEMORYD_URL`
+- native SQLite stores when `thingd-native` is built
+- remote sidecars through `THINGD_URL`
 - Docker or Kubernetes sidecar deployments
 
 The first version prefers predictable JSON output over visual polish. Pretty
@@ -148,13 +148,13 @@ tables can come later.
 The dedicated workspace package is:
 
 ```txt
-packages/memoryd-cli
+packages/thingd-cli
 ```
 
 Package shape:
 
 ```txt
-packages/memoryd-cli/
+packages/thingd-cli/
   src/
     index.ts
     commands/
@@ -178,12 +178,12 @@ Binary:
 ```json
 {
   "bin": {
-    "memoryd": "./dist/index.js"
+    "thingd": "./dist/index.js"
   }
 }
 ```
 
-The CLI uses the public `@sayanmohsin/memoryd` SDK. Do not import store
+The CLI uses the public `thingd` SDK. Do not import store
 internals directly.
 
 ## Connection Rules
@@ -191,13 +191,13 @@ internals directly.
 Open the store with the same rules as app code:
 
 ```txt
-MEMORYD_URL set:
+THINGD_URL set:
   use remote SDK driver over Streamable HTTP MCP
 
 --url set:
   use remote SDK driver over Streamable HTTP MCP
 
---driver native --path ./memoryd.db:
+--driver native --path ./thingd.db:
   use local native Rust SQLite driver
 
 no URL and no native driver:
@@ -207,9 +207,9 @@ no URL and no native driver:
 Suggested shared options:
 
 ```txt
---url <url>          remote memoryd URL. Defaults to MEMORYD_URL
---auth-token <tok>  remote bearer token. Defaults to MEMORYD_AUTH_TOKEN
---path <path>       local database path. Defaults to MEMORYD_PATH or :memory:
+--url <url>          remote thingd URL. Defaults to THINGD_URL
+--auth-token <tok>  remote bearer token. Defaults to THINGD_AUTH_TOKEN
+--path <path>       local database path. Defaults to THINGD_PATH or :memory:
 --driver <driver>   memory, native, or remote
 --json              emit JSON
 --pretty            human-readable output
@@ -224,8 +224,8 @@ Status: completed.
 
 Deliverables:
 
-- [x] create `packages/memoryd-cli`
-- [x] add `memoryd --help`
+- [x] create `packages/thingd-cli`
+- [x] add `thingd --help`
 - [x] add remote and local connection handling
 - [x] add JSON output helper
 - [x] add tests for command parsing and command output
@@ -234,18 +234,18 @@ Deliverables:
 Commands:
 
 ```txt
-memoryd status
-memoryd tools
-memoryd objects get <collection> <id>
-memoryd objects put <collection> <id> --text <text>
-memoryd objects delete <collection> <id>
-memoryd search <query>
-memoryd events list [stream]
-memoryd queues list <queue>
-memoryd queues dead <queue>
-memoryd queues claim <queue>
-memoryd queues ack <queue> <jobId>
-memoryd queues nack <queue> <jobId> --error <message>
+thingd status
+thingd tools
+thingd objects get <collection> <id>
+thingd objects put <collection> <id> --text <text>
+thingd objects delete <collection> <id>
+thingd search <query>
+thingd events list [stream]
+thingd queues list <queue>
+thingd queues dead <queue>
+thingd queues claim <queue>
+thingd queues ack <queue> <jobId>
+thingd queues nack <queue> <jobId> --error <message>
 ```
 
 Notes:
@@ -271,7 +271,7 @@ Target duration: 1 to 2 focused days.
 Deliverables:
 
 - table output
-- `memoryd doctor`
+- `thingd doctor`
 - queue stats
 - object and event list summaries
 - benchmark wrapper commands
@@ -280,13 +280,13 @@ Deliverables:
 Commands:
 
 ```txt
-memoryd doctor
-memoryd queues stats <queue>
-memoryd collections list
-memoryd objects list <collection>
-memoryd events streams
-memoryd bench rust --smoke
-memoryd bench rust --count <n>
+thingd doctor
+thingd queues stats <queue>
+thingd collections list
+thingd objects list <collection>
+thingd events streams
+thingd bench rust --smoke
+thingd bench rust --count <n>
 ```
 
 `doctor` should check:
@@ -294,7 +294,7 @@ memoryd bench rust --count <n>
 - Node version
 - package build output exists
 - native package availability when `--driver native` is selected
-- remote sidecar reachability when `MEMORYD_URL` is set
+- remote sidecar reachability when `THINGD_URL` is set
 - auth token presence for non-local HTTP URLs
 
 ## Phase CLI-C - Data Movement
@@ -310,11 +310,11 @@ Deliverables:
 Commands:
 
 ```txt
-memoryd export --collection <name> --out objects.jsonl
-memoryd export --events --out events.jsonl
-memoryd import --collection <name> --in objects.jsonl
-memoryd snapshot create --out snapshot.memoryd.json
-memoryd snapshot restore --in snapshot.memoryd.json
+thingd export --collection <name> --out objects.jsonl
+thingd export --events --out events.jsonl
+thingd import --collection <name> --in objects.jsonl
+thingd snapshot create --out snapshot.thingd.json
+thingd snapshot restore --in snapshot.thingd.json
 ```
 
 Do not add this until collection listing and pagination semantics are designed.

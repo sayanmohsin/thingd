@@ -1,0 +1,42 @@
+{
+  "name": "thingd-mcp",
+  "version": "0.1.0",
+  "description": "MCP tools for thingd.",
+  "type": "module",
+  "author": "Sayan Mohsin",
+  "license": "Apache-2.0",
+  "bin": {
+    "thingd-mcp": "./dist/cli.js",
+    "thingd-mcp-http": "./dist/http-cli.js"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sayanmohsin/thingd.git"
+  },
+  "dependencies": {
+    "thingd": "file:../thingd",
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "zod": "^4.4.3"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start:http": "node dist/http-cli.js",
+    "start:stdio": "node dist/cli.js",
+    "test": "pnpm build && node --test test/*.test.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

@@ -1,8 +1,8 @@
-# memoryd
+# thingd
 
 Object-shaped local memory for AI-native apps. SQLite-simple, MCP-native, with search, events, and durable queues.
 
-`memoryd` is an experimental Rust-powered local data engine for applications and AI agents. It is designed for developers who like the simplicity of SQLite, but want a higher-level object API, agent-readable memory, built-in workflow primitives, and first-class MCP access.
+`thingd` is an experimental Rust-powered local data engine for applications and AI agents. It is designed for developers who like the simplicity of SQLite, but want a higher-level object API, agent-readable memory, built-in workflow primitives, and first-class MCP access.
 
 The short version:
 
@@ -19,7 +19,7 @@ SQLite-like local deployment
 
 ## Status
 
-`memoryd` is in early design and scaffolding.
+`thingd` is in early design and scaffolding.
 
 The repository currently contains:
 
@@ -29,7 +29,7 @@ The repository currently contains:
 - a working TypeScript Node.js SDK with an in-memory store
 - an opt-in private N-API native driver that opens the Rust SQLite store locally
 - a remote Node.js SDK driver that talks to the sidecar over Streamable HTTP MCP
-- a first-pass `memoryd` admin/operator CLI with local and remote JSON output
+- a first-pass `thingd` admin/operator CLI with local and remote JSON output
 - object, event, search, and queue APIs
 - queue semantics for leases, `ack`, `nack`, delayed jobs, retry delays, and dead-letter jobs
 - package smoke testing without publishing
@@ -40,9 +40,9 @@ The repository currently contains:
 - MCP audit events for write tools
 - architecture, release, persistence, and agent integration docs
 
-It is not production-ready yet. The default public Node.js SDK path still uses the TypeScript in-memory store for API exploration and local integration tests. The Rust core has SQLite-backed object, event, and queue persistence behind the `sqlite` feature, and the repo now has an opt-in private native driver for local testing. Node apps can also use the remote driver to talk to a `memoryd` sidecar through `MEMORYD_URL`. Native prebuilds, production packaging, and deployment hardening are still next.
+It is not production-ready yet. The default public Node.js SDK path still uses the TypeScript in-memory store for API exploration and local integration tests. The Rust core has SQLite-backed object, event, and queue persistence behind the `sqlite` feature, and the repo now has an opt-in private native driver for local testing. Node apps can also use the remote driver to talk to a `thingd` sidecar through `THINGD_URL`. Native prebuilds, production packaging, and deployment hardening are still next.
 
-## Why memoryd?
+## Why thingd?
 
 SQLite is excellent. It is small, fast, local, durable, and easy to deploy. But AI-native apps often need a friendlier layer above raw SQL.
 
@@ -56,11 +56,11 @@ AI agents and modern app workflows commonly need to:
 - expose safe read/write tools through MCP
 - keep local state portable and inspectable
 
-`memoryd` aims to provide those primitives as a tiny local runtime.
+`thingd` aims to provide those primitives as a tiny local runtime.
 
-## What memoryd is
+## What thingd is
 
-`memoryd` is intended to be:
+`thingd` is intended to be:
 
 - an open source Apache-2.0 project
 - an object-shaped local data layer for apps
@@ -72,9 +72,9 @@ AI agents and modern app workflows commonly need to:
 - a Rust core with a friendly TypeScript/Node.js SDK
 - a sidecar/server runtime shape for Kubernetes-style deployments
 
-## What memoryd is not
+## What thingd is not
 
-`memoryd` is not trying to replace mature databases.
+`thingd` is not trying to replace mature databases.
 
 It is not:
 
@@ -89,7 +89,7 @@ The goal is a practical local-first engine for small and medium apps, agent work
 ## Core primitives
 
 ```txt
-memoryd
+thingd
   docs        object-shaped JSON records
   events      append-only timelines and audit trails
   search      full-text, metadata, and vector-ready retrieval
@@ -108,7 +108,7 @@ memoryd
 Install the Node.js SDK from npm:
 
 ```bash
-npm install @sayanmohsin/memoryd
+npm install thingd
 ```
 
 ## Example API
@@ -116,22 +116,22 @@ npm install @sayanmohsin/memoryd
 This is the target developer experience.
 
 ```ts
-import { MemoryD } from "@sayanmohsin/memoryd";
+import { ThingD } from "thingd";
 
-const db = await MemoryD.open(":memory:");
+const db = await ThingD.open(":memory:");
 
 await db.put("decisions", {
   id: "rust-core",
   text: "Use Rust for the core engine and TypeScript for the developer API.",
-  project: "memoryd",
+  project: "thingd",
   confidence: 0.9,
 });
 
 const decision = await db.get("decisions", "rust-core");
 
-await db.events.append("project:memoryd", {
+await db.events.append("project:thingd", {
   type: "decision.made",
-  text: "memoryd will be object-shaped and MCP-native.",
+  text: "thingd will be object-shaped and MCP-native.",
   actor: "sayan",
 });
 
@@ -149,12 +149,12 @@ For the local Rust-backed SQLite path, build the private native package and
 request the native driver:
 
 ```bash
-pnpm --filter @sayanmohsin/memoryd-native build
+pnpm --filter thingd-native build
 ```
 
 ```ts
-const db = await MemoryD.open({
-  path: "./memoryd.db",
+const db = await ThingD.open({
+  path: "./thingd.db",
   driver: "native",
 });
 ```
@@ -162,18 +162,18 @@ const db = await MemoryD.open({
 For sidecar mode, point the SDK at the HTTP MCP runtime:
 
 ```bash
-MEMORYD_URL=http://127.0.0.1:8757
-MEMORYD_AUTH_TOKEN=change-me
+THINGD_URL=http://127.0.0.1:8757
+THINGD_AUTH_TOKEN=change-me
 ```
 
 ```ts
-const db = await MemoryD.open();
+const db = await ThingD.open();
 ```
 
 Or configure it explicitly:
 
 ```ts
-const db = await MemoryD.open({
+const db = await ThingD.open({
   url: "http://127.0.0.1:8757/mcp",
   driver: "remote",
   authToken: "change-me",
@@ -241,7 +241,7 @@ Events are useful for:
 
 ## Durable queues
 
-`memoryd` includes queue primitives because AI apps constantly need background work:
+`thingd` includes queue primitives because AI apps constantly need background work:
 
 - chunk a document
 - create embeddings
@@ -296,7 +296,7 @@ Queue semantics:
 - worker heartbeats
 - priority queues later
 
-`memoryd` should make the safe path obvious: jobs may run more than once, so consumers should be idempotent.
+`thingd` should make the safe path obvious: jobs may run more than once, so consumers should be idempotent.
 
 ## Search
 
@@ -327,7 +327,7 @@ Early versions can start with full-text and metadata search. Vector search can c
 
 ## AI-native primitives
 
-Beyond objects, events, and queues, `memoryd` should grow workflow primitives
+Beyond objects, events, and queues, `thingd` should grow workflow primitives
 that are valuable for modern AI applications:
 
 - graph links for source tracing and explainable retrieval
@@ -348,45 +348,45 @@ MCP is a core part of the design. The database ships with stdio and Streamable H
 Current tools:
 
 ```txt
-memory.search
-memory.objects.get
-memory.objects.put
-memory.objects.delete
-memory.events.append
-memory.events.list
-memory.queue.push
-memory.queue.claim
-memory.queue.ack
-memory.queue.nack
-memory.queue.list
-memory.queue.dead
+thing.search
+thing.get
+thing.put
+thing.delete
+thing.events.append
+thing.events.list
+thing.queue.push
+thing.queue.claim
+thing.queue.ack
+thing.queue.nack
+thing.queue.list
+thing.queue.dead
 ```
 
 Run it locally:
 
 ```bash
-pnpm --filter @sayanmohsin/memoryd-mcp build
-node packages/memoryd-mcp/dist/cli.js --path :memory:
+pnpm --filter thingd-mcp build
+node packages/thingd-mcp/dist/cli.js --path :memory:
 ```
 
 Run the HTTP runtime:
 
 ```bash
 pnpm build
-MEMORYD_AUTH_TOKEN=change-me pnpm serve:mcp
+THINGD_AUTH_TOKEN=change-me pnpm serve:mcp
 ```
 
 For the native Rust-backed store:
 
 ```bash
-pnpm --filter @sayanmohsin/memoryd-native build
-node packages/memoryd-mcp/dist/cli.js --path ./memoryd.db --driver native
+pnpm --filter thingd-native build
+node packages/thingd-mcp/dist/cli.js --path ./thingd.db --driver native
 ```
 
 Build the Docker runtime:
 
 ```bash
-docker build -t memoryd:local .
+docker build -t thingd:local .
 ```
 
 See [docs/mcp-server.md](./docs/mcp-server.md) and [docs/docker-runtime.md](./docs/docker-runtime.md) for the current MCP boundary and runtime details.
@@ -398,27 +398,27 @@ pnpm smoke:docker
 ```
 
 The MCP layer now appends audit events for write tools to
-`__memoryd:mcp:audit`. Tool callers can pass optional `actor` and `source`
+`__thingd:mcp:audit`. Tool callers can pass optional `actor` and `source`
 fields, and runtime defaults can be set with:
 
 ```txt
-MEMORYD_MCP_AUDIT=true
-MEMORYD_MCP_ACTOR=mcp-client
-MEMORYD_MCP_SOURCE=memoryd-mcp
-MEMORYD_MCP_AUDIT_STREAM=__memoryd:mcp:audit
+THINGD_MCP_AUDIT=true
+THINGD_MCP_ACTOR=mcp-client
+THINGD_MCP_SOURCE=thingd-mcp
+THINGD_MCP_AUDIT_STREAM=__thingd:mcp:audit
 ```
 
 The HTTP runtime refuses to bind to non-loopback hosts without
-`MEMORYD_AUTH_TOKEN`, unless `MEMORYD_ALLOW_UNAUTHENTICATED=true` is set for a
+`THINGD_AUTH_TOKEN`, unless `THINGD_ALLOW_UNAUTHENTICATED=true` is set for a
 local experiment.
 
 Bridge mode is env-driven:
 
 ```txt
-MEMORYD_CLUSTER_MODE=single|leader|follower
-MEMORYD_CLUSTER_LEADER_URL=http://memoryd-leader:8757
-MEMORYD_CLUSTER_FORWARD_AUTH_TOKEN=change-me
-MEMORYD_CLUSTER_PEERS=http://memoryd-0:8757,http://memoryd-1:8757
+THINGD_CLUSTER_MODE=single|leader|follower
+THINGD_CLUSTER_LEADER_URL=http://thingd-leader:8757
+THINGD_CLUSTER_FORWARD_AUTH_TOKEN=change-me
+THINGD_CLUSTER_PEERS=http://thingd-0:8757,http://thingd-1:8757
 ```
 
 Followers forward MCP traffic to the configured leader. Local follower replica
@@ -441,25 +441,25 @@ embedded:
   Node app -> native Rust binding -> SQLite file
 
 sidecar:
-  Node app -> localhost memoryd sidecar -> SQLite file
+  Node app -> localhost thingd sidecar -> SQLite file
 ```
 
 Cluster mode should be owned by the sidecar, not by app code:
 
 ```txt
-Pod A memoryd sidecar = leader
-Pod B memoryd sidecar = follower, forwards writes
-Pod C memoryd sidecar = follower, forwards writes
+Pod A thingd sidecar = leader
+Pod B thingd sidecar = follower, forwards writes
+Pod C thingd sidecar = follower, forwards writes
 ```
 
-Apps keep using `MemoryD`; deployment decides whether `MemoryD.open()` uses an
-embedded store or connects to `MEMORYD_URL`.
+Apps keep using `ThingD`; deployment decides whether `ThingD.open()` uses an
+embedded store or connects to `THINGD_URL`.
 
 ```ts
-const db = await MemoryD.open();
+const db = await ThingD.open();
 ```
 
-With `MEMORYD_URL` set, this uses the remote SDK driver and talks to the local
+With `THINGD_URL` set, this uses the remote SDK driver and talks to the local
 sidecar over Streamable HTTP MCP.
 
 See [docs/sidecar-cluster.md](./docs/sidecar-cluster.md),
@@ -470,7 +470,7 @@ examples for the current bridge env, Kubernetes shape, and reverse proxy shape.
 
 The honest multi-pod stance:
 
-`memoryd` should not pretend local files magically support many pods writing to the same database file.
+`thingd` should not pretend local files magically support many pods writing to the same database file.
 
 The practical path is:
 
@@ -498,7 +498,7 @@ For local object memory, the first distributed design should be primary-writer p
 ```txt
 Node.js app
   |
-  | @sayanmohsin/memoryd
+  | thingd
   v
 Rust core
   |-- object store
@@ -516,12 +516,12 @@ Planned package layout:
 
 ```txt
 crates/
-  memoryd-core/       Rust engine primitives
+  thingd-core/       Rust engine primitives
 
 packages/
-  memoryd/            Node.js SDK
-  memoryd-native/     Private native Node.js binding package
-  memoryd-mcp/        MCP server package
+  thingd/            Node.js SDK
+  thingd-native/     Private native Node.js binding package
+  thingd-mcp/        MCP server package
 
 examples/
   node-basic/         Minimal Node.js example
@@ -542,7 +542,7 @@ docs/
 ## Examples
 
 - [Node basic](./examples/node-basic) shows the intended SDK shape.
-- [NestJS basic](./examples/nestjs-basic) shows how `memoryd` can sit behind a normal NestJS module, service, and controller setup.
+- [NestJS basic](./examples/nestjs-basic) shows how `thingd` can sit behind a normal NestJS module, service, and controller setup.
 
 ## Local testing without npm publish
 
@@ -557,7 +557,7 @@ pnpm test:node
 pnpm test:package
 ```
 
-`pnpm test:package` builds `@sayanmohsin/memoryd`, creates a local package tarball, installs that tarball into a temporary app, imports the package, and runs a smoke test. This is the closest local check to "will this work after npm publish?" without publishing anything.
+`pnpm test:package` builds `thingd`, creates a local package tarball, installs that tarball into a temporary app, imports the package, and runs a smoke test. This is the closest local check to "will this work after npm publish?" without publishing anything.
 
 The included examples can consume the local package through the workspace/file dependency. For the NestJS example:
 
@@ -569,7 +569,7 @@ pnpm start:dev
 For a separate Node.js app outside this repository, install the local package by path:
 
 ```bash
-pnpm add /Users/sayan/Documents/Experimental/memoryd/packages/memoryd
+pnpm add /Users/sayan/Documents/Experimental/thingd/packages/thingd
 ```
 
 Or add it to that app's `package.json`:
@@ -577,7 +577,7 @@ Or add it to that app's `package.json`:
 ```json
 {
   "dependencies": {
-    "@sayanmohsin/memoryd": "file:/Users/sayan/Documents/Experimental/memoryd/packages/memoryd"
+    "thingd": "file:/Users/sayan/Documents/Experimental/thingd/packages/thingd"
   }
 }
 ```
@@ -591,7 +591,7 @@ Project conventions live in checked-in files so this private repo stays easy to 
 - [biome.json](./biome.json) controls TypeScript, JavaScript, and JSON formatting/linting.
 - [rustfmt.toml](./rustfmt.toml) controls Rust formatting.
 - [Cargo.toml](./Cargo.toml) defines workspace Rust and Clippy lints.
-- [docs/agent-implementation-guide.md](./docs/agent-implementation-guide.md) explains how AI agents and contributors should integrate `memoryd` into apps.
+- [docs/agent-implementation-guide.md](./docs/agent-implementation-guide.md) explains how AI agents and contributors should integrate `thingd` into apps.
 - [docs/ai-primitives.md](./docs/ai-primitives.md) plans graph links, hybrid search, locks, workflow DAGs, semantic cache, tool ledger, and compaction.
 - [docs/cli.md](./docs/cli.md) describes the current runtime CLIs and the planned admin/operator CLI phases.
 - [docs/coding-standards.md](./docs/coding-standards.md) explains the coding standards.
@@ -624,7 +624,7 @@ pnpm test:rust
 
 ## Releases
 
-`memoryd` uses semantic-release on `main` for automatic npm versioning and publishing.
+`thingd` uses semantic-release on `main` for automatic npm versioning and publishing.
 
 Conventional commits map to SemVer like this:
 
@@ -632,7 +632,7 @@ Conventional commits map to SemVer like this:
 - `feat:` creates a minor release
 - `BREAKING CHANGE:` or `!` creates a major release
 
-The npm package is published from [packages/memoryd](./packages/memoryd). Publishing is skipped until the repository has an `NPM_TOKEN` secret configured.
+The npm package is published from [packages/thingd](./packages/thingd). Publishing is skipped until the repository has an `NPM_TOKEN` secret configured.
 
 Before enabling publish, run:
 
@@ -643,7 +643,7 @@ pnpm release:dry-run
 
 ## Comparison
 
-| Tool | Great at | Why memoryd is different |
+| Tool | Great at | Why thingd is different |
 | --- | --- | --- |
 | SQLite | local relational storage | object API, MCP tools, events, queues, AI search |
 | MongoDB | flexible documents | local-first tiny runtime, Rust core, MCP-native |
@@ -657,8 +657,8 @@ pnpm release:dry-run
 Start with the local Node/package gate:
 
 ```bash
-git clone https://github.com/sayanmohsin/memoryd.git
-cd memoryd
+git clone https://github.com/sayanmohsin/thingd.git
+cd thingd
 pnpm install
 pnpm test:local
 ```
@@ -675,7 +675,7 @@ pnpm test:rust
 ## Roadmap
 
 The recommended next build phase is **CLI-B**, which adds operator polish on top
-of the first-pass `memoryd` CLI. See [docs/cli.md](./docs/cli.md) and
+of the first-pass `thingd` CLI. See [docs/cli.md](./docs/cli.md) and
 [docs/handoff.md](./docs/handoff.md).
 
 ### v0.1 - local core
@@ -717,7 +717,7 @@ of the first-pass `memoryd` CLI. See [docs/cli.md](./docs/cli.md) and
 
 ### CLI phases
 
-- [x] CLI-A: `packages/memoryd-cli`, `memoryd` binary, remote/local connection handling, JSON output, object/event/queue inspection
+- [x] CLI-A: `packages/thingd-cli`, `thingd` binary, remote/local connection handling, JSON output, object/event/queue inspection
 - [ ] CLI-B: pretty tables, `doctor`, queue stats, benchmark wrappers, clearer runtime errors
 - [ ] CLI-C: export/import, snapshots, and redaction-friendly handoff flows
 
@@ -752,4 +752,4 @@ of the first-pass `memoryd` CLI. See [docs/cli.md](./docs/cli.md) and
 
 ## License
 
-`memoryd` is open source under the Apache-2.0 license. See [LICENSE](./LICENSE).
+`thingd` is open source under the Apache-2.0 license. See [LICENSE](./LICENSE).

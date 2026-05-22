@@ -1,6 +1,6 @@
 # Benchmarks
 
-`memoryd` keeps benchmarking lightweight while the storage engine is still
+`thingd` keeps benchmarking lightweight while the storage engine is still
 forming. The current benchmark exercises the Rust storage trait surface
 directly, which is where the durable `rusqlite` adapter lives today.
 
@@ -27,16 +27,16 @@ It measures:
 - queue pushes
 - queue claim plus ack loops
 
-Use `MEMORYD_BENCH_ITERS` to change the operation count:
+Use `THINGD_BENCH_ITERS` to change the operation count:
 
 ```bash
-MEMORYD_BENCH_ITERS=20000 pnpm bench:rust
+THINGD_BENCH_ITERS=20000 pnpm bench:rust
 ```
 
 Or pass the iteration count directly to the benchmark example:
 
 ```bash
-cargo run --release -p memoryd-core --example storage_bench --features sqlite -- 20000
+cargo run --release -p thingd-core --example storage_bench --features sqlite -- 20000
 ```
 
 ## Enforcement
@@ -56,7 +56,7 @@ The smoke run uses 100 iterations. It should catch broken benchmark code or a
 broken storage path without pretending GitHub-hosted runners are stable enough
 for strict performance regression thresholds.
 
-Do not add ops/sec failure thresholds on shared CI. If `memoryd` later needs
+Do not add ops/sec failure thresholds on shared CI. If `thingd` later needs
 hard performance gates, use a dedicated machine or self-hosted runner with a
 pinned environment and a deliberately chosen tolerance.
 
@@ -74,7 +74,7 @@ Expected shape:
   object or queue write.
 
 Node.js SDK benchmarks should be added next now that the private N-API
-`NativeMemoryStore` exists and can exercise the real public package path with
+`NativeThingStore` exists and can exercise the real public package path with
 `driver: "native"`.
 
 ## Latest Local Baseline

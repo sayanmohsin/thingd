@@ -1,0 +1,1003 @@
+//! `SQLite`-backed storage adapter.
+//!
+//! This adapter implements durable object, event, and queue storage.
+
+use std::path::Path;
+
+use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
+
+use crate::{
+    u64_to_i64, unix_timestamp_millis, EventLog, MemoryEvent, MemoryObject, ThingdError,
+    ThingdResult, ObjectKey, ObjectStore, QueueClaimOptions, QueueJob, QueueJobStatus,
+    QueueNackOptions, QueueStore,
+};
+
+/// Current `SQLite` schema version.
+pub const SQLITE_SCHEMA_VERSION: u32 = 1;
+
+/// `SQLite`-backed memory store.
+pub struct SqliteThingStore {
+    connection: Connection,
+}
+
+impl SqliteThingStore {
+    /// Open a `SQLite` database file and initialize the schema.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when `SQLite` cannot open the path or initialize schema.
+    pub fn open(path: impl AsRef<Path>) -> ThingdResult<Self> {
+        let connection = Connection::open(path).map_err(ThingdError::from)?;
+        let store = Self { connection };
+        store.initialize()?;
+        Ok(store)
+    }
+
+    /// Open an in-memory `SQLite` database and initialize the schema.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when `SQLite` cannot initialize schema.
+    pub fn open_in_memory() -> ThingdResult<Self> {
+        let connection = Connection::open_in_memory().map_err(ThingdError::from)?;
+        let store = Self { connection };
+        store.initialize()?;
+        Ok(store)
+    }
+
+    fn initialize(&self) -> ThingdResult<()> {
+        self.connection
+            .execute_batch(
+                r"
+                PRAGMA journal_mode = WAL;
+                PRAGMA foreign_keys = ON;
+
+                CREATE TABLE IF NOT EXISTS thingd_schema_migrations (
+                    version INTEGER PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    applied_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+                );
+                ",
+            )
+            .map_err(ThingdError::from)?;
+
+        let current_version = self.schema_version()?;
+        if current_version > SQLITE_SCHEMA_VERSION {
+            return Err(ThingdError::Storage(format!(
+                "database schema version {current_version} is newer than supported version {SQLITE_SCHEMA_VERSION}"
+            )));
+        }
+
+        if current_version < 1 {
+            self.apply_schema_v1()?;
+        }
+
+        Ok(())
+    }
+
+    /// Return the latest applied `SQLite` schema version.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the migration metadata cannot be read.
+    pub fn schema_version(&self) -> ThingdResult<u32> {
+        let version = self
+            .connection
+            .query_row(
+                "SELECT COALESCE(MAX(version), 0) FROM thingd_schema_migrations",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .map_err(ThingdError::from)?;
+
+        u32::try_from(version).map_err(|error| ThingdError::Storage(error.to_string()))
+    }
+
+    fn apply_schema_v1(&self) -> ThingdResult<()> {
+        self.connection
+            .execute_batch(
+                r"
+                BEGIN;
+
+                CREATE TABLE IF NOT EXISTS objects (
+                    collection TEXT NOT NULL,
+                    id TEXT NOT NULL,
+                    body TEXT NOT NULL,
+                    version INTEGER NOT NULL,
+                    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+                    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+                    PRIMARY KEY (collection, id)
+                );
+
+                CREATE TABLE IF NOT EXISTS events (
+                    sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+                    stream TEXT NOT NULL,
+                    event_type TEXT NOT NULL,
+                    body TEXT NOT NULL,
+                    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_events_stream_sequence
+                    ON events (stream, sequence);
+
+                CREATE TABLE IF NOT EXISTS queue_jobs (
+                    queue TEXT NOT NULL,
+                    id TEXT NOT NULL,
+                    body TEXT NOT NULL,
+                    attempts INTEGER NOT NULL,
+                    max_attempts INTEGER NOT NULL,
+                    status TEXT NOT NULL,
+                    available_at_ms INTEGER NOT NULL,
+                    leased_at_ms INTEGER,
+                    lease_expires_at_ms INTEGER,
+                    completed_at_ms INTEGER,
+                    dead_at_ms INTEGER,
+                    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+                    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+                    PRIMARY KEY (queue, id)
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_queue_jobs_queue_status_created
+                    ON queue_jobs (queue, status, created_at);
+
+                INSERT OR IGNORE INTO thingd_schema_migrations (version, name, applied_at)
+                VALUES (1, 'initial_objects_events_queues', strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));
+
+                COMMIT;
+                ",
+            )
+            .map_err(ThingdError::from)?;
+
+        Ok(())
+    }
+}
+
+impl ObjectStore for SqliteThingStore {
+    fn put_object(&mut self, mut object: MemoryObject) -> ThingdResult<MemoryObject> {
+        let transaction = self.connection.transaction().map_err(ThingdError::from)?;
+        let version = transaction
+            .query_row(
+                "SELECT version FROM objects WHERE collection = ?1 AND id = ?2",
+                params![&object.key.collection, &object.key.id],
+                |row| row.get::<_, i64>(0),
+            )
+            .optional()
+            .map_err(ThingdError::from)?
+            .map_or(Ok::<u64, ThingdError>(1), |existing| {
+                u64::try_from(existing)
+                    .map(|existing| existing + 1)
+                    .map_err(|error| ThingdError::Storage(error.to_string()))
+            })?;
+
+        object.version = version;
+        let stored_version = i64::try_from(object.version)
+            .map_err(|error| ThingdError::Storage(error.to_string()))?;
+
+        transaction
+            .execute(
+                r"
+                INSERT INTO objects (collection, id, body, version, created_at, updated_at)
+                VALUES (?1, ?2, ?3, ?4, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+                ON CONFLICT(collection, id) DO UPDATE SET
+                    body = excluded.body,
+                    version = excluded.version,
+                    updated_at = excluded.updated_at
+                ",
+                params![
+                    &object.key.collection,
+                    &object.key.id,
+                    &object.body,
+                    stored_version
+                ],
+            )
+            .map_err(ThingdError::from)?;
+
+        transaction.commit().map_err(ThingdError::from)?;
+
+        Ok(object)
+    }
+
+    fn get_object(&self, collection: &str, id: &str) -> ThingdResult<Option<MemoryObject>> {
+        self.connection
+            .query_row(
+                "SELECT collection, id, body, version FROM objects WHERE collection = ?1 AND id = ?2",
+                params![collection, id],
+                |row| {
+                    let version = row.get::<_, i64>(3)?;
+
+                    Ok(MemoryObject {
+                        key: ObjectKey::new(row.get::<_, String>(0)?, row.get::<_, String>(1)?),
+                        body: row.get(2)?,
+                        version: u64::try_from(version).map_err(|error| {
+                            rusqlite::Error::FromSqlConversionFailure(
+                                3,
+                                rusqlite::types::Type::Integer,
+                                Box::new(error),
+                            )
+                        })?,
+                    })
+                },
+            )
+            .optional()
+            .map_err(ThingdError::from)
+    }
+
+    fn list_objects(&self, collections: Option<&[String]>) -> ThingdResult<Vec<MemoryObject>> {
+        let mut objects = Vec::new();
+
+        if let Some(collections) = collections {
+            for collection in collections {
+                let mut statement = self
+                    .connection
+                    .prepare(
+                        "SELECT collection, id, body, version FROM objects WHERE collection = ?1 ORDER BY collection, id",
+                    )
+                    .map_err(ThingdError::from)?;
+                let rows = statement
+                    .query_map(params![collection], row_to_object)
+                    .map_err(ThingdError::from)?;
+
+                for row in rows {
+                    objects.push(row.map_err(ThingdError::from)?);
+                }
+            }
+        } else {
+            let mut statement = self
+                .connection
+                .prepare(
+                    "SELECT collection, id, body, version FROM objects ORDER BY collection, id",
+                )
+                .map_err(ThingdError::from)?;
+            let rows = statement
+                .query_map([], row_to_object)
+                .map_err(ThingdError::from)?;
+
+            for row in rows {
+                objects.push(row.map_err(ThingdError::from)?);
+            }
+        }
+
+        Ok(objects)
+    }
+
+    fn delete_object(&mut self, collection: &str, id: &str) -> ThingdResult<bool> {
+        let changed = self
+            .connection
+            .execute(
+                "DELETE FROM objects WHERE collection = ?1 AND id = ?2",
+                params![collection, id],
+            )
+            .map_err(ThingdError::from)?;
+
+        Ok(changed > 0)
+    }
+}
+
+impl EventLog for SqliteThingStore {
+    fn append_event(&mut self, mut event: MemoryEvent) -> ThingdResult<MemoryEvent> {
+        self.connection
+            .execute(
+                r"
+                INSERT INTO events (stream, event_type, body, created_at)
+                VALUES (?1, ?2, ?3, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+                ",
+                params![&event.stream, &event.event_type, &event.body],
+            )
+            .map_err(ThingdError::from)?;
+
+        event.sequence = u64::try_from(self.connection.last_insert_rowid())
+            .map_err(|error| ThingdError::Storage(error.to_string()))?;
+
+        Ok(event)
+    }
+
+    fn list_events(&self, stream: Option<&str>) -> ThingdResult<Vec<MemoryEvent>> {
+        let mut events = Vec::new();
+
+        if let Some(stream) = stream {
+            let mut statement = self
+                .connection
+                .prepare(
+                    "SELECT stream, event_type, body, sequence FROM events WHERE stream = ?1 ORDER BY sequence",
+                )
+                .map_err(ThingdError::from)?;
+            let rows = statement
+                .query_map(params![stream], row_to_event)
+                .map_err(ThingdError::from)?;
+
+            for row in rows {
+                events.push(row.map_err(ThingdError::from)?);
+            }
+        } else {
+            let mut statement = self
+                .connection
+                .prepare("SELECT stream, event_type, body, sequence FROM events ORDER BY sequence")
+                .map_err(ThingdError::from)?;
+            let rows = statement
+                .query_map([], row_to_event)
+                .map_err(ThingdError::from)?;
+
+            for row in rows {
+                events.push(row.map_err(ThingdError::from)?);
+            }
+        }
+
+        Ok(events)
+    }
+}
+
+impl QueueStore for SqliteThingStore {
+    fn push_job(&mut self, job: QueueJob) -> ThingdResult<QueueJob> {
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(ThingdError::from)?;
+
+        if let Some(existing) = transaction
+            .query_row(
+                &queue_job_select_sql("WHERE queue = ?1 AND id = ?2"),
+                params![&job.queue, &job.id],
+                row_to_queue_job,
+            )
+            .optional()
+            .map_err(ThingdError::from)?
+        {
+            transaction.commit().map_err(ThingdError::from)?;
+            return Ok(existing);
+        }
+
+        transaction
+            .execute(
+                r"
+                INSERT INTO queue_jobs (
+                    queue,
+                    id,
+                    body,
+                    attempts,
+                    max_attempts,
+                    status,
+                    available_at_ms,
+                    leased_at_ms,
+                    lease_expires_at_ms,
+                    completed_at_ms,
+                    dead_at_ms,
+                    created_at,
+                    updated_at
+                )
+                VALUES (
+                    ?1,
+                    ?2,
+                    ?3,
+                    ?4,
+                    ?5,
+                    ?6,
+                    ?7,
+                    ?8,
+                    ?9,
+                    ?10,
+                    ?11,
+                    strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
+                    strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+                )
+                ",
+                params![
+                    &job.queue,
+                    &job.id,
+                    &job.body,
+                    u32_to_i64(job.attempts),
+                    u32_to_i64(job.max_attempts),
+                    status_to_str(job.status),
+                    job.available_at_ms,
+                    job.leased_at_ms,
+                    job.lease_expires_at_ms,
+                    job.completed_at_ms,
+                    job.dead_at_ms
+                ],
+            )
+            .map_err(ThingdError::from)?;
+
+        transaction.commit().map_err(ThingdError::from)?;
+        Ok(job)
+    }
+
+    fn claim_job_with_options(
+        &mut self,
+        queue: &str,
+        options: QueueClaimOptions,
+    ) -> ThingdResult<Option<QueueJob>> {
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(ThingdError::from)?;
+
+        release_expired_leases(&transaction, queue)?;
+        let now = unix_timestamp_millis();
+        let Some(mut job) = transaction
+            .query_row(
+                &queue_job_select_sql(
+                    "WHERE queue = ?1 AND status = 'ready' AND available_at_ms <= ?2 ORDER BY rowid LIMIT 1",
+                ),
+                params![queue, now],
+                row_to_queue_job,
+            )
+            .optional()
+            .map_err(ThingdError::from)?
+        else {
+            transaction.commit().map_err(ThingdError::from)?;
+            return Ok(None);
+        };
+
+        job.status = QueueJobStatus::Leased;
+        job.attempts += 1;
+        job.leased_at_ms = Some(now);
+        job.lease_expires_at_ms = Some(now.saturating_add(u64_to_i64(options.lease_ms)));
+
+        transaction
+            .execute(
+                r"
+                UPDATE queue_jobs
+                SET attempts = ?3,
+                    status = ?4,
+                    leased_at_ms = ?5,
+                    lease_expires_at_ms = ?6,
+                    updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+                WHERE queue = ?1 AND id = ?2
+                ",
+                params![
+                    &job.queue,
+                    &job.id,
+                    u32_to_i64(job.attempts),
+                    status_to_str(job.status),
+                    job.leased_at_ms,
+                    job.lease_expires_at_ms
+                ],
+            )
+            .map_err(ThingdError::from)?;
+
+        transaction.commit().map_err(ThingdError::from)?;
+        Ok(Some(job))
+    }
+
+    fn ack_job(&mut self, queue: &str, id: &str) -> ThingdResult<Option<QueueJob>> {
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(ThingdError::from)?;
+
+        let Some(mut job) = transaction
+            .query_row(
+                &queue_job_select_sql("WHERE queue = ?1 AND id = ?2"),
+                params![queue, id],
+                row_to_queue_job,
+            )
+            .optional()
+            .map_err(ThingdError::from)?
+        else {
+            transaction.commit().map_err(ThingdError::from)?;
+            return Ok(None);
+        };
+
+        if job.status != QueueJobStatus::Leased {
+            return Err(ThingdError::Conflict(format!(
+                "job {id} must be leased before ack"
+            )));
+        }
+
+        job.status = QueueJobStatus::Completed;
+        job.completed_at_ms = Some(unix_timestamp_millis());
+        transaction
+            .execute(
+                r"
+                UPDATE queue_jobs
+                SET status = ?3,
+                    completed_at_ms = ?4,
+                    updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+                WHERE queue = ?1 AND id = ?2
+                ",
+                params![queue, id, status_to_str(job.status), job.completed_at_ms],
+            )
+            .map_err(ThingdError::from)?;
+
+        transaction.commit().map_err(ThingdError::from)?;
+        Ok(Some(job))
+    }
+
+    fn nack_job_with_options(
+        &mut self,
+        queue: &str,
+        id: &str,
+        options: QueueNackOptions,
+    ) -> ThingdResult<Option<QueueJob>> {
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(ThingdError::from)?;
+
+        let Some(mut job) = transaction
+            .query_row(
+                &queue_job_select_sql("WHERE queue = ?1 AND id = ?2"),
+                params![queue, id],
+                row_to_queue_job,
+            )
+            .optional()
+            .map_err(ThingdError::from)?
+        else {
+            transaction.commit().map_err(ThingdError::from)?;
+            return Ok(None);
+        };
+
+        if job.status != QueueJobStatus::Leased {
+            return Err(ThingdError::Conflict(format!(
+                "job {id} must be leased before nack"
+            )));
+        }
+
+        let now = unix_timestamp_millis();
+        job.leased_at_ms = None;
+        job.lease_expires_at_ms = None;
+        job.status = if job.attempts >= job.max_attempts {
+            job.dead_at_ms = Some(now);
+            QueueJobStatus::Dead
+        } else {
+            job.available_at_ms = now.saturating_add(u64_to_i64(options.delay_ms));
+            QueueJobStatus::Ready
+        };
+
+        transaction
+            .execute(
+                r"
+                UPDATE queue_jobs
+                SET status = ?3,
+                    available_at_ms = ?4,
+                    leased_at_ms = NULL,
+                    lease_expires_at_ms = NULL,
+                    dead_at_ms = ?5,
+                    updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+                WHERE queue = ?1 AND id = ?2
+                ",
+                params![
+                    queue,
+                    id,
+                    status_to_str(job.status),
+                    job.available_at_ms,
+                    job.dead_at_ms
+                ],
+            )
+            .map_err(ThingdError::from)?;
+
+        transaction.commit().map_err(ThingdError::from)?;
+        Ok(Some(job))
+    }
+
+    fn list_jobs(&self, queue: &str) -> ThingdResult<Vec<QueueJob>> {
+        let mut statement = self
+            .connection
+            .prepare(&queue_job_select_sql("WHERE queue = ?1 ORDER BY rowid"))
+            .map_err(ThingdError::from)?;
+        let rows = statement
+            .query_map(params![queue], row_to_queue_job)
+            .map_err(ThingdError::from)?;
+
+        let mut jobs = Vec::new();
+        for row in rows {
+            jobs.push(row.map_err(ThingdError::from)?);
+        }
+
+        Ok(jobs)
+    }
+
+    fn list_dead_jobs(&self, queue: &str) -> ThingdResult<Vec<QueueJob>> {
+        let mut statement = self
+            .connection
+            .prepare(&queue_job_select_sql(
+                "WHERE queue = ?1 AND status = 'dead' ORDER BY rowid",
+            ))
+            .map_err(ThingdError::from)?;
+        let rows = statement
+            .query_map(params![queue], row_to_queue_job)
+            .map_err(ThingdError::from)?;
+
+        let mut jobs = Vec::new();
+        for row in rows {
+            jobs.push(row.map_err(ThingdError::from)?);
+        }
+
+        Ok(jobs)
+    }
+}
+
+fn row_to_object(row: &rusqlite::Row<'_>) -> rusqlite::Result<MemoryObject> {
+    let version = row.get::<_, i64>(3)?;
+
+    Ok(MemoryObject {
+        key: ObjectKey::new(row.get::<_, String>(0)?, row.get::<_, String>(1)?),
+        body: row.get(2)?,
+        version: u64::try_from(version).map_err(|error| {
+            rusqlite::Error::FromSqlConversionFailure(
+                3,
+                rusqlite::types::Type::Integer,
+                Box::new(error),
+            )
+        })?,
+    })
+}
+
+fn row_to_event(row: &rusqlite::Row<'_>) -> rusqlite::Result<MemoryEvent> {
+    let sequence = row.get::<_, i64>(3)?;
+
+    Ok(MemoryEvent {
+        stream: row.get(0)?,
+        event_type: row.get(1)?,
+        body: row.get(2)?,
+        sequence: u64::try_from(sequence).map_err(|error| {
+            rusqlite::Error::FromSqlConversionFailure(
+                3,
+                rusqlite::types::Type::Integer,
+                Box::new(error),
+            )
+        })?,
+    })
+}
+
+fn queue_job_select_sql(predicate: &str) -> String {
+    format!(
+        "SELECT queue, id, body, attempts, max_attempts, status, available_at_ms, leased_at_ms, lease_expires_at_ms, completed_at_ms, dead_at_ms FROM queue_jobs {predicate}"
+    )
+}
+
+fn row_to_queue_job(row: &rusqlite::Row<'_>) -> rusqlite::Result<QueueJob> {
+    let attempts = row.get::<_, i64>(3)?;
+    let max_attempts = row.get::<_, i64>(4)?;
+    let status = row.get::<_, String>(5)?;
+
+    Ok(QueueJob {
+        queue: row.get(0)?,
+        id: row.get(1)?,
+        body: row.get(2)?,
+        attempts: i64_to_u32(attempts, 3)?,
+        max_attempts: i64_to_u32(max_attempts, 4)?,
+        status: str_to_status(&status).map_err(|error| {
+            rusqlite::Error::FromSqlConversionFailure(
+                5,
+                rusqlite::types::Type::Text,
+                Box::new(error),
+            )
+        })?,
+        available_at_ms: row.get(6)?,
+        leased_at_ms: row.get(7)?,
+        lease_expires_at_ms: row.get(8)?,
+        completed_at_ms: row.get(9)?,
+        dead_at_ms: row.get(10)?,
+    })
+}
+
+fn release_expired_leases(connection: &rusqlite::Connection, queue: &str) -> ThingdResult<()> {
+    connection
+        .execute(
+            r"
+            UPDATE queue_jobs
+            SET status = 'ready',
+                leased_at_ms = NULL,
+                lease_expires_at_ms = NULL,
+                updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+            WHERE queue = ?1
+                AND status = 'leased'
+                AND lease_expires_at_ms IS NOT NULL
+                AND lease_expires_at_ms <= ?2
+            ",
+            params![queue, unix_timestamp_millis()],
+        )
+        .map_err(ThingdError::from)?;
+
+    Ok(())
+}
+
+const fn status_to_str(status: QueueJobStatus) -> &'static str {
+    match status {
+        QueueJobStatus::Ready => "ready",
+        QueueJobStatus::Leased => "leased",
+        QueueJobStatus::Completed => "completed",
+        QueueJobStatus::Dead => "dead",
+    }
+}
+
+fn str_to_status(status: &str) -> ThingdResult<QueueJobStatus> {
+    match status {
+        "ready" => Ok(QueueJobStatus::Ready),
+        "leased" => Ok(QueueJobStatus::Leased),
+        "completed" => Ok(QueueJobStatus::Completed),
+        "dead" => Ok(QueueJobStatus::Dead),
+        _ => Err(ThingdError::Storage(format!(
+            "unknown queue job status: {status}"
+        ))),
+    }
+}
+
+fn i64_to_u32(value: i64, index: usize) -> rusqlite::Result<u32> {
+    u32::try_from(value).map_err(|error| {
+        rusqlite::Error::FromSqlConversionFailure(
+            index,
+            rusqlite::types::Type::Integer,
+            Box::new(error),
+        )
+    })
+}
+
+fn u32_to_i64(value: u32) -> i64 {
+    i64::from(value)
+}
+
+#[cfg(test)]
+mod tests {
+    use rusqlite::Connection;
+    use tempfile::NamedTempFile;
+
+    use super::*;
+
+    #[test]
+    fn records_schema_version_on_initialize() {
+        let store = SqliteThingStore::open_in_memory().unwrap();
+
+        assert_eq!(store.schema_version().unwrap(), SQLITE_SCHEMA_VERSION);
+    }
+
+    #[test]
+    fn rejects_newer_schema_versions() {
+        let file = NamedTempFile::new().unwrap();
+        let connection = Connection::open(file.path()).unwrap();
+        connection
+            .execute_batch(
+                r"
+                CREATE TABLE thingd_schema_migrations (
+                    version INTEGER PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    applied_at TEXT NOT NULL
+                );
+
+                INSERT INTO thingd_schema_migrations (version, name, applied_at)
+                VALUES (999, 'future', strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));
+                ",
+            )
+            .unwrap();
+
+        let Err(error) = SqliteThingStore::open(file.path()) else {
+            panic!("expected newer schema version to be rejected");
+        };
+
+        assert!(error.to_string().contains("newer than supported version"));
+    }
+
+    #[test]
+    fn stores_objects_across_reopen() {
+        let file = NamedTempFile::new().unwrap();
+
+        {
+            let mut store = SqliteThingStore::open(file.path()).unwrap();
+            let object = store
+                .put_object(MemoryObject::new(
+                    "decisions",
+                    "sqlite-backend",
+                    "{\"text\":\"Use SQLite\"}",
+                ))
+                .unwrap();
+
+            assert_eq!(object.version, 1);
+        }
+
+        let store = SqliteThingStore::open(file.path()).unwrap();
+        let object = store
+            .get_object("decisions", "sqlite-backend")
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(object.body, "{\"text\":\"Use SQLite\"}");
+        assert_eq!(object.version, 1);
+    }
+
+    #[test]
+    fn increments_object_versions() {
+        let mut store = SqliteThingStore::open_in_memory().unwrap();
+
+        let first = store
+            .put_object(MemoryObject::new("decisions", "versioned", "{}"))
+            .unwrap();
+        let second = store
+            .put_object(MemoryObject::new("decisions", "versioned", "{\"v\":2}"))
+            .unwrap();
+
+        assert_eq!(first.version, 1);
+        assert_eq!(second.version, 2);
+    }
+
+    #[test]
+    fn lists_objects_with_optional_collection_filter() {
+        let mut store = SqliteThingStore::open_in_memory().unwrap();
+
+        store
+            .put_object(MemoryObject::new("decisions", "sqlite-backend", "{}"))
+            .unwrap();
+        store
+            .put_object(MemoryObject::new("notes", "agent-guide", "{}"))
+            .unwrap();
+
+        let filtered = store
+            .list_objects(Some(&["decisions".to_string()]))
+            .unwrap();
+
+        assert_eq!(store.list_objects(None).unwrap().len(), 2);
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(filtered[0].key.collection, "decisions");
+    }
+
+    #[test]
+    fn stores_events_across_reopen() {
+        let file = NamedTempFile::new().unwrap();
+
+        {
+            let mut store = SqliteThingStore::open(file.path()).unwrap();
+            let event = store
+                .append_event(MemoryEvent::new(
+                    "project:thingd",
+                    "decision.made",
+                    "Use SQLite first",
+                ))
+                .unwrap();
+
+            assert_eq!(event.sequence, 1);
+        }
+
+        let store = SqliteThingStore::open(file.path()).unwrap();
+        let events = store.list_events(Some("project:thingd")).unwrap();
+
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].event_type, "decision.made");
+        assert_eq!(events[0].sequence, 1);
+    }
+
+    #[test]
+    fn stores_queue_jobs_across_reopen() {
+        let file = NamedTempFile::new().unwrap();
+
+        {
+            let mut store = SqliteThingStore::open(file.path()).unwrap();
+            let job = store
+                .push_job(QueueJob::new("embed", "job-1", "{\"doc\":\"doc-1\"}", 3))
+                .unwrap();
+
+            assert_eq!(job.status, QueueJobStatus::Ready);
+        }
+
+        let store = SqliteThingStore::open(file.path()).unwrap();
+        let jobs = store.list_jobs("embed").unwrap();
+
+        assert_eq!(jobs.len(), 1);
+        assert_eq!(jobs[0].id, "job-1");
+        assert_eq!(jobs[0].status, QueueJobStatus::Ready);
+    }
+
+    #[test]
+    fn returns_existing_queue_job_for_duplicate_push() {
+        let mut store = SqliteThingStore::open_in_memory().unwrap();
+
+        let first = store
+            .push_job(QueueJob::new("embed", "job-1", "{\"doc\":\"doc-1\"}", 3))
+            .unwrap();
+        let second = store
+            .push_job(QueueJob::new("embed", "job-1", "{\"doc\":\"doc-2\"}", 3))
+            .unwrap();
+
+        assert_eq!(first.body, "{\"doc\":\"doc-1\"}");
+        assert_eq!(second.body, first.body);
+        assert_eq!(store.list_jobs("embed").unwrap().len(), 1);
+    }
+
+    #[test]
+    fn claims_and_acks_queue_jobs() {
+        let mut store = SqliteThingStore::open_in_memory().unwrap();
+
+        store
+            .push_job(QueueJob::new("embed", "job-1", "{\"doc\":\"doc-1\"}", 3))
+            .unwrap();
+
+        let claimed = store.claim_job("embed").unwrap().unwrap();
+        let acked = store.ack_job("embed", "job-1").unwrap().unwrap();
+
+        assert_eq!(claimed.status, QueueJobStatus::Leased);
+        assert_eq!(claimed.attempts, 1);
+        assert!(claimed.leased_at_ms.is_some());
+        assert!(claimed.lease_expires_at_ms.is_some());
+        assert_eq!(acked.status, QueueJobStatus::Completed);
+        assert!(acked.completed_at_ms.is_some());
+        assert!(store.claim_job("embed").unwrap().is_none());
+    }
+
+    #[test]
+    fn nacks_queue_jobs_to_retry_then_dead_letter() {
+        let mut store = SqliteThingStore::open_in_memory().unwrap();
+
+        store
+            .push_job(QueueJob::new("embed", "job-1", "{\"doc\":\"doc-1\"}", 2))
+            .unwrap();
+
+        store.claim_job("embed").unwrap().unwrap();
+        let retried = store.nack_job("embed", "job-1").unwrap().unwrap();
+        assert_eq!(retried.status, QueueJobStatus::Ready);
+        assert_eq!(retried.attempts, 1);
+
+        store.claim_job("embed").unwrap().unwrap();
+        let dead = store.nack_job("embed", "job-1").unwrap().unwrap();
+        assert_eq!(dead.status, QueueJobStatus::Dead);
+        assert_eq!(dead.attempts, 2);
+        assert!(dead.dead_at_ms.is_some());
+        assert_eq!(store.list_dead_jobs("embed").unwrap().len(), 1);
+    }
+
+    #[test]
+    fn does_not_claim_delayed_queue_jobs_before_available() {
+        let mut store = SqliteThingStore::open_in_memory().unwrap();
+
+        store
+            .push_job(QueueJob::new("embed", "job-1", "{\"doc\":\"doc-1\"}", 3).delay_by_ms(60_000))
+            .unwrap();
+
+        assert!(store.claim_job("embed").unwrap().is_none());
+    }
+
+    #[test]
+    fn reclaims_queue_jobs_after_lease_expiration() {
+        let mut store = SqliteThingStore::open_in_memory().unwrap();
+
+        store
+            .push_job(QueueJob::new("embed", "job-1", "{\"doc\":\"doc-1\"}", 3))
+            .unwrap();
+
+        let first = store
+            .claim_job_with_options("embed", QueueClaimOptions::new(0))
+            .unwrap()
+            .unwrap();
+        let second = store.claim_job("embed").unwrap().unwrap();
+
+        assert_eq!(first.status, QueueJobStatus::Leased);
+        assert_eq!(second.status, QueueJobStatus::Leased);
+        assert_eq!(second.attempts, 2);
+    }
+
+    #[test]
+    fn nacks_queue_jobs_with_retry_delay() {
+        let mut store = SqliteThingStore::open_in_memory().unwrap();
+
+        store
+            .push_job(QueueJob::new("embed", "job-1", "{\"doc\":\"doc-1\"}", 3))
+            .unwrap();
+
+        store.claim_job("embed").unwrap().unwrap();
+        let retried = store
+            .nack_job_with_options("embed", "job-1", QueueNackOptions::new(60_000))
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(retried.status, QueueJobStatus::Ready);
+        assert!(store.claim_job("embed").unwrap().is_none());
+    }
+
+    #[test]
+    fn persists_completed_queue_jobs_across_reopen() {
+        let file = NamedTempFile::new().unwrap();
+
+        {
+            let mut store = SqliteThingStore::open(file.path()).unwrap();
+            store
+                .push_job(QueueJob::new("embed", "job-1", "{\"doc\":\"doc-1\"}", 3))
+                .unwrap();
+            store.claim_job("embed").unwrap().unwrap();
+            store.ack_job("embed", "job-1").unwrap().unwrap();
+        }
+
+        let store = SqliteThingStore::open(file.path()).unwrap();
+        let jobs = store.list_jobs("embed").unwrap();
+
+        assert_eq!(jobs.len(), 1);
+        assert_eq!(jobs[0].status, QueueJobStatus::Completed);
+        assert_eq!(jobs[0].attempts, 1);
+    }
+}

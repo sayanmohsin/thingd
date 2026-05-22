@@ -1,73 +1,73 @@
 apiVersion: v1
 kind: Secret
 metadata:
-  name: memoryd-auth
+  name: thingd-auth
 type: Opaque
 stringData:
-  MEMORYD_AUTH_TOKEN: change-me
+  THINGD_AUTH_TOKEN: change-me
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: memoryd-sidecar-example
+  name: thingd-sidecar-example
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: memoryd-sidecar-example
+      app: thingd-sidecar-example
   template:
     metadata:
       labels:
-        app: memoryd-sidecar-example
+        app: thingd-sidecar-example
     spec:
       containers:
         - name: app
           image: your-node-app:latest
           env:
-            - name: MEMORYD_URL
+            - name: THINGD_URL
               value: http://127.0.0.1:8757
-            - name: MEMORYD_AUTH_TOKEN
+            - name: THINGD_AUTH_TOKEN
               valueFrom:
                 secretKeyRef:
-                  name: memoryd-auth
-                  key: MEMORYD_AUTH_TOKEN
+                  name: thingd-auth
+                  key: THINGD_AUTH_TOKEN
 
-        - name: memoryd
-          image: ghcr.io/sayanmohsin/memoryd:latest
+        - name: thingd
+          image: ghcr.io/sayanmohsin/thingd:latest
           env:
-            - name: MEMORYD_PATH
-              value: /data/memoryd.db
-            - name: MEMORYD_DRIVER
+            - name: THINGD_PATH
+              value: /data/thingd.db
+            - name: THINGD_DRIVER
               value: native
-            - name: MEMORYD_HOST
+            - name: THINGD_HOST
               value: 0.0.0.0
-            - name: MEMORYD_PORT
+            - name: THINGD_PORT
               value: "8757"
-            - name: MEMORYD_CLUSTER_MODE
+            - name: THINGD_CLUSTER_MODE
               value: single
-            - name: MEMORYD_AUTH_TOKEN
+            - name: THINGD_AUTH_TOKEN
               valueFrom:
                 secretKeyRef:
-                  name: memoryd-auth
-                  key: MEMORYD_AUTH_TOKEN
+                  name: thingd-auth
+                  key: THINGD_AUTH_TOKEN
           ports:
-            - name: memoryd
+            - name: thingd
               containerPort: 8757
           readinessProbe:
             httpGet:
               path: /healthz
-              port: memoryd
+              port: thingd
             initialDelaySeconds: 3
             periodSeconds: 10
           livenessProbe:
             httpGet:
               path: /healthz
-              port: memoryd
+              port: thingd
             initialDelaySeconds: 10
             periodSeconds: 20
           volumeMounts:
-            - name: memoryd-data
+            - name: thingd-data
               mountPath: /data
       volumes:
-        - name: memoryd-data
+        - name: thingd-data
           emptyDir: {}

@@ -1,51 +1,51 @@
 services:
-  memoryd-leader:
+  thingd-leader:
     build:
       context: ..
       dockerfile: Dockerfile
-    image: memoryd:local
+    image: thingd:local
     environment:
-      MEMORYD_PATH: /data/memoryd.db
-      MEMORYD_DRIVER: native
-      MEMORYD_HOST: 0.0.0.0
-      MEMORYD_PORT: "8757"
-      MEMORYD_AUTH_TOKEN: change-me
-      MEMORYD_CLUSTER_MODE: leader
-      MEMORYD_CLUSTER_DISCOVERY: static
-      MEMORYD_CLUSTER_PEERS: http://memoryd-leader:8757,http://memoryd-follower:8757
-      MEMORYD_ADVERTISE_URL: http://memoryd-leader:8757
+      THINGD_PATH: /data/thingd.db
+      THINGD_DRIVER: native
+      THINGD_HOST: 0.0.0.0
+      THINGD_PORT: "8757"
+      THINGD_AUTH_TOKEN: change-me
+      THINGD_CLUSTER_MODE: leader
+      THINGD_CLUSTER_DISCOVERY: static
+      THINGD_CLUSTER_PEERS: http://thingd-leader:8757,http://thingd-follower:8757
+      THINGD_ADVERTISE_URL: http://thingd-leader:8757
     ports:
       - "8757:8757"
     volumes:
-      - memoryd-leader-data:/data
+      - thingd-leader-data:/data
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8757/healthz').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
       interval: 10s
       timeout: 3s
       retries: 5
 
-  memoryd-follower:
-    image: memoryd:local
+  thingd-follower:
+    image: thingd:local
     depends_on:
-      memoryd-leader:
+      thingd-leader:
         condition: service_healthy
     environment:
-      MEMORYD_PATH: /data/memoryd.db
-      MEMORYD_DRIVER: native
-      MEMORYD_HOST: 0.0.0.0
-      MEMORYD_PORT: "8757"
-      MEMORYD_AUTH_TOKEN: change-me
-      MEMORYD_CLUSTER_MODE: follower
-      MEMORYD_CLUSTER_LEADER_URL: http://memoryd-leader:8757
-      MEMORYD_CLUSTER_FORWARD_AUTH_TOKEN: change-me
-      MEMORYD_CLUSTER_DISCOVERY: static
-      MEMORYD_CLUSTER_PEERS: http://memoryd-leader:8757,http://memoryd-follower:8757
-      MEMORYD_ADVERTISE_URL: http://memoryd-follower:8757
+      THINGD_PATH: /data/thingd.db
+      THINGD_DRIVER: native
+      THINGD_HOST: 0.0.0.0
+      THINGD_PORT: "8757"
+      THINGD_AUTH_TOKEN: change-me
+      THINGD_CLUSTER_MODE: follower
+      THINGD_CLUSTER_LEADER_URL: http://thingd-leader:8757
+      THINGD_CLUSTER_FORWARD_AUTH_TOKEN: change-me
+      THINGD_CLUSTER_DISCOVERY: static
+      THINGD_CLUSTER_PEERS: http://thingd-leader:8757,http://thingd-follower:8757
+      THINGD_ADVERTISE_URL: http://thingd-follower:8757
     ports:
       - "8758:8757"
     volumes:
-      - memoryd-follower-data:/data
+      - thingd-follower-data:/data
 
 volumes:
-  memoryd-leader-data:
-  memoryd-follower-data:
+  thingd-leader-data:
+  thingd-follower-data:

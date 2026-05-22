@@ -1,15 +1,15 @@
 # Docker Runtime
 
-`memoryd` can be packaged as a container that runs the MCP server over
+`thingd` can be packaged as a container that runs the MCP server over
 Streamable HTTP.
 
 This is the first remote-capable runtime shape. It is intended for local
-experiments, self-hosting, and the future `memoryd-cloud` gateway.
+experiments, self-hosting, and the future `thingd-cloud` gateway.
 
 ## Build
 
 ```bash
-docker build -t memoryd:local .
+docker build -t thingd:local .
 ```
 
 ## Run
@@ -17,28 +17,28 @@ docker build -t memoryd:local .
 ```bash
 docker run --rm \
   -p 8757:8757 \
-  -v memoryd-data:/data \
-  -e MEMORYD_AUTH_TOKEN=change-me \
-  memoryd:local
+  -v thingd-data:/data \
+  -e THINGD_AUTH_TOKEN=change-me \
+  thingd:local
 ```
 
 The container starts:
 
 ```txt
-node packages/memoryd-mcp/dist/http-cli.js
+node packages/thingd-mcp/dist/http-cli.js
 ```
 
 Default container environment:
 
 ```txt
-MEMORYD_PATH=/data/memoryd.db
-MEMORYD_DRIVER=native
-MEMORYD_HOST=0.0.0.0
-MEMORYD_PORT=8757
-MEMORYD_CLUSTER_MODE=single
-MEMORYD_CLUSTER_DISCOVERY=none
-MEMORYD_CLUSTER_PORT=8757
-MEMORYD_MCP_AUDIT=true
+THINGD_PATH=/data/thingd.db
+THINGD_DRIVER=native
+THINGD_HOST=0.0.0.0
+THINGD_PORT=8757
+THINGD_CLUSTER_MODE=single
+THINGD_CLUSTER_DISCOVERY=none
+THINGD_CLUSTER_PORT=8757
+THINGD_MCP_AUDIT=true
 ```
 
 ## Endpoints
@@ -57,7 +57,7 @@ such as the container default `0.0.0.0`:
 Authorization: Bearer <token>
 ```
 
-Do not set `MEMORYD_ALLOW_UNAUTHENTICATED=true` in a public or shared runtime.
+Do not set `THINGD_ALLOW_UNAUTHENTICATED=true` in a public or shared runtime.
 
 ## Health Check
 
@@ -77,12 +77,12 @@ http://127.0.0.1:8757/mcp
 Node apps can use the SDK remote driver through the sidecar:
 
 ```bash
-MEMORYD_URL=http://127.0.0.1:8757
-MEMORYD_AUTH_TOKEN=change-me
+THINGD_URL=http://127.0.0.1:8757
+THINGD_AUTH_TOKEN=change-me
 ```
 
 ```ts
-const db = await MemoryD.open();
+const db = await ThingD.open();
 ```
 
 For ChatGPT or cloud-hosted agents, localhost is not enough. The MCP endpoint
@@ -91,26 +91,26 @@ must be available at a public HTTPS URL with authentication.
 ```txt
 ChatGPT / hosted agent
   -> https://your-domain.example/mcp
-  -> memoryd container
-  -> /data/memoryd.db
+  -> thingd container
+  -> /data/thingd.db
 ```
 
 Do not expose a tokenless MCP endpoint to the public internet.
 
 ## Audit Events
 
-MCP write tools append audit events to `__memoryd:mcp:audit` by default.
+MCP write tools append audit events to `__thingd:mcp:audit` by default.
 
 Useful environment variables:
 
 ```txt
-MEMORYD_MCP_AUDIT=true
-MEMORYD_MCP_ACTOR=mcp-client
-MEMORYD_MCP_SOURCE=memoryd-mcp
-MEMORYD_MCP_AUDIT_STREAM=__memoryd:mcp:audit
+THINGD_MCP_AUDIT=true
+THINGD_MCP_ACTOR=mcp-client
+THINGD_MCP_SOURCE=thingd-mcp
+THINGD_MCP_AUDIT_STREAM=__thingd:mcp:audit
 ```
 
-Set `MEMORYD_MCP_AUDIT=false` only when you explicitly do not want MCP write
+Set `THINGD_MCP_AUDIT=false` only when you explicitly do not want MCP write
 events recorded.
 
 ## Bridge Mode
@@ -118,19 +118,19 @@ events recorded.
 The container accepts bridge/cluster env vars:
 
 ```txt
-MEMORYD_CLUSTER_MODE=single|leader|follower
-MEMORYD_CLUSTER_LEADER_URL=http://memoryd-leader:8757
-MEMORYD_CLUSTER_FORWARD_AUTH_TOKEN=change-me
-MEMORYD_CLUSTER_DISCOVERY=none|static|kubernetes
-MEMORYD_CLUSTER_PEERS=http://memoryd-0:8757,http://memoryd-1:8757
-MEMORYD_ADVERTISE_URL=http://memoryd-0:8757
+THINGD_CLUSTER_MODE=single|leader|follower
+THINGD_CLUSTER_LEADER_URL=http://thingd-leader:8757
+THINGD_CLUSTER_FORWARD_AUTH_TOKEN=change-me
+THINGD_CLUSTER_DISCOVERY=none|static|kubernetes
+THINGD_CLUSTER_PEERS=http://thingd-0:8757,http://thingd-1:8757
+THINGD_ADVERTISE_URL=http://thingd-0:8757
 ```
 
 Current behavior:
 
 - `single`: standalone runtime
 - `leader`: handles MCP traffic locally and reports itself writable
-- `follower`: forwards MCP traffic to `MEMORYD_CLUSTER_LEADER_URL`
+- `follower`: forwards MCP traffic to `THINGD_CLUSTER_LEADER_URL`
 
 Follower local replica catch-up is not implemented yet. This bridge solves
 write routing before attempting true replicated local reads.
@@ -144,14 +144,14 @@ pnpm smoke:docker
 The smoke script builds the image, starts a container, checks `/healthz`,
 checks `/cluster/status`, and uses an MCP client to list tools. It maps the
 container to host port `18757` by default to avoid clashing with a local dev
-runtime. Override with `MEMORYD_DOCKER_PORT`.
+runtime. Override with `THINGD_DOCKER_PORT`.
 
 ## Compose And Kubernetes
 
 - [deploy/docker-compose.yml](../deploy/docker-compose.yml) runs a local
   leader/follower pair.
 - [deploy/kubernetes/sidecar.yaml](../deploy/kubernetes/sidecar.yaml) shows an
-  app container with a local `memoryd` sidecar.
+  app container with a local `thingd` sidecar.
 - [deploy/kubernetes/leader-follower.yaml](../deploy/kubernetes/leader-follower.yaml)
   shows explicit leader/follower runtime env.
 - [deploy/proxy/Caddyfile](../deploy/proxy/Caddyfile) shows a TLS reverse proxy

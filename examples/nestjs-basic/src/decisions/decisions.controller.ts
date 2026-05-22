@@ -8,7 +8,7 @@ import {
   Post,
 } from "@nestjs/common";
 // biome-ignore lint/style/useImportType: NestJS constructor injection needs runtime metadata.
-import { MemorydService } from "../memoryd/memoryd.service";
+import { ThingdService } from "../thingd/thingd.service";
 
 type CreateDecisionBody = {
   id?: string;
@@ -19,7 +19,7 @@ type CreateDecisionBody = {
 
 @Controller("decisions")
 export class DecisionsController {
-  constructor(private readonly memoryd: MemorydService) {}
+  constructor(private readonly thingd: ThingdService) {}
 
   @Post()
   create(@Body() body: CreateDecisionBody) {
@@ -27,20 +27,20 @@ export class DecisionsController {
       throw new BadRequestException("id and text are required");
     }
 
-    const decision = this.memoryd.put("decisions", {
+    const decision = this.thingd.put("decisions", {
       id: body.id,
       text: body.text,
-      project: body.project ?? "memoryd",
+      project: body.project ?? "thingd",
       confidence: body.confidence ?? 0.8,
     });
 
-    this.memoryd.appendEvent(`project:${decision.project}`, {
+    this.thingd.appendEvent(`project:${decision.project}`, {
       type: "decision.made",
       text: body.text,
       object: `decisions/${decision.id}`,
     });
 
-    const job = this.memoryd.pushJob("embed", {
+    const job = this.thingd.pushJob("embed", {
       object: `decisions/${decision.id}`,
     });
 
@@ -52,7 +52,7 @@ export class DecisionsController {
 
   @Get(":id")
   get(@Param("id") id: string) {
-    const decision = this.memoryd.get("decisions", id);
+    const decision = this.thingd.get("decisions", id);
 
     if (!decision) {
       throw new NotFoundException(`Decision ${id} was not found`);

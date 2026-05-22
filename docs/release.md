@@ -1,6 +1,6 @@
 # Release Process
 
-`memoryd` uses semantic-release to publish the npm package from `packages/memoryd`.
+`thingd` uses semantic-release to publish the npm package from `packages/thingd`.
 
 ## Versioning
 
@@ -38,7 +38,7 @@ Before configuring `NPM_TOKEN`, use the local package smoke test:
 pnpm test:package
 ```
 
-This command builds `@sayanmohsin/memoryd`, packs it into a package tarball, installs that tarball into a temporary app, and imports the installed package.
+This command builds `thingd`, packs it into a package tarball, installs that tarball into a temporary app, and imports the installed package.
 
 You can also verify the release plan without publishing:
 
@@ -68,11 +68,11 @@ Use this path when the package does not exist on npm yet.
 2. Push the repo to GitHub with a conventional commit that creates a release. For the first release, use something like:
 
 ```txt
-feat: initial memoryd release
+feat: initial thingd release
 ```
 
 3. Open GitHub -> Actions -> Release -> Run workflow -> branch `main`.
-4. The workflow runs checks, builds the package from `packages/memoryd`, publishes `@sayanmohsin/memoryd`, creates the Git tag, and creates the GitHub release.
+4. The workflow runs checks, builds the package from `packages/thingd`, publishes `thingd`, creates the Git tag, and creates the GitHub release.
 
 If semantic-release says there is no release, the commits on `main` did not include a releasable conventional commit. Add a `feat:`, `fix:`, `perf:`, or breaking-change commit and run the workflow again.
 
@@ -80,7 +80,7 @@ After the first publish, configure npm Trusted Publishing for tokenless releases
 
 ```txt
 Organization or user: sayanmohsin
-Repository: memoryd
+Repository: thingd
 Workflow filename: release.yml
 Environment name: leave blank unless GitHub environments are enabled
 ```

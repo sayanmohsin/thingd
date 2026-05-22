@@ -1,6 +1,6 @@
 # Architecture
 
-`memoryd` is split into a Rust core and thin developer-facing packages.
+`thingd` is split into a Rust core and thin developer-facing packages.
 
 ```txt
 Rust core
@@ -60,22 +60,22 @@ indexes
 
 Objects are the primary app-facing shape. Events explain how state changed. Indexes are derived and can be rebuilt.
 
-`crates/memoryd-core` defines the current storage boundary with these traits:
+`crates/thingd-core` defines the current storage boundary with these traits:
 
 ```txt
 ObjectStore
 EventLog
 QueueStore
-MemoryStore
+ThingStore
 ```
 
 Future durable adapters should implement those traits.
 
-The first durable adapter is `SqliteMemoryStore`, enabled by the Rust crate's
+The first durable adapter is `SqliteThingStore`, enabled by the Rust crate's
 `sqlite` feature. It currently persists objects, events, and trait-level queue
 jobs with `rusqlite`. Queue claim, ack, nack, retry delay, delayed
 availability, lease expiration, and dead-letter updates are transactional.
-Schema version tracking lives in `memoryd_schema_migrations`.
+Schema version tracking lives in `thingd_schema_migrations`.
 
 ## Queue Model
 
@@ -100,7 +100,7 @@ The practical path is:
 5. consensus only if real demand proves it is worth the complexity
 
 Sidecar cluster mode is planned as a runtime layer above SQLite, not a
-multi-primary SQLite design. Each app talks to a local `memoryd` sidecar. The
+multi-primary SQLite design. Each app talks to a local `thingd` sidecar. The
 current bridge scaffold exposes peer metadata and can run as `single`,
 `leader`, or `follower`. Followers forward MCP traffic to the configured leader.
 Follower replica catch-up is still planned.
@@ -110,7 +110,7 @@ For the detailed API, environment, Kubernetes, and phase plan, read
 
 ## AI-Native Primitive Direction
 
-`memoryd` should prioritize workflow primitives that help agents understand,
+`thingd` should prioritize workflow primitives that help agents understand,
 retrieve, coordinate, and audit work. The planned order is graph links, hybrid
 search, locks/leases/semaphores, workflow DAGs, semantic cache, tool-call
 ledger, and compaction snapshots.
@@ -120,7 +120,7 @@ For target APIs, storage shapes, MCP surfaces, and phase planning, read
 
 ## MCP Server Direction
 
-`packages/memoryd-mcp` wraps the public SDK as MCP tools. It provides stdio for
+`packages/thingd-mcp` wraps the public SDK as MCP tools. It provides stdio for
 local MCP clients and Streamable HTTP for remote-capable runtimes. Write tools
 append audit events by default. The Docker runtime starts the HTTP MCP endpoint,
 exposes bridge status endpoints, and persists data under `/data`.
@@ -131,8 +131,8 @@ For current tools and local usage, read [mcp-server.md](./mcp-server.md) and
 
 ## CLI Direction
 
-The MCP package has runtime entrypoints, and `packages/memoryd-cli` now provides
-the first-pass `memoryd` admin/operator CLI. The CLI uses the public SDK for
+The MCP package has runtime entrypoints, and `packages/thingd-cli` now provides
+the first-pass `thingd` admin/operator CLI. The CLI uses the public SDK for
 local and remote access and can inspect objects, events, queues, dead jobs, MCP
 tools, and runtime status. The next CLI phase should add operator polish before
 any inspector UI is built.
@@ -144,14 +144,14 @@ For command phases and handoff details, read [cli.md](./cli.md).
 The expected embedded path is:
 
 ```txt
-@sayanmohsin/memoryd
+thingd
   TypeScript public API
   native store adapter
 
-@sayanmohsin/memoryd-native
+thingd-native
   napi-rs binding package
 
-crates/memoryd-core
+crates/thingd-core
   durable engine traits and adapters
 ```
 

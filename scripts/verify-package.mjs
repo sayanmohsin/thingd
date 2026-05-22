@@ -6,7 +6,7 @@ import { parseArgs } from "node:util";
 import { execFileSync } from "node:child_process";
 
 const rootDir = resolve(new URL("..", import.meta.url).pathname);
-const packageDir = join(rootDir, "packages", "memoryd");
+const packageDir = join(rootDir, "packages", "thingd");
 
 const { values } = parseArgs({
   options: {
@@ -35,7 +35,7 @@ const runJson = (command, args, options = {}) => {
   return JSON.parse(output);
 };
 
-const tempDir = await mkdtemp(join(tmpdir(), "memoryd-package-smoke-"));
+const tempDir = await mkdtemp(join(tmpdir(), "thingd-package-smoke-"));
 const originalCwd = cwd();
 const packageManagerEnv = {
   ...processEnv,
@@ -73,15 +73,15 @@ try {
   await writeFile(
     join(tempDir, "smoke.mjs"),
     `import assert from "node:assert/strict";
-import { MemoryD } from "@sayanmohsin/memoryd";
+import { ThingD } from "thingd";
 
-const db = await MemoryD.open(":memory:");
+const db = await ThingD.open(":memory:");
 await db.put("decisions", {
   id: "package-smoke",
   text: "The packed package can be installed and imported locally.",
 });
 
-await db.events.append("project:memoryd", {
+await db.events.append("project:thingd", {
   type: "package.verified",
   text: "Local package smoke test passed.",
 });

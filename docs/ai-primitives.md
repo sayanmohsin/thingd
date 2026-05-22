@@ -4,7 +4,7 @@ This document plans the higher-value data primitives that should come after the
 core object/event/queue engine. These are not generic textbook structures. They
 are workflow primitives for AI-native apps, agents, and tools.
 
-The goal is to make `memoryd` feel like a tiny local runtime for memory,
+The goal is to make `thingd` feel like a tiny local runtime for memory,
 retrieval, background work, provenance, and coordination.
 
 ## Priority Order
@@ -98,7 +98,7 @@ const hits = await db.search("why did we choose sqlite?", {
   collections: ["decisions", "docs"],
   mode: "hybrid",
   filter: {
-    project: "memoryd",
+    project: "thingd",
   },
   include: {
     neighbors: true,
@@ -279,7 +279,7 @@ Target API:
 ```ts
 await db.tools.record({
   runId: "run_123",
-  tool: "memory.search",
+  tool: "thing.search",
   input,
   output,
   status: "ok",
@@ -350,7 +350,7 @@ Each primitive should have a narrow MCP surface:
 
 ```txt
 memory.links.*
-memory.search
+thing.search
 memory.locks.*
 memory.workflows.*
 memory.cache.*

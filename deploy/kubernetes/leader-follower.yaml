@@ -1,77 +1,77 @@
 apiVersion: v1
 kind: Secret
 metadata:
-  name: memoryd-cluster-auth
+  name: thingd-cluster-auth
 type: Opaque
 stringData:
-  MEMORYD_AUTH_TOKEN: change-me
+  THINGD_AUTH_TOKEN: change-me
 ---
 apiVersion: v1
 kind: Service
 metadata:
-  name: memoryd-leader
+  name: thingd-leader
 spec:
   selector:
-    app: memoryd-leader
+    app: thingd-leader
   ports:
-    - name: memoryd
+    - name: thingd
       port: 8757
-      targetPort: memoryd
+      targetPort: thingd
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: memoryd-leader
+  name: thingd-leader
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: memoryd-leader
+      app: thingd-leader
   template:
     metadata:
       labels:
-        app: memoryd-leader
+        app: thingd-leader
     spec:
       containers:
-        - name: memoryd
-          image: ghcr.io/sayanmohsin/memoryd:latest
+        - name: thingd
+          image: ghcr.io/sayanmohsin/thingd:latest
           env:
-            - name: MEMORYD_PATH
-              value: /data/memoryd.db
-            - name: MEMORYD_DRIVER
+            - name: THINGD_PATH
+              value: /data/thingd.db
+            - name: THINGD_DRIVER
               value: native
-            - name: MEMORYD_HOST
+            - name: THINGD_HOST
               value: 0.0.0.0
-            - name: MEMORYD_PORT
+            - name: THINGD_PORT
               value: "8757"
-            - name: MEMORYD_CLUSTER_MODE
+            - name: THINGD_CLUSTER_MODE
               value: leader
-            - name: MEMORYD_ADVERTISE_URL
-              value: http://memoryd-leader:8757
-            - name: MEMORYD_AUTH_TOKEN
+            - name: THINGD_ADVERTISE_URL
+              value: http://thingd-leader:8757
+            - name: THINGD_AUTH_TOKEN
               valueFrom:
                 secretKeyRef:
-                  name: memoryd-cluster-auth
-                  key: MEMORYD_AUTH_TOKEN
+                  name: thingd-cluster-auth
+                  key: THINGD_AUTH_TOKEN
           ports:
-            - name: memoryd
+            - name: thingd
               containerPort: 8757
           readinessProbe:
             httpGet:
               path: /healthz
-              port: memoryd
+              port: thingd
           volumeMounts:
-            - name: memoryd-data
+            - name: thingd-data
               mountPath: /data
       volumes:
-        - name: memoryd-data
+        - name: thingd-data
           persistentVolumeClaim:
-            claimName: memoryd-leader-data
+            claimName: thingd-leader-data
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: memoryd-leader-data
+  name: thingd-leader-data
 spec:
   accessModes:
     - ReadWriteOnce
@@ -82,53 +82,53 @@ spec:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: memoryd-follower
+  name: thingd-follower
 spec:
   replicas: 2
   selector:
     matchLabels:
-      app: memoryd-follower
+      app: thingd-follower
   template:
     metadata:
       labels:
-        app: memoryd-follower
+        app: thingd-follower
     spec:
       containers:
-        - name: memoryd
-          image: ghcr.io/sayanmohsin/memoryd:latest
+        - name: thingd
+          image: ghcr.io/sayanmohsin/thingd:latest
           env:
-            - name: MEMORYD_PATH
-              value: /data/memoryd.db
-            - name: MEMORYD_DRIVER
+            - name: THINGD_PATH
+              value: /data/thingd.db
+            - name: THINGD_DRIVER
               value: native
-            - name: MEMORYD_HOST
+            - name: THINGD_HOST
               value: 0.0.0.0
-            - name: MEMORYD_PORT
+            - name: THINGD_PORT
               value: "8757"
-            - name: MEMORYD_CLUSTER_MODE
+            - name: THINGD_CLUSTER_MODE
               value: follower
-            - name: MEMORYD_CLUSTER_LEADER_URL
-              value: http://memoryd-leader:8757
-            - name: MEMORYD_CLUSTER_FORWARD_AUTH_TOKEN
+            - name: THINGD_CLUSTER_LEADER_URL
+              value: http://thingd-leader:8757
+            - name: THINGD_CLUSTER_FORWARD_AUTH_TOKEN
               valueFrom:
                 secretKeyRef:
-                  name: memoryd-cluster-auth
-                  key: MEMORYD_AUTH_TOKEN
-            - name: MEMORYD_AUTH_TOKEN
+                  name: thingd-cluster-auth
+                  key: THINGD_AUTH_TOKEN
+            - name: THINGD_AUTH_TOKEN
               valueFrom:
                 secretKeyRef:
-                  name: memoryd-cluster-auth
-                  key: MEMORYD_AUTH_TOKEN
+                  name: thingd-cluster-auth
+                  key: THINGD_AUTH_TOKEN
           ports:
-            - name: memoryd
+            - name: thingd
               containerPort: 8757
           readinessProbe:
             httpGet:
               path: /healthz
-              port: memoryd
+              port: thingd
           volumeMounts:
-            - name: memoryd-data
+            - name: thingd-data
               mountPath: /data
       volumes:
-        - name: memoryd-data
+        - name: thingd-data
           emptyDir: {}

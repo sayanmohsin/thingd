@@ -1,10 +1,10 @@
 # MCP Server
 
-`memoryd` includes an MCP server package at `packages/memoryd-mcp`.
+`thingd` includes an MCP server package at `packages/thingd-mcp`.
 
-The MCP server wraps the public `@sayanmohsin/memoryd` SDK and exposes
+The MCP server wraps the public `thingd` SDK and exposes
 model-friendly tools for objects, events, search, and queues. This lets MCP
-clients and agents use `memoryd` as an AI-readable memory database without
+clients and agents use `thingd` as an AI-readable memory database without
 knowing SQL or internal storage details.
 
 ## Current Status
@@ -18,7 +18,7 @@ Implemented:
 - Streamable HTTP MCP endpoint at `/mcp`
 - bearer token auth for `/mcp`
 - health endpoint at `/healthz`
-- `memory.search`
+- `thing.search`
 - object read/write/delete tools
 - event append/list tools
 - queue push/claim/ack/nack/list/dead tools
@@ -38,18 +38,18 @@ Not implemented yet:
 ## Tool Surface
 
 ```txt
-memory.search
-memory.objects.get
-memory.objects.put
-memory.objects.delete
-memory.events.append
-memory.events.list
-memory.queue.push
-memory.queue.claim
-memory.queue.ack
-memory.queue.nack
-memory.queue.list
-memory.queue.dead
+thing.search
+thing.get
+thing.put
+thing.delete
+thing.events.append
+thing.events.list
+thing.queue.push
+thing.queue.claim
+thing.queue.ack
+thing.queue.nack
+thing.queue.list
+thing.queue.dead
 ```
 
 ## Local Usage
@@ -63,24 +63,24 @@ pnpm build
 Run with the in-memory SDK store:
 
 ```bash
-node packages/memoryd-mcp/dist/cli.js --path :memory:
+node packages/thingd-mcp/dist/cli.js --path :memory:
 ```
 
 Run with the private native Rust-backed SQLite driver:
 
 ```bash
-pnpm --filter @sayanmohsin/memoryd-native build
-node packages/memoryd-mcp/dist/cli.js --path ./memoryd.db --driver native
+pnpm --filter thingd-native build
+node packages/thingd-mcp/dist/cli.js --path ./thingd.db --driver native
 ```
 
 The CLI also reads:
 
 ```txt
-MEMORYD_PATH
-MEMORYD_DRIVER
+THINGD_PATH
+THINGD_DRIVER
 ```
 
-`MEMORYD_DRIVER` can be `memory` or `native`.
+`THINGD_DRIVER` can be `memory` or `native`.
 
 ## Streamable HTTP Usage
 
@@ -88,7 +88,7 @@ Run the HTTP MCP server:
 
 ```bash
 pnpm build
-MEMORYD_AUTH_TOKEN=change-me pnpm serve:mcp
+THINGD_AUTH_TOKEN=change-me pnpm serve:mcp
 ```
 
 Default local URL:
@@ -100,8 +100,8 @@ http://127.0.0.1:8757/mcp
 Direct command:
 
 ```bash
-node packages/memoryd-mcp/dist/http-cli.js \
-  --path ./memoryd.db \
+node packages/thingd-mcp/dist/http-cli.js \
+  --path ./thingd.db \
   --driver native \
   --host 127.0.0.1 \
   --port 8757 \
@@ -111,20 +111,20 @@ node packages/memoryd-mcp/dist/http-cli.js \
 Environment variables:
 
 ```txt
-MEMORYD_PATH=/data/memoryd.db
-MEMORYD_DRIVER=native
-MEMORYD_HOST=0.0.0.0
-MEMORYD_PORT=8757
-MEMORYD_AUTH_TOKEN=change-me
-MEMORYD_ALLOW_UNAUTHENTICATED=false
-MEMORYD_MCP_AUDIT=true
-MEMORYD_MCP_ACTOR=mcp-client
-MEMORYD_MCP_SOURCE=memoryd-mcp
-MEMORYD_MCP_AUDIT_STREAM=__memoryd:mcp:audit
-MEMORYD_CLUSTER_MODE=single
-MEMORYD_CLUSTER_LEADER_URL=
-MEMORYD_CLUSTER_FORWARD_AUTH_TOKEN=
-MEMORYD_CLUSTER_PEERS=
+THINGD_PATH=/data/thingd.db
+THINGD_DRIVER=native
+THINGD_HOST=0.0.0.0
+THINGD_PORT=8757
+THINGD_AUTH_TOKEN=change-me
+THINGD_ALLOW_UNAUTHENTICATED=false
+THINGD_MCP_AUDIT=true
+THINGD_MCP_ACTOR=mcp-client
+THINGD_MCP_SOURCE=thingd-mcp
+THINGD_MCP_AUDIT_STREAM=__thingd:mcp:audit
+THINGD_CLUSTER_MODE=single
+THINGD_CLUSTER_LEADER_URL=
+THINGD_CLUSTER_FORWARD_AUTH_TOKEN=
+THINGD_CLUSTER_PEERS=
 ```
 
 Health check:
@@ -136,33 +136,33 @@ curl http://127.0.0.1:8757/cluster/peers
 ```
 
 When the HTTP runtime binds to a non-loopback host such as `0.0.0.0`, it
-requires `MEMORYD_AUTH_TOKEN`. Set `MEMORYD_ALLOW_UNAUTHENTICATED=true` only for
+requires `THINGD_AUTH_TOKEN`. Set `THINGD_ALLOW_UNAUTHENTICATED=true` only for
 local experiments.
 
 ## Audit Events
 
-MCP write tools append audit events to `__memoryd:mcp:audit` by default.
+MCP write tools append audit events to `__thingd:mcp:audit` by default.
 
 Audited tools:
 
 ```txt
-memory.objects.put
-memory.objects.delete
-memory.events.append
-memory.queue.push
-memory.queue.claim
-memory.queue.ack
-memory.queue.nack
+thing.put
+thing.delete
+thing.events.append
+thing.queue.push
+thing.queue.claim
+thing.queue.ack
+thing.queue.nack
 ```
 
 Each write tool accepts optional `actor` and `source` inputs. If omitted, the
-runtime uses `MEMORYD_MCP_ACTOR` and `MEMORYD_MCP_SOURCE`, falling back to
-`mcp-client` and `memoryd-mcp`.
+runtime uses `THINGD_MCP_ACTOR` and `THINGD_MCP_SOURCE`, falling back to
+`mcp-client` and `thingd-mcp`.
 
 Disable audit events with:
 
 ```txt
-MEMORYD_MCP_AUDIT=false
+THINGD_MCP_AUDIT=false
 ```
 
 ## Bridge Mode
@@ -170,12 +170,12 @@ MEMORYD_MCP_AUDIT=false
 The HTTP MCP runtime can run as `single`, `leader`, or `follower`:
 
 ```txt
-MEMORYD_CLUSTER_MODE=single|leader|follower
-MEMORYD_CLUSTER_LEADER_URL=http://memoryd-leader:8757
-MEMORYD_CLUSTER_FORWARD_AUTH_TOKEN=change-me
-MEMORYD_CLUSTER_DISCOVERY=none|static|kubernetes
-MEMORYD_CLUSTER_PEERS=http://memoryd-0:8757,http://memoryd-1:8757
-MEMORYD_ADVERTISE_URL=http://memoryd-0:8757
+THINGD_CLUSTER_MODE=single|leader|follower
+THINGD_CLUSTER_LEADER_URL=http://thingd-leader:8757
+THINGD_CLUSTER_FORWARD_AUTH_TOKEN=change-me
+THINGD_CLUSTER_DISCOVERY=none|static|kubernetes
+THINGD_CLUSTER_PEERS=http://thingd-0:8757,http://thingd-1:8757
+THINGD_ADVERTISE_URL=http://thingd-0:8757
 ```
 
 Followers forward MCP traffic to the leader. This gives Kubernetes pods one
@@ -191,15 +191,15 @@ See [docker-runtime.md](./docker-runtime.md).
 Node apps can use the same SDK against the Streamable HTTP runtime:
 
 ```bash
-MEMORYD_URL=http://127.0.0.1:8757
-MEMORYD_AUTH_TOKEN=change-me
+THINGD_URL=http://127.0.0.1:8757
+THINGD_AUTH_TOKEN=change-me
 ```
 
 ```ts
-const db = await MemoryD.open();
+const db = await ThingD.open();
 ```
 
-`MemoryD.open()` appends `/mcp` automatically when `MEMORYD_URL` points at the
+`ThingD.open()` appends `/mcp` automatically when `THINGD_URL` points at the
 runtime root.
 
 ## ChatGPT And Remote MCP Direction
@@ -213,8 +213,8 @@ Expected deployment shape:
 ```txt
 ChatGPT / agent
   -> HTTPS MCP endpoint
-  -> memoryd server runtime
-  -> memoryd database
+  -> thingd server runtime
+  -> thingd database
 ```
 
 See [docker-runtime.md](./docker-runtime.md), [runtime-env.md](./runtime-env.md),

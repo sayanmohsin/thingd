@@ -1,12 +1,12 @@
 # Project Handoff
 
-This file is the quick restart point for future work on `memoryd`.
+This file is the quick restart point for future work on `thingd`.
 
 Last updated: 2026-05-19.
 
 ## Current Shape
 
-`memoryd` is an early open source, Rust-powered, object-shaped memory database
+`thingd` is an early open source, Rust-powered, object-shaped memory database
 for AI-native apps. It combines:
 
 - Node.js SDK
@@ -19,15 +19,15 @@ for AI-native apps. It combines:
 - MCP audit events
 - Docker runtime scaffold
 - Kubernetes sidecar and leader/follower examples
-- remote SDK driver through `MEMORYD_URL`
-- first-pass `memoryd` admin/operator CLI with local and remote JSON output
+- remote SDK driver through `THINGD_URL`
+- first-pass `thingd` admin/operator CLI with local and remote JSON output
 
 ## Important Boundaries
 
 - The default public SDK path is still the TypeScript in-memory proof store.
 - Durable local persistence is available through `driver: "native"` after the
   private native package has been built locally.
-- Sidecar mode is available through `MEMORYD_URL` and the remote SDK driver.
+- Sidecar mode is available through `THINGD_URL` and the remote SDK driver.
 - Follower bridge mode forwards MCP traffic to the leader, but follower local
   replica catch-up is not implemented.
 - The project is not production-ready yet.
@@ -64,23 +64,23 @@ pnpm smoke:docker
 Direct MCP runtime commands:
 
 ```bash
-node packages/memoryd-mcp/dist/cli.js --path :memory:
+node packages/thingd-mcp/dist/cli.js --path :memory:
 
-MEMORYD_AUTH_TOKEN=change-me \
-node packages/memoryd-mcp/dist/http-cli.js --path ./memoryd.db --driver native
+THINGD_AUTH_TOKEN=change-me \
+node packages/thingd-mcp/dist/http-cli.js --path ./thingd.db --driver native
 ```
 
 App sidecar usage:
 
 ```bash
-MEMORYD_URL=http://127.0.0.1:8757
-MEMORYD_AUTH_TOKEN=change-me
+THINGD_URL=http://127.0.0.1:8757
+THINGD_AUTH_TOKEN=change-me
 ```
 
 ```ts
-import { MemoryD } from "@sayanmohsin/memoryd";
+import { ThingD } from "thingd";
 
-const db = await MemoryD.open();
+const db = await ThingD.open();
 ```
 
 ## Required Checks
@@ -115,7 +115,7 @@ Start **Phase CLI-B** from [cli.md](./cli.md).
 Goal:
 
 - add pretty table output
-- add `memoryd doctor`
+- add `thingd doctor`
 - add queue stats
 - add object and event summary commands
 - add benchmark wrapper commands

@@ -1,0 +1,25 @@
+{
+  "name": "thingd-native",
+  "version": "0.0.0-development",
+  "description": "Private native Node.js binding for thingd.",
+  "type": "module",
+  "private": true,
+  "author": "Sayan Mohsin",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sayanmohsin/thingd.git"
+  },
+  "main": "./index.js",
+  "types": "./index.d.ts",
+  "files": [
+    "dist",
+    "index.js",
+    "index.d.ts",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "cargo build -p thingd-native --release && node scripts/copy-native.mjs",
+    "clean": "node scripts/clean-native.mjs"
+  }
+}

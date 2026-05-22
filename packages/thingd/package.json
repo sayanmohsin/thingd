@@ -1,0 +1,54 @@
+{
+  "name": "thingd",
+  "version": "0.0.0-development",
+  "description": "Object-shaped local memory for AI-native apps.",
+  "type": "module",
+  "author": "Sayan Mohsin",
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/sayanmohsin/thingd#readme",
+  "bugs": {
+    "url": "https://github.com/sayanmohsin/thingd/issues"
+  },
+  "keywords": [
+    "ai",
+    "agents",
+    "mcp",
+    "memory",
+    "queue",
+    "sqlite",
+    "rust",
+    "local-first",
+    "embedded-database"
+  ],
+  "sideEffects": false,
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sayanmohsin/thingd.git"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "pnpm build && node --test test/*.test.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  }
+}

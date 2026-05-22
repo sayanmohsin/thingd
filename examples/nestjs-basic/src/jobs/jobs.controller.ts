@@ -1,6 +1,6 @@
 import { BadRequestException, Body, Controller, Get, Post } from "@nestjs/common";
 // biome-ignore lint/style/useImportType: NestJS constructor injection needs runtime metadata.
-import { MemorydService } from "../memoryd/memoryd.service";
+import { ThingdService } from "../thingd/thingd.service";
 
 type CreateEmbedJobBody = {
   object?: string;
@@ -8,7 +8,7 @@ type CreateEmbedJobBody = {
 
 @Controller("jobs")
 export class JobsController {
-  constructor(private readonly memoryd: MemorydService) {}
+  constructor(private readonly thingd: ThingdService) {}
 
   @Post("embed")
   enqueueEmbedJob(@Body() body: CreateEmbedJobBody) {
@@ -16,13 +16,13 @@ export class JobsController {
       throw new BadRequestException("object is required");
     }
 
-    return this.memoryd.pushJob("embed", {
+    return this.thingd.pushJob("embed", {
       object: body.object,
     });
   }
 
   @Get("embed")
   listEmbedJobs() {
-    return this.memoryd.listJobs("embed");
+    return this.thingd.listJobs("embed");
   }
 }

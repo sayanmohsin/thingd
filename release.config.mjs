@@ -23,7 +23,7 @@ const config = {
     [
       "@semantic-release/npm",
       {
-        pkgRoot: "packages/memoryd",
+        pkgRoot: "packages/thingd",
       },
     ],
     "@semantic-release/github",

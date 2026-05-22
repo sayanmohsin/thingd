@@ -1,22 +1,22 @@
 # Agent Implementation Guide
 
-This guide is for AI coding agents and future contributors integrating `memoryd` into apps.
+This guide is for AI coding agents and future contributors integrating `thingd` into apps.
 
 Read this file before making integration changes. It explains the current project state, the intended API, local testing, and the boundaries that should not be crossed accidentally.
 
 ## Current State
 
-`memoryd` is an early open source project. The public Node.js API is real enough to test locally, and the default path still uses the TypeScript in-memory proof store. The Rust core has durable storage with a feature-gated SQLite adapter for objects, events, and queues.
+`thingd` is an early open source project. The public Node.js API is real enough to test locally, and the default path still uses the TypeScript in-memory proof store. The Rust core has durable storage with a feature-gated SQLite adapter for objects, events, and queues.
 
 Current implementation:
 
-- `packages/memoryd` exposes the Node.js SDK.
-- `packages/memoryd/src/stores/in-memory-memory-store.ts` is the current proof store.
-- `crates/memoryd-core` contains the Rust storage boundary, in-memory Rust engine, and `SqliteMemoryStore` behind the `sqlite` feature.
-- `packages/memoryd-native` is a private N-API binding for local native driver testing.
-- `packages/memoryd/src/stores/remote-memory-store.ts` lets the SDK talk to a sidecar over Streamable HTTP MCP.
-- `packages/memoryd-mcp` exposes the SDK through stdio and Streamable HTTP MCP servers.
-- `packages/memoryd-cli` exposes the first-pass `memoryd` admin/operator CLI.
+- `packages/thingd` exposes the Node.js SDK.
+- `packages/thingd/src/stores/in-memory-thing-store.ts` is the current proof store.
+- `crates/thingd-core` contains the Rust storage boundary, in-memory Rust engine, and `SqliteThingStore` behind the `sqlite` feature.
+- `packages/thingd-native` is a private N-API binding for local native driver testing.
+- `packages/thingd/src/stores/remote-thing-store.ts` lets the SDK talk to a sidecar over Streamable HTTP MCP.
+- `packages/thingd-mcp` exposes the SDK through stdio and Streamable HTTP MCP servers.
+- `packages/thingd-cli` exposes the first-pass `thingd` admin/operator CLI.
 - the HTTP MCP runtime supports `single`, `leader`, and `follower` bridge modes.
 - `examples/nestjs-basic` demonstrates app integration shape.
 - `docs/cli.md` is the handoff plan for remaining admin/operator CLI phases.
@@ -25,7 +25,7 @@ Do not present the public Node package as production-ready persistent storage ye
 
 ## Mental Model
 
-`memoryd` is meant to feel like:
+`thingd` is meant to feel like:
 
 ```txt
 SQLite-simple local deployment
@@ -40,28 +40,28 @@ There are two planned runtime modes:
 
 ```txt
 embedded mode:
-  Node.js app -> native Rust binding -> local memoryd file
+  Node.js app -> native Rust binding -> local thingd file
 
 server/sidecar mode:
-  Node.js app -> HTTP/gRPC/Unix socket -> memoryd server -> local memoryd file
+  Node.js app -> HTTP/gRPC/Unix socket -> thingd server -> local thingd file
 
 cluster sidecar mode:
-  Node.js app -> localhost memoryd sidecar -> leader/follower memoryd cluster
+  Node.js app -> localhost thingd sidecar -> leader/follower thingd cluster
 ```
 
 Current Node.js code uses the TypeScript in-memory proof layer by default.
-The Rust crate includes `SqliteMemoryStore` for object, event, and queue persistence, including delayed jobs, configurable lease expiration, retry delay, dead-letter state, and schema migration guardrails. The SDK can opt into the private native bridge with `driver: "native"` after `@sayanmohsin/memoryd-native` is built locally.
+The Rust crate includes `SqliteThingStore` for object, event, and queue persistence, including delayed jobs, configurable lease expiration, retry delay, dead-letter state, and schema migration guardrails. The SDK can opt into the private native bridge with `driver: "native"` after `thingd-native` is built locally.
 The SDK can opt into sidecar mode with `driver: "remote"` or automatically when
-`MEMORYD_URL` is set.
+`THINGD_URL` is set.
 The HTTP MCP runtime can run as a bridge follower and forward MCP traffic to a
 configured leader. It does not yet replicate local follower stores.
 
 ## Integration Checklist
 
-When integrating `memoryd` into a Node.js app:
+When integrating `thingd` into a Node.js app:
 
 1. Install or link the local package.
-2. Create one `MemoryD` instance during app startup.
+2. Create one `ThingD` instance during app startup.
 3. Wrap it in your framework's dependency injection layer if there is one.
 4. Use collections for object-shaped app memory.
 5. Use events for meaningful state changes and agent-readable timelines.
@@ -81,7 +81,7 @@ pnpm test:local
 In another local app before npm publish:
 
 ```bash
-pnpm add /Users/sayan/Documents/Experimental/memoryd/packages/memoryd
+pnpm add /Users/sayan/Documents/Experimental/thingd/packages/thingd
 ```
 
 Or use a `file:` dependency:
@@ -89,7 +89,7 @@ Or use a `file:` dependency:
 ```json
 {
   "dependencies": {
-    "@sayanmohsin/memoryd": "file:/Users/sayan/Documents/Experimental/memoryd/packages/memoryd"
+    "thingd": "file:/Users/sayan/Documents/Experimental/thingd/packages/thingd"
   }
 }
 ```
@@ -99,12 +99,12 @@ Use `pnpm test:package` to verify the packed package works without publishing to
 For sidecar mode:
 
 ```bash
-MEMORYD_URL=http://127.0.0.1:8757
-MEMORYD_AUTH_TOKEN=change-me
+THINGD_URL=http://127.0.0.1:8757
+THINGD_AUTH_TOKEN=change-me
 ```
 
 ```ts
-const db = await MemoryD.open();
+const db = await ThingD.open();
 ```
 
 Use `pnpm bench:rust` when storage performance changes. Read
@@ -115,19 +115,19 @@ intentional documentation edits.
 ## Basic Node.js Pattern
 
 ```ts
-import { MemoryD } from "@sayanmohsin/memoryd";
+import { ThingD } from "thingd";
 
-const db = await MemoryD.open();
+const db = await ThingD.open();
 
 await db.put("decisions", {
   id: "rust-core",
   text: "Use Rust for the core engine and TypeScript for the app-facing SDK.",
-  project: "memoryd",
+  project: "thingd",
 });
 
-await db.events.append("project:memoryd", {
+await db.events.append("project:thingd", {
   type: "decision.made",
-  text: "memoryd should stay object-shaped and MCP-native.",
+  text: "thingd should stay object-shaped and MCP-native.",
   object: "decisions/rust-core",
 });
 
@@ -178,41 +178,38 @@ Create a module-level provider and inject it into services/controllers.
 
 ```ts
 import { Global, Module } from "@nestjs/common";
-import { MemoryD } from "@sayanmohsin/memoryd";
+import { ThingD } from "thingd";
 
-export const MEMORYD = Symbol("MEMORYD");
+export const THINGD = Symbol("THINGD");
 
 @Global()
 @Module({
   providers: [
     {
-      provide: MEMORYD,
-      useFactory: () => MemoryD.open(),
+      provide: THINGD,
+      useFactory: () => new ThingD({ /* ... */ }),
     },
   ],
-  exports: [MEMORYD],
+  exports: [THINGD],
 })
-export class MemorydModule {}
-```
+export class ThingDModule {}
 
-Then inject it:
-
-```ts
-import { Inject, Injectable } from "@nestjs/common";
-import type { MemoryD } from "@sayanmohsin/memoryd";
-import { MEMORYD } from "./memoryd.module";
+// Usage in other modules:
+import { Injectable, Inject } from "@nestjs/common";
+import { ThingD } from "thingd";
+import { THINGD } from "./thingd.module";
 
 @Injectable()
-export class DecisionsService {
-  constructor(@Inject(MEMORYD) private readonly memoryd: MemoryD) {}
+export class WorkflowService {
+  constructor(@Inject(THINGD) private readonly thingd: ThingD) {}
 
   async recordDecision(id: string, text: string) {
-    const decision = await this.memoryd.put("decisions", {
+    const decision = await this.thingd.put("decisions", {
       id,
       text,
     });
 
-    await this.memoryd.events.append("project:memoryd", {
+    await this.thingd.events.append("project:thingd", {
       type: "decision.made",
       text,
       object: `decisions/${id}`,
@@ -232,46 +229,46 @@ The MCP package wraps the same SDK surface. It should not bypass validation or u
 Current tools:
 
 ```txt
-memory.search
-memory.objects.get
-memory.objects.put
-memory.objects.delete
-memory.events.append
-memory.events.list
-memory.queue.push
-memory.queue.claim
-memory.queue.ack
-memory.queue.nack
-memory.queue.list
-memory.queue.dead
+thing.search
+thing.get
+thing.put
+thing.delete
+thing.events.append
+thing.events.list
+thing.queue.push
+thing.queue.claim
+thing.queue.ack
+thing.queue.nack
+thing.queue.list
+thing.queue.dead
 ```
 
 The MCP package has stdio and Streamable HTTP entrypoints. MCP write tools append
-audit events to `__memoryd:mcp:audit` by default. Tool callers can pass optional
+audit events to `__thingd:mcp:audit` by default. Tool callers can pass optional
 `actor` and `source` fields, and runtimes can set defaults with
-`MEMORYD_MCP_ACTOR` and `MEMORYD_MCP_SOURCE`.
+`THINGD_MCP_ACTOR` and `THINGD_MCP_SOURCE`.
 
 ## Rust And Native Binding Direction
 
-The public API should stay in `@sayanmohsin/memoryd`. Native support should be an implementation detail underneath it.
+The public API should stay in `thingd`. Native support should be an implementation detail underneath it.
 
 ```txt
-@sayanmohsin/memoryd
-  MemoryD public API
-  MemoryStore interface
+thingd
+  ThingD public API
+  ThingStore interface
   in-memory proof store
-  NativeMemoryStore adapter
+  NativeThingStore adapter
 
-@sayanmohsin/memoryd-native
+thingd-native
   private N-API binding
-  wraps crates/memoryd-core
+  wraps crates/thingd-core
 
-crates/memoryd-core
+crates/thingd-core
   ObjectStore
   EventLog
   QueueStore
-  MemoryStore
-  SqliteMemoryStore behind the sqlite feature
+  ThingStore
+  SqliteThingStore behind the sqlite feature
 ```
 
 Do not introduce a second app-facing API from the native package. The native path should pass the same SDK tests that the in-memory store passes.
@@ -284,13 +281,13 @@ For a project restart summary, read [handoff.md](./handoff.md).
 
 ## Implementation Rules For Agents
 
-- Keep public API changes reflected in `packages/memoryd/src/types.ts`.
-- Keep Rust storage boundary changes reflected in `crates/memoryd-core`.
-- Add or update tests in `packages/memoryd/test/memoryd.test.mjs` for behavior changes.
+- Keep public API changes reflected in `packages/thingd/src/types.ts`.
+- Keep Rust storage boundary changes reflected in `crates/thingd-core`.
+- Add or update tests in `packages/thingd/test/thingd.test.mjs` for behavior changes.
 - Update README/docs when changing integration behavior.
 - Do not use internal store classes from app examples unless the example is explicitly about custom stores.
 - Do not present native persistence as the default SDK path until prebuilds and package loading are production-ready.
-- Do not add a separate app-facing API to `@sayanmohsin/memoryd-native`; keep the public API in `@sayanmohsin/memoryd`.
+- Do not add a separate app-facing API to `thingd-native`; keep the public API in `thingd`.
 - Do not claim exactly-once queue delivery. The queue is at-least-once.
 - Do not hide distributed-system tradeoffs. Multi-pod writes need server/sidecar or primary-writer mode.
 - Do not add multi-primary cluster behavior. Planned cluster mode is leader-writer with forwarding and event replication.
@@ -304,7 +301,7 @@ For a project restart summary, read [handoff.md](./handoff.md).
 
 Start with **Phase CLI-B** from [cli.md](./cli.md).
 
-The first-pass `memoryd` binary can inspect and mutate local or remote stores
+The first-pass `thingd` binary can inspect and mutate local or remote stores
 with JSON output. The next goal is operator polish: pretty tables, `doctor`,
 queue stats, benchmark wrappers, and better runtime errors. This should land
 before an inspector UI because it helps local development, Docker sidecar
@@ -341,12 +338,12 @@ pnpm bench:rust:smoke
 
 ## Common Mistakes
 
-- Importing from `src` or `dist` directly instead of `@sayanmohsin/memoryd`.
+- Importing from `src` or `dist` directly instead of `thingd`.
 - Forgetting `pnpm build` before testing packed package behavior.
 - Mutating returned queue jobs and assuming that changes the store.
 - Treating delayed jobs as claimable immediately.
 - Treating `nack` as failure instead of retry/dead-letter routing.
 - Adding npm publish assumptions before `NPM_TOKEN` is configured.
 - Using queue consumers without idempotency keys for repeatable work.
-- Assuming `MemoryD.open("./memoryd.db")` persists. Use `driver: "native"` for
-  embedded SQLite or `MEMORYD_URL` for sidecar mode.
+- Assuming `ThingD.open("./thingd.db")` persists. Use `driver: "native"` for
+  embedded SQLite or `THINGD_URL` for sidecar mode.

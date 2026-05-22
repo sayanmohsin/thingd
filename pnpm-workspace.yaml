@@ -1,9 +1,11 @@
 packages:
   - "packages/*"
   - "examples/nestjs-basic"
+  - "examples/node-basic"
 
 allowBuilds:
   '@nestjs/core': true
+  'esbuild': true
 
 minimumReleaseAgeExclude:
   - '@types/node@25.9.1'

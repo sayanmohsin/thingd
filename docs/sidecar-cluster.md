@@ -7,8 +7,8 @@ Current implementation:
 
 - Docker runtime starts the Streamable HTTP MCP server.
 - `/healthz`, `/cluster/status`, and `/cluster/peers` are available.
-- `MEMORYD_CLUSTER_MODE=single|leader|follower` is parsed by the runtime.
-- followers forward MCP traffic to `MEMORYD_CLUSTER_LEADER_URL`.
+- `THINGD_CLUSTER_MODE=single|leader|follower` is parsed by the runtime.
+- followers forward MCP traffic to `THINGD_CLUSTER_LEADER_URL`.
 - static peer lists and Kubernetes service hints are exposed in status.
 
 Not implemented yet:
@@ -18,7 +18,7 @@ Not implemented yet:
 - event-log streaming replication
 - consensus/failover
 
-The goal is to keep app integration simple while letting `memoryd` handle the
+The goal is to keep app integration simple while letting `thingd` handle the
 bridge between pods when an app runs in Kubernetes or another clustered
 environment.
 
@@ -27,15 +27,15 @@ environment.
 Apps should use one public API:
 
 ```ts
-import { MemoryD } from "@sayanmohsin/memoryd";
+import { ThingD } from "thingd";
 
-const db = await MemoryD.open();
+const db = await ThingD.open();
 ```
 
 Deployment decides what `open()` connects to:
 
 - local development can use embedded SQLite
-- a single server can use a local `memoryd` process
+- a single server can use a local `thingd` process
 - Kubernetes can use a local sidecar
 - cluster mode can forward writes to the current leader
 
@@ -49,7 +49,7 @@ No separate process.
 
 ```txt
 Node app
-  -> @sayanmohsin/memoryd
+  -> thingd
   -> native Rust binding
   -> local SQLite file
 ```
@@ -59,11 +59,11 @@ desktop tools, and small services.
 
 ### Server Mode
 
-One standalone `memoryd` process owns the database file.
+One standalone `thingd` process owns the database file.
 
 ```txt
 Node app
-  -> memoryd server
+  -> thingd server
   -> local SQLite file
 ```
 
@@ -72,14 +72,14 @@ store without each process opening SQLite directly.
 
 ### Sidecar Mode
 
-One `memoryd` sidecar runs beside the app container in the same pod.
+One `thingd` sidecar runs beside the app container in the same pod.
 
 ```txt
 Pod
   app container
     -> http://127.0.0.1:8757
-  memoryd sidecar
-    -> /data/memoryd.db
+  thingd sidecar
+    -> /data/thingd.db
 ```
 
 The app only talks to localhost. The sidecar owns storage, queue leases, MCP
@@ -101,27 +101,27 @@ follower, it forwards the request to the configured leader.
 
 ```txt
 Pod B app
-  -> Pod B memoryd sidecar
+  -> Pod B thingd sidecar
   -> forwards MCP request to Pod A leader
   -> leader writes SQLite
   -> leader appends event
 ```
 
 This is the major difference from plain SQLite: SQLite stores local state, while
-`memoryd` starts to own discovery metadata, write routing, queue leasing, and
+`thingd` starts to own discovery metadata, write routing, queue leasing, and
 agent-safe APIs. Replicated local reads are intentionally not claimed yet.
 
 ## Node API Shape
 
-Keep the public API centered on `MemoryD`.
+Keep the public API centered on `ThingD`.
 
 ```ts
-const db = await MemoryD.open();
+const db = await ThingD.open();
 ```
 
 Resolution order:
 
-1. `MEMORYD_URL` set: connect to server or sidecar.
+1. `THINGD_URL` set: connect to server or sidecar.
 2. explicit `path` plus `driver: "native"`: open embedded SQLite through the
    native binding.
 3. no env: use the in-memory proof store for development.
@@ -129,19 +129,19 @@ Resolution order:
 Explicit targets:
 
 ```ts
-await MemoryD.open("memoryd://127.0.0.1:8757");
-await MemoryD.open("http://127.0.0.1:8757");
+await ThingD.open("thingd://127.0.0.1:8757");
+await ThingD.open("http://127.0.0.1:8757");
 ```
 
 Explicit options:
 
 ```ts
-await MemoryD.open({
-  path: "./memoryd.db",
+await ThingD.open({
+  path: "./thingd.db",
   driver: "native",
 });
 
-await MemoryD.open({
+await ThingD.open({
   url: "http://127.0.0.1:8757/mcp",
   driver: "remote",
   authToken: "change-me",
@@ -202,50 +202,50 @@ Env vars should make app and sidecar setup boring.
 App container:
 
 ```bash
-MEMORYD_URL=http://127.0.0.1:8757
+THINGD_URL=http://127.0.0.1:8757
 ```
 
 Embedded mode:
 
 ```bash
-MEMORYD_DRIVER=native
-MEMORYD_PATH=./memoryd.db
+THINGD_DRIVER=native
+THINGD_PATH=./thingd.db
 ```
 
 Server or sidecar mode:
 
 ```bash
-MEMORYD_HOST=0.0.0.0
-MEMORYD_PORT=8757
-MEMORYD_PATH=/data/memoryd.db
-MEMORYD_CLUSTER_MODE=single
+THINGD_HOST=0.0.0.0
+THINGD_PORT=8757
+THINGD_PATH=/data/thingd.db
+THINGD_CLUSTER_MODE=single
 ```
 
 Current cluster/bridge mode:
 
 ```bash
-MEMORYD_HOST=0.0.0.0
-MEMORYD_PORT=8757
-MEMORYD_ADVERTISE_URL=http://$(POD_IP):8757
-MEMORYD_CLUSTER_DISCOVERY=kubernetes
-MEMORYD_CLUSTER_SERVICE=memoryd
-MEMORYD_CLUSTER_NAMESPACE=default
-MEMORYD_CLUSTER_MODE=leader
+THINGD_HOST=0.0.0.0
+THINGD_PORT=8757
+THINGD_ADVERTISE_URL=http://$(POD_IP):8757
+THINGD_CLUSTER_DISCOVERY=kubernetes
+THINGD_CLUSTER_SERVICE=thingd
+THINGD_CLUSTER_NAMESPACE=default
+THINGD_CLUSTER_MODE=leader
 ```
 
 Static peer fallback:
 
 ```bash
-MEMORYD_CLUSTER_DISCOVERY=static
-MEMORYD_CLUSTER_PEERS=http://memoryd-0:8757,http://memoryd-1:8757
+THINGD_CLUSTER_DISCOVERY=static
+THINGD_CLUSTER_PEERS=http://thingd-0:8757,http://thingd-1:8757
 ```
 
 Follower forwarding:
 
 ```bash
-MEMORYD_CLUSTER_MODE=follower
-MEMORYD_CLUSTER_LEADER_URL=http://memoryd-leader:8757
-MEMORYD_CLUSTER_FORWARD_AUTH_TOKEN=change-me
+THINGD_CLUSTER_MODE=follower
+THINGD_CLUSTER_LEADER_URL=http://thingd-leader:8757
+THINGD_CLUSTER_FORWARD_AUTH_TOKEN=change-me
 ```
 
 ## Kubernetes Shape
@@ -264,22 +264,22 @@ containers:
   - name: app
     image: your-node-app
     env:
-      - name: MEMORYD_URL
+      - name: THINGD_URL
         value: http://127.0.0.1:8757
 
-  - name: memoryd
-    image: ghcr.io/sayanmohsin/memoryd
+  - name: thingd
+    image: ghcr.io/sayanmohsin/thingd
     env:
-      - name: MEMORYD_PATH
-        value: /data/memoryd.db
-      - name: MEMORYD_HOST
+      - name: THINGD_PATH
+        value: /data/thingd.db
+      - name: THINGD_HOST
         value: 0.0.0.0
-      - name: MEMORYD_CLUSTER_MODE
+      - name: THINGD_CLUSTER_MODE
         value: single
     ports:
       - containerPort: 8757
     volumeMounts:
-      - name: memoryd-data
+      - name: thingd-data
         mountPath: /data
 ```
 
@@ -289,13 +289,13 @@ Service for peer discovery metadata:
 apiVersion: v1
 kind: Service
 metadata:
-  name: memoryd
+  name: thingd
 spec:
   clusterIP: None
   selector:
     app: your-app
   ports:
-    - name: memoryd
+    - name: thingd
       port: 8757
 ```
 
@@ -357,16 +357,16 @@ Future events:
 
 ### Sidecar Phase A - Server Binary
 
-- add `crates/memoryd-server`
-- expose HTTP+JSON API over `memoryd-core`
-- support `MEMORYD_PATH`, `MEMORYD_HOST`, `MEMORYD_PORT`, and health checks
+- add `crates/thingd-server`
+- expose HTTP+JSON API over `thingd-core`
+- support `THINGD_PATH`, `THINGD_HOST`, `THINGD_PORT`, and health checks
 - keep cluster disabled
 
 ### Sidecar Phase B - Docker And Sidecar Mode
 
 - [x] build Docker runtime image scaffold
 - [x] add Kubernetes sidecar example
-- [x] app connects through `MEMORYD_URL=http://127.0.0.1:8757`
+- [x] app connects through `THINGD_URL=http://127.0.0.1:8757`
 - [x] document readiness/liveness checks
 
 ### Sidecar Phase C - Cluster Bridge

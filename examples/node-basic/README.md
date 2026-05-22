@@ -1,55 +1,116 @@
-# Node Basic Example
+# 📦 thingd Node.js Basic Example
 
-Planned example for the first Node.js SDK release.
+A runnable, clean demonstration of how you can treat `thingd` as a local, fully-featured, SQLite-powered application memory layer for Node.js apps.
 
-## Installation
+This example runs in **in-memory SQLite mode** by default, but it can also be configured to run with the **native Rust driver** or in **remote sidecar mode**.
+
+---
+
+## 🚀 Quick Start
+
+Ensure you have built the workspace packages first (from the workspace root):
 
 ```bash
-npm install @sayanmohsin/memoryd
+# Build workspace
+pnpm build
 ```
 
-## Usage
+Then, navigate to this directory, install dependencies, and run the script:
 
+```bash
+# Navigate to the example
+cd examples/node-basic
+
+# Install dependencies (links local package)
+pnpm install
+
+# Run the example in production mode
+pnpm start
+
+# Run the example in development mode with auto-reload (watch mode)
+pnpm dev
+```
+
+---
+
+## 🛠️ What This Example Demonstrates
+
+The [`index.ts`](./index.ts) script takes you step-by-step through the core features of `thingd`:
+
+### 1. Unified Client Open
+Instantiates the database client. By default, it runs as a pure in-memory SQLite store:
 ```ts
-import { MemoryD } from "@sayanmohsin/memoryd";
+import { ThingD } from "thingd";
+const db = await ThingD.open();
+```
 
-const db = await MemoryD.open();
-
-await db.put("decisions", {
+### 2. Document & Object Store
+Put and retrieve schema-less object documents. Every document receives auto-incrementing `version` control and timestamp tracking:
+```ts
+const decision = await db.put("decisions", {
   id: "rust-core",
-  text: "Use Rust for the engine and TypeScript for the API.",
+  text: "Use Rust for the engine and TypeScript for the developer API.",
 });
 
-await db.events.append("project:memoryd", {
+const stored = await db.get("decisions", "rust-core");
+```
+
+### 3. Ordered Event Sourcing
+Append and retrieve immutable event logs organized by stream channels (ideal for auditing, pub/sub notifications, and history tracking):
+```ts
+await db.events.append("project:thingd", {
   type: "decision.made",
-  text: "memoryd should be object-shaped and MCP-native.",
+  text: "thingd should be object-shaped and MCP-native.",
 });
 
-await db.queue("embed").push({
-  object: "decisions/rust-core",
-});
+const eventLogs = await db.events.list("project:thingd");
+```
 
-const job = await db.queue("embed").claim({
-  leaseMs: 30_000,
-});
+### 4. Background Job Queues
+Robust FIFO job queueing with lease timers, manual acknowledgments (`ack`), negative acknowledgments (`nack`), idempotency keys, delayed execution, and automatic dead-letter queueing:
+```ts
+const queue = db.queue("embed");
 
-if (job) {
-  await db.queue("embed").ack(job.id);
+// Push a job
+const job = await queue.push({ object: "decisions/rust-core" });
+
+// Claim a job (leases it for 10 seconds)
+const claimedJob = await queue.claim({ leaseMs: 10000 });
+
+// Acknowledge completion
+if (claimedJob) {
+  await queue.ack(claimedJob.id);
 }
 ```
 
-Use sidecar mode by setting:
-
-```bash
-MEMORYD_URL=http://127.0.0.1:8757
-MEMORYD_AUTH_TOKEN=change-me
+### 5. Multi-Source Search
+Perform high-performance full-text search query mapping across both stored object documents and event streams concurrently:
+```ts
+const hits = await db.search("rust");
 ```
 
-Use the local native SQLite driver explicitly:
+---
 
+## 💾 Alternative Storage Drivers
+
+You don't need to change any controller or application logic to change storage modes:
+
+### Local SQLite Persistent File (Native Driver)
+Ensure you have built the native crate (`pnpm build` in the workspace root first) and open with the `native` driver:
 ```ts
-const db = await MemoryD.open({
-  path: "./memoryd.db",
+const db = await ThingD.open({
+  path: "./thingd.db",
   driver: "native",
 });
+```
+
+### Remote Sidecar / Server Mode
+To use `thingd` running as a background service or remote instance, set the following environment variables:
+```bash
+export THINGD_URL="http://127.0.0.1:8757"
+export THINGD_AUTH_TOKEN="your-secret-token"
+```
+And initialize standard in-memory:
+```ts
+const db = await ThingD.open();
 ```
