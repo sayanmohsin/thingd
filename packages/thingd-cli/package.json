@@ -1,10 +1,14 @@
 {
   "name": "thingd-cli",
-  "version": "0.1.0",
+  "version": "0.0.0-development",
   "description": "Admin and operator CLI for thingd.",
   "type": "module",
   "author": "Sayan Mohsin",
   "license": "Apache-2.0",
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
   "bin": {
     "thingd": "./dist/index.js"
   },
@@ -26,7 +30,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
-    "thingd": "file:../thingd"
+    "thingd": "workspace:*"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
