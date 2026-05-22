@@ -3,9 +3,9 @@
 use std::collections::{BTreeMap, VecDeque};
 
 use crate::{
-    u64_to_i64, unix_timestamp_millis, EventLog, MemoryEvent, MemoryObject, ThingdError,
-    ThingdResult, ObjectKey, ObjectStore, QueueClaimOptions, QueueJob, QueueJobStatus,
-    QueueNackOptions, QueueStore,
+    u64_to_i64, unix_timestamp_millis, EventLog, MemoryEvent, MemoryObject, ObjectKey, ObjectStore,
+    QueueClaimOptions, QueueJob, QueueJobStatus, QueueNackOptions, QueueStore, ThingdError,
+    ThingdResult,
 };
 
 /// In-memory engine used to prove the storage boundary.
@@ -268,10 +268,7 @@ mod tests {
             .unwrap();
 
         assert_eq!(event.sequence, 1);
-        assert_eq!(
-            engine.list_events(Some("project:thingd")).unwrap().len(),
-            1
-        );
+        assert_eq!(engine.list_events(Some("project:thingd")).unwrap().len(), 1);
     }
 
     #[test]

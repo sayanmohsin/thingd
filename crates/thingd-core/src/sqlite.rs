@@ -7,9 +7,9 @@ use std::path::Path;
 use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
 
 use crate::{
-    u64_to_i64, unix_timestamp_millis, EventLog, MemoryEvent, MemoryObject, ThingdError,
-    ThingdResult, ObjectKey, ObjectStore, QueueClaimOptions, QueueJob, QueueJobStatus,
-    QueueNackOptions, QueueStore,
+    u64_to_i64, unix_timestamp_millis, EventLog, MemoryEvent, MemoryObject, ObjectKey, ObjectStore,
+    QueueClaimOptions, QueueJob, QueueJobStatus, QueueNackOptions, QueueStore, ThingdError,
+    ThingdResult,
 };
 
 /// Current `SQLite` schema version.

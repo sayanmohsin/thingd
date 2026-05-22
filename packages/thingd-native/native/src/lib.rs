@@ -1,13 +1,13 @@
 use std::sync::{Mutex, MutexGuard};
 
-use thingd_core::{
-    EventLog, MemoryEvent, MemoryObject, ObjectStore, QueueClaimOptions, QueueJob, QueueJobStatus,
-    QueueNackOptions, QueueStore, SqliteThingStore,
-};
 use napi::bindgen_prelude::{Error, Result};
 use napi_derive::napi;
 use serde::Serialize;
 use serde_json::Value;
+use thingd_core::{
+    EventLog, MemoryEvent, MemoryObject, ObjectStore, QueueClaimOptions, QueueJob, QueueJobStatus,
+    QueueNackOptions, QueueStore, SqliteThingStore,
+};
 
 #[napi]
 pub struct NativeThingStore {

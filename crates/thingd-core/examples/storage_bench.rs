@@ -5,11 +5,11 @@ use std::error::Error;
 use std::hint::black_box;
 use std::time::{Duration, Instant};
 
+use rusqlite as _;
 use thingd_core::{
     EventLog, MemoryEngine, MemoryEvent, MemoryObject, ObjectStore, QueueJob, QueueStore,
     SqliteThingStore,
 };
-use rusqlite as _;
 
 const DEFAULT_ITERATIONS: usize = 5_000;
 const COLLECTION: &str = "bench_objects";

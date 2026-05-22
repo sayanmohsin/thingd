@@ -1,7 +1,7 @@
 //! Storage traits implemented by thingd storage adapters.
 
 use crate::{
-    MemoryEvent, MemoryObject, ThingdResult, QueueClaimOptions, QueueJob, QueueNackOptions,
+    MemoryEvent, MemoryObject, QueueClaimOptions, QueueJob, QueueNackOptions, ThingdResult,
 };
 
 /// Object storage operations.
