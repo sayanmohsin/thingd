@@ -4,14 +4,14 @@ import { pathToFileURL } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import {
-  ThingD,
-  type ThingDDriver,
   type MemoryEvent,
   type MemoryObject,
   type MemorySearchOptions,
   type QueueClaimOptions,
   type QueueJobOptions,
   type QueueNackOptions,
+  ThingD,
+  type ThingDDriver,
 } from "thingd";
 
 type CliEnv = Record<string, string | undefined>;
@@ -366,10 +366,7 @@ async function runQueues(context: CliContext): Promise<void> {
   });
 }
 
-async function withDb(
-  context: CliContext,
-  callback: (db: ThingD) => Promise<void>,
-): Promise<void> {
+async function withDb(context: CliContext, callback: (db: ThingD) => Promise<void>): Promise<void> {
   const connection = resolveConnection(context);
   const db = await ThingD.open({
     path: connection.path,

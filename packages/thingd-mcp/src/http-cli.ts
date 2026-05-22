@@ -2,12 +2,12 @@
 
 import { readClusterOptionsFromEnv } from "./cluster.js";
 import {
-  type ThingDStorageDriver,
   parseBooleanFlag,
-  parseThingdDriver,
   parsePort,
+  parseThingdDriver,
   readCliValue,
   readMcpAuditOptionsFromEnv,
+  type ThingDStorageDriver,
 } from "./config.js";
 import { startThingdHttpServer } from "./http.js";
 

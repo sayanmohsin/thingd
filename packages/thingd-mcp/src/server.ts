@@ -7,10 +7,7 @@ export type ThingdMcpServerOptions = {
   audit?: ThingdMcpAuditOptions | false;
 };
 
-export function createThingdMcpServer(
-  db: ThingD,
-  options: ThingdMcpServerOptions = {},
-): McpServer {
+export function createThingdMcpServer(db: ThingD, options: ThingdMcpServerOptions = {}): McpServer {
   const server = new McpServer(
     {
       name: "thingd",

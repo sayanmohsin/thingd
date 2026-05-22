@@ -1,4 +1,4 @@
-import type { ThingD, MemoryEvent } from "thingd";
+import type { MemoryEvent, ThingD } from "thingd";
 
 export type ThingdMcpAuditOptions = {
   enabled?: boolean;

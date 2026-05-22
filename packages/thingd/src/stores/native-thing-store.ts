@@ -1,11 +1,9 @@
 import { randomUUID } from "node:crypto";
 import type {
-  ThingDeleteResult,
   MemoryEvent,
   MemoryObject,
   MemorySearchOptions,
   MemorySearchResult,
-  ThingStore,
   QueueClaimOptions,
   QueueJob,
   QueueJobOptions,
@@ -14,6 +12,8 @@ import type {
   QueueNackOptions,
   StoredMemoryEvent,
   StoredMemoryObject,
+  ThingDeleteResult,
+  ThingStore,
 } from "../types.js";
 
 type NativeThingStoreBinding = {

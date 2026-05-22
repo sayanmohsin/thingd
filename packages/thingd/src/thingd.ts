@@ -2,19 +2,19 @@ import { InMemoryThingStore } from "./stores/in-memory-thing-store.js";
 import { NativeThingStore } from "./stores/native-thing-store.js";
 import { RemoteThingStore } from "./stores/remote-thing-store.js";
 import type {
-  ThingDeleteResult,
   MemoryEvent,
   MemoryObject,
   MemoryQueue,
   MemorySearchOptions,
   MemorySearchResult,
-  ThingStore,
   QueueClaimOptions,
   QueueJobOptions,
   QueueJobPayload,
   QueueNackOptions,
   StoredMemoryEvent,
   StoredMemoryObject,
+  ThingDeleteResult,
+  ThingStore,
 } from "./types.js";
 
 export type ThingDDriver = "memory" | "native" | "remote";
@@ -37,10 +37,7 @@ export class ThingD {
   ): Promise<ThingD> {
     const resolvedOptions = resolveOpenOptions(pathOrConfig, options);
 
-    return new ThingD(
-      resolvedOptions.path,
-      await openStore(resolvedOptions.path, resolvedOptions),
-    );
+    return new ThingD(resolvedOptions.path, await openStore(resolvedOptions.path, resolvedOptions));
   }
 
   private constructor(

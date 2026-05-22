@@ -41,7 +41,10 @@ async function main() {
     type: "sdk.initialized",
     text: "Initial version of TypeScript SDK initialized.",
   });
-  log("4. Append Events", "Appended two events to the stream 'project:thingd':", { event1, event2 });
+  log("4. Append Events", "Appended two events to the stream 'project:thingd':", {
+    event1,
+    event2,
+  });
 
   // 5. List Events
   const events = await db.events.list("project:thingd");

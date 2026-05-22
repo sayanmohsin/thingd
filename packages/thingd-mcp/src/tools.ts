@@ -3,9 +3,9 @@ import type { ThingD } from "thingd";
 import { z } from "zod";
 import {
   appendMcpAuditEvent,
+  resolveThingdMcpAuditOptions,
   type ThingdMcpAuditMetadata,
   type ThingdMcpAuditOptions,
-  resolveThingdMcpAuditOptions,
 } from "./audit.js";
 import { jsonResult } from "./result.js";
 

@@ -2,12 +2,10 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import type {
-  ThingDeleteResult,
   MemoryEvent,
   MemoryObject,
   MemorySearchOptions,
   MemorySearchResult,
-  ThingStore,
   QueueClaimOptions,
   QueueJob,
   QueueJobOptions,
@@ -16,6 +14,8 @@ import type {
   QueueNackOptions,
   StoredMemoryEvent,
   StoredMemoryObject,
+  ThingDeleteResult,
+  ThingStore,
 } from "../types.js";
 
 export type RemoteThingStoreOptions = {

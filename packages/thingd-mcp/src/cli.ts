@@ -3,10 +3,10 @@
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { ThingD } from "thingd";
 import {
-  type ThingDStorageDriver,
   parseThingdDriver,
   readCliValue,
   readMcpAuditOptionsFromEnv,
+  type ThingDStorageDriver,
 } from "./config.js";
 import { createThingdMcpServer } from "./server.js";
 
