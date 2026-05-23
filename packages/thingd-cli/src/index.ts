@@ -13,6 +13,7 @@ import {
   ThingD,
   type ThingDDriver,
 } from "thingd";
+import { runInteractiveCli } from "./interactive.js";
 
 type CliEnv = Record<string, string | undefined>;
 
@@ -44,7 +45,7 @@ type ConnectionOptions = {
   path: string;
   driver?: ThingDDriver;
   authToken?: string;
-  remote: boolean;
+  cloud: boolean;
 };
 
 const HELP_TEXT = `thingd
@@ -72,7 +73,7 @@ Options:
   --url <url>          remote thingd URL. Defaults to THINGD_URL
   --auth-token <tok>  remote bearer token. Defaults to THINGD_AUTH_TOKEN
   --path <path>       local database path. Defaults to THINGD_PATH or :memory:
-  --driver <driver>   memory, native, or remote
+  --driver <driver>   memory, native, or cloud
   --pretty            pretty-print JSON output
   --limit <n>         result limit for search and list commands
   -h, --help          show help
@@ -94,8 +95,13 @@ export async function runCli(
   };
 
   try {
-    if (hasFlag(parsed, "help") || hasFlag(parsed, "h") || parsed.tokens.length === 0) {
+    if (hasFlag(parsed, "help") || hasFlag(parsed, "h")) {
       writeText(context.stdout, HELP_TEXT);
+      return 0;
+    }
+
+    if (parsed.tokens.length === 0) {
+      await runInteractiveCli();
       return 0;
     }
 
@@ -152,7 +158,7 @@ async function runCommand(context: CliContext): Promise<void> {
 async function runStatus(context: CliContext): Promise<void> {
   const connection = resolveConnection(context);
 
-  if (!connection.remote) {
+  if (!connection.cloud) {
     writeJson(
       context.stdout,
       {
@@ -165,7 +171,7 @@ async function runStatus(context: CliContext): Promise<void> {
     return;
   }
 
-  const baseUrl = resolveRemoteBaseUrl(connection.path);
+  const baseUrl = resolveCloudBaseUrl(connection.path);
   const [health, cluster] = await Promise.all([
     fetchJson(new URL("/healthz", baseUrl), connection.authToken),
     fetchJson(new URL("/cluster/status", baseUrl), connection.authToken),
@@ -174,8 +180,8 @@ async function runStatus(context: CliContext): Promise<void> {
   writeJson(
     context.stdout,
     {
-      mode: "remote",
-      url: resolveRemoteMcpUrl(connection.path),
+      mode: "cloud",
+      url: resolveCloudMcpUrl(connection.path),
       health,
       cluster,
     },
@@ -186,7 +192,7 @@ async function runStatus(context: CliContext): Promise<void> {
 async function runTools(context: CliContext): Promise<void> {
   const connection = resolveConnection(context);
 
-  if (!connection.remote) {
+  if (!connection.cloud) {
     throw new Error(
       "tools requires --url or THINGD_URL because tools are exposed by the MCP runtime",
     );
@@ -197,7 +203,7 @@ async function runTools(context: CliContext): Promise<void> {
     version: "0.1.0",
   });
   const transport = new StreamableHTTPClientTransport(
-    new URL(resolveRemoteMcpUrl(connection.path)),
+    new URL(resolveCloudMcpUrl(connection.path)),
     {
       requestInit: connection.authToken
         ? {
@@ -370,7 +376,7 @@ async function withDb(context: CliContext, callback: (db: ThingD) => Promise<voi
   const connection = resolveConnection(context);
   const db = await ThingD.open({
     path: connection.path,
-    url: connection.remote ? connection.path : undefined,
+    url: connection.cloud ? connection.path : undefined,
     driver: connection.driver,
     authToken: connection.authToken,
   });
@@ -411,14 +417,14 @@ function buildMemoryEvent(parsed: ParsedArgs, type: string): MemoryEvent {
 function resolveConnection(context: CliContext): ConnectionOptions {
   const url = stringFlag(context.parsed, "url") ?? context.env.THINGD_URL;
   const path = url ?? stringFlag(context.parsed, "path") ?? context.env.THINGD_PATH ?? ":memory:";
-  const remote = isRemotePath(path);
+  const cloud = isCloudPath(path);
   const driver = parseDriver(stringFlag(context.parsed, "driver") ?? context.env.THINGD_DRIVER);
 
   return {
     path,
-    driver: driver ?? (remote ? "remote" : undefined),
+    driver: driver ?? (cloud ? "cloud" : undefined),
     authToken: stringFlag(context.parsed, "auth-token") ?? context.env.THINGD_AUTH_TOKEN,
-    remote,
+    cloud,
   };
 }
 
@@ -520,7 +526,7 @@ function parseDriver(value: string | undefined): ThingDDriver | undefined {
     return undefined;
   }
 
-  if (value === "memory" || value === "native" || value === "remote") {
+  if (value === "memory" || value === "native" || value === "cloud") {
     return value;
   }
 
@@ -545,12 +551,12 @@ function limitItems<T>(items: T[], limit: number | undefined): T[] {
   return limit === undefined ? items : items.slice(0, limit);
 }
 
-function isRemotePath(path: string): boolean {
+function isCloudPath(path: string): boolean {
   return path.startsWith("http://") || path.startsWith("https://") || path.startsWith("thingd://");
 }
 
-function resolveRemoteMcpUrl(value: string): string {
-  const url = new URL(normalizeRemoteUrl(value));
+function resolveCloudMcpUrl(value: string): string {
+  const url = new URL(normalizeCloudUrl(value));
 
   if (url.pathname === "" || url.pathname === "/") {
     url.pathname = "/mcp";
@@ -559,8 +565,8 @@ function resolveRemoteMcpUrl(value: string): string {
   return url.toString();
 }
 
-function resolveRemoteBaseUrl(value: string): string {
-  const url = new URL(normalizeRemoteUrl(value));
+function resolveCloudBaseUrl(value: string): string {
+  const url = new URL(normalizeCloudUrl(value));
 
   if (url.pathname === "/mcp") {
     url.pathname = "/";
@@ -569,7 +575,7 @@ function resolveRemoteBaseUrl(value: string): string {
   return url.toString();
 }
 
-function normalizeRemoteUrl(value: string): string {
+function normalizeCloudUrl(value: string): string {
   return value.startsWith("thingd://") ? `http://${value.slice("thingd://".length)}` : value;
 }
 

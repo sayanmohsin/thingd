@@ -1,6 +1,6 @@
 import { InMemoryThingStore } from "./stores/in-memory-thing-store.js";
 import { NativeThingStore } from "./stores/native-thing-store.js";
-import { RemoteThingStore } from "./stores/remote-thing-store.js";
+import { CloudThingStore } from "./stores/cloud-thing-store.js";
 import type {
   MemoryEvent,
   MemoryObject,
@@ -17,7 +17,7 @@ import type {
   ThingStore,
 } from "./types.js";
 
-export type ThingDDriver = "memory" | "native" | "remote";
+export type ThingDDriver = "memory" | "native" | "cloud";
 
 export type ThingDOpenOptions = {
   driver?: ThingDDriver;
@@ -111,14 +111,14 @@ function resolveOpenOptions(
 }
 
 function inferDriver(path: string): ThingDDriver | undefined {
-  if (isRemotePath(path)) {
-    return "remote";
+  if (isCloudPath(path)) {
+    return "cloud";
   }
 
   return undefined;
 }
 
-function isRemotePath(path: string): boolean {
+function isCloudPath(path: string): boolean {
   return path.startsWith("http://") || path.startsWith("https://") || path.startsWith("thingd://");
 }
 
@@ -127,8 +127,8 @@ async function openStore(path: string, options: ResolvedThingDOpenOptions): Prom
     return options.store;
   }
 
-  if (options.driver === "remote") {
-    return RemoteThingStore.open({
+  if (options.driver === "cloud") {
+    return CloudThingStore.open({
       url: path,
       authToken: options.authToken,
     });

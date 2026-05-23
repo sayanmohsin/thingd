@@ -18,15 +18,15 @@ import type {
   ThingStore,
 } from "../types.js";
 
-export type RemoteThingStoreOptions = {
+export type CloudThingStoreOptions = {
   url: string;
   authToken?: string;
   clientName?: string;
   clientVersion?: string;
 };
 
-export class RemoteThingStore implements ThingStore {
-  static async open(urlOrOptions: string | RemoteThingStoreOptions): Promise<RemoteThingStore> {
+export class CloudThingStore implements ThingStore {
+  static async open(urlOrOptions: string | CloudThingStoreOptions): Promise<CloudThingStore> {
     const options =
       typeof urlOrOptions === "string"
         ? {
@@ -49,7 +49,7 @@ export class RemoteThingStore implements ThingStore {
 
     await client.connect(transport);
 
-    return new RemoteThingStore(client);
+    return new CloudThingStore(client);
   }
 
   private constructor(private readonly client: Client) {}
@@ -179,7 +179,7 @@ function parseJsonToolResult<T>(result: CallToolResult): T {
   )?.text;
 
   if (!text) {
-    throw new Error("thingd remote tool did not return JSON text content");
+    throw new Error("thingd cloud tool did not return JSON text content");
   }
 
   return JSON.parse(text) as T;
