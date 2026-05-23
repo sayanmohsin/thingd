@@ -23,6 +23,7 @@ const config = {
     [
       "@semantic-release/npm",
       {
+        npmPublish: false,
         pkgRoot: "packages/thingd",
       },
     ],
@@ -30,7 +31,7 @@ const config = {
       "@semantic-release/exec",
       {
         prepareCmd: "npm --no-git-tag-version --prefix packages/thingd-cli version ${nextRelease.version}",
-        publishCmd: "pnpm --filter thingd-cli publish --access public --no-git-checks"
+        publishCmd: "pnpm --filter thingd publish --access public --no-git-checks && pnpm --filter thingd-cli publish --access public --no-git-checks"
       }
     ],
     "@semantic-release/github",
