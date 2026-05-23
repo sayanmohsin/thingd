@@ -17,7 +17,10 @@ async function main() {
   console.log("\n🚀 Starting thingd Node.js Basic TypeScript Example...");
 
   // 1. Open database (using in-memory SQLite store by default)
-  const db = await ThingD.open();
+  const db = await ThingD.open({
+    path: "./data.db",
+    driver: "native"
+  });
   log("1. Database Open", "Opened an in-memory thingd instance.");
 
   // 2. Put object
