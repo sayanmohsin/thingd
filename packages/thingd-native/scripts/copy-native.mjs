@@ -22,3 +22,14 @@ if (!inputPath) {
 mkdirSync(dirname(outputPath), { recursive: true });
 copyFileSync(inputPath, outputPath);
 console.log(`Copied ${inputPath} -> ${outputPath}`);
+
+if (process.platform === "darwin") {
+  import("node:child_process").then(({ execSync }) => {
+    try {
+      execSync(`codesign -s - "${outputPath}"`);
+      console.log(`Ad-hoc signed ${outputPath}`);
+    } catch (err) {
+      console.warn("Failed to ad-hoc sign the native binary:", err.message);
+    }
+  });
+}
