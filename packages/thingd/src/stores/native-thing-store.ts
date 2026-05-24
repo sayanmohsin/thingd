@@ -35,6 +35,13 @@ type NativeThingStoreBinding = {
   nackJobJson(queue: string, id: string, delayMs: number): string;
   listJobsJson(queue: string): string;
   listDeadJobsJson(queue: string): string;
+  countObjectsJson(): Promise<number>;
+  countEventsJson(): Promise<number>;
+  countActiveJobsJson(): Promise<number>;
+  countDeadJobsJson(): Promise<number>;
+  listCollectionsJson(): Promise<string>;
+  listStreamsJson(): Promise<string>;
+  listQueuesJson(): Promise<string>;
 };
 
 type NativeThingStoreConstructor = {
@@ -218,6 +225,34 @@ export class NativeThingStore implements ThingStore {
     }
 
     return results.slice(0, options.limit ?? 10);
+  }
+
+  async countObjects(): Promise<number> {
+    return this.binding.countObjectsJson();
+  }
+
+  async countEvents(): Promise<number> {
+    return this.binding.countEventsJson();
+  }
+
+  async countActiveJobs(): Promise<number> {
+    return this.binding.countActiveJobsJson();
+  }
+
+  async countDeadJobs(): Promise<number> {
+    return this.binding.countDeadJobsJson();
+  }
+
+  async listCollections(): Promise<string[]> {
+    return parseJson<string[]>(await this.binding.listCollectionsJson());
+  }
+
+  async listStreams(): Promise<string[]> {
+    return parseJson<string[]>(await this.binding.listStreamsJson());
+  }
+
+  async listQueues(): Promise<string[]> {
+    return parseJson<string[]>(await this.binding.listQueuesJson());
   }
 }
 

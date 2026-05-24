@@ -33,6 +33,20 @@ pub trait ObjectStore {
     ///
     /// Returns an error when the backing store cannot delete the object.
     fn delete_object(&mut self, collection: &str, id: &str) -> ThingdResult<bool>;
+
+    /// Count total objects across all collections.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the backing store cannot count objects.
+    fn count_objects(&self) -> ThingdResult<u64>;
+
+    /// List all unique collection names.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the backing store cannot list collections.
+    fn list_collections(&self) -> ThingdResult<Vec<String>>;
 }
 
 /// Append-only event log operations.
@@ -50,6 +64,20 @@ pub trait EventLog {
     ///
     /// Returns an error when the backing store cannot read events.
     fn list_events(&self, stream: Option<&str>) -> ThingdResult<Vec<MemoryEvent>>;
+
+    /// Count total events across all streams.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the backing store cannot count events.
+    fn count_events(&self) -> ThingdResult<u64>;
+
+    /// List all unique stream names.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the backing store cannot list streams.
+    fn list_streams(&self) -> ThingdResult<Vec<String>>;
 }
 
 /// Queue storage operations.
@@ -122,6 +150,27 @@ pub trait QueueStore {
     ///
     /// Returns an error when the backing store cannot read dead-letter jobs.
     fn list_dead_jobs(&self, queue: &str) -> ThingdResult<Vec<QueueJob>>;
+
+    /// List all unique queue names.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the backing store cannot list queues.
+    fn list_queues(&self) -> ThingdResult<Vec<String>>;
+
+    /// Count total active jobs across all queues.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the backing store cannot count active jobs.
+    fn count_active_jobs(&self) -> ThingdResult<u64>;
+
+    /// Count total dead-letter jobs across all queues.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the backing store cannot count dead jobs.
+    fn count_dead_jobs(&self) -> ThingdResult<u64>;
 }
 
 /// Full storage interface expected from thingd engine adapters.

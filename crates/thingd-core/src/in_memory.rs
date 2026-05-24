@@ -60,6 +60,21 @@ impl ObjectStore for MemoryEngine {
             .remove(&ObjectKey::new(collection, id))
             .is_some())
     }
+
+    fn count_objects(&self) -> ThingdResult<u64> {
+        Ok(self.objects.len() as u64)
+    }
+
+    fn list_collections(&self) -> ThingdResult<Vec<String>> {
+        let mut collections: Vec<String> = self
+            .objects
+            .keys()
+            .map(|key| key.collection.clone())
+            .collect();
+        collections.sort();
+        collections.dedup();
+        Ok(collections)
+    }
 }
 
 impl EventLog for MemoryEngine {
@@ -80,6 +95,21 @@ impl EventLog for MemoryEngine {
             .collect();
 
         Ok(events)
+    }
+
+    fn count_events(&self) -> ThingdResult<u64> {
+        Ok(self.events.len() as u64)
+    }
+
+    fn list_streams(&self) -> ThingdResult<Vec<String>> {
+        let mut streams: Vec<String> = self
+            .events
+            .iter()
+            .map(|event| event.stream.clone())
+            .collect();
+        streams.sort();
+        streams.dedup();
+        Ok(streams)
     }
 }
 
@@ -182,6 +212,32 @@ impl QueueStore for MemoryEngine {
                 .cloned()
                 .collect()
         }))
+    }
+
+    fn list_queues(&self) -> ThingdResult<Vec<String>> {
+        let mut queues: Vec<String> = self.queues.keys().cloned().collect();
+        queues.sort();
+        Ok(queues)
+    }
+
+    fn count_active_jobs(&self) -> ThingdResult<u64> {
+        let count = self
+            .queues
+            .values()
+            .flat_map(|jobs| jobs.iter())
+            .filter(|job| job.status != QueueJobStatus::Dead)
+            .count();
+        Ok(count as u64)
+    }
+
+    fn count_dead_jobs(&self) -> ThingdResult<u64> {
+        let count = self
+            .queues
+            .values()
+            .flat_map(|jobs| jobs.iter())
+            .filter(|job| job.status == QueueJobStatus::Dead)
+            .count();
+        Ok(count as u64)
     }
 }
 

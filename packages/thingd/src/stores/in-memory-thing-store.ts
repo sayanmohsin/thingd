@@ -251,6 +251,46 @@ export class InMemoryThingStore implements ThingStore {
     return results.slice(0, limit);
   }
 
+  async countObjects(): Promise<number> {
+    let total = 0;
+    for (const records of this.collections.values()) {
+      total += records.size;
+    }
+    return total;
+  }
+
+  async countEvents(): Promise<number> {
+    return this.events.length;
+  }
+
+  async countActiveJobs(): Promise<number> {
+    let total = 0;
+    for (const jobs of this.queues.values()) {
+      total += jobs.filter((job) => job.status !== "dead").length;
+    }
+    return total;
+  }
+
+  async countDeadJobs(): Promise<number> {
+    let total = 0;
+    for (const jobs of this.queues.values()) {
+      total += jobs.filter((job) => job.status === "dead").length;
+    }
+    return total;
+  }
+
+  async listCollections(): Promise<string[]> {
+    return Array.from(this.collections.keys()).sort();
+  }
+
+  async listStreams(): Promise<string[]> {
+    const streams = new Set<string>();
+    for (const event of this.events) {
+      streams.add(event.stream);
+    }
+    return Array.from(streams).sort();
+  }
+
   private getCollection(collection: string): Map<string, StoredMemoryObject> {
     const records = this.collections.get(collection) ?? new Map<string, StoredMemoryObject>();
     this.collections.set(collection, records);

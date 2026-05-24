@@ -1,7 +1,6 @@
 packages:
   - "packages/*"
-  - "examples/nestjs-basic"
-  - "examples/node-basic"
+  - "examples/*"
 
 allowBuilds:
   '@nestjs/core': true

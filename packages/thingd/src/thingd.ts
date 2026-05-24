@@ -82,6 +82,34 @@ export class ThingD {
   async close(): Promise<void> {
     await this.store.close?.();
   }
+
+  async countObjects(): Promise<number> {
+    return this.store.countObjects?.() ?? 0;
+  }
+
+  async countEvents(): Promise<number> {
+    return this.store.countEvents?.() ?? 0;
+  }
+
+  async countActiveJobs(): Promise<number> {
+    return this.store.countActiveJobs?.() ?? 0;
+  }
+
+  async countDeadJobs(): Promise<number> {
+    return this.store.countDeadJobs?.() ?? 0;
+  }
+
+  async listCollections(): Promise<string[]> {
+    return this.store.listCollections?.() ?? [];
+  }
+
+  async listStreams(): Promise<string[]> {
+    return this.store.listStreams?.() ?? [];
+  }
+
+  async listQueues(): Promise<string[]> {
+    return this.store.listQueues?.() ?? [];
+  }
 }
 
 type ResolvedThingDOpenOptions = ThingDOpenOptions & {

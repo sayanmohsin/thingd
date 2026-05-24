@@ -28,6 +28,7 @@ impl SqliteThingStore {
     /// Returns an error when `SQLite` cannot open the path or initialize schema.
     pub fn open(path: impl AsRef<Path>) -> ThingdResult<Self> {
         let connection = Connection::open(path).map_err(ThingdError::from)?;
+        connection.busy_timeout(std::time::Duration::from_secs(5)).map_err(ThingdError::from)?;
         let store = Self { connection };
         store.initialize()?;
         Ok(store)
@@ -40,28 +41,55 @@ impl SqliteThingStore {
     /// Returns an error when `SQLite` cannot initialize schema.
     pub fn open_in_memory() -> ThingdResult<Self> {
         let connection = Connection::open_in_memory().map_err(ThingdError::from)?;
+        connection.busy_timeout(std::time::Duration::from_secs(5)).map_err(ThingdError::from)?;
         let store = Self { connection };
         store.initialize()?;
         Ok(store)
     }
 
     fn initialize(&self) -> ThingdResult<()> {
+        let current_mode: String = self
+            .connection
+            .query_row("PRAGMA journal_mode;", [], |row| row.get(0))
+            .unwrap_or_else(|_| "delete".to_string());
+
+        if current_mode.to_lowercase() != "wal" {
+            self.connection
+                .query_row("PRAGMA journal_mode = WAL;", [], |_| Ok(()))
+                .ok();
+        }
+            
         self.connection
             .execute_batch(
                 r"
-                PRAGMA journal_mode = WAL;
+                PRAGMA synchronous = NORMAL;
                 PRAGMA foreign_keys = ON;
-
-                CREATE TABLE IF NOT EXISTS thingd_schema_migrations (
-                    version INTEGER PRIMARY KEY,
-                    name TEXT NOT NULL,
-                    applied_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
-                );
+                PRAGMA busy_timeout = 5000;
                 ",
             )
             .map_err(ThingdError::from)?;
 
         let current_version = self.schema_version()?;
+        
+        if current_version == 0 {
+            self.connection
+                .execute_batch(
+                    r"
+                    CREATE TABLE IF NOT EXISTS thingd_schema_migrations (
+                        version INTEGER PRIMARY KEY,
+                        name TEXT NOT NULL,
+                        applied_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+                    );
+                    ",
+                )
+                .map_err(ThingdError::from)?;
+        }
+
+        if current_version < 2 {
+            self.connection
+                .execute("CREATE INDEX IF NOT EXISTS idx_queue_jobs_status ON queue_jobs (status)", [])
+                .ok();
+        }
         if current_version > SQLITE_SCHEMA_VERSION {
             return Err(ThingdError::Storage(format!(
                 "database schema version {current_version} is newer than supported version {SQLITE_SCHEMA_VERSION}"
@@ -139,6 +167,9 @@ impl SqliteThingStore {
 
                 CREATE INDEX IF NOT EXISTS idx_queue_jobs_queue_status_created
                     ON queue_jobs (queue, status, created_at);
+
+                CREATE INDEX IF NOT EXISTS idx_queue_jobs_status
+                    ON queue_jobs (status);
 
                 INSERT OR IGNORE INTO thingd_schema_migrations (version, name, applied_at)
                 VALUES (1, 'initial_objects_events_queues', strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));
@@ -271,6 +302,30 @@ impl ObjectStore for SqliteThingStore {
 
         Ok(changed > 0)
     }
+
+    fn count_objects(&self) -> ThingdResult<u64> {
+        let count = self
+            .connection
+            .query_row("SELECT coalesce(max(rowid), 0) FROM objects", [], |row| row.get::<_, i64>(0))
+            .map_err(ThingdError::from)?;
+        Ok(u64::try_from(count).unwrap_or(0))
+    }
+
+    fn list_collections(&self) -> ThingdResult<Vec<String>> {
+        let mut statement = self
+            .connection
+            .prepare("SELECT DISTINCT collection FROM objects ORDER BY collection")
+            .map_err(ThingdError::from)?;
+        let rows = statement
+            .query_map([], |row| row.get::<_, String>(0))
+            .map_err(ThingdError::from)?;
+
+        let mut collections = Vec::new();
+        for row in rows {
+            collections.push(row.map_err(ThingdError::from)?);
+        }
+        Ok(collections)
+    }
 }
 
 impl EventLog for SqliteThingStore {
@@ -323,6 +378,30 @@ impl EventLog for SqliteThingStore {
         }
 
         Ok(events)
+    }
+
+    fn count_events(&self) -> ThingdResult<u64> {
+        let count = self
+            .connection
+            .query_row("SELECT coalesce(max(rowid), 0) FROM events", [], |row| row.get::<_, i64>(0))
+            .map_err(ThingdError::from)?;
+        Ok(u64::try_from(count).unwrap_or(0))
+    }
+
+    fn list_streams(&self) -> ThingdResult<Vec<String>> {
+        let mut statement = self
+            .connection
+            .prepare("SELECT DISTINCT stream FROM events ORDER BY stream")
+            .map_err(ThingdError::from)?;
+        let rows = statement
+            .query_map([], |row| row.get::<_, String>(0))
+            .map_err(ThingdError::from)?;
+
+        let mut streams = Vec::new();
+        for row in rows {
+            streams.push(row.map_err(ThingdError::from)?);
+        }
+        Ok(streams)
     }
 }
 
@@ -415,7 +494,7 @@ impl QueueStore for SqliteThingStore {
         let Some(mut job) = transaction
             .query_row(
                 &queue_job_select_sql(
-                    "WHERE queue = ?1 AND status = 'ready' AND available_at_ms <= ?2 ORDER BY rowid LIMIT 1",
+                    "WHERE queue = ?1 AND status = 'ready' AND available_at_ms <= ?2 ORDER BY created_at LIMIT 1",
                 ),
                 params![queue, now],
                 row_to_queue_job,
@@ -535,6 +614,8 @@ impl QueueStore for SqliteThingStore {
         let now = unix_timestamp_millis();
         job.leased_at_ms = None;
         job.lease_expires_at_ms = None;
+        job.attempts += 1;
+
         job.status = if job.attempts >= job.max_attempts {
             job.dead_at_ms = Some(now);
             QueueJobStatus::Dead
@@ -547,17 +628,19 @@ impl QueueStore for SqliteThingStore {
             .execute(
                 r"
                 UPDATE queue_jobs
-                SET status = ?3,
-                    available_at_ms = ?4,
+                SET attempts = ?3,
+                    status = ?4,
+                    available_at_ms = ?5,
                     leased_at_ms = NULL,
                     lease_expires_at_ms = NULL,
-                    dead_at_ms = ?5,
+                    dead_at_ms = ?6,
                     updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
                 WHERE queue = ?1 AND id = ?2
                 ",
                 params![
                     queue,
                     id,
+                    u32_to_i64(job.attempts),
                     status_to_str(job.status),
                     job.available_at_ms,
                     job.dead_at_ms
@@ -572,7 +655,9 @@ impl QueueStore for SqliteThingStore {
     fn list_jobs(&self, queue: &str) -> ThingdResult<Vec<QueueJob>> {
         let mut statement = self
             .connection
-            .prepare(&queue_job_select_sql("WHERE queue = ?1 ORDER BY rowid"))
+            .prepare(&queue_job_select_sql(
+                "WHERE queue = ?1 ORDER BY created_at",
+            ))
             .map_err(ThingdError::from)?;
         let rows = statement
             .query_map(params![queue], row_to_queue_job)
@@ -590,7 +675,7 @@ impl QueueStore for SqliteThingStore {
         let mut statement = self
             .connection
             .prepare(&queue_job_select_sql(
-                "WHERE queue = ?1 AND status = 'dead' ORDER BY rowid",
+                "WHERE queue = ?1 AND status = 'dead' ORDER BY created_at",
             ))
             .map_err(ThingdError::from)?;
         let rows = statement
@@ -603,6 +688,46 @@ impl QueueStore for SqliteThingStore {
         }
 
         Ok(jobs)
+    }
+
+    fn list_queues(&self) -> ThingdResult<Vec<String>> {
+        let mut statement = self
+            .connection
+            .prepare("SELECT DISTINCT queue FROM queue_jobs ORDER BY queue")
+            .map_err(ThingdError::from)?;
+        let rows = statement
+            .query_map([], |row| row.get::<_, String>(0))
+            .map_err(ThingdError::from)?;
+
+        let mut queues = Vec::new();
+        for row in rows {
+            queues.push(row.map_err(ThingdError::from)?);
+        }
+        Ok(queues)
+    }
+
+    fn count_active_jobs(&self) -> ThingdResult<u64> {
+        let count = self
+            .connection
+            .query_row(
+                "SELECT COUNT(id) FROM queue_jobs WHERE status != 'dead'",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .map_err(ThingdError::from)?;
+        Ok(u64::try_from(count).unwrap_or(0))
+    }
+
+    fn count_dead_jobs(&self) -> ThingdResult<u64> {
+        let count = self
+            .connection
+            .query_row(
+                "SELECT COUNT(id) FROM queue_jobs WHERE status = 'dead'",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .map_err(ThingdError::from)?;
+        Ok(u64::try_from(count).unwrap_or(0))
     }
 }
 

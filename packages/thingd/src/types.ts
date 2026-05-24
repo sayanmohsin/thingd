@@ -114,5 +114,12 @@ export interface ThingStore {
   listJobs(queue: string): Promise<QueueJob[]>;
   listDeadJobs(queue: string): Promise<QueueJob[]>;
   search(query: string, options?: MemorySearchOptions): Promise<MemorySearchResult[]>;
+  countObjects?(): Promise<number>;
+  countEvents?(): Promise<number>;
+  countActiveJobs?(): Promise<number>;
+  countDeadJobs?(): Promise<number>;
+  listCollections?(): Promise<string[]>;
+  listStreams?(): Promise<string[]>;
+  listQueues?(): Promise<string[]>;
   close?(): Promise<void>;
 }

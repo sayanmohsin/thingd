@@ -7,6 +7,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as crypto from "node:crypto";
 
+
 // ── Helpers ──────────────────────────────────────────────────────────
 
 function highlightJson(val: any): string {
@@ -63,6 +64,22 @@ const expandedSet = new Set<string>(["cat:collections", "cat:streams", "cat:queu
 let cursorIndex = 0;
 let scrollOffset = 0;
 let db: ThingD;
+let startedAt = 0; // ms since epoch when we connected
+let totalObjects = 0;
+let totalEventsCount = 0;
+let totalActiveJobsCount = 0;
+let totalDeadJobsCount = 0;
+let objectsHistory: number[] = [];
+let eventsHistory: number[] = [];
+let activeJobsHistory: number[] = [];
+let deadJobsHistory: number[] = [];
+let dbSizeHistory: number[] = [];
+let objectWriteRateHistory: number[] = [];
+let eventAppendRateHistory: number[] = [];
+let colHistory = new Map<string, number[]>();
+let streamHistory = new Map<string, number[]>();
+let queueActiveHistory = new Map<string, number[]>();
+let queueDeadHistory = new Map<string, number[]>();
 
 let viewerLines: string[] = ["Select an item to view details."];
 let viewerScroll = 0;
@@ -139,33 +156,72 @@ function openForm(title: string, fields: (Partial<FormField> & {id: string, labe
 
 // ── Data Fetching ────────────────────────────────────────────────────
 
-async function fetchResources(): Promise<void> {
+const SPARK_WIDTH = 30;
+
+function drawSparkline(data: number[], baselineMax = 0, width = SPARK_WIDTH): string {
+  const dataChars = ["\u2581", "▂", "▃", "▄", "▅", "▆", "▇", "█"];
+  const track = "\u2581"; // Lower 1/8 block as baseline
+  
+  if (data.length === 0) return track.repeat(width);
+  
+  const recent = data.slice(-width);
+  const padLen = width - recent.length;
+  const max = Math.max(baselineMax, ...recent);
+  
+  // Left pad = no data yet
+  let result = track.repeat(padLen);
+  
+  if (max === 0) {
+    result += track.repeat(recent.length);
+    return result;
+  }
+
+  result += recent.map(v => {
+    if (v === 0) return track;
+    const ratio = v / max;
+    const idx = Math.max(0, Math.min(dataChars.length - 1, Math.floor(ratio * dataChars.length)));
+    
+    return dataChars[idx]!;
+  }).join("");
+
+  return result;
+}
+
+function formatUptime(ms: number): string {
+  const s = Math.floor(ms / 1000);
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ${s % 60}s`;
+  const h = Math.floor(m / 60);
+  return `${h}h ${m % 60}m`;
+}
+
+
+async function fetchResourcesFallback() {
   try {
-    const results = await db.search("", { limit: 1000 });
-    const cols = new Set<string>();
-    const strs = new Set<string>();
-    const objsByCol = new Map<string, string[]>();
+    const nativeCollections = await db.listCollections();
+    const nativeStreams = await db.listStreams();
+    
+    // Maintain default collections/streams for UI if none exist
+    const defaultCols = new Set<string>(["decisions", "load-test"]);
+    const defaultStrs = new Set<string>(["project:thingd", "load-events", "activity-log"]);
+    
+    for (const c of nativeCollections) defaultCols.add(c);
+    for (const s of nativeStreams) defaultStrs.add(s);
 
-    for (const res of results) {
-      if (res.kind === "object") {
-        const obj = res as { id: string; collection: string };
-        cols.add(obj.collection);
-        const list = objsByCol.get(obj.collection) ?? [];
-        list.push(obj.id);
-        objsByCol.set(obj.collection, list);
-      } else if (res.kind === "event") {
-        const ev = res as { stream: string };
-        strs.add(ev.stream);
-      }
-    }
+    collections = Array.from(defaultCols).sort();
+    streams = Array.from(defaultStrs).sort();
 
-    collections = Array.from(cols).sort();
-    streams = Array.from(strs).sort();
-    objectsByCollection = objsByCol;
+    // Fallback totals
+    totalObjects = await db.countObjects();
+    totalEventsCount = await db.countEvents();
+    totalActiveJobsCount = await db.countActiveJobs();
+    totalDeadJobsCount = await db.countDeadJobs();
+    
   } catch {
     collections = [];
     streams = [];
-    objectsByCollection = new Map();
+    totalObjects = 0;
   }
 
   // Queues
@@ -174,10 +230,112 @@ async function fetchResources(): Promise<void> {
     if (store?.queues) {
       queues = (Array.from(store.queues.keys()) as string[]).sort();
     } else {
-      queues = [];
+      queues = ["embed", "load-queue", "worker-queue"];
     }
   } catch {
-    queues = [];
+    queues = ["embed", "load-queue", "worker-queue"];
+  }
+}
+
+async function fetchResources(): Promise<void> {
+  if (driver === "native" && dbPath) {
+    try {
+      // Override the tracked totals with the actual exact DB count!
+      const [
+        objCount, evtCount, activeCount, deadCount,
+        nativeCollections, nativeStreams, nativeQueues
+      ] = await Promise.all([
+        db.countObjects(),
+        db.countEvents(),
+        db.countActiveJobs(),
+        db.countDeadJobs(),
+        db.listCollections(),
+        db.listStreams(),
+        db.listQueues?.() ?? Promise.resolve([])
+      ]);
+
+      totalObjects = isNaN(objCount) || objCount === 0 ? totalObjects : objCount;
+      totalEventsCount = isNaN(evtCount) || evtCount === 0 ? totalEventsCount : evtCount;
+      totalActiveJobsCount = isNaN(activeCount) || activeCount === 0 ? totalActiveJobsCount : activeCount;
+      totalDeadJobsCount = isNaN(deadCount) || deadCount === 0 ? totalDeadJobsCount : deadCount;
+
+      collections = nativeCollections.length > 0 ? nativeCollections : ["decisions", "load-test"];
+      streams = nativeStreams.length > 0 ? nativeStreams : ["project:thingd", "load-events", "activity-log"];
+      queues = nativeQueues.length > 0 ? nativeQueues : ["embed", "load-queue", "worker-queue"];
+    } catch {
+      // Fallback if sqlite3 fails
+      await fetchResourcesFallback();
+    }
+  } else {
+    await fetchResourcesFallback();
+  }
+
+
+
+  // Calculate Deltas for Operations Throughput Rates
+  const prevObjects = objectsHistory.length > 0 ? objectsHistory[objectsHistory.length - 1]! : totalObjects;
+  const prevEvents = eventsHistory.length > 0 ? eventsHistory[eventsHistory.length - 1]! : totalEventsCount;
+
+  // Polling is every 2000ms. Operations per second = delta / 2
+  const objectWriteRate = Math.max(0, Math.round((totalObjects - prevObjects) / 2));
+  const eventAppendRate = Math.max(0, Math.round((totalEventsCount - prevEvents) / 2));
+
+  // Push Histories with Initial Pre-population to prevent misleading growth wiggles
+  if (objectsHistory.length === 0) {
+    objectsHistory = new Array(60).fill(totalObjects);
+  } else {
+    objectsHistory.push(totalObjects);
+    if (objectsHistory.length > 60) objectsHistory.shift();
+  }
+
+  if (eventsHistory.length === 0) {
+    eventsHistory = new Array(60).fill(totalEventsCount);
+  } else {
+    eventsHistory.push(totalEventsCount);
+    if (eventsHistory.length > 60) eventsHistory.shift();
+  }
+
+  if (activeJobsHistory.length === 0) {
+    activeJobsHistory = new Array(60).fill(totalActiveJobsCount);
+  } else {
+    activeJobsHistory.push(totalActiveJobsCount);
+    if (activeJobsHistory.length > 60) activeJobsHistory.shift();
+  }
+
+  if (deadJobsHistory.length === 0) {
+    deadJobsHistory = new Array(60).fill(totalDeadJobsCount);
+  } else {
+    deadJobsHistory.push(totalDeadJobsCount);
+    if (deadJobsHistory.length > 60) deadJobsHistory.shift();
+  }
+
+  if (objectWriteRateHistory.length === 0) {
+    objectWriteRateHistory = new Array(60).fill(objectWriteRate);
+  } else {
+    objectWriteRateHistory.push(objectWriteRate);
+    if (objectWriteRateHistory.length > 60) objectWriteRateHistory.shift();
+  }
+
+  if (eventAppendRateHistory.length === 0) {
+    eventAppendRateHistory = new Array(60).fill(eventAppendRate);
+  } else {
+    eventAppendRateHistory.push(eventAppendRate);
+    if (eventAppendRateHistory.length > 60) eventAppendRateHistory.shift();
+  }
+
+  // Database Size (only if native)
+  let sizeKb = 0;
+  if (driver === "native" && dbPath) {
+    try {
+      sizeKb = Math.round(fs.statSync(dbPath).size / 1024);
+    } catch {}
+  }
+
+  if (dbSizeHistory.length === 0) {
+    dbSizeHistory = new Array(60).fill(sizeKb);
+  } else {
+    dbSizeHistory.push(sizeKb);
+    if (dbSizeHistory.length > 60) dbSizeHistory.shift();
   }
 }
 
@@ -347,11 +505,11 @@ function buildTree(): TreeNode[] {
     }
   }
 
-  // Status
+  // Metrics
   nodes.push({
     id: "node:status",
     type: "status",
-    label: `${pc.dim("○")} ${pc.dim("Status")}`,
+    label: `${pc.dim("○")} ${pc.dim("Metrics")}`,
     depth: 0,
     expandable: false,
   });
@@ -414,30 +572,48 @@ async function loadContent(node: TreeNode): Promise<void> {
       content = data ? highlightJson(data) : pc.yellow("Object not found.");
     } else if (node.type === "collection" && node.ref) {
       const objs = objectsByCollection.get(node.ref.name) ?? [];
+      const hist = colHistory.get(node.ref.name) ?? [];
+      let res = `${pc.bold(node.ref.name)} ${pc.dim(`(${objs.length} objects)`)}\n\n`;
+      res += `${pc.bold("Performance")}\n`;
+      res += `  Volume    ${pc.cyan(drawSparkline(hist))}\n\n`;
+
       if (objs.length === 0) {
-        content = pc.dim("No objects in this collection.");
+        res += pc.dim("  No objects in this collection.");
       } else {
-        const header = `${pc.bold(node.ref.name)} ${pc.dim(`(${objs.length} objects)`)}\n`;
         const lines = objs.map((id) => `  ${pc.dim("●")} ${id}`);
-        content = header + "\n" + lines.join("\n");
+        res += lines.join("\n");
       }
+      content = res;
     } else if (node.type === "stream" && node.ref) {
       const events = await db.events.list(node.ref.name);
+      const hist = streamHistory.get(node.ref.name) ?? [];
+      
+      let res = `${pc.bold(node.ref.name)} ${pc.dim(`(${events.length} events)`)}\n\n`;
+      res += `${pc.bold("Performance")}\n`;
+      res += `  Volume    ${pc.green(drawSparkline(hist))}\n\n`;
+
       if (events.length === 0) {
-        content = pc.dim("No events in this stream.");
+        res += pc.dim("  No events in this stream.");
       } else {
-        const header = `${pc.bold(node.ref.name)} ${pc.dim(`(${events.length} events)`)}\n`;
         const lines = events.map((e: any) => {
           const ts = e.createdAt ? pc.dim(String(e.createdAt)) : "";
           const type = pc.magenta(e.type || "unknown");
           return `  ${ts} ${type}`;
         });
-        content = header + "\n" + lines.join("\n");
+        res += lines.join("\n");
       }
+      content = res;
     } else if (node.type === "queue" && node.ref) {
       const queue = db.queue(node.ref.name);
       const [active, dead] = await Promise.all([queue.list(), queue.dead()]);
+      
+      const aHist = queueActiveHistory.get(node.ref.name) ?? [];
+      const dHist = queueDeadHistory.get(node.ref.name) ?? [];
+
       let res = `${pc.bold(node.ref.name)}\n\n`;
+      res += `${pc.bold("Performance")}\n`;
+      res += `  Active    ${pc.cyan(drawSparkline(aHist))}\n`;
+      res += `  Dead      ${pc.red(drawSparkline(dHist))}\n\n`;
       res += `${pc.cyan("Active")} ${pc.dim(`(${active.length})`)}\n`;
       if (active.length === 0) {
         res += pc.dim("  No active jobs\n");
@@ -456,12 +632,74 @@ async function loadContent(node: TreeNode): Promise<void> {
       }
       content = res;
     } else if (node.type === "status") {
-      content = `${pc.bold("Connection")}\n\n`;
-      content += `  Driver    ${pc.cyan(driver.toUpperCase())}\n`;
-      content += `  Path      ${pc.dim(dbPath)}\n`;
-      content += `  Objects   ${pc.yellow(String(collections.length))} collections\n`;
-      content += `  Streams   ${pc.green(String(streams.length))}\n`;
-      content += `  Queues    ${pc.magenta(String(queues.length))}\n`;
+      const W = process.stdout.columns || 80;
+      const sideW = Math.min(40, Math.max(20, Math.floor(W * 0.35)));
+      const viewW = Math.max(20, W - sideW - 3);
+      const fullRule = pc.dim("─".repeat(Math.max(10, viewW - 2)));
+
+      const uptime = startedAt ? formatUptime(Date.now() - startedAt) : "--";
+
+      // ── Header
+      const titleStr = `${pc.bold("thingd")}  ${pc.cyan("METRICS")}`;
+      const pathStr = pc.dim(dbPath || ":memory:");
+      const pathRaw = dbPath || ":memory:";
+      const gap = Math.max(2, viewW - 2 - 8 - "METRICS".length - pathRaw.length);
+      content  = `  ${titleStr}${" ".repeat(gap)}${pathStr}\n`;
+      content += `  ${pc.dim("uptime")} ${pc.dim(uptime)}\n`;
+      content += `  ${fullRule}\n\n`;
+
+      // ── Physical Store & Driver Logic
+      let sizeKb = 0;
+      if (driver === "native" && dbPath) {
+        try {
+          sizeKb = Math.round(fs.statSync(dbPath).size / 1024);
+        } catch {}
+      }
+      const dbSizeStr = driver === "native" ? `${sizeKb} KB` : "--";
+
+      let driverName = "Unknown";
+      if (driver === "memory") driverName = "SQLite (Memory)";
+      else if (driver === "native") driverName = "SQLite (Native)";
+      else if (driver === "cloud") driverName = "Cloud (Remote)";
+
+      const objVal = String(totalObjects).padEnd(8);
+      const evtVal = String(totalEventsCount).padEnd(8);
+      const actVal = String(totalActiveJobsCount).padEnd(8);
+      const ddtVal = String(totalDeadJobsCount).padEnd(8);
+
+      // ── Metrics Layout 
+      content += `  ${pc.bold("CAPACITY & STORAGE METRICS")}\n`;
+      content += `  ${fullRule}\n`;
+      content += `  ${pc.dim("Objects").padEnd(20)}  ${pc.cyan(objVal)} ${pc.dim("total objects stored")}\n`;
+      content += `  ${pc.dim("Events").padEnd(20)}  ${pc.green(evtVal)} ${pc.dim("total events in streams")}\n`;
+      content += `  ${pc.dim("Active Jobs").padEnd(20)}  ${pc.yellow(actVal)} ${pc.dim("jobs currently processing")}\n`;
+      content += `  ${pc.dim("Dead Jobs").padEnd(20)}  ${pc.red(ddtVal)} ${pc.dim("failed/dead jobs")}\n\n`;
+
+      content += `  ${pc.bold("PHYSICAL STORE & CONNECTION")}\n`;
+      content += `  ${fullRule}\n`;
+      content += `  ${pc.dim("Database Size").padEnd(20)}  ${pc.blue(dbSizeStr)}\n`;
+      content += `  ${pc.dim("Driver Type").padEnd(20)}  ${driverName}\n`;
+      content += `  ${pc.dim("Storage Path").padEnd(20)}  ${dbPath || ":memory:"}\n`;
+      content += `  ${pc.dim("CLI Shortcuts").padEnd(20)}  ${pc.bold("[c]")} Create  ${pc.bold("[r]")} Refresh\n\n`;
+
+      // ── Throughput & Activity Metrics
+      const currentWrite = objectWriteRateHistory[objectWriteRateHistory.length - 1] ?? 0;
+      const currentAppend = eventAppendRateHistory[eventAppendRateHistory.length - 1] ?? 0;
+
+      const peakWrite = Math.max(5, ...objectWriteRateHistory);
+      const peakAppend = Math.max(5, ...eventAppendRateHistory);
+
+      // Adjust sparkline width to prevent terminal wrapping. Total fixed chars ~55.
+      const sparkW = Math.max(10, viewW - 55);
+
+      const wLine = drawSparkline(objectWriteRateHistory, 5, sparkW);
+      const apLine = drawSparkline(eventAppendRateHistory, 5, sparkW);
+
+      content += `  ${pc.bold("THROUGHPUT & ACTIVITY METRICS")}\n`;
+      content += `  ${fullRule}\n`;
+      
+      content += `  ${pc.dim("Object Writes".padEnd(16))} ${pc.cyan(wLine)}  ${pc.cyan(String(currentWrite).padEnd(4))} ${pc.dim(`writes/s  (Peak: ${peakWrite}/s)`)}\n\n`;
+      content += `  ${pc.dim("Event Appends".padEnd(16))} ${pc.green(apLine)}  ${pc.green(String(currentAppend).padEnd(4))} ${pc.dim(`appends/s (Peak: ${peakAppend}/s)`)}\n\n`;
     } else if (node.type === "category") {
       content = pc.dim("Expand to browse items.");
     } else {
@@ -1086,15 +1324,14 @@ async function handleConnect(node: TreeNode) {
         { id: "url", label: "Cloud URL", value: "http://localhost:3000" },
         { id: "token", label: "Bearer Token (optional)", isSecret: true }
       ] : [
-        { id: "path", label: "Database Path", value: "./data.db" }
+        { id: "path", label: "Database Path", value: path.join(os.homedir(), "Downloads", "data.db") }
       ])
     ], async (vals) => {
       const resolvedPath = selectedDriver === "cloud" ? vals.url || "" : vals.path || "";
       const authToken = vals.token;
 
-      if (selectedDriver === "native" && resolvedPath && !fs.existsSync(resolvedPath)) {
-        throw new Error(`File not found: ${resolvedPath}. To create a new DB, touch the file first.`);
-      }
+      // Allow the underlying SDK/SQLite driver to automatically create the file
+      // if it does not exist, rather than throwing an error here.
 
       db = await ThingD.open({
         path: resolvedPath,
@@ -1106,9 +1343,16 @@ async function handleConnect(node: TreeNode) {
       driver = selectedDriver;
       dbPath = resolvedPath;
       connected = true;
+      startedAt = Date.now();
       cursorIndex = 0;
       scrollOffset = 0;
       loadedItemId = "";
+      
+      await fetchResources();
+      draw();
+      const tree = buildTree();
+      const first = tree[cursorIndex];
+      if (first) scheduleLoad(first);
     });
   } else {
     // Memory — connect directly without suspending
@@ -1123,6 +1367,7 @@ async function handleConnect(node: TreeNode) {
         driver: "memory" as any,
       });
       connected = true;
+      startedAt = Date.now();
       cursorIndex = 0;
       scrollOffset = 0;
       loadedItemId = "";

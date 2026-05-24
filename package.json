@@ -4,7 +4,7 @@
   "private": true,
   "author": "Sayan Mohsin",
   "license": "Apache-2.0",
-  "packageManager": "pnpm@11.2.2",
+  "packageManager": "pnpm@11.3.0",
   "scripts": {
     "build": "pnpm -r --if-present build",
     "bench:rust": "cargo run --release -p thingd-core --example storage_bench --features sqlite",
@@ -23,11 +23,14 @@
     "serve:mcp": "node packages/thingd-mcp/dist/http-cli.js",
     "smoke:docker": "bash scripts/smoke-docker.sh",
     "smoke:mcp": "node scripts/smoke-mcp-http.mjs",
+    "cli": "node packages/thingd-cli/dist/index.js",
     "test": "pnpm test:node && pnpm test:mcp && pnpm test:cli && pnpm test:package && pnpm test:rust",
     "test:cli": "pnpm --filter thingd-cli test",
     "test:local": "pnpm check && pnpm build && pnpm test:node && pnpm test:mcp && pnpm test:cli && pnpm test:package",
     "test:mcp": "pnpm --filter thingd-mcp test",
     "test:node": "pnpm --filter thingd test",
+    "examples": "pnpm --filter \"thingd-node-basic-example\" start && pnpm --filter \"thingd-node-stream-example\" start && pnpm --filter \"thingd-node-queue-example\" start",
+    "examples:load": "pnpm --filter \"thingd-node-load-example\" start",
     "test:package": "pnpm --filter thingd build && node scripts/verify-package.mjs",
     "test:rust": "cargo test --workspace --all-targets --all-features"
   },

@@ -1,4 +1,4 @@
-use std::sync::{Mutex, MutexGuard};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use napi::bindgen_prelude::{Error, Result};
 use napi_derive::napi;
@@ -10,8 +10,9 @@ use thingd_core::{
 };
 
 #[napi]
+#[derive(Clone)]
 pub struct NativeThingStore {
-    store: Mutex<SqliteThingStore>,
+    store: Arc<Mutex<SqliteThingStore>>,
 }
 
 #[napi]
@@ -26,7 +27,7 @@ impl NativeThingStore {
         .map_err(napi_error)?;
 
         Ok(Self {
-            store: Mutex::new(store),
+            store: Arc::new(Mutex::new(store)),
         })
     }
 
@@ -200,6 +201,163 @@ impl NativeThingStore {
             .collect::<Vec<_>>();
 
         to_json(&jobs)
+    }
+
+    #[napi(js_name = "listQueuesJson")]
+    pub fn list_queues_json(&self) -> Result<String> {
+        let store = self.lock_store()?;
+        let queues = store.list_queues().map_err(napi_error)?;
+        to_json(&queues)
+    }
+}
+
+use napi::{Env, Task};
+use napi::bindgen_prelude::AsyncTask;
+
+pub struct CountObjectsTask {
+    store: Arc<Mutex<SqliteThingStore>>,
+}
+#[napi]
+impl Task for CountObjectsTask {
+    type Output = u32;
+    type JsValue = u32;
+    fn compute(&mut self) -> Result<Self::Output> {
+        let store = self.store.lock().map_err(|_| Error::from_reason("poisoned"))?;
+        let count = store.count_objects().map_err(napi_error)?;
+        Ok(u32::try_from(count).unwrap_or(u32::MAX))
+    }
+    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
+        Ok(output)
+    }
+}
+
+pub struct CountEventsTask {
+    store: Arc<Mutex<SqliteThingStore>>,
+}
+#[napi]
+impl Task for CountEventsTask {
+    type Output = u32;
+    type JsValue = u32;
+    fn compute(&mut self) -> Result<Self::Output> {
+        let store = self.store.lock().map_err(|_| Error::from_reason("poisoned"))?;
+        let count = store.count_events().map_err(napi_error)?;
+        Ok(u32::try_from(count).unwrap_or(u32::MAX))
+    }
+    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
+        Ok(output)
+    }
+}
+
+pub struct CountActiveJobsTask {
+    store: Arc<Mutex<SqliteThingStore>>,
+}
+#[napi]
+impl Task for CountActiveJobsTask {
+    type Output = u32;
+    type JsValue = u32;
+    fn compute(&mut self) -> Result<Self::Output> {
+        let store = self.store.lock().map_err(|_| Error::from_reason("poisoned"))?;
+        let count = store.count_active_jobs().map_err(napi_error)?;
+        Ok(u32::try_from(count).unwrap_or(u32::MAX))
+    }
+    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
+        Ok(output)
+    }
+}
+
+pub struct CountDeadJobsTask {
+    store: Arc<Mutex<SqliteThingStore>>,
+}
+#[napi]
+impl Task for CountDeadJobsTask {
+    type Output = u32;
+    type JsValue = u32;
+    fn compute(&mut self) -> Result<Self::Output> {
+        let store = self.store.lock().map_err(|_| Error::from_reason("poisoned"))?;
+        let count = store.count_dead_jobs().map_err(napi_error)?;
+        Ok(u32::try_from(count).unwrap_or(u32::MAX))
+    }
+    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
+        Ok(output)
+    }
+}
+
+pub struct ListCollectionsTask {
+    store: Arc<Mutex<SqliteThingStore>>,
+}
+#[napi]
+impl Task for ListCollectionsTask {
+    type Output = String;
+    type JsValue = String;
+    fn compute(&mut self) -> Result<Self::Output> {
+        let store = self.store.lock().map_err(|_| Error::from_reason("poisoned"))?;
+        let collections = store.list_collections().unwrap_or_default();
+        to_json(&collections)
+    }
+    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
+        Ok(output)
+    }
+}
+
+pub struct ListStreamsTask {
+    store: Arc<Mutex<SqliteThingStore>>,
+}
+#[napi]
+impl Task for ListStreamsTask {
+    type Output = String;
+    type JsValue = String;
+    fn compute(&mut self) -> Result<Self::Output> {
+        let store = self.store.lock().map_err(|_| Error::from_reason("poisoned"))?;
+        let streams = store.list_streams().unwrap_or_default();
+        to_json(&streams)
+    }
+    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
+        Ok(output)
+    }
+}
+
+#[napi]
+impl NativeThingStore {
+    #[napi(js_name = "countObjectsJson")]
+    pub fn count_objects_json(&self) -> Result<AsyncTask<CountObjectsTask>> {
+        Ok(AsyncTask::new(CountObjectsTask {
+            store: self.store.clone(),
+        }))
+    }
+
+    #[napi(js_name = "countEventsJson")]
+    pub fn count_events_json(&self) -> Result<AsyncTask<CountEventsTask>> {
+        Ok(AsyncTask::new(CountEventsTask {
+            store: self.store.clone(),
+        }))
+    }
+
+    #[napi(js_name = "countActiveJobsJson")]
+    pub fn count_active_jobs_json(&self) -> Result<AsyncTask<CountActiveJobsTask>> {
+        Ok(AsyncTask::new(CountActiveJobsTask {
+            store: self.store.clone(),
+        }))
+    }
+
+    #[napi(js_name = "countDeadJobsJson")]
+    pub fn count_dead_jobs_json(&self) -> Result<AsyncTask<CountDeadJobsTask>> {
+        Ok(AsyncTask::new(CountDeadJobsTask {
+            store: self.store.clone(),
+        }))
+    }
+
+    #[napi(js_name = "listCollectionsJson")]
+    pub fn list_collections_json(&self) -> Result<AsyncTask<ListCollectionsTask>> {
+        Ok(AsyncTask::new(ListCollectionsTask {
+            store: self.store.clone(),
+        }))
+    }
+
+    #[napi(js_name = "listStreamsJson")]
+    pub fn list_streams_json(&self) -> Result<AsyncTask<ListStreamsTask>> {
+        Ok(AsyncTask::new(ListStreamsTask {
+            store: self.store.clone(),
+        }))
     }
 }
 

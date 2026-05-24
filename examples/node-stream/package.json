@@ -1,0 +1,19 @@
+{
+  "name": "thingd-node-stream-example",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "pnpm build && node dist/index.js",
+    "dev": "tsx watch index.ts"
+  },
+  "dependencies": {
+    "thingd": "file:../../packages/thingd"
+  },
+  "devDependencies": {
+    "typescript": "^6.0.3",
+    "@types/node": "^25.9.1",
+    "tsx": "^4.22.3"
+  }
+}

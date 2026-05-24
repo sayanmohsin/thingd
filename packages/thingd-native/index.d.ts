@@ -19,4 +19,10 @@ export class NativeThingStore {
   nackJobJson(queue: string, id: string, delayMs: number): string;
   listJobsJson(queue: string): string;
   listDeadJobsJson(queue: string): string;
+  countObjectsJson(): Promise<number>;
+  countEventsJson(): Promise<number>;
+  countActiveJobsJson(): Promise<number>;
+  countDeadJobsJson(): Promise<number>;
+  listCollectionsJson(): Promise<string>;
+  listStreamsJson(): Promise<string>;
 }
