@@ -97,7 +97,7 @@ test("reports remote status", async () => {
 
     assert.equal(result.code, 0);
     const status = JSON.parse(result.stdout);
-    assert.equal(status.mode, "remote");
+    assert.equal(status.mode, "cloud");
     assert.equal(status.health.service, "thingd-mcp");
     assert.equal(status.cluster.replication, "not-implemented");
   } finally {

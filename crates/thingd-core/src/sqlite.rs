@@ -73,21 +73,19 @@ impl SqliteThingStore {
             )
             .map_err(ThingdError::from)?;
 
-        let current_version = self.schema_version()?;
+        self.connection
+            .execute_batch(
+                r"
+                CREATE TABLE IF NOT EXISTS thingd_schema_migrations (
+                    version INTEGER PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    applied_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+                );
+                ",
+            )
+            .map_err(ThingdError::from)?;
 
-        if current_version == 0 {
-            self.connection
-                .execute_batch(
-                    r"
-                    CREATE TABLE IF NOT EXISTS thingd_schema_migrations (
-                        version INTEGER PRIMARY KEY,
-                        name TEXT NOT NULL,
-                        applied_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
-                    );
-                    ",
-                )
-                .map_err(ThingdError::from)?;
-        }
+        let current_version = self.schema_version()?;
 
         if current_version < 2 {
             self.connection
@@ -625,7 +623,6 @@ impl QueueStore for SqliteThingStore {
         let now = unix_timestamp_millis();
         job.leased_at_ms = None;
         job.lease_expires_at_ms = None;
-        job.attempts += 1;
 
         job.status = if job.attempts >= job.max_attempts {
             job.dead_at_ms = Some(now);
