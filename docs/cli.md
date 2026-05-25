@@ -236,6 +236,7 @@ Commands:
 ```txt
 thingd status
 thingd tools
+thingd mcp [--path <path>] [--url <url>] [--auth-token <tok>]
 thingd objects get <collection> <id>
 thingd objects put <collection> <id> --text <text>
 thingd objects delete <collection> <id>

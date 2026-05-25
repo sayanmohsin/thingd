@@ -63,14 +63,13 @@ pnpm build
 Run with the in-memory SDK store:
 
 ```bash
-node packages/thingd-mcp/dist/cli.js --path :memory:
+thingd mcp --path :memory:
 ```
 
 Run with the private native Rust-backed SQLite driver:
 
 ```bash
-pnpm --filter thingd-native build
-node packages/thingd-mcp/dist/cli.js --path ./thingd.db --driver native
+thingd mcp --path ./thingd.db --driver native
 ```
 
 The CLI also reads:
