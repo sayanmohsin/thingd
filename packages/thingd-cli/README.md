@@ -77,6 +77,38 @@ You can configure the connection via environment variables or CLI flags:
 --limit <n>          result limit for search and list commands
 ```
 
+### Claude Desktop & MCP Integration
+
+The `thingd` CLI has a built-in `mcp` subcommand that exposes an MCP server over `stdio`. This allows Claude Desktop to securely connect to your `thingd` database.
+
+**Connecting to a Local Database:**
+To let Claude read and write to a local `thingd.db` file, add this to your `claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "thingd-local": {
+      "command": "thingd",
+      "args": ["mcp", "--path", "/absolute/path/to/thingd.db", "--driver", "native"]
+    }
+  }
+}
+```
+
+**Bridging Claude to the Cloud:**
+Claude Desktop natively only supports local `stdio` servers. However, `thingd mcp` can act as a bridge! If you provide a `--url`, the CLI will launch locally but seamlessly proxy all of Claude's requests to your remote cluster:
+
+```json
+{
+  "mcpServers": {
+    "thingd-cloud": {
+      "command": "thingd",
+      "args": ["mcp", "--url", "https://your-thingd-cloud.com/mcp", "--auth-token", "your-secret-token"]
+    }
+  }
+}
+```
+
 ### Command Reference
 
 **Metrics & Discovery**

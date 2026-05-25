@@ -157,6 +157,9 @@ importers:
       thingd:
         specifier: workspace:*
         version: link:../thingd
+      thingd-mcp:
+        specifier: workspace:*
+        version: link:../thingd-mcp
 
   packages/thingd-mcp:
     dependencies:

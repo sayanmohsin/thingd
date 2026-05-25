@@ -32,7 +32,8 @@
     "@modelcontextprotocol/sdk": "^1.29.0",
     "cli-table3": "^0.6.5",
     "picocolors": "^1.1.1",
-    "thingd": "workspace:*"
+    "thingd": "workspace:*",
+    "thingd-mcp": "workspace:*"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",

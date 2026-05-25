@@ -14,6 +14,7 @@ import {
   type ThingDDriver,
 } from "thingd";
 import { runInteractiveCli } from "./interactive.js";
+import { runMcp } from "./mcp.js";
 
 type CliEnv = Record<string, string | undefined>;
 
@@ -33,7 +34,7 @@ type ParsedArgs = {
   booleans: Set<string>;
 };
 
-type CliContext = {
+export type CliContext = {
   parsed: ParsedArgs;
   env: CliEnv;
   stdout: WritableLike;
@@ -41,7 +42,7 @@ type CliContext = {
   pretty: boolean;
 };
 
-type ConnectionOptions = {
+export type ConnectionOptions = {
   path: string;
   driver?: ThingDDriver;
   authToken?: string;
@@ -138,6 +139,11 @@ async function runCommand(context: CliContext): Promise<void> {
 
   if (command === "search") {
     await runSearch(context);
+    return;
+  }
+
+  if (command === "mcp") {
+    await runMcp(context);
     return;
   }
 
@@ -439,7 +445,10 @@ async function runQueues(context: CliContext): Promise<void> {
   });
 }
 
-async function withDb(context: CliContext, callback: (db: ThingD) => Promise<void>): Promise<void> {
+export async function withDb(
+  context: CliContext,
+  callback: (db: ThingD) => Promise<void>,
+): Promise<void> {
   const connection = resolveConnection(context);
   const db = await ThingD.open({
     path: connection.path,
@@ -481,7 +490,7 @@ function buildMemoryEvent(parsed: ParsedArgs, type: string): MemoryEvent {
   };
 }
 
-function resolveConnection(context: CliContext): ConnectionOptions {
+export function resolveConnection(context: CliContext): ConnectionOptions {
   const url = stringFlag(context.parsed, "url") ?? context.env.THINGD_URL;
   const path = url ?? stringFlag(context.parsed, "path") ?? context.env.THINGD_PATH ?? ":memory:";
   const cloud = isCloudPath(path);

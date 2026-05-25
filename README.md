@@ -31,7 +31,7 @@ The repository currently contains:
 - a working TypeScript Node.js SDK with an in-memory store
 - an opt-in private N-API native driver that opens the Rust SQLite store locally
 - a remote Node.js SDK driver that talks to the sidecar over Streamable HTTP MCP
-- a first-pass `thingd` admin/operator CLI with local and remote JSON output
+- a feature-rich `thingd` admin/operator CLI featuring a real-time Interactive TUI Dashboard and scriptable non-interactive JSON output
 - object, event, search, and queue APIs
 - queue semantics for leases, `ack`, `nack`, delayed jobs, retry delays, and dead-letter jobs
 - package smoke testing without publishing
@@ -364,11 +364,16 @@ thing.queue.list
 thing.queue.dead
 ```
 
-Run it locally:
+Run it locally for Claude Desktop:
 
 ```bash
-pnpm --filter thingd-mcp build
-node packages/thingd-mcp/dist/cli.js --path :memory:
+thingd mcp --path ./thingd.db --driver native
+```
+
+To bridge Claude to a remote `thingd` cluster:
+
+```bash
+thingd mcp --url https://your-thingd.com/mcp --auth-token your-secret
 ```
 
 Run the HTTP runtime:
@@ -378,12 +383,7 @@ pnpm build
 THINGD_AUTH_TOKEN=change-me pnpm serve:mcp
 ```
 
-For the native Rust-backed store:
 
-```bash
-pnpm --filter thingd-native build
-node packages/thingd-mcp/dist/cli.js --path ./thingd.db --driver native
-```
 
 Build the Docker runtime:
 
