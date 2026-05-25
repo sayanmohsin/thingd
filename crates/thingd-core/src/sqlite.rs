@@ -28,7 +28,9 @@ impl SqliteThingStore {
     /// Returns an error when `SQLite` cannot open the path or initialize schema.
     pub fn open(path: impl AsRef<Path>) -> ThingdResult<Self> {
         let connection = Connection::open(path).map_err(ThingdError::from)?;
-        connection.busy_timeout(std::time::Duration::from_secs(5)).map_err(ThingdError::from)?;
+        connection
+            .busy_timeout(std::time::Duration::from_secs(5))
+            .map_err(ThingdError::from)?;
         let store = Self { connection };
         store.initialize()?;
         Ok(store)
@@ -41,7 +43,9 @@ impl SqliteThingStore {
     /// Returns an error when `SQLite` cannot initialize schema.
     pub fn open_in_memory() -> ThingdResult<Self> {
         let connection = Connection::open_in_memory().map_err(ThingdError::from)?;
-        connection.busy_timeout(std::time::Duration::from_secs(5)).map_err(ThingdError::from)?;
+        connection
+            .busy_timeout(std::time::Duration::from_secs(5))
+            .map_err(ThingdError::from)?;
         let store = Self { connection };
         store.initialize()?;
         Ok(store)
@@ -58,7 +62,7 @@ impl SqliteThingStore {
                 .query_row("PRAGMA journal_mode = WAL;", [], |_| Ok(()))
                 .ok();
         }
-            
+
         self.connection
             .execute_batch(
                 r"
@@ -70,7 +74,7 @@ impl SqliteThingStore {
             .map_err(ThingdError::from)?;
 
         let current_version = self.schema_version()?;
-        
+
         if current_version == 0 {
             self.connection
                 .execute_batch(
@@ -87,7 +91,10 @@ impl SqliteThingStore {
 
         if current_version < 2 {
             self.connection
-                .execute("CREATE INDEX IF NOT EXISTS idx_queue_jobs_status ON queue_jobs (status)", [])
+                .execute(
+                    "CREATE INDEX IF NOT EXISTS idx_queue_jobs_status ON queue_jobs (status)",
+                    [],
+                )
                 .ok();
         }
         if current_version > SQLITE_SCHEMA_VERSION {
@@ -306,7 +313,9 @@ impl ObjectStore for SqliteThingStore {
     fn count_objects(&self) -> ThingdResult<u64> {
         let count = self
             .connection
-            .query_row("SELECT coalesce(max(rowid), 0) FROM objects", [], |row| row.get::<_, i64>(0))
+            .query_row("SELECT coalesce(max(rowid), 0) FROM objects", [], |row| {
+                row.get::<_, i64>(0)
+            })
             .map_err(ThingdError::from)?;
         Ok(u64::try_from(count).unwrap_or(0))
     }
@@ -383,7 +392,9 @@ impl EventLog for SqliteThingStore {
     fn count_events(&self) -> ThingdResult<u64> {
         let count = self
             .connection
-            .query_row("SELECT coalesce(max(rowid), 0) FROM events", [], |row| row.get::<_, i64>(0))
+            .query_row("SELECT coalesce(max(rowid), 0) FROM events", [], |row| {
+                row.get::<_, i64>(0)
+            })
             .map_err(ThingdError::from)?;
         Ok(u64::try_from(count).unwrap_or(0))
     }

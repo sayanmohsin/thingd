@@ -16,19 +16,20 @@ function log(step: string, message: string, data?: unknown) {
 async function main() {
   console.log("\n🚀 Starting thingd Node.js Queue Example...");
   const db = await ThingD.open({ path: "../../data.db", driver: "native" });
-  
+
   const queue = db.queue("worker-queue");
-  
+
   log("1. Push Jobs", "Pushing new background jobs to the queue...");
   await queue.push({ task: "resize-image", imageId: "img-123" });
   await queue.push({ task: "send-email", email: "user@example.com" });
-  
+
   const activeJobs = await queue.list();
   log("2. View Queue", `There are currently ${activeJobs.length} active jobs.`, activeJobs);
-  
+
   log("3. Process Jobs", "Claiming and processing jobs one by one...");
-  let job;
-  while ((job = await queue.claim({ leaseMs: 5000 }))) {
+  while (true) {
+    const job = await queue.claim({ leaseMs: 5000 });
+    if (!job) break;
     log("Processing", `Claimed job: ${job.id}`, job.payload);
     await queue.ack(job.id);
     log("Acknowledged", `Job ${job.id} completed successfully!`);

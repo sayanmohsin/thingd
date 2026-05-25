@@ -19,7 +19,7 @@ async function main() {
   // 1. Open database (using in-memory SQLite store by default)
   const db = await ThingD.open({
     path: "./data.db",
-    driver: "native"
+    driver: "native",
   });
   log("1. Database Open", "Opened an in-memory thingd instance.");
 

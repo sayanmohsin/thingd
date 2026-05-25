@@ -1,6 +1,6 @@
+import { CloudThingStore } from "./stores/cloud-thing-store.js";
 import { InMemoryThingStore } from "./stores/in-memory-thing-store.js";
 import { NativeThingStore } from "./stores/native-thing-store.js";
-import { CloudThingStore } from "./stores/cloud-thing-store.js";
 import type {
   MemoryEvent,
   MemoryObject,

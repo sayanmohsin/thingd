@@ -16,12 +16,12 @@ function log(step: string, message: string, data?: unknown) {
 async function main() {
   console.log("\n🚀 Starting thingd Node.js Stream Example...");
   const db = await ThingD.open({ path: "../../data.db", driver: "native" });
-  
+
   const streamName = "activity-log";
   log("1. Append Events", `Appending sample events to stream '${streamName}'...`);
   await db.events.append(streamName, { type: "user.login", userId: "user-1" });
   await db.events.append(streamName, { type: "user.click", userId: "user-1", target: "btn-buy" });
-  
+
   log("2. Read Events", `Reading all events from stream '${streamName}'...`);
   const events = await db.events.list(streamName);
   log("3. Result", `Stream '${streamName}' contains ${events.length} events:`, events);

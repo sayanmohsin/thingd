@@ -211,8 +211,8 @@ impl NativeThingStore {
     }
 }
 
-use napi::{Env, Task};
 use napi::bindgen_prelude::AsyncTask;
+use napi::{Env, Task};
 
 pub struct CountObjectsTask {
     store: Arc<Mutex<SqliteThingStore>>,
@@ -222,7 +222,10 @@ impl Task for CountObjectsTask {
     type Output = u32;
     type JsValue = u32;
     fn compute(&mut self) -> Result<Self::Output> {
-        let store = self.store.lock().map_err(|_| Error::from_reason("poisoned"))?;
+        let store = self
+            .store
+            .lock()
+            .map_err(|_| Error::from_reason("poisoned"))?;
         let count = store.count_objects().map_err(napi_error)?;
         Ok(u32::try_from(count).unwrap_or(u32::MAX))
     }
@@ -239,7 +242,10 @@ impl Task for CountEventsTask {
     type Output = u32;
     type JsValue = u32;
     fn compute(&mut self) -> Result<Self::Output> {
-        let store = self.store.lock().map_err(|_| Error::from_reason("poisoned"))?;
+        let store = self
+            .store
+            .lock()
+            .map_err(|_| Error::from_reason("poisoned"))?;
         let count = store.count_events().map_err(napi_error)?;
         Ok(u32::try_from(count).unwrap_or(u32::MAX))
     }
@@ -256,7 +262,10 @@ impl Task for CountActiveJobsTask {
     type Output = u32;
     type JsValue = u32;
     fn compute(&mut self) -> Result<Self::Output> {
-        let store = self.store.lock().map_err(|_| Error::from_reason("poisoned"))?;
+        let store = self
+            .store
+            .lock()
+            .map_err(|_| Error::from_reason("poisoned"))?;
         let count = store.count_active_jobs().map_err(napi_error)?;
         Ok(u32::try_from(count).unwrap_or(u32::MAX))
     }
@@ -273,7 +282,10 @@ impl Task for CountDeadJobsTask {
     type Output = u32;
     type JsValue = u32;
     fn compute(&mut self) -> Result<Self::Output> {
-        let store = self.store.lock().map_err(|_| Error::from_reason("poisoned"))?;
+        let store = self
+            .store
+            .lock()
+            .map_err(|_| Error::from_reason("poisoned"))?;
         let count = store.count_dead_jobs().map_err(napi_error)?;
         Ok(u32::try_from(count).unwrap_or(u32::MAX))
     }
@@ -290,7 +302,10 @@ impl Task for ListCollectionsTask {
     type Output = String;
     type JsValue = String;
     fn compute(&mut self) -> Result<Self::Output> {
-        let store = self.store.lock().map_err(|_| Error::from_reason("poisoned"))?;
+        let store = self
+            .store
+            .lock()
+            .map_err(|_| Error::from_reason("poisoned"))?;
         let collections = store.list_collections().unwrap_or_default();
         to_json(&collections)
     }
@@ -307,7 +322,10 @@ impl Task for ListStreamsTask {
     type Output = String;
     type JsValue = String;
     fn compute(&mut self) -> Result<Self::Output> {
-        let store = self.store.lock().map_err(|_| Error::from_reason("poisoned"))?;
+        let store = self
+            .store
+            .lock()
+            .map_err(|_| Error::from_reason("poisoned"))?;
         let streams = store.list_streams().unwrap_or_default();
         to_json(&streams)
     }

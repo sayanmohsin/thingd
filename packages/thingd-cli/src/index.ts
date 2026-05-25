@@ -349,14 +349,18 @@ async function runMetrics(context: CliContext): Promise<void> {
       db.countObjects(),
       db.countEvents(),
       db.countActiveJobs(),
-      db.countDeadJobs()
+      db.countDeadJobs(),
     ]);
-    writeJson(context.stdout, {
-      objects,
-      events,
-      activeJobs,
-      deadJobs
-    }, context.pretty);
+    writeJson(
+      context.stdout,
+      {
+        objects,
+        events,
+        activeJobs,
+        deadJobs,
+      },
+      context.pretty,
+    );
   });
 }
 
