@@ -46,4 +46,4 @@ RUN mkdir -p /data
 EXPOSE 8757
 VOLUME ["/data"]
 
-CMD ["node", "packages/thingd-mcp/dist/http-cli.js"]
+CMD ["node", "packages/thingd-cli/dist/index.js", "mcp-http"]

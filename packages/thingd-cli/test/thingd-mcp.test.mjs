@@ -3,7 +3,7 @@ import test from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { ThingD } from "thingd";
-import { createThingdMcpServer } from "../dist/index.js";
+import { createThingdMcpServer } from "../dist/mcp/index.js";
 
 test("lists thingd MCP tools", async () => {
   const { client, server } = await connectTestClient();

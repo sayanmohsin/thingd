@@ -1,6 +1,6 @@
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { createThingdMcpServer } from "thingd-mcp";
 import { type CliContext, withDb } from "./index.js";
+import { createThingdMcpServer } from "./mcp/index.js";
 
 export async function runMcp(context: CliContext): Promise<void> {
   await withDb(context, async (db) => {

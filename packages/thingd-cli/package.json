@@ -33,7 +33,7 @@
     "cli-table3": "^0.6.5",
     "picocolors": "^1.1.1",
     "thingd": "workspace:*",
-    "thingd-mcp": "workspace:*"
+    "zod": "^4.4.3"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",

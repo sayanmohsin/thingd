@@ -56,6 +56,8 @@ Admin and operator CLI for thingd.
 Usage:
   thingd status [--url <url>]
   thingd tools --url <url>
+  thingd mcp [--path <path>] [--driver <driver>]
+  thingd mcp-http [--path <path>] [--driver <driver>] [--host <host>] [--port <port>] [--auth-token <tok>] [--allow-unauthenticated]
   thingd search <query> [--collection <name>] [--limit <n>]
   thingd objects get <collection> <id>
   thingd objects put <collection> <id> --text <text>
@@ -84,7 +86,7 @@ Options:
   -h, --help          show help
 `;
 
-const BOOLEAN_FLAGS = new Set(["h", "help", "json", "pretty"]);
+const BOOLEAN_FLAGS = new Set(["h", "help", "json", "pretty", "allow-unauthenticated"]);
 
 export async function runCli(
   args = process.argv.slice(2),
@@ -144,6 +146,12 @@ async function runCommand(context: CliContext): Promise<void> {
 
   if (command === "mcp") {
     await runMcp(context);
+    return;
+  }
+
+  if (command === "mcp-http") {
+    const { runMcpHttp } = await import("./mcp-http.js");
+    await runMcpHttp(context);
     return;
   }
 
