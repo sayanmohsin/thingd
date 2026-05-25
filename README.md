@@ -1,5 +1,7 @@
 # thingd
 
+[![npm version (SDK)](https://badge.fury.io/js/thingd.svg)](https://www.npmjs.com/package/thingd) [![npm version (CLI)](https://badge.fury.io/js/thingd-cli.svg)](https://www.npmjs.com/package/thingd-cli)
+
 Object-shaped local memory for AI-native apps. SQLite-simple, MCP-native, with search, events, and durable queues.
 
 `thingd` is an experimental Rust-powered local data engine for applications and AI agents. It is designed for developers who like the simplicity of SQLite, but want a higher-level object API, agent-readable memory, built-in workflow primitives, and first-class MCP access.

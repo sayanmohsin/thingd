@@ -1,8 +1,12 @@
 # thingd
 
+[![npm version (SDK)](https://badge.fury.io/js/thingd.svg)](https://www.npmjs.com/package/thingd)
+
 Object-shaped local memory for AI-native apps. SQLite-simple, MCP-native, with search, events, and durable queues.
 
-This is the Node.js SDK for `thingd`. It exposes the intended object/event/queue abstractions with an in-memory store by default. Inside the `thingd` repository it can also use the private Rust-backed native driver for local SQLite persistence, and a remote driver for sidecar/server mode.
+This is the Node.js SDK for `thingd`. It exposes the intended object/event/queue abstractions with an in-memory store by default. 
+
+> Looking for the admin dashboard and CLI? Check out the [thingd-cli](https://www.npmjs.com/package/thingd-cli) package!
 
 ## Installation
 

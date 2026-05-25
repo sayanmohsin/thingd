@@ -1,6 +1,8 @@
 # thingd-cli
 
-Admin and operator CLI for `thingd`.
+[![npm version](https://badge.fury.io/js/thingd-cli.svg)](https://www.npmjs.com/package/thingd-cli)
+
+Admin and operator CLI for [thingd](https://www.npmjs.com/package/thingd).
 
 This package provides the `thingd` binary. It uses the public `thingd` SDK for store access and can connect to a local store or a remote sidecar through `THINGD_URL`.
 
