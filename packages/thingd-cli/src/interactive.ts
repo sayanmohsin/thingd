@@ -51,11 +51,12 @@ function visibleWidth(s: string): number {
   return w;
 }
 
-// ── State ────────────────────────────────────────────────────────────
-
+// ── State ────────────────────────────────────────────────────────────// Connection State
+let db: ThingD;
 let driver = "";
 let dbPath = "";
 let connected = false;
+let authToken = "";
 let collections: string[] = [];
 let streams: string[] = [];
 let queues: string[] = [];
@@ -63,7 +64,6 @@ let objectsByCollection = new Map<string, string[]>();
 const expandedSet = new Set<string>(["cat:collections", "cat:streams", "cat:queues"]);
 let cursorIndex = 0;
 let scrollOffset = 0;
-let db: ThingD;
 let startedAt = 0; // ms since epoch when we connected
 let totalObjects = 0;
 let totalEventsCount = 0;
@@ -844,7 +844,7 @@ function draw() {
   } else if (!connected) {
     help = ` ${pc.dim("↑↓")} nav  ${pc.dim("enter")} connect  ${pc.dim("q")} quit `;
   } else {
-    help = ` ${pc.dim("↑↓")} nav  ${pc.dim("←→")} toggle  ${pc.dim("c")} create  ${pc.dim("e")} edit  ${pc.dim("d")} delete  ${pc.dim("r")} refresh  ${pc.dim("s")} switch  ${pc.dim("q")} quit `;
+    help = ` ${pc.dim("↑↓")} nav  ${pc.dim("←→")} toggle  ${pc.dim("c")} create  ${pc.dim("e")} edit  ${pc.dim("d")} delete  ${pc.dim("/")} search  ${pc.dim("i")} info  ${pc.dim("r")} refresh  ${pc.dim("s")} switch  ${pc.dim("q")} quit `;
   }
   buf += padToWidth(help, W);
 
@@ -1118,6 +1118,79 @@ async function handleDelete(selected: TreeNode | undefined) {
   }
 }
 
+async function handleSearch() {
+  openForm("Global Search", [
+    { id: "query", label: "Search Query", placeholder: "text to search" },
+    { id: "limit", label: "Limit (optional)", placeholder: "100" }
+  ], async (vals) => {
+    const query = (vals.query || "").trim();
+    if (!query) throw new Error("Search query required.");
+    const limitStr = vals.limit || "";
+    const options: any = {};
+    if (limitStr) {
+      const limit = parseInt(limitStr, 10);
+      if (!isNaN(limit)) options.limit = limit;
+    }
+    const results = await db.search(query, options);
+    
+    // Display results in the viewer
+    viewerLines = [
+      `  ${pc.bold("Search Results:")} ${pc.cyan(query)}`,
+      "",
+      ...(results.length === 0 ? ["  No results found."] : []),
+      ...results.map((r: any) => {
+        const id = pc.green(r.id);
+        const col = pc.cyan(r.kind === "object" ? r.collection : r.stream);
+        const textStr = r.value?.text ? pc.dim(r.value.text.substring(0, 100)) : "";
+        return `  ${col} / ${id} ${textStr}`;
+      })
+    ];
+    loadedItemId = "search_results";
+  });
+}
+
+async function handleInfo() {
+  const lines: string[] = [
+    `  ${pc.bold("Connection Status")}`,
+    "",
+    `  Driver: ${pc.cyan(driver)}`,
+    `  Path:   ${pc.cyan(dbPath)}`,
+  ];
+
+  if (driver === "cloud") {
+    try {
+      const baseUrl = dbPath.startsWith("thingd://") ? `http://${dbPath.slice("thingd://".length)}` : dbPath;
+      const urlObj = new URL(baseUrl);
+      if (urlObj.pathname === "/mcp") urlObj.pathname = "/";
+      const fetchJson = async (p: string) => {
+        const u = new URL(p, urlObj.toString());
+        const headers: Record<string, string> = {};
+        if (authToken) headers["Authorization"] = `Bearer ${authToken}`;
+        const res = await fetch(u, { headers });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.json();
+      };
+
+      const health = await fetchJson("/healthz");
+      const cluster = await fetchJson("/cluster/status");
+
+      lines.push("");
+      lines.push(`  ${pc.bold("Cloud Health")}`);
+      lines.push(...JSON.stringify(health, null, 2).split("\n").map(l => `  ${pc.dim(l)}`));
+      
+      lines.push("");
+      lines.push(`  ${pc.bold("Cloud Cluster")}`);
+      lines.push(...JSON.stringify(cluster, null, 2).split("\n").map(l => `  ${pc.dim(l)}`));
+      
+    } catch (err: any) {
+      lines.push("", `  ${pc.red("Cloud Query Failed:")} ${err.message}`);
+    }
+  }
+
+  viewerLines = lines;
+  loadedItemId = "info_status";
+}
+
 // ── Keyboard Listener ────────────────────────────────────────────────
 
 function setupKeypress() {
@@ -1283,6 +1356,10 @@ function setupKeypress() {
         await handleEdit(tree[cursorIndex]);
       } else if (str === "d" || str === "D") {
         await handleDelete(tree[cursorIndex]);
+      } else if (str === "/" || str === "f" || str === "F") {
+        await handleSearch();
+      } else if (str === "i" || str === "I") {
+        await handleInfo();
       }
     }
   };
@@ -1328,7 +1405,6 @@ async function handleConnect(node: TreeNode) {
       ])
     ], async (vals) => {
       const resolvedPath = selectedDriver === "cloud" ? vals.url || "" : vals.path || "";
-      const authToken = vals.token;
 
       // Allow the underlying SDK/SQLite driver to automatically create the file
       // if it does not exist, rather than throwing an error here.
@@ -1337,11 +1413,19 @@ async function handleConnect(node: TreeNode) {
         path: resolvedPath,
         url: selectedDriver === "cloud" ? resolvedPath : undefined,
         driver: selectedDriver as any,
-        authToken,
+        authToken: vals.token,
       });
 
       driver = selectedDriver;
       dbPath = resolvedPath;
+      
+      // Update global authToken safely
+      if (typeof vals.token === "string") {
+        authToken = vals.token;
+      } else {
+        authToken = "";
+      }
+      
       connected = true;
       startedAt = Date.now();
       cursorIndex = 0;

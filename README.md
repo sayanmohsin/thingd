@@ -522,6 +522,7 @@ packages/
   thingd/            Node.js SDK
   thingd-native/     Private native Node.js binding package
   thingd-mcp/        MCP server package
+  thingd-cli/        Interactive Dashboard & JSON CLI
 
 examples/
   node-basic/         Minimal Node.js example
@@ -717,7 +718,7 @@ of the first-pass `thingd` CLI. See [docs/cli.md](./docs/cli.md) and
 
 ### CLI phases
 
-- [x] CLI-A: `packages/thingd-cli`, `thingd` binary, remote/local connection handling, JSON output, object/event/queue inspection
+- [x] CLI-A: `packages/thingd-cli`, `thingd` binary, Interactive TUI Dashboard, Non-interactive JSON output, object/event/queue inspection. (See [CLI documentation](./packages/thingd-cli/README.md))
 - [ ] CLI-B: pretty tables, `doctor`, queue stats, benchmark wrappers, clearer runtime errors
 - [ ] CLI-C: export/import, snapshots, and redaction-friendly handoff flows
 

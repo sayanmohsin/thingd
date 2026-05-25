@@ -62,12 +62,16 @@ Usage:
   thingd objects delete <collection> <id>
   thingd events append <stream> <type> [--text <text>] [--data '{"field":"value"}']
   thingd events list [stream] [--limit <n>]
+  thingd collections list
+  thingd streams list
+  thingd queues list-all
   thingd queues push <queue> --payload '{"key":"value"}'
   thingd queues claim <queue> [--lease-ms <ms>]
   thingd queues ack <queue> <jobId>
   thingd queues nack <queue> <jobId> [--error <message>] [--delay-ms <ms>]
   thingd queues list <queue> [--limit <n>]
   thingd queues dead <queue> [--limit <n>]
+  thingd metrics
 
 Options:
   --url <url>          remote thingd URL. Defaults to THINGD_URL
@@ -147,8 +151,23 @@ async function runCommand(context: CliContext): Promise<void> {
     return;
   }
 
+  if (command === "collections") {
+    await runCollections(context);
+    return;
+  }
+
+  if (command === "streams") {
+    await runStreams(context);
+    return;
+  }
+
   if (command === "queues") {
     await runQueues(context);
+    return;
+  }
+
+  if (command === "metrics") {
+    await runMetrics(context);
     return;
   }
 
@@ -302,11 +321,55 @@ async function runEvents(context: CliContext): Promise<void> {
   });
 }
 
+async function runCollections(context: CliContext): Promise<void> {
+  const action = requiredToken(context.parsed, 1, "collections action");
+  await withDb(context, async (db) => {
+    if (action === "list") {
+      writeJson(context.stdout, await db.listCollections(), context.pretty);
+      return;
+    }
+    throw new Error(`Unknown collections action: ${action}`);
+  });
+}
+
+async function runStreams(context: CliContext): Promise<void> {
+  const action = requiredToken(context.parsed, 1, "streams action");
+  await withDb(context, async (db) => {
+    if (action === "list") {
+      writeJson(context.stdout, await db.listStreams(), context.pretty);
+      return;
+    }
+    throw new Error(`Unknown streams action: ${action}`);
+  });
+}
+
+async function runMetrics(context: CliContext): Promise<void> {
+  await withDb(context, async (db) => {
+    const [objects, events, activeJobs, deadJobs] = await Promise.all([
+      db.countObjects(),
+      db.countEvents(),
+      db.countActiveJobs(),
+      db.countDeadJobs()
+    ]);
+    writeJson(context.stdout, {
+      objects,
+      events,
+      activeJobs,
+      deadJobs
+    }, context.pretty);
+  });
+}
+
 async function runQueues(context: CliContext): Promise<void> {
   const action = requiredToken(context.parsed, 1, "queues action");
-  const queueName = requiredToken(context.parsed, 2, "queue");
 
   await withDb(context, async (db) => {
+    if (action === "list-all") {
+      writeJson(context.stdout, await db.listQueues(), context.pretty);
+      return;
+    }
+
+    const queueName = requiredToken(context.parsed, 2, "queue");
     const queue = db.queue(queueName);
 
     if (action === "push") {
