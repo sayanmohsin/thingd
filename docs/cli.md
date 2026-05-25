@@ -3,7 +3,7 @@
 This document describes the current command-line surface and the remaining
 operator/developer CLI phases for `thingd`.
 
-The project now has runtime CLIs through `thingd-mcp` and a
+The project now has runtime CLIs through the unified `thingd` command and a
 first-pass admin CLI through `thingd-cli`.
 
 ## Current CLIs
@@ -58,12 +58,12 @@ node packages/thingd-cli/dist/index.js status
 node packages/thingd-cli/dist/index.js tools
 ```
 
-### `thingd-mcp`
+### `thingd mcp`
 
 Runs the MCP server over stdio for local MCP clients.
 
 ```bash
-node packages/thingd-mcp/dist/cli.js --path :memory:
+node packages/thingd-cli/dist/index.js mcp --path :memory:
 ```
 
 Options:
@@ -85,12 +85,12 @@ THINGD_MCP_SOURCE=thingd-mcp
 THINGD_MCP_AUDIT_STREAM=__thingd:mcp:audit
 ```
 
-### `thingd-mcp-http`
+### `thingd mcp-http`
 
 Runs the MCP server over Streamable HTTP.
 
 ```bash
-node packages/thingd-mcp/dist/http-cli.js \
+node packages/thingd-cli/dist/index.js mcp-http \
   --path ./thingd.db \
   --driver native \
   --host 127.0.0.1 \

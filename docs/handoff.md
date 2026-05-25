@@ -64,10 +64,10 @@ pnpm smoke:docker
 Direct MCP runtime commands:
 
 ```bash
-node packages/thingd-mcp/dist/cli.js --path :memory:
+node packages/thingd-cli/dist/index.js mcp --path :memory:
 
 THINGD_AUTH_TOKEN=change-me \
-node packages/thingd-mcp/dist/http-cli.js --path ./thingd.db --driver native
+node packages/thingd-cli/dist/index.js mcp-http --path ./thingd.db --driver native
 ```
 
 App sidecar usage:

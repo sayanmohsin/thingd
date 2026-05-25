@@ -1,6 +1,6 @@
 # MCP Server
 
-`thingd` includes an MCP server package at `packages/thingd-mcp`.
+`thingd` includes MCP server capability directly within the unified CLI package at `packages/thingd-cli`.
 
 The MCP server wraps the public `thingd` SDK and exposes
 model-friendly tools for objects, events, search, and queues. This lets MCP
@@ -99,7 +99,7 @@ http://127.0.0.1:8757/mcp
 Direct command:
 
 ```bash
-node packages/thingd-mcp/dist/http-cli.js \
+node packages/thingd-cli/dist/index.js mcp-http \
   --path ./thingd.db \
   --driver native \
   --host 127.0.0.1 \

@@ -15,8 +15,7 @@ Current implementation:
 - `crates/thingd-core` contains the Rust storage boundary, in-memory Rust engine, and `SqliteThingStore` behind the `sqlite` feature.
 - `packages/thingd-native` is a private N-API binding for local native driver testing.
 - `packages/thingd/src/stores/remote-thing-store.ts` lets the SDK talk to a sidecar over Streamable HTTP MCP.
-- `packages/thingd-mcp` exposes the SDK through stdio and Streamable HTTP MCP servers.
-- `packages/thingd-cli` exposes the first-pass `thingd` admin/operator CLI.
+- `packages/thingd-cli` exposes the visual TUI dashboard, non-interactive CLI commands, and integrated stdio and Streamable HTTP MCP servers.
 - the HTTP MCP runtime supports `single`, `leader`, and `follower` bridge modes.
 - `examples/nestjs-basic` demonstrates app integration shape.
 - `docs/cli.md` is the handoff plan for remaining admin/operator CLI phases.

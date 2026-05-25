@@ -523,8 +523,7 @@ crates/
 packages/
   thingd/            Node.js SDK
   thingd-native/     Private native Node.js binding package
-  thingd-mcp/        MCP server package
-  thingd-cli/        Interactive Dashboard & JSON CLI
+  thingd-cli/        Interactive Dashboard, JSON CLI, & MCP servers
 
 examples/
   node-basic/         Minimal Node.js example

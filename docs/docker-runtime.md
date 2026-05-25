@@ -25,7 +25,7 @@ docker run --rm \
 The container starts:
 
 ```txt
-node packages/thingd-mcp/dist/http-cli.js
+node packages/thingd-cli/dist/index.js mcp-http
 ```
 
 Default container environment:

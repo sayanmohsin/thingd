@@ -120,8 +120,8 @@ For target APIs, storage shapes, MCP surfaces, and phase planning, read
 
 ## MCP Server Direction
 
-`packages/thingd-mcp` wraps the public SDK as MCP tools. It provides stdio for
-local MCP clients and Streamable HTTP for remote-capable runtimes. Write tools
+`packages/thingd-cli` wraps the public SDK as MCP tools. It provides stdio for
+local MCP clients and Streamable HTTP for remote-capable runtimes via the integrated `mcp` and `mcp-http` subcommands. Write tools
 append audit events by default. The Docker runtime starts the HTTP MCP endpoint,
 exposes bridge status endpoints, and persists data under `/data`.
 
@@ -131,8 +131,7 @@ For current tools and local usage, read [mcp-server.md](./mcp-server.md) and
 
 ## CLI Direction
 
-The MCP package has runtime entrypoints, and `packages/thingd-cli` now provides
-the first-pass `thingd` admin/operator CLI. The CLI uses the public SDK for
+The unified `packages/thingd-cli` package houses both the MCP server entrypoints and the full-featured `thingd` admin/operator CLI. The CLI uses the public SDK for
 local and remote access and can inspect objects, events, queues, dead jobs, MCP
 tools, and runtime status. The next CLI phase should add operator polish before
 any inspector UI is built.
