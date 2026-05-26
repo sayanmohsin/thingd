@@ -109,6 +109,13 @@ Claude Desktop natively only supports local `stdio` servers. However, `thingd mc
 }
 ```
 
+**Running as a Streamable HTTP Server:**
+If you want to run `thingd` as a standalone Streamable HTTP MCP server (for example, to connect remote agents or ChatGPT), you can spin it up directly using `mcp-http`:
+
+```bash
+thingd mcp-http --path ./thingd.db --driver native --port 8757 --auth-token change-me
+```
+
 ### Command Reference
 
 **Metrics & Discovery**

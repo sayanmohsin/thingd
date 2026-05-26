@@ -234,9 +234,10 @@ Deliverables:
 Commands:
 
 ```txt
-thingd status
-thingd tools
-thingd mcp [--path <path>] [--url <url>] [--auth-token <tok>]
+thingd status [--url <url>]
+thingd tools --url <url>
+thingd mcp [--path <path>] [--driver <driver>]
+thingd mcp-http [--path <path>] [--driver <driver>] [--host <host>] [--port <port>] [--auth-token <tok>] [--allow-unauthenticated]
 thingd objects get <collection> <id>
 thingd objects put <collection> <id> --text <text>
 thingd objects delete <collection> <id>
