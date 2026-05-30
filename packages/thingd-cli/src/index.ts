@@ -108,8 +108,14 @@ export async function runCli(
       const candidates = [
         join(cliDir, "node_modules", "thingd-native", "dist", "thingd_native.node"),
         join(cliDir, "..", "thingd-native", "dist", "thingd_native.node"),
-        join(homedir(), "Space/Programming/personal/thingd/packages/thingd-native/dist/thingd_native.node"),
-        join(homedir(), "Space/Programming/personal/thingd-cloud/packages/thingd-native/dist/thingd_native.node"),
+        join(
+          homedir(),
+          "Space/Programming/personal/thingd/packages/thingd-native/dist/thingd_native.node",
+        ),
+        join(
+          homedir(),
+          "Space/Programming/personal/thingd-cloud/packages/thingd-native/dist/thingd_native.node",
+        ),
       ];
       for (const candidate of candidates) {
         if (existsSync(candidate)) {

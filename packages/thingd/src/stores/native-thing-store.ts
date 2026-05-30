@@ -265,7 +265,9 @@ async function loadNativeModule(): Promise<NativeThingStoreModule> {
       const binding = require(customPath);
       return { NativeThingStore: binding.NativeThingStore };
     } catch (error) {
-      throw new Error(`Failed to load native store from THINGD_NATIVE_PATH="${customPath}": ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(
+        `Failed to load native store from THINGD_NATIVE_PATH="${customPath}": ${error instanceof Error ? error.message : String(error)}`,
+      );
     }
   }
 
@@ -296,8 +298,18 @@ async function loadNativeModule(): Promise<NativeThingStoreModule> {
 
       try {
         const home = homedir();
-        candidates.push(join(home, "Space/Programming/personal/thingd/packages/thingd-native/dist/thingd_native.node"));
-        candidates.push(join(home, "Space/Programming/personal/thingd-cloud/packages/thingd-native/dist/thingd_native.node"));
+        candidates.push(
+          join(
+            home,
+            "Space/Programming/personal/thingd/packages/thingd-native/dist/thingd_native.node",
+          ),
+        );
+        candidates.push(
+          join(
+            home,
+            "Space/Programming/personal/thingd-cloud/packages/thingd-native/dist/thingd_native.node",
+          ),
+        );
       } catch {
         // Ignore home dir resolution errors
       }
