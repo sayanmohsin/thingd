@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { homedir, platform } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
 import pc from "picocolors";
 import type { CliContext } from "./index.js";
@@ -38,6 +38,7 @@ export async function runInstall(context: CliContext): Promise<void> {
   const isRaw = context.parsed.booleans.has("raw") || context.parsed.flags.has("raw");
   const isClaude = context.parsed.booleans.has("claude") || context.parsed.flags.has("claude");
   const isCursor = context.parsed.booleans.has("cursor") || context.parsed.flags.has("cursor");
+  const isAntigravity = context.parsed.booleans.has("antigravity") || context.parsed.flags.has("antigravity");
 
   if (!isRaw) {
     context.stderr.write(`\n${pc.bold("thingd install")}\n\n`);
@@ -48,22 +49,25 @@ export async function runInstall(context: CliContext): Promise<void> {
   let driver = driverDefault;
 
   if (isRaw) {
-    choice = "4";
-  } else if (isClaude && isCursor) {
+    choice = "5";
+  } else if (isClaude && isCursor && isAntigravity) {
     choice = "1";
   } else if (isClaude) {
     choice = "2";
   } else if (isCursor) {
     choice = "3";
+  } else if (isAntigravity) {
+    choice = "4";
   } else if (process.stdin.isTTY) {
     // 1. Where to install
     context.stderr.write(`${pc.bold("Where would you like to install the MCP configuration?")}\n`);
-    context.stderr.write(`  [1] Claude Desktop & Cursor (Default)\n`);
+    context.stderr.write(`  [1] Claude Desktop, Cursor & Antigravity (Default)\n`);
     context.stderr.write(`  [2] Claude Desktop only\n`);
     context.stderr.write(`  [3] Cursor only\n`);
-    context.stderr.write(`  [4] Print raw JSON configuration only\n\n`);
+    context.stderr.write(`  [4] Antigravity only\n`);
+    context.stderr.write(`  [5] Print raw JSON configuration only\n\n`);
 
-    const answerInstall = await askQuestion(`Select option [1-4] (default 1): `);
+    const answerInstall = await askQuestion(`Select option [1-5] (default 1): `);
     choice = answerInstall.trim() || "1";
     context.stderr.write("\n");
 
@@ -117,7 +121,8 @@ export async function runInstall(context: CliContext): Promise<void> {
 
   const showClaude = choice === "1" || choice === "2";
   const showCursor = choice === "1" || choice === "3";
-  const showRaw = choice === "4";
+  const showAntigravity = choice === "1" || choice === "4";
+  const showRaw = choice === "5";
 
   if (showClaude) {
     const claudeResult = updateClaudeDesktopConfig(config);
@@ -127,6 +132,17 @@ export async function runInstall(context: CliContext): Promise<void> {
     } else if (claudeResult.skipped) {
       context.stderr.write(`  ${pc.bold("Claude Desktop:")}\n`);
       context.stderr.write(`    ${pc.yellow("⊘")} Skipped: ${claudeResult.reason}\n\n`);
+    }
+  }
+
+  if (showAntigravity) {
+    const antigravityResult = updateAntigravityConfig(config);
+    if (antigravityResult.updated) {
+      context.stderr.write(`  ${pc.bold("Antigravity IDE:")}\n`);
+      context.stderr.write(`    ${pc.green("✓")} Updated ${pc.cyan(antigravityResult.path)}\n\n`);
+    } else if (antigravityResult.skipped) {
+      context.stderr.write(`  ${pc.bold("Antigravity IDE:")}\n`);
+      context.stderr.write(`    ${pc.yellow("⊘")} Skipped: ${antigravityResult.reason}\n\n`);
     }
   }
 
@@ -157,12 +173,14 @@ export async function runInstall(context: CliContext): Promise<void> {
 
   if (choice === "1") {
     context.stderr.write(
-      `\n  Restart Claude Desktop to activate. Cursor activates immediately after pasting.\n\n`,
+      `\n  Restart Claude Desktop or Antigravity to activate. Cursor activates immediately.\n\n`,
     );
   } else if (choice === "2") {
     context.stderr.write(`\n  Restart Claude Desktop to activate.\n\n`);
   } else if (choice === "3") {
     context.stderr.write(`\n  Cursor activates immediately after pasting.\n\n`);
+  } else if (choice === "4") {
+    context.stderr.write(`\n  Restart Antigravity IDE to activate.\n\n`);
   }
 }
 
@@ -257,6 +275,46 @@ function updateClaudeDesktopConfig(config: McpServerConfig): ClaudeUpdateResult 
   try {
     const raw = readFileSync(configPath, "utf-8");
     const existing = JSON.parse(raw) as Record<string, unknown>;
+
+    const mcpServers = (existing.mcpServers ?? {}) as Record<string, unknown>;
+    mcpServers.thingd = config;
+    existing.mcpServers = mcpServers;
+
+    writeFileSync(configPath, `${JSON.stringify(existing, null, 2)}\n`, "utf-8");
+
+    return { updated: true, path: configPath };
+  } catch (error) {
+    return {
+      skipped: true,
+      reason: `Failed to update config: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
+}
+
+function updateAntigravityConfig(config: McpServerConfig): ClaudeUpdateResult {
+  const configPath = join(
+    homedir(),
+    ".gemini",
+    "antigravity-ide",
+    "mcp_config.json",
+  );
+
+  const dir = dirname(configPath);
+  if (!existsSync(dir)) {
+    return {
+      skipped: true,
+      reason: `Antigravity directory not found at ${dir}.`,
+    };
+  }
+
+  try {
+    let existing: Record<string, any> = {};
+    if (existsSync(configPath)) {
+      const raw = readFileSync(configPath, "utf-8").trim();
+      if (raw) {
+        existing = JSON.parse(raw);
+      }
+    }
 
     const mcpServers = (existing.mcpServers ?? {}) as Record<string, unknown>;
     mcpServers.thingd = config;

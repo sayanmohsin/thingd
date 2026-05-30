@@ -61,7 +61,7 @@ Admin and operator CLI for thingd.
 Usage:
   thingd status [--url <url>]
   thingd tools --url <url>
-  thingd install [--raw] [--claude] [--cursor]
+  thingd install [--raw] [--claude] [--cursor] [--antigravity]
   thingd doctor
   thingd mcp [--path <path>] [--driver <driver>]
   thingd mcp-http [--path <path>] [--driver <driver>] [--host <host>] [--port <port>] [--auth-token <tok>] [--allow-unauthenticated]
@@ -107,6 +107,7 @@ const BOOLEAN_FLAGS = new Set([
   "raw",
   "claude",
   "cursor",
+  "antigravity",
   "smoke",
 ]);
 
@@ -1023,5 +1024,14 @@ if (process.argv[1]) {
 }
 
 if (isMain) {
-  process.exitCode = await runCli();
+  runCli()
+    .then((code) => {
+      if (code !== 0) {
+        process.exit(code);
+      }
+    })
+    .catch((error) => {
+      console.error(error);
+      process.exit(1);
+    });
 }
