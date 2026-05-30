@@ -2,6 +2,7 @@ import { existsSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { homedir, platform } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
+import { fileURLToPath } from "node:url";
 import pc from "picocolors";
 import type { CliContext } from "./index.js";
 import { defaultThingdDbPath, ensureThingdDir } from "./paths.js";
@@ -202,9 +203,28 @@ function findGlobalBinPath(): string | null {
 }
 
 function resolveCliPath(): string {
+  try {
+    const currentFile = fileURLToPath(import.meta.url);
+    const dir = dirname(currentFile);
+    
+    // In compiled dist folder: dist/install.js -> dist/index.js
+    let candidate = join(dir, "index.js");
+    if (existsSync(candidate)) {
+      return realpathSync(candidate);
+    }
+    
+    // In dev src folder: src/install.ts -> src/index.ts
+    candidate = join(dir, "index.ts");
+    if (existsSync(candidate)) {
+      return realpathSync(candidate);
+    }
+  } catch {
+    // Ignore and fallback
+  }
+
   const scriptPath = process.argv[1];
   if (!scriptPath) {
-    throw new Error("Could not detect thingd CLI path from process.argv[1].");
+    throw new Error("Could not detect thingd CLI path.");
   }
   try {
     return realpathSync(resolve(scriptPath));
@@ -293,36 +313,53 @@ function updateClaudeDesktopConfig(config: McpServerConfig): ClaudeUpdateResult 
 }
 
 function updateAntigravityConfig(config: McpServerConfig): ClaudeUpdateResult {
-  const configPath = join(homedir(), ".gemini", "antigravity-ide", "mcp_config.json");
+  const candidates = [
+    join(homedir(), ".gemini", "config", "mcp_config.json"),
+    join(homedir(), ".gemini", "antigravity-ide", "mcp_config.json"),
+  ];
 
-  const dir = dirname(configPath);
-  if (!existsSync(dir)) {
-    return {
-      skipped: true,
-      reason: `Antigravity directory not found at ${dir}.`,
-    };
-  }
+  let updatedAny = false;
+  const pathsUpdated: string[] = [];
+  let lastError: Error | null = null;
 
-  try {
-    let existing: Record<string, unknown> = {};
-    if (existsSync(configPath)) {
-      const raw = readFileSync(configPath, "utf-8").trim();
-      if (raw) {
-        existing = JSON.parse(raw) as Record<string, unknown>;
+  for (const configPath of candidates) {
+    const dir = dirname(configPath);
+    if (existsSync(dir)) {
+      try {
+        let existing: Record<string, unknown> = {};
+        if (existsSync(configPath)) {
+          const raw = readFileSync(configPath, "utf-8").trim();
+          if (raw) {
+            existing = JSON.parse(raw) as Record<string, unknown>;
+          }
+        }
+
+        const mcpServers = (existing.mcpServers ?? {}) as Record<string, unknown>;
+        mcpServers.thingd = config;
+        existing.mcpServers = mcpServers;
+
+        writeFileSync(configPath, `${JSON.stringify(existing, null, 2)}\n`, "utf-8");
+        updatedAny = true;
+        pathsUpdated.push(configPath);
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error(String(error));
       }
     }
+  }
 
-    const mcpServers = (existing.mcpServers ?? {}) as Record<string, unknown>;
-    mcpServers.thingd = config;
-    existing.mcpServers = mcpServers;
+  if (updatedAny) {
+    return { updated: true, path: pathsUpdated.join(" & ") };
+  }
 
-    writeFileSync(configPath, `${JSON.stringify(existing, null, 2)}\n`, "utf-8");
-
-    return { updated: true, path: configPath };
-  } catch (error) {
+  if (lastError) {
     return {
       skipped: true,
-      reason: `Failed to update config: ${error instanceof Error ? error.message : String(error)}`,
+      reason: `Failed to update config: ${lastError.message}`,
     };
   }
+
+  return {
+    skipped: true,
+    reason: `Antigravity directory not found in ${candidates.map((c) => dirname(c)).join(" or ")}.`,
+  };
 }
