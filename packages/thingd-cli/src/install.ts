@@ -38,7 +38,8 @@ export async function runInstall(context: CliContext): Promise<void> {
   const isRaw = context.parsed.booleans.has("raw") || context.parsed.flags.has("raw");
   const isClaude = context.parsed.booleans.has("claude") || context.parsed.flags.has("claude");
   const isCursor = context.parsed.booleans.has("cursor") || context.parsed.flags.has("cursor");
-  const isAntigravity = context.parsed.booleans.has("antigravity") || context.parsed.flags.has("antigravity");
+  const isAntigravity =
+    context.parsed.booleans.has("antigravity") || context.parsed.flags.has("antigravity");
 
   if (!isRaw) {
     context.stderr.write(`\n${pc.bold("thingd install")}\n\n`);
@@ -292,12 +293,7 @@ function updateClaudeDesktopConfig(config: McpServerConfig): ClaudeUpdateResult 
 }
 
 function updateAntigravityConfig(config: McpServerConfig): ClaudeUpdateResult {
-  const configPath = join(
-    homedir(),
-    ".gemini",
-    "antigravity-ide",
-    "mcp_config.json",
-  );
+  const configPath = join(homedir(), ".gemini", "antigravity-ide", "mcp_config.json");
 
   const dir = dirname(configPath);
   if (!existsSync(dir)) {
@@ -308,11 +304,11 @@ function updateAntigravityConfig(config: McpServerConfig): ClaudeUpdateResult {
   }
 
   try {
-    let existing: Record<string, any> = {};
+    let existing: Record<string, unknown> = {};
     if (existsSync(configPath)) {
       const raw = readFileSync(configPath, "utf-8").trim();
       if (raw) {
-        existing = JSON.parse(raw);
+        existing = JSON.parse(raw) as Record<string, unknown>;
       }
     }
 
