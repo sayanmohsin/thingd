@@ -105,6 +105,7 @@ export interface ThingStore {
   put(collection: string, object: MemoryObject): Promise<StoredMemoryObject>;
   get(collection: string, id: string): Promise<StoredMemoryObject | null>;
   delete(collection: string, id: string): Promise<ThingDeleteResult>;
+  listObjects?(collection: string): Promise<StoredMemoryObject[]>;
   appendEvent(stream: string, event: MemoryEvent): Promise<StoredMemoryEvent>;
   listEvents(stream?: string): Promise<StoredMemoryEvent[]>;
   pushJob(queue: string, payload: QueueJobPayload, options?: QueueJobOptions): Promise<QueueJob>;

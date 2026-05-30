@@ -75,6 +75,12 @@ export class CloudThingStore implements ThingStore {
     });
   }
 
+  listObjects(collection: string): Promise<StoredMemoryObject[]> {
+    return this.callTool("thing_objects_list", {
+      collection,
+    });
+  }
+
   appendEvent(stream: string, event: MemoryEvent): Promise<StoredMemoryEvent> {
     return this.callTool("thing_events_append", {
       stream,

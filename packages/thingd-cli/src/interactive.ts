@@ -280,11 +280,12 @@ async function fetchResources(): Promise<void> {
         db.listQueues?.() ?? Promise.resolve([]),
       ]);
 
-      totalObjects = isNaN(objCount) || objCount === 0 ? totalObjects : objCount;
-      totalEventsCount = isNaN(evtCount) || evtCount === 0 ? totalEventsCount : evtCount;
+      totalObjects = Number.isNaN(objCount) || objCount === 0 ? totalObjects : objCount;
+      totalEventsCount = Number.isNaN(evtCount) || evtCount === 0 ? totalEventsCount : evtCount;
       totalActiveJobsCount =
-        isNaN(activeCount) || activeCount === 0 ? totalActiveJobsCount : activeCount;
-      totalDeadJobsCount = isNaN(deadCount) || deadCount === 0 ? totalDeadJobsCount : deadCount;
+        Number.isNaN(activeCount) || activeCount === 0 ? totalActiveJobsCount : activeCount;
+      totalDeadJobsCount =
+        Number.isNaN(deadCount) || deadCount === 0 ? totalDeadJobsCount : deadCount;
 
       collections = nativeCollections.length > 0 ? nativeCollections : ["decisions", "load-test"];
       streams =
@@ -786,10 +787,10 @@ function draw() {
   } else {
     titleStr = ` thingd  ${pc.dim("|")} ${driver.toUpperCase()} ${pc.dim("|")} ${dbPath} `;
   }
-  buf += pc.inverse(padToWidth(titleStr, W)) + "\n";
+  buf += `${pc.inverse(padToWidth(titleStr, W))}\n`;
 
   // Separator
-  buf += pc.dim("─".repeat(sideW) + "─┬─" + "─".repeat(viewW)) + "\n";
+  buf += `${pc.dim(`${"─".repeat(sideW)}─┬─${"─".repeat(viewW)}`)}\n`;
 
   // Build Form Lines if active
   if (formState?.active) {
@@ -857,17 +858,17 @@ function draw() {
     const vLine = viewerLines[r + viewerScroll] ?? "";
     const right = fitToWidth(vLine, viewW, false);
 
-    buf += left + pc.dim(" │ ") + right + "\n";
+    buf += `${left + pc.dim(" │ ") + right}\n`;
   }
 
   // Separator
-  buf += pc.dim("─".repeat(sideW) + "─┴─" + "─".repeat(viewW)) + "\n";
+  buf += `${pc.dim(`${"─".repeat(sideW)}─┴─${"─".repeat(viewW)}`)}\n`;
 
   // Footer
   let help: string;
   if (formState?.active) {
     const hasOptions = formState.fields[formState.activeIndex]?.options;
-    help = ` ${pc.dim("↑↓")} focus  ${hasOptions ? pc.dim("←→") + " select  " : ""}${pc.dim("enter")} submit  ${pc.dim("ctrl+e")} editor  ${pc.dim("esc")} cancel `;
+    help = ` ${pc.dim("↑↓")} focus  ${hasOptions ? `${pc.dim("←→")} select  ` : ""}${pc.dim("enter")} submit  ${pc.dim("ctrl+e")} editor  ${pc.dim("esc")} cancel `;
   } else if (!connected) {
     help = ` ${pc.dim("↑↓")} nav  ${pc.dim("enter")} connect  ${pc.dim("q")} quit `;
   } else {
@@ -972,7 +973,7 @@ async function launchEditor(f: FormField) {
   try {
     const newContent = fs.readFileSync(tmpFile, "utf-8");
     f.value = newContent.trim();
-  } catch (e) {}
+  } catch (_e) {}
 
   if (process.stdin.isTTY) process.stdin.setRawMode(true);
   process.stdin.on("keypress", keypressHandler!);
@@ -1003,7 +1004,7 @@ function parsePayload(str: string): any {
     } else {
       if (v === "true") v = true;
       else if (v === "false") v = false;
-      else if (!isNaN(Number(v))) v = Number(v);
+      else if (!Number.isNaN(Number(v))) v = Number(v);
     }
     obj[k] = v;
   }
@@ -1062,8 +1063,8 @@ async function handleCreate(selected: TreeNode | undefined) {
         if (!id) {
           try {
             id = crypto.randomUUID();
-          } catch (e) {
-            id = "obj_" + Date.now().toString(36) + Math.random().toString(36).substring(2);
+          } catch (_e) {
+            id = `obj_${Date.now().toString(36)}${Math.random().toString(36).substring(2)}`;
           }
         }
         const data = parsePayload(vals.payload || "");
@@ -1203,7 +1204,7 @@ async function handleSearch() {
       const options: any = {};
       if (limitStr) {
         const limit = parseInt(limitStr, 10);
-        if (!isNaN(limit)) options.limit = limit;
+        if (!Number.isNaN(limit)) options.limit = limit;
       }
       const results = await db.search(query, options);
 
@@ -1242,7 +1243,7 @@ async function handleInfo() {
       const fetchJson = async (p: string) => {
         const u = new URL(p, urlObj.toString());
         const headers: Record<string, string> = {};
-        if (authToken) headers["Authorization"] = `Bearer ${authToken}`;
+        if (authToken) headers.Authorization = `Bearer ${authToken}`;
         const res = await fetch(u, { headers });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         return res.json();
@@ -1327,7 +1328,7 @@ function setupKeypress() {
         }
       } else if (key.name === "left" || key.name === "right") {
         const f = formState.fields[formState.activeIndex];
-        if (f && f.options && f.options.length > 0) {
+        if (f?.options && f.options.length > 0) {
           const currentIndex = f.options.indexOf(f.value);
           let nextIndex = key.name === "right" ? currentIndex + 1 : currentIndex - 1;
           if (nextIndex < 0) nextIndex = f.options.length - 1;

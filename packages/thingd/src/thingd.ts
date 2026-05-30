@@ -57,6 +57,10 @@ export class ThingD {
     return this.store.delete(collection, id);
   }
 
+  listObjects(collection: string): Promise<StoredMemoryObject[]> {
+    return this.store.listObjects?.(collection) ?? Promise.resolve([]);
+  }
+
   search(query: string, options: MemorySearchOptions = {}): Promise<MemorySearchResult[]> {
     return this.store.search(query, options);
   }

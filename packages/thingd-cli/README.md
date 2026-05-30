@@ -132,14 +132,22 @@ thingd mcp-http --path ./thingd.db --driver native --port 8757 --auth-token chan
 
 ### Command Reference
 
-**Metrics & Discovery**
+**System & Diagnostics**
 ```bash
-thingd metrics                # Get total counts (objects, events, activeJobs, deadJobs)
+thingd doctor                 # Run Node, native binding, and remote connectivity diagnostics
+thingd metrics                # Get total database counts (objects, events, activeJobs, deadJobs)
 thingd status                 # Check cluster health (requires --url)
 thingd tools                  # List available MCP tools (requires --url)
-thingd collections list       # List all collection names
-thingd streams list           # List all stream names
-thingd queues list-all        # List all queue names
+thingd bench rust --smoke     # Run Rust SQLite engine smoke benchmarks
+thingd bench rust --count 500 # Run Rust SQLite engine benchmarks with specific run count
+```
+
+**Discovery & Collections**
+```bash
+thingd collections list       # List all active collections
+thingd streams list           # List all active stream names (alias for events streams)
+thingd events streams         # List all active event streams
+thingd queues list-all        # List all active queue names
 ```
 
 **Search**
@@ -149,10 +157,11 @@ thingd search "my query" [--collection <name>] [--limit <n>]
 
 **Objects**
 ```bash
-thingd objects put decisions rust-core --text "Use Rust for the core engine."
-thingd objects put decisions rust-core --data '{"status":"active"}'
-thingd objects get decisions rust-core
-thingd objects delete decisions rust-core
+thingd objects list decisions                  # List all objects inside a collection
+thingd objects put decisions core --text "msg" # Put object with plain text content
+thingd objects put decisions core --data '{"a":1}' # Put object with arbitrary JSON data
+thingd objects get decisions core              # Fetch a specific object by ID
+thingd objects delete decisions core           # Delete an object by ID
 ```
 
 **Events**
@@ -163,6 +172,7 @@ thingd events list project:thingd
 
 **Queues**
 ```bash
+thingd queues stats embed                      # View queue statistics (ready, leased, dead jobs)
 thingd queues push embed --payload '{"object":"docs/readme"}'
 thingd queues claim embed
 thingd queues ack embed <jobId>
@@ -170,5 +180,6 @@ thingd queues nack embed <jobId> --error "failed to fetch" --delay-ms 5000
 thingd queues list embed
 thingd queues dead embed
 ```
+
 
 

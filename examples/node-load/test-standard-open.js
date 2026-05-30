@@ -1,7 +1,7 @@
 console.log("Starting...");
 
-import os from "os";
-import path from "path";
+import os from "node:os";
+import path from "node:path";
 import { ThingD } from "thingd";
 
 console.log("Imported ThingD");

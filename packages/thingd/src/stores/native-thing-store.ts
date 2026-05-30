@@ -122,6 +122,13 @@ export class NativeThingStore implements ThingStore {
     };
   }
 
+  async listObjects(collection: string): Promise<StoredMemoryObject[]> {
+    const collectionsJson = JSON.stringify([collection]);
+    return parseJson<NativeObjectRecord[]>(this.binding.listObjectsJson(collectionsJson)).map(
+      objectFromNative,
+    );
+  }
+
   async appendEvent(stream: string, event: MemoryEvent): Promise<StoredMemoryEvent> {
     const record = parseJson<NativeEventRecord>(
       this.binding.appendEventJson(stream, JSON.stringify(event)),

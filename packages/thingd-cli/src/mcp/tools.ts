@@ -390,6 +390,24 @@ export function registerThingdTools(
     },
     async ({ queue }) => jsonResult(await db.queue(queue).dead()),
   );
+
+  server.registerTool(
+    "thing_objects_list",
+    {
+      title: "List Objects",
+      description: "List all thingd objects in a collection.",
+      inputSchema: {
+        collection: z.string().min(1),
+      },
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async ({ collection }) => jsonResult(await db.listObjects(collection)),
+  );
 }
 
 function auditMetadata(

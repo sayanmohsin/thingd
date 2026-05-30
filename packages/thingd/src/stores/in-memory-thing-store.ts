@@ -50,6 +50,11 @@ export class InMemoryThingStore implements ThingStore {
     };
   }
 
+  async listObjects(collection: string): Promise<StoredMemoryObject[]> {
+    const records = this.collections.get(collection);
+    return records ? Array.from(records.values()) : [];
+  }
+
   async appendEvent(stream: string, event: MemoryEvent): Promise<StoredMemoryEvent> {
     const record: StoredMemoryEvent = {
       ...event,

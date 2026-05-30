@@ -5,6 +5,8 @@ import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import Table from "cli-table3";
+import pc from "picocolors";
 import {
   type MemoryEvent,
   type MemoryObject,
@@ -60,24 +62,30 @@ Usage:
   thingd status [--url <url>]
   thingd tools --url <url>
   thingd install [--raw] [--claude] [--cursor]
+  thingd doctor
   thingd mcp [--path <path>] [--driver <driver>]
   thingd mcp-http [--path <path>] [--driver <driver>] [--host <host>] [--port <port>] [--auth-token <tok>] [--allow-unauthenticated]
   thingd search <query> [--collection <name>] [--limit <n>]
+  thingd objects list <collection>
   thingd objects get <collection> <id>
   thingd objects put <collection> <id> --text <text>
   thingd objects put <collection> <id> --data '{"field":"value"}'
   thingd objects delete <collection> <id>
+  thingd events streams
   thingd events append <stream> <type> [--text <text>] [--data '{"field":"value"}']
   thingd events list [stream] [--limit <n>]
   thingd collections list
   thingd streams list
   thingd queues list-all
+  thingd queues stats <queue>
   thingd queues push <queue> --payload '{"key":"value"}'
   thingd queues claim <queue> [--lease-ms <ms>]
   thingd queues ack <queue> <jobId>
   thingd queues nack <queue> <jobId> [--error <message>] [--delay-ms <ms>]
   thingd queues list <queue> [--limit <n>]
   thingd queues dead <queue> [--limit <n>]
+  thingd bench rust --smoke
+  thingd bench rust --count <n>
   thingd metrics
 
 Options:
@@ -99,6 +107,7 @@ const BOOLEAN_FLAGS = new Set([
   "raw",
   "claude",
   "cursor",
+  "smoke",
 ]);
 
 export async function runCli(
@@ -206,6 +215,17 @@ async function runCommand(context: CliContext): Promise<void> {
     return;
   }
 
+  if (command === "doctor") {
+    const { runDoctor } = await import("./doctor.js");
+    await runDoctor(context);
+    return;
+  }
+
+  if (command === "bench") {
+    await runBench(context);
+    return;
+  }
+
   if (command === "objects") {
     await runObjects(context);
     return;
@@ -237,6 +257,76 @@ async function runCommand(context: CliContext): Promise<void> {
   }
 
   throw new Error(`Unknown command: ${command}`);
+}
+
+async function runBench(context: CliContext): Promise<void> {
+  const target = requiredToken(context.parsed, 1, "benchmark target (rust)");
+  if (target !== "rust") {
+    throw new Error(`Unsupported benchmark target: ${target}`);
+  }
+
+  const isSmoke = hasFlag(context.parsed, "smoke");
+  const countStr = stringFlag(context.parsed, "count");
+  const count = countStr ? Number.parseInt(countStr, 10) : isSmoke ? 100 : undefined;
+
+  if (count === undefined) {
+    throw new Error("bench rust requires --smoke or --count <n>");
+  }
+
+  if (Number.isNaN(count) || count <= 0) {
+    throw new Error("--count must be a positive integer");
+  }
+
+  try {
+    const { execSync } = await import("node:child_process");
+    try {
+      execSync("cargo --version", { stdio: "ignore" });
+    } catch {
+      throw new Error(
+        "Rust toolchain (cargo) is not installed or not in the PATH. Cannot run Rust benchmarks.",
+      );
+    }
+
+    context.stderr.write(
+      `\n${pc.bold("Running Rust storage benchmark")} (Count: ${pc.cyan(count)})...\n\n`,
+    );
+
+    const { spawn } = await import("node:child_process");
+    const child = spawn(
+      "cargo",
+      [
+        "run",
+        "--release",
+        "-p",
+        "thingd-core",
+        "--example",
+        "storage_bench",
+        "--features",
+        "sqlite",
+        "--",
+        String(count),
+      ],
+      {
+        stdio: "inherit",
+        cwd: resolve(resolveCliPath(), "../../../.."),
+      },
+    );
+
+    return new Promise((resolvePromise, rejectPromise) => {
+      child.on("close", (code) => {
+        if (code === 0) {
+          resolvePromise();
+        } else {
+          rejectPromise(new Error(`Benchmark failed with exit code: ${code}`));
+        }
+      });
+      child.on("error", (error) => {
+        rejectPromise(error);
+      });
+    });
+  } catch (err) {
+    throw new Error(`Failed to run benchmark: ${err instanceof Error ? err.message : String(err)}`);
+  }
 }
 
 async function runStatus(context: CliContext): Promise<void> {
@@ -336,9 +426,34 @@ async function runSearch(context: CliContext): Promise<void> {
 async function runObjects(context: CliContext): Promise<void> {
   const action = requiredToken(context.parsed, 1, "objects action");
   const collection = requiredToken(context.parsed, 2, "collection");
-  const id = requiredToken(context.parsed, 3, "object id");
 
   await withDb(context, async (db) => {
+    if (action === "list") {
+      const objects = await db.listObjects(collection);
+      if (context.pretty) {
+        const table = new Table({
+          head: ["ID", "Version", "Created At", "Updated At", "Data"],
+          style: { head: ["green"] },
+        });
+        for (const obj of objects) {
+          const { id, collection: _, createdAt, updatedAt, version, ...data } = obj;
+          table.push([
+            id,
+            String(version),
+            createdAt ? new Date(createdAt).toLocaleString() : "",
+            updatedAt ? new Date(updatedAt).toLocaleString() : "",
+            JSON.stringify(data),
+          ]);
+        }
+        context.stdout.write(`${table.toString()}\n`);
+      } else {
+        writeJson(context.stdout, objects, false);
+      }
+      return;
+    }
+
+    const id = requiredToken(context.parsed, 3, "object id");
+
     if (action === "get") {
       writeJson(context.stdout, await db.get(collection, id), context.pretty);
       return;
@@ -363,14 +478,46 @@ async function runEvents(context: CliContext): Promise<void> {
   const action = requiredToken(context.parsed, 1, "events action");
 
   await withDb(context, async (db) => {
+    if (action === "streams") {
+      const streams = await db.listStreams();
+      if (context.pretty) {
+        const table = new Table({
+          head: ["Stream Name"],
+          style: { head: ["green"] },
+        });
+        for (const str of streams) {
+          table.push([str]);
+        }
+        context.stdout.write(`${table.toString()}\n`);
+      } else {
+        writeJson(context.stdout, streams, false);
+      }
+      return;
+    }
+
     if (action === "list") {
       const stream = optionalToken(context.parsed, 2);
-      const events = await db.events.list(stream);
-      writeJson(
-        context.stdout,
-        limitItems(events, optionalInt(context.parsed, "limit")),
-        context.pretty,
-      );
+      const events = limitItems(await db.events.list(stream), optionalInt(context.parsed, "limit"));
+      if (context.pretty) {
+        const table = new Table({
+          head: ["Event ID", "Stream", "Event Type", "Created At", "Text", "Data"],
+          style: { head: ["green"] },
+        });
+        for (const ev of events) {
+          const { id, stream: evStream, type, createdAt, text, ...data } = ev;
+          table.push([
+            id,
+            evStream,
+            type,
+            createdAt ? new Date(createdAt).toLocaleString() : "",
+            text ?? "",
+            JSON.stringify(data),
+          ]);
+        }
+        context.stdout.write(`${table.toString()}\n`);
+      } else {
+        writeJson(context.stdout, events, false);
+      }
       return;
     }
 
@@ -390,7 +537,19 @@ async function runCollections(context: CliContext): Promise<void> {
   const action = requiredToken(context.parsed, 1, "collections action");
   await withDb(context, async (db) => {
     if (action === "list") {
-      writeJson(context.stdout, await db.listCollections(), context.pretty);
+      const collections = await db.listCollections();
+      if (context.pretty) {
+        const table = new Table({
+          head: ["Collection Name"],
+          style: { head: ["green"] },
+        });
+        for (const col of collections) {
+          table.push([col]);
+        }
+        context.stdout.write(`${table.toString()}\n`);
+      } else {
+        writeJson(context.stdout, collections, false);
+      }
       return;
     }
     throw new Error(`Unknown collections action: ${action}`);
@@ -401,7 +560,19 @@ async function runStreams(context: CliContext): Promise<void> {
   const action = requiredToken(context.parsed, 1, "streams action");
   await withDb(context, async (db) => {
     if (action === "list") {
-      writeJson(context.stdout, await db.listStreams(), context.pretty);
+      const streams = await db.listStreams();
+      if (context.pretty) {
+        const table = new Table({
+          head: ["Stream Name"],
+          style: { head: ["green"] },
+        });
+        for (const str of streams) {
+          table.push([str]);
+        }
+        context.stdout.write(`${table.toString()}\n`);
+      } else {
+        writeJson(context.stdout, streams, false);
+      }
       return;
     }
     throw new Error(`Unknown streams action: ${action}`);
@@ -434,12 +605,59 @@ async function runQueues(context: CliContext): Promise<void> {
 
   await withDb(context, async (db) => {
     if (action === "list-all") {
-      writeJson(context.stdout, await db.listQueues(), context.pretty);
+      const queues = await db.listQueues();
+      if (context.pretty) {
+        const table = new Table({
+          head: ["Queue Name"],
+          style: { head: ["green"] },
+        });
+        for (const q of queues) {
+          table.push([q]);
+        }
+        context.stdout.write(`${table.toString()}\n`);
+      } else {
+        writeJson(context.stdout, queues, false);
+      }
       return;
     }
 
     const queueName = requiredToken(context.parsed, 2, "queue");
     const queue = db.queue(queueName);
+
+    if (action === "stats") {
+      const [activeJobs, deadJobs] = await Promise.all([queue.list(), queue.dead()]);
+
+      const totalActive = activeJobs.length;
+      const totalDead = deadJobs.length;
+      const leasedJobs = activeJobs.filter((job) => job.status === "leased");
+      const readyJobs = activeJobs.filter((job) => job.status === "ready");
+
+      const stats = {
+        queue: queueName,
+        totalActive,
+        ready: readyJobs.length,
+        leased: leasedJobs.length,
+        dead: totalDead,
+      };
+
+      if (context.pretty) {
+        const table = new Table({
+          head: ["Stat Metric", "Value"],
+          style: { head: ["green"] },
+        });
+        table.push(
+          ["Queue Name", queueName],
+          ["Ready Jobs", String(readyJobs.length)],
+          ["Leased Jobs", String(leasedJobs.length)],
+          ["Dead Jobs", String(totalDead)],
+          ["Total Active", String(totalActive)],
+        );
+        context.stdout.write(`${table.toString()}\n`);
+      } else {
+        writeJson(context.stdout, stats, false);
+      }
+      return;
+    }
 
     if (action === "push") {
       const payload = parseJsonRecord(requiredFlag(context.parsed, "payload"));
@@ -483,20 +701,50 @@ async function runQueues(context: CliContext): Promise<void> {
     }
 
     if (action === "list") {
-      writeJson(
-        context.stdout,
-        limitItems(await queue.list(), optionalInt(context.parsed, "limit")),
-        context.pretty,
-      );
+      const jobs = limitItems(await queue.list(), optionalInt(context.parsed, "limit"));
+      if (context.pretty) {
+        const table = new Table({
+          head: ["Job ID", "Status", "Attempts", "Max Attempts", "Available At", "Payload"],
+          style: { head: ["green"] },
+        });
+        for (const job of jobs) {
+          table.push([
+            job.id,
+            job.status,
+            String(job.attempts),
+            String(job.maxAttempts),
+            job.availableAt ? new Date(job.availableAt).toLocaleString() : "",
+            JSON.stringify(job.payload),
+          ]);
+        }
+        context.stdout.write(`${table.toString()}\n`);
+      } else {
+        writeJson(context.stdout, jobs, false);
+      }
       return;
     }
 
     if (action === "dead") {
-      writeJson(
-        context.stdout,
-        limitItems(await queue.dead(), optionalInt(context.parsed, "limit")),
-        context.pretty,
-      );
+      const jobs = limitItems(await queue.dead(), optionalInt(context.parsed, "limit"));
+      if (context.pretty) {
+        const table = new Table({
+          head: ["Job ID", "Attempts", "Max Attempts", "Dead At", "Last Error", "Payload"],
+          style: { head: ["green"] },
+        });
+        for (const job of jobs) {
+          table.push([
+            job.id,
+            String(job.attempts),
+            String(job.maxAttempts),
+            job.deadAt ? new Date(job.deadAt).toLocaleString() : "",
+            job.lastError ?? "",
+            JSON.stringify(job.payload),
+          ]);
+        }
+        context.stdout.write(`${table.toString()}\n`);
+      } else {
+        writeJson(context.stdout, jobs, false);
+      }
       return;
     }
 
