@@ -59,7 +59,7 @@ Admin and operator CLI for thingd.
 Usage:
   thingd status [--url <url>]
   thingd tools --url <url>
-  thingd install
+  thingd install [--raw] [--claude] [--cursor]
   thingd mcp [--path <path>] [--driver <driver>]
   thingd mcp-http [--path <path>] [--driver <driver>] [--host <host>] [--port <port>] [--auth-token <tok>] [--allow-unauthenticated]
   thingd search <query> [--collection <name>] [--limit <n>]
@@ -758,7 +758,11 @@ function resolveCliPath(): string {
   if (!scriptPath) {
     throw new Error("Could not detect thingd CLI path from process.argv[1].");
   }
-  return resolve(scriptPath);
+  try {
+    return realpathSync(resolve(scriptPath));
+  } catch {
+    return resolve(scriptPath);
+  }
 }
 
 let isMain = false;

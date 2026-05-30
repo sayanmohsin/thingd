@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { homedir, platform } from "node:os";
 import { join, resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
@@ -183,7 +183,11 @@ function resolveCliPath(): string {
   if (!scriptPath) {
     throw new Error("Could not detect thingd CLI path from process.argv[1].");
   }
-  return resolve(scriptPath);
+  try {
+    return realpathSync(resolve(scriptPath));
+  } catch {
+    return resolve(scriptPath);
+  }
 }
 
 function detectDriver(): "native" | "memory" {
