@@ -22,13 +22,23 @@ export async function runInstall(context: CliContext): Promise<void> {
 
   ensureThingdDir();
 
-  const config = generateMcpConfig(nodePath, cliPath, dbPath, driver);
+  const globalBin = findGlobalBinPath();
+  const config = globalBin
+    ? {
+        command: globalBin,
+        args: ["mcp", "--path", dbPath, "--driver", driver],
+      }
+    : generateMcpConfig(nodePath, cliPath, dbPath, driver);
 
   context.stderr.write(`\n${pc.bold("thingd install")}\n\n`);
   context.stderr.write(`  ${pc.green("✓")} Database path: ${pc.cyan(dbPath)}\n`);
   context.stderr.write(`  ${pc.green("✓")} Driver: ${pc.cyan(driver)}\n`);
-  context.stderr.write(`  ${pc.green("✓")} Node: ${pc.cyan(nodePath)}\n`);
-  context.stderr.write(`  ${pc.green("✓")} CLI:   ${pc.cyan(cliPath)}\n\n`);
+  if (globalBin) {
+    context.stderr.write(`  ${pc.green("✓")} Command: ${pc.cyan(globalBin)}\n\n`);
+  } else {
+    context.stderr.write(`  ${pc.green("✓")} Node: ${pc.cyan(nodePath)}\n`);
+    context.stderr.write(`  ${pc.green("✓")} CLI:   ${pc.cyan(cliPath)}\n\n`);
+  }
 
   const claudeResult = updateClaudeDesktopConfig(config);
   if (claudeResult.updated) {
@@ -55,6 +65,22 @@ export async function runInstall(context: CliContext): Promise<void> {
   context.stderr.write(
     `\n  Restart Claude Desktop to activate. Cursor activates immediately after pasting.\n\n`,
   );
+}
+
+function findGlobalBinPath(): string | null {
+  try {
+    const cliPath = resolveCliPath();
+    // In standard npm/nvm/pnpm global installations:
+    // CLI is at <prefix>/lib/node_modules/thingd-cli/dist/index.js
+    // Binary is at <prefix>/bin/thingd
+    const candidate = resolve(cliPath, "../../../../../bin/thingd");
+    if (existsSync(candidate)) {
+      return candidate;
+    }
+  } catch {
+    // Ignore
+  }
+  return null;
 }
 
 function resolveCliPath(): string {
