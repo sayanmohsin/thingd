@@ -1,10 +1,18 @@
 # Project Handoff
 
-This file is the quick restart point for future work on `thingd`.
+Quick restart point for future work on `thingd`.
 
-Last updated: 2026-05-19.
+Last updated: 2026-05-30.
 
-## Current Shape
+## Recommended next phase
+
+**Phase 1 — CLI-B** from [cli.md](./cli.md). Full ordered plan:
+[roadmap.md](./roadmap.md).
+
+After CLI-B: **Phase 2** native prebuilds, **Phase 3** Search-A (FTS), **Phase 4**
+agent pattern docs/examples.
+
+## Current shape
 
 `thingd` is an early open source, Rust-powered, object-shaped memory database
 for AI-native apps. It combines:
@@ -22,7 +30,7 @@ for AI-native apps. It combines:
 - remote SDK driver through `THINGD_URL`
 - first-pass `thingd` admin/operator CLI with local and remote JSON output
 
-## Important Boundaries
+## Important boundaries
 
 - The default public SDK path is still the TypeScript in-memory proof store.
 - Durable local persistence is available through `driver: "native"` after the
@@ -30,28 +38,37 @@ for AI-native apps. It combines:
 - Sidecar mode is available through `THINGD_URL` and the remote SDK driver.
 - Follower bridge mode forwards MCP traffic to the leader, but follower local
   replica catch-up is not implemented.
+- Search is substring-over-serialized JSON until Phase 3 (Search-A); see
+  [roadmap.md](./roadmap.md#current-behavior-honest-baseline).
 - The project is not production-ready yet.
 - Do not expose SQL as the public API or MCP interface.
 
-## Key Docs
+## Key docs
 
-- [README.md](../README.md) is the public project overview.
-- [agent-implementation-guide.md](./agent-implementation-guide.md) is the main
-  guide for AI coding agents and future contributors.
-- [cli.md](./cli.md) describes current runtime CLIs and the next admin CLI
-  phases.
-- [sidecar-cluster.md](./sidecar-cluster.md) explains Kubernetes and bridge
-  mode.
-- [runtime-env.md](./runtime-env.md) lists runtime environment variables.
-- [mcp-server.md](./mcp-server.md) explains MCP tools and runtime behavior.
-- [persistence-and-native-bindings.md](./persistence-and-native-bindings.md)
-  explains Rust persistence and native binding direction.
-- [ai-primitives.md](./ai-primitives.md) plans graph, hybrid search, locks,
-  workflows, semantic cache, tool ledger, and compaction.
-- [benchmarks.md](./benchmarks.md) documents benchmark commands and baselines.
-- [release.md](./release.md) explains semantic-release and npm publishing.
+- [README.md](../README.md) — public overview
+- [roadmap.md](./roadmap.md) — **canonical build order and exit criteria**
+- [doc-maintenance.md](./doc-maintenance.md) — what to update when you change code
+- [why-agents.md](./why-agents.md) — agent value proposition
+- [agent-patterns.md](./agent-patterns.md) — memory, scheduler, idempotency patterns
+- [agent-implementation-guide.md](./agent-implementation-guide.md) — integration for agents/contributors
+- [cli.md](./cli.md) — CLI phases (CLI-B next)
+- [mcp-server.md](./mcp-server.md) — MCP tools and runtime
+- [sidecar-cluster.md](./sidecar-cluster.md) — Kubernetes and bridge mode
+- [runtime-env.md](./runtime-env.md) — environment variables
+- [persistence-and-native-bindings.md](./persistence-and-native-bindings.md) — Rust persistence
+- [ai-primitives.md](./ai-primitives.md) — graph, hybrid search, workflows (phases 8–13)
+- [benchmarks.md](./benchmarks.md) — benchmark commands
+- [release.md](./release.md) — semantic-release and npm
 
-## Current Runtime Commands
+## Default drivers
+
+| Entry point | Default driver | Default path |
+| --- | --- | --- |
+| `ThingD.open()` from npm (today) | memory | n/a |
+| `thingd mcp` / `mcp-http` | native (when built) | `~/.thingd/data.db` |
+| `THINGD_URL` set | remote | sidecar |
+
+## Current runtime commands
 
 ```bash
 pnpm build
@@ -61,36 +78,14 @@ pnpm smoke:mcp
 pnpm smoke:docker
 ```
 
-Direct MCP runtime commands:
-
 ```bash
-# Zero-config setup flow for Claude Desktop & Cursor
 node packages/thingd-cli/dist/index.js install
-
-# Run stdio MCP server manually (defaults to ~/.thingd/data.db)
 node packages/thingd-cli/dist/index.js mcp --driver native
-
-# Run Streamable HTTP MCP server manually
 THINGD_AUTH_TOKEN=change-me \
-node packages/thingd-cli/dist/index.js mcp-http --driver native
+  node packages/thingd-cli/dist/index.js mcp-http --driver native
 ```
 
-App sidecar usage:
-
-```bash
-THINGD_URL=http://127.0.0.1:8757
-THINGD_AUTH_TOKEN=change-me
-```
-
-```ts
-import { ThingD } from "thingd";
-
-const db = await ThingD.open();
-```
-
-## Required Checks
-
-Run the local Node/package gate:
+## Required checks
 
 ```bash
 pnpm check
@@ -98,7 +93,7 @@ pnpm build
 pnpm test:local
 ```
 
-If Rust is available:
+Rust (if installed):
 
 ```bash
 pnpm rust:fmt:check
@@ -106,39 +101,14 @@ pnpm rust:clippy
 pnpm test:rust
 ```
 
-For runtime smoke:
+Runtime smoke:
 
 ```bash
 pnpm smoke:mcp
 pnpm smoke:docker
 ```
 
-## Recommended Next Phase
+## Doc hygiene
 
-Start **Phase CLI-B** from [cli.md](./cli.md).
-
-Goal:
-
-- add pretty table output
-- add `thingd doctor`
-- add queue stats
-- add object and event summary commands
-- add benchmark wrapper commands
-- improve auth, connection refused, and missing native binding errors
-- update docs and tests
-
-The first-pass CLI is already in place. CLI-B should make it nicer to use
-before building an inspector UI.
-
-## Later Phases
-
-After CLI-B:
-
-1. CLI-C: export/import, snapshots, and redaction-friendly handoff flows.
-2. Native release: prebuild strategy and package loading hardening.
-3. Search: SQLite FTS, metadata filters, object-to-text indexing.
-4. Sidecar hardening: Kubernetes discovery, follower catch-up, failover tests.
-5. AI primitives: graph links, locks, workflow DAGs, semantic cache, tool ledger.
-
-Keep phases small and update this file whenever the recommended next phase
-changes.
+Before merging user-facing changes, read [doc-maintenance.md](./doc-maintenance.md).
+Update [roadmap.md](./roadmap.md) when the recommended phase changes.

@@ -80,7 +80,7 @@ pnpm test:local
 In another local app before npm publish:
 
 ```bash
-pnpm add /Users/sayan/Documents/Experimental/thingd/packages/thingd
+pnpm add /path/to/thingd/packages/thingd
 ```
 
 Or use a `file:` dependency:
@@ -88,7 +88,7 @@ Or use a `file:` dependency:
 ```json
 {
   "dependencies": {
-    "thingd": "file:/Users/sayan/Documents/Experimental/thingd/packages/thingd"
+    "thingd": "file:/path/to/thingd/packages/thingd"
   }
 }
 ```
@@ -277,6 +277,8 @@ For future AI-native data structures, read [ai-primitives.md](./ai-primitives.md
 For sidecar and cluster planning, read [sidecar-cluster.md](./sidecar-cluster.md).
 For CLI work, read [cli.md](./cli.md) before creating commands or package structure.
 For a project restart summary, read [handoff.md](./handoff.md).
+For agent value and patterns, read [why-agents.md](./why-agents.md) and
+[agent-patterns.md](./agent-patterns.md).
 
 ## Implementation Rules For Agents
 
@@ -298,13 +300,14 @@ For a project restart summary, read [handoff.md](./handoff.md).
 
 ## Recommended Next Phase
 
-Start with **Phase CLI-B** from [cli.md](./cli.md).
+See [roadmap.md](./roadmap.md) for the full ordered plan.
 
-The first-pass `thingd` binary can inspect and mutate local or remote stores
-with JSON output. The next goal is operator polish: pretty tables, `doctor`,
-queue stats, benchmark wrappers, and better runtime errors. This should land
-before an inspector UI because it helps local development, Docker sidecar
-debugging, Kubernetes handoff, and AI-agent integration immediately.
+1. **CLI-B** — `doctor`, tables, queue stats ([cli.md](./cli.md))
+2. **Native release** — prebuilds, SDK default path
+3. **Search-A** — SQLite FTS, metadata filters
+4. **Agent patterns** — [agent-patterns.md](./agent-patterns.md), [why-agents.md](./why-agents.md)
+
+Before merging, follow [doc-maintenance.md](./doc-maintenance.md).
 
 ## Required Checks
 

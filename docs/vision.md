@@ -20,12 +20,19 @@ The database should ship with safe MCP tools so agents can search, read, write, 
 
 ```txt
 thing_search
-memory.get
-memory.put
-memory.patch
+thing_get
+thing_put
+thing_delete
 thing_events_append
+thing_events_list
 thing_queue_push
+thing_queue_claim
+thing_queue_ack
+thing_queue_nack
 ```
+
+Future primitives may add namespaced tools (for example `thing_links_*`). Public
+tools use the `thing_*` prefix; see [mcp-server.md](./mcp-server.md).
 
 ### AI-readable by default
 

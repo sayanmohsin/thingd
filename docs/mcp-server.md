@@ -34,6 +34,14 @@ Not implemented yet:
 - hosted/cloud gateway
 - TLS termination
 - follower local replica catch-up
+- collection allowlists / read-only MCP mode (Phase 5)
+- MCP resources (Phase 5)
+
+### Search behavior today
+
+`thing_search` uses **substring matching** over serialized object and event
+JSON. Full-text search and metadata filters are planned in
+[roadmap.md Phase 3](./roadmap.md#phase-3--search-a-agent-memory).
 
 ## Tool Surface
 

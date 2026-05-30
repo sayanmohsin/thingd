@@ -4,6 +4,10 @@ This document plans the higher-value data primitives that should come after the
 core object/event/queue engine. These are not generic textbook structures. They
 are workflow primitives for AI-native apps, agents, and tools.
 
+**Build order:** Phases 8–13 below follow [roadmap.md](./roadmap.md). Complete
+Phases 1–7 (CLI-B, native release, Search-A, agent patterns, MCP hardening,
+CLI-C, sidecar) before starting graph links.
+
 The goal is to make `thingd` feel like a tiny local runtime for memory,
 retrieval, background work, provenance, and coordination.
 
@@ -57,13 +61,13 @@ const neighbors = await db.links.neighbors("decisions/dec_1", {
 });
 ```
 
-MCP tools:
+MCP tools (planned naming — align with `thing_*`):
 
 ```txt
-memory.links.create
-memory.links.neighbors
-memory.links.delete
-memory.links.path
+thing_links_create
+thing_links_neighbors
+thing_links_delete
+thing_links_path
 ```
 
 SQLite shape:
@@ -346,16 +350,16 @@ Value:
 
 ## MCP Surface
 
-Each primitive should have a narrow MCP surface:
+Each primitive should have a narrow MCP surface using the `thing_*` prefix:
 
 ```txt
-memory.links.*
+thing_links_*
 thing_search
-memory.locks.*
-memory.workflows.*
-memory.cache.*
-memory.tools.*
-memory.compact
+thing_locks_*
+thing_workflows_*
+thing_cache_*
+thing_tools_*
+thing_compact
 ```
 
 Rules:
@@ -367,42 +371,44 @@ Rules:
 
 ## Suggested Phase Plan
 
-### Phase 11 - Graph Links
+Phases 8–13 in [roadmap.md](./roadmap.md). Renumbered here for alignment.
+
+### Phase 8 - Graph Links
 
 - Rust link model and trait
 - SQLite `links` table
 - Node SDK `db.links`
 - MCP link read tools
 
-### Phase 12 - Hybrid Search
+### Phase 9 - Hybrid Search
 
 - object-to-text index
 - SQLite FTS
 - metadata filters
 - graph-aware result expansion
 
-### Phase 13 - Locks And Semaphores
+### Phase 10 - Locks And Semaphores
 
 - durable leases table
 - acquire/renew/release
 - queue heartbeat foundation
 - sidecar coordination foundation
 
-### Phase 14 - Workflow DAG
+### Phase 11 - Workflow DAG
 
 - workflow schema
 - queue-backed step scheduling
 - inspectable run state
 - retry and resume support
 
-### Phase 15 - Semantic Cache And Tool Ledger
+### Phase 12 - Semantic Cache And Tool Ledger
 
 - cache namespaces and TTL
 - tool-call records
 - cost/latency metadata
 - MCP audit integration
 
-### Phase 16 - Compaction And Snapshots
+### Phase 13 - Compaction And Snapshots
 
 - snapshots table
 - compaction queue jobs

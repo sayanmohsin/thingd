@@ -2,6 +2,9 @@
 
 `thingd` is split into a Rust core and thin developer-facing packages.
 
+Build order and phase exit criteria: [roadmap.md](./roadmap.md). Doc update
+checklist: [doc-maintenance.md](./doc-maintenance.md).
+
 ```txt
 Rust core
   object store

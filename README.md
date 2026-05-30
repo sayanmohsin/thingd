@@ -44,6 +44,14 @@ The repository currently contains:
 
 It is not production-ready yet. The default public Node.js SDK path still uses the TypeScript in-memory store for API exploration and local integration tests. The Rust core has SQLite-backed object, event, and queue persistence behind the `sqlite` feature, and the repo now has an opt-in private native driver for local testing. Node apps can also use the remote driver to talk to a `thingd` sidecar through `THINGD_URL`. Native prebuilds, production packaging, and deployment hardening are still next.
 
+| Entry point | Default driver | Default path |
+| --- | --- | --- |
+| `ThingD.open()` from npm (today) | memory | n/a |
+| `thingd mcp` / `mcp-http` | native (when built) | `~/.thingd/data.db` |
+| `THINGD_URL` set | remote | sidecar |
+
+Build order and doc update rules: [docs/roadmap.md](./docs/roadmap.md), [docs/doc-maintenance.md](./docs/doc-maintenance.md).
+
 ## Why thingd?
 
 SQLite is excellent. It is small, fast, local, durable, and easy to deploy. But AI-native apps often need a friendlier layer above raw SQL.
@@ -325,7 +333,9 @@ const hits = await db.search("customers who upgraded after a failed deployment",
 });
 ```
 
-Early versions can start with full-text and metadata search. Vector search can come after the object and event model is stable.
+**Current behavior:** search uses substring matching over serialized object and
+event JSON (proof store and native path today). Full-text search, metadata
+filters, and object-to-text indexing are [Phase 3 in the roadmap](./docs/roadmap.md#phase-3--search-a-agent-memory). Vector search comes after that foundation is stable.
 
 ## AI-native primitives
 
@@ -578,7 +588,7 @@ pnpm start:dev
 For a separate Node.js app outside this repository, install the local package by path:
 
 ```bash
-pnpm add /Users/sayan/Documents/Experimental/thingd/packages/thingd
+pnpm add /path/to/thingd/packages/thingd
 ```
 
 Or add it to that app's `package.json`:
@@ -586,7 +596,7 @@ Or add it to that app's `package.json`:
 ```json
 {
   "dependencies": {
-    "thingd": "file:/Users/sayan/Documents/Experimental/thingd/packages/thingd"
+    "thingd": "file:/path/to/thingd/packages/thingd"
   }
 }
 ```
@@ -600,6 +610,10 @@ Project conventions live in checked-in files so this private repo stays easy to 
 - [biome.json](./biome.json) controls TypeScript, JavaScript, and JSON formatting/linting.
 - [rustfmt.toml](./rustfmt.toml) controls Rust formatting.
 - [Cargo.toml](./Cargo.toml) defines workspace Rust and Clippy lints.
+- [docs/roadmap.md](./docs/roadmap.md) is the canonical build order and phase exit criteria.
+- [docs/doc-maintenance.md](./docs/doc-maintenance.md) lists which docs to update when code changes.
+- [docs/why-agents.md](./docs/why-agents.md) explains the agent leverage story.
+- [docs/agent-patterns.md](./docs/agent-patterns.md) documents memory, scheduler, and queue patterns.
 - [docs/agent-implementation-guide.md](./docs/agent-implementation-guide.md) explains how AI agents and contributors should integrate `thingd` into apps.
 - [docs/ai-primitives.md](./docs/ai-primitives.md) plans graph links, hybrid search, locks, workflow DAGs, semantic cache, tool ledger, and compaction.
 - [docs/cli.md](./docs/cli.md) describes the current runtime CLIs and the planned admin/operator CLI phases.
@@ -683,9 +697,12 @@ pnpm test:rust
 
 ## Roadmap
 
-The recommended next build phase is **CLI-B**, which adds operator polish on top
-of the first-pass `thingd` CLI. See [docs/cli.md](./docs/cli.md) and
+Canonical ordering, exit criteria, and per-phase doc checklists:
+**[docs/roadmap.md](./docs/roadmap.md)**. Quick restart:
 [docs/handoff.md](./docs/handoff.md).
+
+**Next:** Phase 1 **CLI-B** (operator polish) → Phase 2 **native prebuilds** →
+Phase 3 **Search-A** (FTS) → Phase 4 **agent patterns** (docs/examples).
 
 ### v0.1 - local core
 

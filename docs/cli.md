@@ -336,7 +336,9 @@ Do not add this until collection listing and pagination semantics are designed.
 
 ## Handoff Notes
 
-Best next step is Phase CLI-B.
+Best next step is Phase CLI-B (Phase 1 in [roadmap.md](./roadmap.md)).
+
+When adding or changing commands, follow [doc-maintenance.md](./doc-maintenance.md).
 
 Keep the implementation small:
 
