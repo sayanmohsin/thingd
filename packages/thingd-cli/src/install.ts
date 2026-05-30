@@ -155,10 +155,14 @@ export async function runInstall(context: CliContext): Promise<void> {
     context.stdout.write(`${JSON.stringify(fullConfig, null, 2)}\n`);
   }
 
-  if (showClaude || showCursor) {
+  if (choice === "1") {
     context.stderr.write(
       `\n  Restart Claude Desktop to activate. Cursor activates immediately after pasting.\n\n`,
     );
+  } else if (choice === "2") {
+    context.stderr.write(`\n  Restart Claude Desktop to activate.\n\n`);
+  } else if (choice === "3") {
+    context.stderr.write(`\n  Cursor activates immediately after pasting.\n\n`);
   }
 }
 
