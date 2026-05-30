@@ -90,7 +90,16 @@ Options:
   -h, --help          show help
 `;
 
-const BOOLEAN_FLAGS = new Set(["h", "help", "json", "pretty", "allow-unauthenticated"]);
+const BOOLEAN_FLAGS = new Set([
+  "h",
+  "help",
+  "json",
+  "pretty",
+  "allow-unauthenticated",
+  "raw",
+  "claude",
+  "cursor",
+]);
 
 export async function runCli(
   args = process.argv.slice(2),
