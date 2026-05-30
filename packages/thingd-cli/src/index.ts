@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { realpathSync } from "node:fs";
+import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
@@ -95,6 +96,32 @@ export async function runCli(
   args = process.argv.slice(2),
   options: RunCliOptions = {},
 ): Promise<number> {
+  // Auto-detect and set THINGD_NATIVE_PATH if not already set, to allow global execution
+  // to seamlessly locate the native compiled library in the workspace or global node_modules.
+  if (!process.env.THINGD_NATIVE_PATH) {
+    try {
+      const { existsSync } = await import("node:fs");
+      const { homedir } = await import("node:os");
+      const { join } = await import("node:path");
+
+      const cliDir = join(resolveCliPath(), "..", "..");
+      const candidates = [
+        join(cliDir, "node_modules", "thingd-native", "dist", "thingd_native.node"),
+        join(cliDir, "..", "thingd-native", "dist", "thingd_native.node"),
+        join(homedir(), "Space/Programming/personal/thingd/packages/thingd-native/dist/thingd_native.node"),
+        join(homedir(), "Space/Programming/personal/thingd-cloud/packages/thingd-native/dist/thingd_native.node"),
+      ];
+      for (const candidate of candidates) {
+        if (existsSync(candidate)) {
+          process.env.THINGD_NATIVE_PATH = candidate;
+          break;
+        }
+      }
+    } catch {
+      // Ignore detection errors
+    }
+  }
+
   const parsed = parseArgs(args);
   const context: CliContext = {
     parsed,
@@ -709,6 +736,14 @@ function writeJson(target: WritableLike, data: unknown, pretty: boolean): void {
 
 function writeText(target: WritableLike, text: string): void {
   target.write(text.endsWith("\n") ? text : `${text}\n`);
+}
+
+function resolveCliPath(): string {
+  const scriptPath = process.argv[1];
+  if (!scriptPath) {
+    throw new Error("Could not detect thingd CLI path from process.argv[1].");
+  }
+  return resolve(scriptPath);
 }
 
 let isMain = false;

@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { createRequire } from "node:module";
 import type {
   MemoryEvent,
   MemoryObject,
@@ -257,11 +258,67 @@ export class NativeThingStore implements ThingStore {
 }
 
 async function loadNativeModule(): Promise<NativeThingStoreModule> {
+  const customPath = process.env.THINGD_NATIVE_PATH;
+  if (customPath) {
+    try {
+      const require = createRequire(import.meta.url);
+      const binding = require(customPath);
+      return { NativeThingStore: binding.NativeThingStore };
+    } catch (error) {
+      throw new Error(`Failed to load native store from THINGD_NATIVE_PATH="${customPath}": ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  // Try direct import first
   try {
     return (await import(NATIVE_PACKAGE_NAME)) as NativeThingStoreModule;
-  } catch (error) {
+  } catch (importError) {
+    // If direct import fails, try to auto-detect from known locations
+    try {
+      const { existsSync } = await import("node:fs");
+      const { homedir } = await import("node:os");
+      const { join, dirname } = await import("node:path");
+      const { fileURLToPath } = await import("node:url");
+
+      const candidates: string[] = [];
+
+      try {
+        const __dirname = dirname(fileURLToPath(import.meta.url));
+        // standard monorepo workspace path relative to packages/thingd/dist/stores/native-thing-store.js:
+        candidates.push(join(__dirname, "../../../../thingd-native/dist/thingd_native.node"));
+        // sibling to thingd-cli if installed in global node_modules:
+        candidates.push(join(__dirname, "../../../../../../thingd-native/dist/thingd_native.node"));
+        // inside thingd-cli node_modules:
+        candidates.push(join(__dirname, "../../../../thingd-native/dist/thingd_native.node"));
+      } catch {
+        // Ignore URL/path resolution errors
+      }
+
+      try {
+        const home = homedir();
+        candidates.push(join(home, "Space/Programming/personal/thingd/packages/thingd-native/dist/thingd_native.node"));
+        candidates.push(join(home, "Space/Programming/personal/thingd-cloud/packages/thingd-native/dist/thingd_native.node"));
+      } catch {
+        // Ignore home dir resolution errors
+      }
+
+      for (const candidate of candidates) {
+        if (existsSync(candidate)) {
+          try {
+            const require = createRequire(import.meta.url);
+            const binding = require(candidate);
+            return { NativeThingStore: binding.NativeThingStore };
+          } catch {
+            // Ignore loading failures for this candidate, try others
+          }
+        }
+      }
+    } catch {
+      // Ignore resolution errors, fall through to throwing the main error
+    }
+
     throw new Error(
-      `The native thingd driver is not available. Run "pnpm --filter thingd-native build" before using driver: "native". ${formatUnknownError(error)}`,
+      `The native thingd driver is not available. Run "pnpm --filter thingd-native build" before using driver: "native". ${formatUnknownError(importError)}`,
     );
   }
 }
