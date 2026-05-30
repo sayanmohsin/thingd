@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import { realpathSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
@@ -511,7 +512,17 @@ export function resolveConnection(context: CliContext): ConnectionOptions {
   const path =
     url ?? stringFlag(context.parsed, "path") ?? context.env.THINGD_PATH ?? defaultThingdDbPath();
   const cloud = isCloudPath(path);
-  const driver = parseDriver(stringFlag(context.parsed, "driver") ?? context.env.THINGD_DRIVER);
+  let driver = parseDriver(stringFlag(context.parsed, "driver") ?? context.env.THINGD_DRIVER);
+
+  if (!driver) {
+    if (cloud) {
+      driver = "cloud";
+    } else if (path !== ":memory:") {
+      driver = "native";
+    } else {
+      driver = "memory";
+    }
+  }
 
   if (!cloud && path === defaultThingdDbPath()) {
     ensureThingdDir();
@@ -519,7 +530,7 @@ export function resolveConnection(context: CliContext): ConnectionOptions {
 
   return {
     path,
-    driver: driver ?? (cloud ? "cloud" : undefined),
+    driver,
     authToken: stringFlag(context.parsed, "auth-token") ?? context.env.THINGD_AUTH_TOKEN,
     cloud,
   };
@@ -700,6 +711,15 @@ function writeText(target: WritableLike, text: string): void {
   target.write(text.endsWith("\n") ? text : `${text}\n`);
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+let isMain = false;
+if (process.argv[1]) {
+  try {
+    isMain = import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href;
+  } catch {
+    // Ignore realpath resolution errors.
+  }
+}
+
+if (isMain) {
   process.exitCode = await runCli();
 }

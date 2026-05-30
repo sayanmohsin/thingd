@@ -2,9 +2,9 @@
 
 [![npm version](https://badge.fury.io/js/thingd-cli.svg)](https://www.npmjs.com/package/thingd-cli)
 
-Admin and operator CLI for [thingd](https://www.npmjs.com/package/thingd).
+Command-line interface, Interactive TUI Dashboard, and Model Context Protocol (MCP) server for [thingd](https://www.npmjs.com/package/thingd).
 
-This package provides the `thingd` binary. It uses the public `thingd` SDK for store access and can connect to a local store or a remote sidecar through `THINGD_URL`.
+This package provides the unified `thingd` binary, which serves as a persistent stdio/HTTP MCP server for AI editors (Cursor, Claude Desktop), an interactive terminal UI dashboard for database operations, and a scriptable JSON utility to inspect and manage local or remote databases.
 
 ## Installation
 

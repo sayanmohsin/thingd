@@ -1,7 +1,7 @@
 {
   "name": "thingd-cli",
   "version": "0.0.0-development",
-  "description": "Admin and operator CLI for thingd.",
+  "description": "Command-line interface, Interactive TUI Dashboard, and MCP server for thingd.",
   "type": "module",
   "author": "Sayan Mohsin",
   "license": "Apache-2.0",
