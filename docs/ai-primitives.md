@@ -279,7 +279,7 @@ Target API:
 ```ts
 await db.tools.record({
   runId: "run_123",
-  tool: "thing.search",
+  tool: "thing_search",
   input,
   output,
   status: "ok",
@@ -350,7 +350,7 @@ Each primitive should have a narrow MCP surface:
 
 ```txt
 memory.links.*
-thing.search
+thing_search
 memory.locks.*
 memory.workflows.*
 memory.cache.*

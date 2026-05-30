@@ -20,6 +20,20 @@ Or run it on the fly using `npx`:
 npx thingd-cli
 ```
 
+## Quick Start: Zero-Config MCP Setup
+
+The easiest way to integrate `thingd` with your AI editors (Claude Desktop and Cursor) is to run the automated setup command:
+
+```bash
+thingd install
+```
+
+This command will:
+- Auto-detect the absolute path of your active `node` binary and global `thingd` script.
+- Automatically locate or create your persistent local database at `~/.thingd/data.db`.
+- **For Claude Desktop**: Automatically configure the stdio MCP server in your `claude_desktop_config.json` (macOS).
+- **For Cursor**: Print the exact, copy-pasteable JSON block to paste into your Cursor MCP settings.
+
 ## Two Modes of Operation
 
 The CLI is designed to support both human operators and automated scripts through two distinct modes:
@@ -71,7 +85,7 @@ You can configure the connection via environment variables or CLI flags:
 ```txt
 --url <url>          remote thingd URL. Defaults to THINGD_URL
 --auth-token <tok>   remote bearer token. Defaults to THINGD_AUTH_TOKEN
---path <path>        local database path. Defaults to THINGD_PATH or :memory:
+--path <path>        local database path. Defaults to THINGD_PATH or ~/.thingd/data.db
 --driver <driver>    memory, native, or cloud
 --pretty             pretty-print JSON output
 --limit <n>          result limit for search and list commands

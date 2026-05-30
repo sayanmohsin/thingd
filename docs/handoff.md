@@ -64,10 +64,15 @@ pnpm smoke:docker
 Direct MCP runtime commands:
 
 ```bash
-node packages/thingd-cli/dist/index.js mcp --path :memory:
+# Zero-config setup flow for Claude Desktop & Cursor
+node packages/thingd-cli/dist/index.js install
 
+# Run stdio MCP server manually (defaults to ~/.thingd/data.db)
+node packages/thingd-cli/dist/index.js mcp --driver native
+
+# Run Streamable HTTP MCP server manually
 THINGD_AUTH_TOKEN=change-me \
-node packages/thingd-cli/dist/index.js mcp-http --path ./thingd.db --driver native
+node packages/thingd-cli/dist/index.js mcp-http --driver native
 ```
 
 App sidecar usage:

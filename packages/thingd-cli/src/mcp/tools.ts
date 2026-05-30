@@ -29,7 +29,7 @@ export function registerThingdTools(
   const audit = resolveThingdMcpAuditOptions(options.audit);
 
   server.registerTool(
-    "thing.search",
+    "thing_search",
     {
       title: "Search Memory",
       description: "Search thingd objects and events by text.",
@@ -50,7 +50,7 @@ export function registerThingdTools(
   );
 
   server.registerTool(
-    "thing.get",
+    "thing_get",
     {
       title: "Get Object",
       description: "Read one thingd object by collection and id.",
@@ -69,7 +69,7 @@ export function registerThingdTools(
   );
 
   server.registerTool(
-    "thing.put",
+    "thing_put",
     {
       title: "Put Object",
       description: "Create or replace one object-shaped memory record.",
@@ -106,7 +106,7 @@ export function registerThingdTools(
   );
 
   server.registerTool(
-    "thing.delete",
+    "thing_delete",
     {
       title: "Delete Object",
       description: "Delete one thingd object by collection and id.",
@@ -139,7 +139,7 @@ export function registerThingdTools(
   );
 
   server.registerTool(
-    "thing.events.append",
+    "thing_events_append",
     {
       title: "Append Event",
       description: "Append an event to a thingd stream.",
@@ -176,7 +176,7 @@ export function registerThingdTools(
   );
 
   server.registerTool(
-    "thing.events.list",
+    "thing_events_list",
     {
       title: "List Events",
       description: "List thingd events, optionally filtered by stream.",
@@ -194,7 +194,7 @@ export function registerThingdTools(
   );
 
   server.registerTool(
-    "thing.queue.push",
+    "thing_queue_push",
     {
       title: "Push Queue Job",
       description: "Push a durable job onto a thingd queue.",
@@ -238,7 +238,7 @@ export function registerThingdTools(
   );
 
   server.registerTool(
-    "thing.queue.claim",
+    "thing_queue_claim",
     {
       title: "Claim Queue Job",
       description: "Claim the next ready job from a thingd queue.",
@@ -278,7 +278,7 @@ export function registerThingdTools(
   );
 
   server.registerTool(
-    "thing.queue.ack",
+    "thing_queue_ack",
     {
       title: "Acknowledge Queue Job",
       description: "Mark one leased queue job as completed.",
@@ -316,7 +316,7 @@ export function registerThingdTools(
   );
 
   server.registerTool(
-    "thing.queue.nack",
+    "thing_queue_nack",
     {
       title: "Reject Queue Job",
       description: "Reject a leased queue job for retry or dead-letter routing.",
@@ -356,7 +356,7 @@ export function registerThingdTools(
   );
 
   server.registerTool(
-    "thing.queue.list",
+    "thing_queue_list",
     {
       title: "List Queue Jobs",
       description: "List jobs in a thingd queue.",
@@ -374,7 +374,7 @@ export function registerThingdTools(
   );
 
   server.registerTool(
-    "thing.queue.dead",
+    "thing_queue_dead",
     {
       title: "List Dead Queue Jobs",
       description: "List dead-letter jobs in a thingd queue.",

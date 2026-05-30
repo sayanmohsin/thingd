@@ -228,18 +228,18 @@ The MCP package wraps the same SDK surface. It should not bypass validation or u
 Current tools:
 
 ```txt
-thing.search
-thing.get
-thing.put
-thing.delete
-thing.events.append
-thing.events.list
-thing.queue.push
-thing.queue.claim
-thing.queue.ack
-thing.queue.nack
-thing.queue.list
-thing.queue.dead
+thing_search
+thing_get
+thing_put
+thing_delete
+thing_events_append
+thing_events_list
+thing_queue_push
+thing_queue_claim
+thing_queue_ack
+thing_queue_nack
+thing_queue_list
+thing_queue_dead
 ```
 
 The MCP package has stdio and Streamable HTTP entrypoints. MCP write tools append

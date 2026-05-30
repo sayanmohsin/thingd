@@ -24,8 +24,8 @@ try {
   const tools = await client.listTools();
   const toolNames = tools.tools.map((tool) => tool.name);
 
-  assert.ok(toolNames.includes("thing.search"));
-  assert.ok(toolNames.includes("thing.put"));
+  assert.ok(toolNames.includes("thing_search"));
+  assert.ok(toolNames.includes("thing_put"));
 
   console.log(`thingd MCP smoke passed for ${mcpUrl}`);
 } finally {

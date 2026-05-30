@@ -79,7 +79,7 @@ Node.js SDK benchmarks should be added next now that the private N-API
 
 ## Latest Local Baseline
 
-Run date: 2026-05-19
+Run date: 2026-05-29
 
 Command:
 
@@ -97,24 +97,24 @@ Results:
 
 | Store | Operation | Elapsed | Ops/sec |
 | --- | --- | ---: | ---: |
-| `in-memory` | object put | `2.33ms` | `2,145,922` |
-| `in-memory` | object get | `1.908792ms` | `2,620,545` |
-| `in-memory` | event append | `926.542us` | `5,399,568` |
-| `in-memory` | event list | `285.459us` | `17,543,859` |
-| `in-memory` | queue push | `19.91375ms` | `251,092` |
-| `in-memory` | queue claim+ack | `44.285167ms` | `112,905` |
-| `sqlite-memory` | object put | `32.832167ms` | `152,290` |
-| `sqlite-memory` | object get | `9.6165ms` | `519,966` |
-| `sqlite-memory` | event append | `16.277375ms` | `307,181` |
-| `sqlite-memory` | event list | `817.625us` | `6,119,951` |
-| `sqlite-memory` | queue push | `45.531167ms` | `109,815` |
-| `sqlite-memory` | queue claim+ack | `163.144667ms` | `30,647` |
-| `sqlite-file` | object put | `233.239916ms` | `21,437` |
-| `sqlite-file` | object get | `12.801916ms` | `390,594` |
-| `sqlite-file` | event append | `201.404125ms` | `24,825` |
-| `sqlite-file` | event list | `823.792us` | `6,075,334` |
-| `sqlite-file` | queue push | `403.709708ms` | `12,385` |
-| `sqlite-file` | queue claim+ack | `943.060667ms` | `5,301` |
+| `in-memory` | object put | `3.06ms` | `1,633,453` |
+| `in-memory` | object get | `1.57ms` | `3,166,561` |
+| `in-memory` | event append | `1.26ms` | `3,940,110` |
+| `in-memory` | event list | `359.04us` | `13,927,576` |
+| `in-memory` | queue push | `27.06ms` | `184,733` |
+| `in-memory` | queue claim+ack | `51.41ms` | `97,240` |
+| `sqlite-memory` | object put | `43.09ms` | `116,030` |
+| `sqlite-memory` | object get | `13.02ms` | `383,877` |
+| `sqlite-memory` | event append | `21.47ms` | `232,883` |
+| `sqlite-memory` | event list | `1.19ms` | `4,201,680` |
+| `sqlite-memory` | queue push | `61.71ms` | `81,014` |
+| `sqlite-memory` | queue claim+ack | `145.45ms` | `34,375` |
+| `sqlite-file` | object put | `117.77ms` | `42,455` |
+| `sqlite-file` | object get | `17.99ms` | `277,824` |
+| `sqlite-file` | event append | `109.85ms` | `45,514` |
+| `sqlite-file` | event list | `1.10ms` | `4,512,635` |
+| `sqlite-file` | queue push | `192.48ms` | `25,976` |
+| `sqlite-file` | queue claim+ack | `336.51ms` | `14,858` |
 
 Current read: the durable file path is already fine for early local-app
 workloads, but queue claim+ack now does real lease-expiry maintenance and

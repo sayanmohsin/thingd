@@ -79,19 +79,19 @@ test("calls thingd MCP tools over Streamable HTTP", async () => {
   await client.connect(transport);
 
   const tools = await client.listTools();
-  const put = await callJsonTool(client, "thing.put", {
+  const put = await callJsonTool(client, "thing_put", {
     collection: "decisions",
     object: {
       id: "remote-mcp",
       text: "Expose thingd over Streamable HTTP.",
     },
   });
-  const search = await callJsonTool(client, "thing.search", {
+  const search = await callJsonTool(client, "thing_search", {
     query: "Streamable HTTP",
     collections: ["decisions"],
   });
 
-  assert.ok(tools.tools.some((tool) => tool.name === "thing.put"));
+  assert.ok(tools.tools.some((tool) => tool.name === "thing_put"));
   assert.equal(put.id, "remote-mcp");
   assert.equal(search[0].id, "remote-mcp");
 
@@ -158,14 +158,14 @@ test("forwards follower MCP traffic to the leader", async () => {
 
   await client.connect(transport);
 
-  const put = await callJsonTool(client, "thing.put", {
+  const put = await callJsonTool(client, "thing_put", {
     collection: "decisions",
     object: {
       id: "forwarded",
       text: "Follower forwarded this write.",
     },
   });
-  const search = await callJsonTool(client, "thing.search", {
+  const search = await callJsonTool(client, "thing_search", {
     query: "forwarded",
     collections: ["decisions"],
   });

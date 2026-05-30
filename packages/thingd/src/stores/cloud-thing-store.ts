@@ -55,35 +55,35 @@ export class CloudThingStore implements ThingStore {
   private constructor(private readonly client: Client) {}
 
   put(collection: string, object: MemoryObject): Promise<StoredMemoryObject> {
-    return this.callTool("thing.put", {
+    return this.callTool("thing_put", {
       collection,
       object,
     });
   }
 
   get(collection: string, id: string): Promise<StoredMemoryObject | null> {
-    return this.callTool("thing.get", {
+    return this.callTool("thing_get", {
       collection,
       id,
     });
   }
 
   delete(collection: string, id: string): Promise<ThingDeleteResult> {
-    return this.callTool("thing.delete", {
+    return this.callTool("thing_delete", {
       collection,
       id,
     });
   }
 
   appendEvent(stream: string, event: MemoryEvent): Promise<StoredMemoryEvent> {
-    return this.callTool("thing.events.append", {
+    return this.callTool("thing_events_append", {
       stream,
       event,
     });
   }
 
   listEvents(stream?: string): Promise<StoredMemoryEvent[]> {
-    return this.callTool("thing.events.list", {
+    return this.callTool("thing_events_list", {
       stream,
     });
   }
@@ -93,7 +93,7 @@ export class CloudThingStore implements ThingStore {
     payload: QueueJobPayload,
     options: QueueJobOptions = {},
   ): Promise<QueueJob> {
-    return this.callTool("thing.queue.push", {
+    return this.callTool("thing_queue_push", {
       queue,
       payload,
       idempotencyKey: options.idempotencyKey,
@@ -103,21 +103,21 @@ export class CloudThingStore implements ThingStore {
   }
 
   claimJob(queue: string, options: QueueClaimOptions = {}): Promise<QueueJob | null> {
-    return this.callTool("thing.queue.claim", {
+    return this.callTool("thing_queue_claim", {
       queue,
       leaseMs: options.leaseMs,
     });
   }
 
   ackJob(queue: string, jobId: string): Promise<QueueJobResult> {
-    return this.callTool("thing.queue.ack", {
+    return this.callTool("thing_queue_ack", {
       queue,
       id: jobId,
     });
   }
 
   nackJob(queue: string, jobId: string, options: QueueNackOptions = {}): Promise<QueueJobResult> {
-    return this.callTool("thing.queue.nack", {
+    return this.callTool("thing_queue_nack", {
       queue,
       id: jobId,
       delayMs: options.delayMs,
@@ -126,19 +126,19 @@ export class CloudThingStore implements ThingStore {
   }
 
   listJobs(queue: string): Promise<QueueJob[]> {
-    return this.callTool("thing.queue.list", {
+    return this.callTool("thing_queue_list", {
       queue,
     });
   }
 
   listDeadJobs(queue: string): Promise<QueueJob[]> {
-    return this.callTool("thing.queue.dead", {
+    return this.callTool("thing_queue_dead", {
       queue,
     });
   }
 
   search(query: string, options: MemorySearchOptions = {}): Promise<MemorySearchResult[]> {
-    return this.callTool("thing.search", {
+    return this.callTool("thing_search", {
       query,
       collections: options.collections,
       limit: options.limit,

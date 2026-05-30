@@ -11,9 +11,9 @@ test("lists thingd MCP tools", async () => {
   const tools = await client.listTools();
   const toolNames = tools.tools.map((tool) => tool.name);
 
-  assert.ok(toolNames.includes("thing.search"));
-  assert.ok(toolNames.includes("thing.put"));
-  assert.ok(toolNames.includes("thing.queue.push"));
+  assert.ok(toolNames.includes("thing_search"));
+  assert.ok(toolNames.includes("thing_put"));
+  assert.ok(toolNames.includes("thing_queue_push"));
 
   await client.close();
   await server.close();
@@ -22,14 +22,14 @@ test("lists thingd MCP tools", async () => {
 test("stores and searches objects through MCP tools", async () => {
   const { client, server } = await connectTestClient();
 
-  const putResult = await callJsonTool(client, "thing.put", {
+  const putResult = await callJsonTool(client, "thing_put", {
     collection: "decisions",
     object: {
       id: "mcp-server",
       text: "Expose thingd through MCP.",
     },
   });
-  const searchResult = await callJsonTool(client, "thing.search", {
+  const searchResult = await callJsonTool(client, "thing_search", {
     query: "MCP",
     collections: ["decisions"],
   });
@@ -46,7 +46,7 @@ test("stores and searches objects through MCP tools", async () => {
 test("writes audit events for MCP mutations", async () => {
   const { client, server } = await connectTestClient();
 
-  await callJsonTool(client, "thing.put", {
+  await callJsonTool(client, "thing_put", {
     collection: "decisions",
     object: {
       id: "audit-events",
@@ -55,7 +55,7 @@ test("writes audit events for MCP mutations", async () => {
     actor: "test-agent",
     source: "unit-test",
   });
-  const events = await callJsonTool(client, "thing.events.list", {
+  const events = await callJsonTool(client, "thing_events_list", {
     stream: "__thingd:mcp:audit",
   });
 
@@ -75,17 +75,17 @@ test("writes audit events for MCP mutations", async () => {
 test("pushes, claims, and acks queue jobs through MCP tools", async () => {
   const { client, server } = await connectTestClient();
 
-  const pushed = await callJsonTool(client, "thing.queue.push", {
+  const pushed = await callJsonTool(client, "thing_queue_push", {
     queue: "embed",
     payload: {
       object: "decisions/mcp-server",
     },
     idempotencyKey: "embed:decisions/mcp-server:v1",
   });
-  const claimed = await callJsonTool(client, "thing.queue.claim", {
+  const claimed = await callJsonTool(client, "thing_queue_claim", {
     queue: "embed",
   });
-  const acked = await callJsonTool(client, "thing.queue.ack", {
+  const acked = await callJsonTool(client, "thing_queue_ack", {
     queue: "embed",
     id: pushed.id,
   });

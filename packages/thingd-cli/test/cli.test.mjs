@@ -105,7 +105,38 @@ test("reports remote status", async () => {
   }
 });
 
-async function run(args, env = {}) {
+test("resolves to default database path when THINGD_PATH is not set", async () => {
+  const result = await run(["status"], {});
+
+  assert.equal(result.code, 0);
+  const status = JSON.parse(result.stdout);
+  assert.equal(status.mode, "local");
+  assert.match(status.path, /\.thingd\/data\.db$/);
+});
+
+test("runs install command and prints configuration", async () => {
+  const result = await run(["install"]);
+
+  assert.equal(result.code, 0);
+  
+  // Stderr contains setup status and instructions
+  assert.match(result.stderr, /Database path:/);
+  assert.match(result.stderr, /Driver:/);
+  assert.match(result.stderr, /Node:/);
+  assert.match(result.stderr, /CLI:/);
+  assert.match(result.stderr, /Cursor:/);
+
+  // Stdout contains the JSON configuration block
+  const config = JSON.parse(result.stdout);
+  assert.ok(config.mcpServers);
+  assert.ok(config.mcpServers.thingd);
+  assert.equal(config.mcpServers.thingd.command, process.execPath);
+  assert.ok(Array.isArray(config.mcpServers.thingd.args));
+  assert.equal(config.mcpServers.thingd.args[1], "mcp");
+});
+
+
+async function run(args, env = { THINGD_PATH: ":memory:" }) {
   let stdout = "";
   let stderr = "";
 

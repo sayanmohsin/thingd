@@ -350,24 +350,31 @@ MCP is a core part of the design. The database ships with stdio and Streamable H
 Current tools:
 
 ```txt
-thing.search
-thing.get
-thing.put
-thing.delete
-thing.events.append
-thing.events.list
-thing.queue.push
-thing.queue.claim
-thing.queue.ack
-thing.queue.nack
-thing.queue.list
-thing.queue.dead
+thing_search
+thing_get
+thing_put
+thing_delete
+thing_events_append
+thing_events_list
+thing_queue_push
+thing_queue_claim
+thing_queue_ack
+thing_queue_nack
+thing_queue_list
+thing_queue_dead
 ```
 
-Run it locally for Claude Desktop:
+Run the automatic zero-config setup for Claude Desktop and Cursor:
 
 ```bash
-thingd mcp --path ./thingd.db --driver native
+# Installs/updates Claude Desktop config automatically and prints Cursor configuration
+thingd install
+```
+
+Or run the stdio MCP server manually (which automatically persists to `~/.thingd/data.db` by default):
+
+```bash
+thingd mcp --driver native
 ```
 
 To bridge Claude to a remote `thingd` cluster:

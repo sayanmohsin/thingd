@@ -19,12 +19,12 @@ await db.put("customers", { id: "cus_123", name: "Acme", plan: "pro" });
 The database should ship with safe MCP tools so agents can search, read, write, and append events without learning internal table layouts.
 
 ```txt
-thing.search
+thing_search
 memory.get
 memory.put
 memory.patch
-thing.events.append
-thing.queue.push
+thing_events_append
+thing_queue_push
 ```
 
 ### AI-readable by default

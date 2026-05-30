@@ -23,6 +23,7 @@ Commands:
 ```txt
 thingd status
 thingd tools
+thingd install
 thingd search <query>
 thingd objects get <collection> <id>
 thingd objects put <collection> <id> --text <text>
@@ -43,7 +44,7 @@ Common options:
 ```txt
 --url <url>          remote thingd URL. Defaults to THINGD_URL
 --auth-token <tok>  remote bearer token. Defaults to THINGD_AUTH_TOKEN
---path <path>       local database path. Defaults to THINGD_PATH or :memory:
+--path <path>       local database path. Defaults to THINGD_PATH or ~/.thingd/data.db
 --driver <driver>   memory, native, or remote
 --pretty            pretty-print JSON output
 --limit <n>         result limit for search and list commands
@@ -58,18 +59,30 @@ node packages/thingd-cli/dist/index.js status
 node packages/thingd-cli/dist/index.js tools
 ```
 
+### `thingd install`
+
+Runs a zero-config setup flow that:
+1. Detects Node.js, CLI entry path, database path, and native driver availability.
+2. Auto-configures Claude Desktop config on macOS.
+3. Prints a copy-pasteable Cursor MCP JSON config block.
+4. Auto-creates the default database directory `~/.thingd`.
+
+```bash
+thingd install
+```
+
 ### `thingd mcp`
 
 Runs the MCP server over stdio for local MCP clients.
 
 ```bash
-node packages/thingd-cli/dist/index.js mcp --path :memory:
+node packages/thingd-cli/dist/index.js mcp --driver native
 ```
 
 Options:
 
 ```txt
---path <path>      thingd database path. Defaults to THINGD_PATH or :memory:
+--path <path>      thingd database path. Defaults to THINGD_PATH or ~/.thingd/data.db
 --driver <driver> memory or native. Defaults to THINGD_DRIVER or memory
 -h, --help        show help
 ```
@@ -77,8 +90,8 @@ Options:
 Environment:
 
 ```txt
-THINGD_PATH=:memory:
-THINGD_DRIVER=memory
+THINGD_PATH=~/.thingd/data.db
+THINGD_DRIVER=native
 THINGD_MCP_AUDIT=true
 THINGD_MCP_ACTOR=mcp-client
 THINGD_MCP_SOURCE=thingd-mcp

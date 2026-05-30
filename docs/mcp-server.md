@@ -18,7 +18,7 @@ Implemented:
 - Streamable HTTP MCP endpoint at `/mcp`
 - bearer token auth for `/mcp`
 - health endpoint at `/healthz`
-- `thing.search`
+- `thing_search`
 - object read/write/delete tools
 - event append/list tools
 - queue push/claim/ack/nack/list/dead tools
@@ -38,19 +38,36 @@ Not implemented yet:
 ## Tool Surface
 
 ```txt
-thing.search
-thing.get
-thing.put
-thing.delete
-thing.events.append
-thing.events.list
-thing.queue.push
-thing.queue.claim
-thing.queue.ack
-thing.queue.nack
-thing.queue.list
-thing.queue.dead
+thing_search
+thing_get
+thing_put
+thing_delete
+thing_events_append
+thing_events_list
+thing_queue_push
+thing_queue_claim
+thing_queue_ack
+thing_queue_nack
+thing_queue_list
+thing_queue_dead
 ```
+
+## Zero-Config Setup
+
+The recommended way to set up and integrate the stdio MCP server with your AI editor (Cursor or Claude Desktop) is using the `install` command:
+
+```bash
+thingd install
+```
+
+This command will:
+1. Auto-detect your Node runtime path and global CLI script path.
+2. Auto-detect native driver availability.
+3. Automatically configure Claude Desktop (on macOS) by writing to `claude_desktop_config.json`.
+4. Print a copy-pasteable JSON block for Cursor's MCP server configuration.
+5. Auto-create the default database directory.
+
+---
 
 ## Local Usage
 
@@ -66,11 +83,13 @@ Run with the in-memory SDK store:
 thingd mcp --path :memory:
 ```
 
-Run with the private native Rust-backed SQLite driver:
+Run with the private native Rust-backed SQLite driver (which automatically persists to `~/.thingd/data.db` by default if no path is given):
 
 ```bash
-thingd mcp --path ./thingd.db --driver native
+thingd mcp --driver native
 ```
+
+You can customize the path by passing `--path <file>` or setting environment variables.
 
 The CLI also reads:
 
@@ -79,7 +98,7 @@ THINGD_PATH
 THINGD_DRIVER
 ```
 
-`THINGD_DRIVER` can be `memory` or `native`.
+`THINGD_DRIVER` can be `memory` or `native`. Defaults to `~/.thingd/data.db` and `native` for persistent local storage.
 
 ## Streamable HTTP Usage
 
@@ -145,13 +164,13 @@ MCP write tools append audit events to `__thingd:mcp:audit` by default.
 Audited tools:
 
 ```txt
-thing.put
-thing.delete
-thing.events.append
-thing.queue.push
-thing.queue.claim
-thing.queue.ack
-thing.queue.nack
+thing_put
+thing_delete
+thing_events_append
+thing_queue_push
+thing_queue_claim
+thing_queue_ack
+thing_queue_nack
 ```
 
 Each write tool accepts optional `actor` and `source` inputs. If omitted, the
