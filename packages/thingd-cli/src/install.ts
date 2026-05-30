@@ -206,13 +206,13 @@ function resolveCliPath(): string {
   try {
     const currentFile = fileURLToPath(import.meta.url);
     const dir = dirname(currentFile);
-    
+
     // In compiled dist folder: dist/install.js -> dist/index.js
     let candidate = join(dir, "index.js");
     if (existsSync(candidate)) {
       return realpathSync(candidate);
     }
-    
+
     // In dev src folder: src/install.ts -> src/index.ts
     candidate = join(dir, "index.ts");
     if (existsSync(candidate)) {
