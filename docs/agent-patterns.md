@@ -119,6 +119,58 @@ THINGD_AUTH_TOKEN=...
 App uses `ThingD.open()`; agents use the same sidecar MCP endpoint. One SQLite
 file per pod (leader writes in cluster mode).
 
+## Pattern 6 — Multi-agent blackboard (Shared state & facts)
+
+Use a shared object collection as a **Blackboard** to coordinate agent state, capabilities, and gathered facts without direct messaging.
+
+### Flow:
+1. **Agent Registration**: Each active agent registers its state and capabilities into an `"agents"` collection:
+   ```json
+   // thing_put into "agents"
+   {
+     "id": "researcher-agent",
+     "status": "idle",
+     "specialty": "web-search-and-summarization"
+   }
+   ```
+2. **Fact Compilation**: An agent processes raw information and writes structured findings into a `"shared_facts"` collection.
+3. **Retrieval**: Other agents query the blackboard via `thing_search` or `thing_objects_list` to fetch the updated context:
+   ```json
+   // thing_search
+   { "query": "latest research results", "collections": ["shared_facts"] }
+   ```
+
+## Pattern 7 — Multi-agent task handoff (Safe queues)
+
+Use queues to delegate work dynamically among multiple specialized worker agents. `thingd`'s built-in lease management guarantees **at-most-once processing concurrency** (no two agents will process the same task simultaneously).
+
+### Flow:
+1. **Coordinator Agent** delegates work:
+   - Pushes a job to `"code_review"` using `thing_queue_push`.
+2. **Worker Agents** continuously poll or claim ready tasks:
+   - Claims task using `thing_queue_claim` with `leaseMs: 30000`.
+   - The task transitions to `"leased"`, ensuring other worker agents skip it.
+3. **Worker Agent** completes the task, writes the results to the `"reviews"` collection, and runs `thing_queue_ack` to clear it.
+
+## Pattern 8 — Event-driven pub/sub (Signaling & coordination)
+
+Use event streams as a lightweight publish/subscribe bus to coordinate agent actions asynchronously.
+
+### Flow:
+1. **Publisher Agent**: Emits status or lifecycle signals to a shared event stream (e.g., `activity:session_123`):
+   ```json
+   // thing_events_append
+   {
+     "stream": "activity:session_123",
+     "event": {
+       "type": "draft_completed",
+       "author": "writer-agent",
+       "file": "draft.md"
+     }
+   }
+   ```
+2. **Subscriber Agent**: Regularly lists the stream using `thing_events_list` to discover new events. When it detects a `"draft_completed"` event type, it fires its own follow-up workflow (e.g. proofreading).
+
 ## Anti-patterns
 
 - Storing large blobs without chunking — use object refs + queue jobs to process
