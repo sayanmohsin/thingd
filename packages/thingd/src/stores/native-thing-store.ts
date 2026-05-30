@@ -51,6 +51,7 @@ type NativeThingStoreConstructor = {
 
 type NativeThingStoreModule = {
   NativeThingStore: NativeThingStoreConstructor;
+  loadedPath?: string;
 };
 
 type NativeObjectRecord = {
@@ -98,6 +99,24 @@ export class NativeThingStore implements ThingStore {
   static async open(path: string): Promise<NativeThingStore> {
     const native = await loadNativeModule();
     return new NativeThingStore(native.NativeThingStore.open(path));
+  }
+
+  static async isAvailable(): Promise<boolean> {
+    try {
+      await loadNativeModule();
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  static async getLoadedPath(): Promise<string | undefined> {
+    try {
+      const native = await loadNativeModule();
+      return native.loadedPath;
+    } catch {
+      return undefined;
+    }
   }
 
   private constructor(private readonly binding: NativeThingStoreBinding) {}
@@ -270,7 +289,10 @@ async function loadNativeModule(): Promise<NativeThingStoreModule> {
     try {
       const require = createRequire(import.meta.url);
       const binding = require(customPath);
-      return { NativeThingStore: binding.NativeThingStore };
+      return {
+        NativeThingStore: binding.NativeThingStore,
+        loadedPath: customPath,
+      };
     } catch (error) {
       throw new Error(
         `Failed to load native store from THINGD_NATIVE_PATH="${customPath}": ${error instanceof Error ? error.message : String(error)}`,
@@ -280,7 +302,11 @@ async function loadNativeModule(): Promise<NativeThingStoreModule> {
 
   // Try direct import first
   try {
-    return (await import(NATIVE_PACKAGE_NAME)) as NativeThingStoreModule;
+    const mod = (await import(NATIVE_PACKAGE_NAME)) as any;
+    return {
+      NativeThingStore: mod.NativeThingStore,
+      loadedPath: mod.loadedPath,
+    };
   } catch (importError) {
     // If direct import fails, try to auto-detect from known locations
     try {
@@ -293,18 +319,48 @@ async function loadNativeModule(): Promise<NativeThingStoreModule> {
 
       try {
         const __dirname = dirname(fileURLToPath(import.meta.url));
+        const platform = process.platform;
+        const arch = process.arch;
+
         // standard monorepo workspace path relative to packages/thingd/dist/stores/native-thing-store.js:
         candidates.push(join(__dirname, "../../../../thingd-native/dist/thingd_native.node"));
+        candidates.push(
+          join(
+            __dirname,
+            "../../../../thingd-native/prebuilds",
+            `${platform}-${arch}`,
+            "thingd_native.node",
+          ),
+        );
         // sibling to thingd-cli if installed in global node_modules:
         candidates.push(join(__dirname, "../../../../../../thingd-native/dist/thingd_native.node"));
+        candidates.push(
+          join(
+            __dirname,
+            "../../../../../../thingd-native/prebuilds",
+            `${platform}-${arch}`,
+            "thingd_native.node",
+          ),
+        );
         // inside thingd-cli node_modules:
         candidates.push(join(__dirname, "../../../../thingd-native/dist/thingd_native.node"));
+        candidates.push(
+          join(
+            __dirname,
+            "../../../../thingd-native/prebuilds",
+            `${platform}-${arch}`,
+            "thingd_native.node",
+          ),
+        );
       } catch {
         // Ignore URL/path resolution errors
       }
 
       try {
         const home = homedir();
+        const platform = process.platform;
+        const arch = process.arch;
+
         candidates.push(
           join(
             home,
@@ -314,7 +370,23 @@ async function loadNativeModule(): Promise<NativeThingStoreModule> {
         candidates.push(
           join(
             home,
+            "Space/Programming/personal/thingd/packages/thingd-native/prebuilds",
+            `${platform}-${arch}`,
+            "thingd_native.node",
+          ),
+        );
+        candidates.push(
+          join(
+            home,
             "Space/Programming/personal/thingd-cloud/packages/thingd-native/dist/thingd_native.node",
+          ),
+        );
+        candidates.push(
+          join(
+            home,
+            "Space/Programming/personal/thingd-cloud/packages/thingd-native/prebuilds",
+            `${platform}-${arch}`,
+            "thingd_native.node",
           ),
         );
       } catch {
@@ -326,7 +398,12 @@ async function loadNativeModule(): Promise<NativeThingStoreModule> {
           try {
             const require = createRequire(import.meta.url);
             const binding = require(candidate);
-            return { NativeThingStore: binding.NativeThingStore };
+            if (binding?.NativeThingStore) {
+              return {
+                NativeThingStore: binding.NativeThingStore,
+                loadedPath: candidate,
+              };
+            }
           } catch {
             // Ignore loading failures for this candidate, try others
           }

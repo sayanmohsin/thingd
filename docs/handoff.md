@@ -6,11 +6,9 @@ Last updated: 2026-05-30.
 
 ## Recommended next phase
 
-**Phase 1 — CLI-B** from [cli.md](./cli.md). Full ordered plan:
-[roadmap.md](./roadmap.md).
+**Phase 2 — Native release path** from [roadmap.md](./roadmap.md).
 
-After CLI-B: **Phase 2** native prebuilds, **Phase 3** Search-A (FTS), **Phase 4**
-agent pattern docs/examples.
+After Phase 2: **Phase 3** Search-A (FTS), **Phase 4** agent pattern docs/examples.
 
 ## Current shape
 

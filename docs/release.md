@@ -98,3 +98,32 @@ Before opening the repository, protect `main` in GitHub:
 - allow the release workflow to create tags and GitHub releases
 
 The release workflow does not push version commits back to `main`; semantic-release computes the next version, creates a Git tag/GitHub release, and publishes the npm package.
+
+---
+
+## Native Prebuilds Workflow (Phase 2)
+
+Prebuild binaries (`.node` files) are compiled for common architectures and platforms, then bundled inside the `thingd-native` package.
+
+### Target Matrix
+- `darwin-arm64` (macOS Apple Silicon)
+- `darwin-x64` (macOS Intel)
+- `linux-arm64` (Linux ARM)
+- `linux-x64` (Linux Intel)
+
+### Local Prebuild Compilation
+To compile and stage a prebuild for your current platform and architecture:
+1. Build the Rust target in release mode:
+   ```bash
+   cargo build -p thingd-native --release
+   ```
+2. Run the staging script to copy the binary to the `prebuilds/` distribution folder:
+   ```bash
+   pnpm --filter thingd-native build:prebuild
+   ```
+   *(Or run `node packages/thingd-native/scripts/copy-prebuild.mjs` directly.)*
+
+### Staging All Targets for Release
+During the release workflow, the runner cross-compiles the Rust addon for all supported target platforms and places them in `packages/thingd-native/prebuilds/<platform>-<arch>/thingd_native.node` before building and publishing the NPM package.
+
+Because `prebuilds` is listed in the `files` array inside `packages/thingd-native/package.json`, they are automatically bundled in the published package, allowing consumer environments to resolve and dynamically load them.

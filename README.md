@@ -701,8 +701,8 @@ Canonical ordering, exit criteria, and per-phase doc checklists:
 **[docs/roadmap.md](./docs/roadmap.md)**. Quick restart:
 [docs/handoff.md](./docs/handoff.md).
 
-**Next:** Phase 1 **CLI-B** (operator polish) → Phase 2 **native prebuilds** →
-Phase 3 **Search-A** (FTS) → Phase 4 **agent patterns** (docs/examples).
+**Next:** Phase 2 **native prebuilds** → Phase 3 **Search-A** (FTS) →
+Phase 4 **agent patterns** (docs/examples) → Phase 5 **MCP hardening**.
 
 ### v0.1 - local core
 
@@ -744,7 +744,7 @@ Phase 3 **Search-A** (FTS) → Phase 4 **agent patterns** (docs/examples).
 ### CLI phases
 
 - [x] CLI-A: `packages/thingd-cli`, `thingd` binary, Interactive TUI Dashboard, Non-interactive JSON output, object/event/queue inspection. (See [CLI documentation](./packages/thingd-cli/README.md))
-- [ ] CLI-B: pretty tables, `doctor`, queue stats, benchmark wrappers, clearer runtime errors
+- [x] CLI-B: pretty tables, `doctor`, queue stats, benchmark wrappers, clearer runtime errors
 - [ ] CLI-C: export/import, snapshots, and redaction-friendly handoff flows
 
 ### later

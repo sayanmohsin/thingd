@@ -4,6 +4,7 @@ import { dirname, join, resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { fileURLToPath } from "node:url";
 import pc from "picocolors";
+import { NativeThingStore } from "thingd";
 import type { CliContext } from "./index.js";
 import { defaultThingdDbPath, ensureThingdDir } from "./paths.js";
 
@@ -110,14 +111,22 @@ export async function runInstall(context: CliContext): Promise<void> {
     : generateMcpConfig(nodePath, cliPath, dbPath, driver);
 
   if (!isRaw) {
+    const hasNative = await NativeThingStore.isAvailable();
+    const bindingStatus = hasNative
+      ? pc.green("Available/Loaded")
+      : pc.red("Unavailable/Not Found");
+
     context.stderr.write(`  ${pc.bold("Configuration Details:")}\n`);
-    context.stderr.write(`    ${pc.green("✓")} Database path: ${pc.cyan(dbPath)}\n`);
-    context.stderr.write(`    ${pc.green("✓")} Driver:        ${pc.cyan(driver)}\n`);
+    context.stderr.write(`    ${pc.green("✓")} Database path:  ${pc.cyan(dbPath)}\n`);
+    context.stderr.write(`    ${pc.green("✓")} Driver:         ${pc.cyan(driver)}\n`);
+    context.stderr.write(
+      `    ${hasNative ? pc.green("✓") : pc.yellow("⚠")} Native Addon:  ${bindingStatus}\n`,
+    );
     if (globalBin) {
-      context.stderr.write(`    ${pc.green("✓")} Command:       ${pc.cyan(globalBin)}\n\n`);
+      context.stderr.write(`    ${pc.green("✓")} Command:        ${pc.cyan(globalBin)}\n\n`);
     } else {
-      context.stderr.write(`    ${pc.green("✓")} Node:          ${pc.cyan(nodePath)}\n`);
-      context.stderr.write(`    ${pc.green("✓")} CLI:           ${pc.cyan(cliPath)}\n\n`);
+      context.stderr.write(`    ${pc.green("✓")} Node:           ${pc.cyan(nodePath)}\n`);
+      context.stderr.write(`    ${pc.green("✓")} CLI:            ${pc.cyan(cliPath)}\n\n`);
     }
   }
 

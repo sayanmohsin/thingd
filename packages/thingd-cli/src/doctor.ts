@@ -1,8 +1,5 @@
-import { existsSync } from "node:fs";
-import { createRequire } from "node:module";
-import { homedir } from "node:os";
-import { join, resolve } from "node:path";
 import pc from "picocolors";
+import { NativeThingStore } from "thingd";
 import { type CliContext, resolveConnection } from "./index.js";
 
 export async function runDoctor(context: CliContext): Promise<void> {
@@ -28,94 +25,32 @@ export async function runDoctor(context: CliContext): Promise<void> {
 
   // 3. Native Driver Checks
   if (connection.driver === "native") {
-    const customPath = process.env.THINGD_NATIVE_PATH;
-    if (customPath) {
-      if (existsSync(customPath)) {
-        try {
-          const require = createRequire(import.meta.url);
-          const binding = require(customPath);
-          if (binding?.NativeThingStore) {
-            context.stderr.write(
-              `  ${pc.green("✓")} Native Binding: ${pc.cyan("Loaded via THINGD_NATIVE_PATH")} (${pc.dim(customPath)})\n`,
-            );
-          } else {
-            healthy = false;
-            context.stderr.write(
-              `  ${pc.red("×")} Native Binding: ${pc.yellow("Loaded but missing NativeThingStore export")} (${pc.dim(customPath)})\n`,
-            );
-          }
-        } catch (error) {
-          healthy = false;
-          context.stderr.write(
-            `  ${pc.red("×")} Native Binding: ${pc.yellow(`Failed to load: ${error instanceof Error ? error.message : String(error)}`)} (${pc.dim(customPath)})\n`,
-          );
-        }
-      } else {
-        healthy = false;
-        context.stderr.write(
-          `  ${pc.red("×")} Native Binding: ${pc.yellow("File does not exist")} at THINGD_NATIVE_PATH="${pc.dim(customPath)}"\n`,
-        );
-      }
-    } else {
-      // Auto-detect sibling binary
-      let detectedPath: string | null = null;
-      try {
-        const scriptPath = process.argv[1];
-        if (scriptPath) {
-          const cliDir = join(resolve(scriptPath), "..", "..");
-          const candidates = [
-            join(cliDir, "node_modules", "thingd-native", "dist", "thingd_native.node"),
-            join(cliDir, "..", "thingd-native", "dist", "thingd_native.node"),
-            join(
-              homedir(),
-              "Space/Programming/personal/thingd/packages/thingd-native/dist/thingd_native.node",
-            ),
-            join(
-              homedir(),
-              "Space/Programming/personal/thingd-cloud/packages/thingd-native/dist/thingd_native.node",
-            ),
-          ];
-          for (const candidate of candidates) {
-            if (existsSync(candidate)) {
-              detectedPath = candidate;
-              break;
-            }
-          }
-        }
-      } catch {
-        // Ignore
-      }
+    try {
+      const hasNative = await NativeThingStore.isAvailable();
+      if (hasNative) {
+        const loadedPath = (await NativeThingStore.getLoadedPath()) ?? "unknown";
+        const buildType = loadedPath.includes("prebuilds")
+          ? pc.cyan("Loaded prebuilt driver")
+          : pc.cyan("Loaded local development build");
 
-      if (detectedPath) {
-        try {
-          const require = createRequire(import.meta.url);
-          const binding = require(detectedPath);
-          if (binding?.NativeThingStore) {
-            context.stderr.write(
-              `  ${pc.green("✓")} Native Binding: ${pc.cyan("Auto-detected and loaded successfully")} (${pc.dim(detectedPath)})\n`,
-            );
-          } else {
-            healthy = false;
-            context.stderr.write(
-              `  ${pc.red("×")} Native Binding: ${pc.yellow("Auto-detected but missing NativeThingStore export")} (${pc.dim(detectedPath)})\n`,
-            );
-          }
-        } catch (error) {
-          healthy = false;
-          context.stderr.write(
-            `  ${pc.red("×")} Native Binding: ${pc.yellow(`Failed to load auto-detected binding: ${error instanceof Error ? error.message : String(error)}`)} (${pc.dim(detectedPath)})\n`,
-          );
-        }
+        context.stderr.write(
+          `  ${pc.green("✓")} Native Addon:    ${buildType} (${pc.dim(loadedPath)})\n`,
+        );
       } else {
         healthy = false;
         context.stderr.write(
-          `  ${pc.red("×")} Native Binding: ${pc.yellow('Not found. Run "pnpm --filter thingd-native build" or configure THINGD_NATIVE_PATH.')}\n`,
+          `  ${pc.red("×")} Native Addon:    ${pc.yellow('Not found. Run "pnpm --filter thingd-native build" or configure THINGD_NATIVE_PATH.')}\n`,
         );
       }
+    } catch (error) {
+      healthy = false;
+      context.stderr.write(
+        `  ${pc.red("×")} Native Addon:    ${pc.yellow(`Failed to load native addon: ${error instanceof Error ? error.message : String(error)}`)}\n`,
+      );
     }
   } else {
     context.stderr.write(
-      `  ${pc.dim("○")} Native Binding: Skipped (Using driver: "${connection.driver ?? "memory"}")\n`,
+      `  ${pc.dim("○")} Native Addon:    Skipped (Using driver: "${connection.driver ?? "memory"}")\n`,
     );
   }
 

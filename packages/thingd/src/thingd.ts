@@ -166,8 +166,26 @@ async function openStore(path: string, options: ResolvedThingDOpenOptions): Prom
     });
   }
 
+  const hasNative = await NativeThingStore.isAvailable();
+
   if (options.driver === "native") {
+    if (!hasNative) {
+      throw new Error(
+        `The native thingd driver is not available. Run "pnpm --filter thingd-native build" before using driver: "native".`,
+      );
+    }
     return NativeThingStore.open(path);
+  }
+
+  // Auto-detect and promote file paths to native store when available, with a warning fallback to memory.
+  if (!options.driver && path !== ":memory:") {
+    if (hasNative) {
+      return NativeThingStore.open(path);
+    }
+
+    console.warn(
+      `Warning: The native thingd driver is not available. Falling back to the temporary in-memory store. Data will not persist. Run "pnpm --filter thingd-native build" or install "thingd-native" to enable native persistence.`,
+    );
   }
 
   return new InMemoryThingStore();

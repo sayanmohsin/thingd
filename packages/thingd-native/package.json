@@ -14,12 +14,14 @@
   "types": "./index.d.ts",
   "files": [
     "dist",
+    "prebuilds",
     "index.js",
     "index.d.ts",
     "README.md"
   ],
   "scripts": {
     "build": "cargo build -p thingd-native --release && node scripts/copy-native.mjs",
+    "build:prebuild": "node scripts/copy-prebuild.mjs",
     "clean": "node scripts/clean-native.mjs"
   }
 }

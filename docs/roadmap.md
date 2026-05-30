@@ -45,18 +45,18 @@ Phases 8–13 match the priority order in [ai-primitives.md](./ai-primitives.md)
 
 ## Phase 1 — CLI-B (operator polish)
 
-**Status:** next up  
+**Status:** completed  
 **Detail:** [cli.md](./cli.md#phase-cli-b---operator-polish)
 
 ### Deliverables
 
-- [ ] `thingd doctor` (Node, native binding, remote reachability, auth)
-- [ ] Pretty table output (`--pretty` without raw JSON only)
-- [ ] `thingd queues stats <queue>`
-- [ ] `thingd collections list`, `thingd objects list <collection>`
-- [ ] `thingd events streams`
-- [ ] `thingd bench rust --smoke` / `--count <n>` wrappers
-- [ ] Clear errors: missing native, connection refused, 401
+- [x] `thingd doctor` (Node, native binding, remote reachability, auth)
+- [x] Pretty table output (`--pretty` without raw JSON only)
+- [x] `thingd queues stats <queue>`
+- [x] `thingd collections list`, `thingd objects list <collection>`
+- [x] `thingd events streams`
+- [x] `thingd bench rust --smoke` / `--count <n>` wrappers
+- [x] Clear errors: missing native, connection refused, 401
 
 ### Exit criteria
 
@@ -75,7 +75,7 @@ Phases 8–13 match the priority order in [ai-primitives.md](./ai-primitives.md)
 
 ## Phase 2 — Native release path
 
-**Status:** after CLI-B  
+**Status:** next up  
 **Detail:** [persistence-and-native-bindings.md](./persistence-and-native-bindings.md)
 
 ### Deliverables
