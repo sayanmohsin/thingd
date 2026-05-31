@@ -2,13 +2,13 @@
 
 Quick restart point for future work on `thingd`.
 
-Last updated: 2026-05-30.
+Last updated: 2026-05-31.
 
 ## Recommended next phase
 
-**Phase 4 — Agent patterns** from [roadmap.md](./roadmap.md).
+**Phase 6 — MCP hardening** from [roadmap.md](./roadmap.md).
 
-After Phase 4: **Phase 5** MCP hardening, **Phase 6** compaction and snapshots.
+After Phase 6: **Phase 7** CLI-C data movement (export/import/snapshots).
 
 ## Current shape
 
@@ -26,7 +26,8 @@ for AI-native apps. It combines:
 - Docker runtime scaffold
 - Kubernetes sidecar and leader/follower examples
 - remote SDK driver through `THINGD_URL`
-- first-pass `thingd` admin/operator CLI with local and remote JSON output
+- full-featured `thingd` admin/operator CLI with local and remote JSON output
+- **glassmorphic browser Inspector Dashboard** (`thingd dashboard`) with collections, events, FTS5 search, queue supervision, and structured JSON editor
 
 ## Important boundaries
 
@@ -43,17 +44,18 @@ for AI-native apps. It combines:
 ## Key docs
 
 - [README.md](../README.md) — public overview
+- [QUICKSTART.md](./QUICKSTART.md) — **5-minute agent quickstart**
 - [roadmap.md](./roadmap.md) — **canonical build order and exit criteria**
 - [doc-maintenance.md](./doc-maintenance.md) — what to update when you change code
 - [why-agents.md](./why-agents.md) — agent value proposition
-- [agent-patterns.md](./agent-patterns.md) — memory, scheduler, idempotency patterns
+- [agent-patterns.md](./agent-patterns.md) — memory, scheduler, idempotency, multi-agent patterns
 - [agent-implementation-guide.md](./agent-implementation-guide.md) — integration for agents/contributors
-- [cli.md](./cli.md) — CLI phases (CLI-B next)
+- [cli.md](./cli.md) — CLI phases
 - [mcp-server.md](./mcp-server.md) — MCP tools and runtime
 - [sidecar-cluster.md](./sidecar-cluster.md) — Kubernetes and bridge mode
 - [runtime-env.md](./runtime-env.md) — environment variables
 - [persistence-and-native-bindings.md](./persistence-and-native-bindings.md) — Rust persistence
-- [ai-primitives.md](./ai-primitives.md) — graph, hybrid search, workflows (phases 8–13)
+- [ai-primitives.md](./ai-primitives.md) — graph, hybrid search, workflows (phases 9–14)
 - [benchmarks.md](./benchmarks.md) — benchmark commands
 - [release.md](./release.md) — semantic-release and npm
 
@@ -78,6 +80,7 @@ pnpm smoke:docker
 ```bash
 node packages/thingd-cli/dist/index.js install
 node packages/thingd-cli/dist/index.js mcp --driver native
+node packages/thingd-cli/dist/index.js dashboard
 THINGD_AUTH_TOKEN=change-me \
   node packages/thingd-cli/dist/index.js mcp-http --driver native
 ```
@@ -88,6 +91,7 @@ THINGD_AUTH_TOKEN=change-me \
 pnpm check
 pnpm build
 pnpm test:local
+pnpm test:cli
 ```
 
 Rust (if installed):

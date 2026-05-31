@@ -558,8 +558,11 @@ docs/
 
 ## Examples
 
+- [cursor-agent-memory](./examples/cursor-agent-memory) — 5-minute agent quickstart, `.cursorrules`, scheduler heartbeat, and MCP registration for Cursor and Claude Desktop.
 - [Node basic](./examples/node-basic) shows the intended SDK shape.
 - [NestJS basic](./examples/nestjs-basic) shows how `thingd` can sit behind a normal NestJS module, service, and controller setup.
+
+Agent quickstart guide: **[docs/QUICKSTART.md](./docs/QUICKSTART.md)**
 
 ## Local testing without npm publish
 
@@ -699,7 +702,7 @@ Canonical ordering, exit criteria, and per-phase doc checklists:
 **[docs/roadmap.md](./docs/roadmap.md)**. Quick restart:
 [docs/handoff.md](./docs/handoff.md).
 
-**Next:** Phase 4 **agent patterns** (docs/examples) → Phase 5 **MCP hardening**.
+**Next:** Phase 6 **MCP hardening** → Phase 7 **CLI-C data movement**.
 
 ### v0.1 - local core
 
@@ -736,7 +739,7 @@ Canonical ordering, exit criteria, and per-phase doc checklists:
 - [x] bridge-mode env vars and follower MCP forwarding
 - [x] Docker/Kubernetes/proxy deployment examples
 - [x] admin/operator CLI
-- [ ] inspector UI
+- [x] inspector UI (Phase 5 complete — `thingd dashboard`)
 
 ### CLI phases
 

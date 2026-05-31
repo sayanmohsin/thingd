@@ -73,6 +73,8 @@ This command will:
 4. Print a copy-pasteable JSON block for Cursor's MCP server configuration.
 5. Auto-create the default database directory.
 
+See the **[5-minute quickstart](./QUICKSTART.md)** for a full walkthrough including Cursor, Claude Desktop, Node SDK, and MCP tool usage.
+
 ---
 
 ## Local Usage

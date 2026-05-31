@@ -1,19 +1,25 @@
 # Agent Patterns
 
-Recipes for using `thingd` with Cursor, Claude, and other MCP clients. Assumes
-MCP tools from [mcp-server.md](./mcp-server.md) are enabled.
+Recipes for using `thingd` with Cursor, Claude, and other MCP clients.
+Assumes MCP tools from [mcp-server.md](./mcp-server.md) are enabled.
+
+**New here?** Start with the [5-minute quickstart](./QUICKSTART.md) first.
+
+---
 
 ## Convention: search before put
 
 Before `thing_put`, call `thing_search` with the entity name or id. Reduces
 duplicate memories and conflicting records.
 
-Suggested Cursor user rule:
+Suggested Cursor / Claude rule (included in `.cursorrules`):
 
 ```txt
-When using thingd MCP, always thing_search before thing_put for the same entity.
-Prefer updating via put with the same id over creating duplicates.
+When using thingd MCP, always call thing_search before thing_put for the same
+entity. Prefer updating via put with the same id over creating duplicates.
 ```
+
+---
 
 ## Pattern 1 — Project memory
 
@@ -33,6 +39,8 @@ tasks        — id, projectId, title, status, dueAt
 2. `thing_events_append` on `project:thingd` with `type: "decision.made"`
 3. `thing_search` before next session to reload context
 
+---
+
 ## Pattern 2 — Scheduler (no built-in cron)
 
 `thingd` does not run timers. Use **objects + queue + external heartbeat**.
@@ -46,13 +54,13 @@ tasks        — id, projectId, title, status, dueAt
   "action": "send_summary",
   "payload": { "projectId": "thingd" },
   "enabled": true,
-  "recurring": null
+  "recurringIntervalMs": null
 }
 ```
 
 ### Queue: `scheduler`
 
-When `runAt <= now` and `enabled`:
+When `runAt <= now` and `enabled === true`:
 
 ```txt
 thing_queue_push → queue: "scheduler"
@@ -63,9 +71,9 @@ idempotencyKey: "schedule:<id>:<runAt>"
 
 ### Heartbeat (pick one)
 
-- Cursor Automation on interval
-- `thingd` CLI in cron: list due schedules, push jobs
-- Agent session on `/loop` claiming `scheduler` queue
+- Cursor Automation on an interval
+- CLI cron: list due schedules, push jobs
+- Agent session on `/loop` claiming the `scheduler` queue
 
 ### Worker
 
@@ -84,14 +92,20 @@ For simple delays, skip the `schedules` collection:
 thing_queue_push with delayMs: 3600000
 ```
 
+**Runnable example:** [`examples/cursor-agent-memory/scheduler-heartbeat.ts`](../examples/cursor-agent-memory/scheduler-heartbeat.ts)
+
+---
+
 ## Pattern 3 — Idempotent background worker
 
 Queues are at-least-once. Always set `idempotencyKey` on push. Consumers should
-treat duplicate claims as safe no-ops when work already completed.
+treat duplicate claims as safe no-ops when work is already completed.
 
 ```txt
 idempotencyKey: "embed:docs/doc_123:v1"
 ```
+
+---
 
 ## Pattern 4 — Audit-friendly writes
 
@@ -105,7 +119,13 @@ store:
 }
 ```
 
-Inspect `__thingd:mcp:audit` via `thing_events_list` or `thing_search`.
+Inspect `__thingd:mcp:audit` via `thing_events_list` or the **inspector dashboard**:
+
+```bash
+thingd dashboard
+```
+
+---
 
 ## Pattern 5 — Sidecar + local app
 
@@ -119,69 +139,91 @@ THINGD_AUTH_TOKEN=...
 App uses `ThingD.open()`; agents use the same sidecar MCP endpoint. One SQLite
 file per pod (leader writes in cluster mode).
 
-## Pattern 6 — Multi-agent blackboard (Shared state & facts)
+---
+
+## Pattern 6 — Multi-agent blackboard (shared state & facts)
 
 Use a shared object collection as a **Blackboard** to coordinate agent state, capabilities, and gathered facts without direct messaging.
 
-### Flow:
-1. **Agent Registration**: Each active agent registers its state and capabilities into an `"agents"` collection:
+### Flow
+
+1. **Agent Registration** — each active agent registers into the `agents` collection:
    ```json
-   // thing_put into "agents"
    {
      "id": "researcher-agent",
      "status": "idle",
      "specialty": "web-search-and-summarization"
    }
    ```
-2. **Fact Compilation**: An agent processes raw information and writes structured findings into a `"shared_facts"` collection.
-3. **Retrieval**: Other agents query the blackboard via `thing_search` or `thing_objects_list` to fetch the updated context:
+2. **Fact Compilation** — agents write structured findings to `shared_facts`.
+3. **Retrieval** — other agents query the blackboard:
    ```json
-   // thing_search
    { "query": "latest research results", "collections": ["shared_facts"] }
    ```
 
-## Pattern 7 — Multi-agent task handoff (Safe queues)
+---
 
-Use queues to delegate work dynamically among multiple specialized worker agents. `thingd`'s built-in lease management guarantees **at-most-once processing concurrency** (no two agents will process the same task simultaneously).
+## Pattern 7 — Multi-agent task handoff (safe queues)
 
-### Flow:
-1. **Coordinator Agent** delegates work:
-   - Pushes a job to `"code_review"` using `thing_queue_push`.
-2. **Worker Agents** continuously poll or claim ready tasks:
-   - Claims task using `thing_queue_claim` with `leaseMs: 30000`.
-   - The task transitions to `"leased"`, ensuring other worker agents skip it.
-3. **Worker Agent** completes the task, writes the results to the `"reviews"` collection, and runs `thing_queue_ack` to clear it.
+Queues provide **at-most-once processing concurrency**: no two agents process the same job simultaneously.
 
-## Pattern 8 — Event-driven pub/sub (Signaling & coordination)
+### Flow
 
-Use event streams as a lightweight publish/subscribe bus to coordinate agent actions asynchronously.
+1. **Coordinator** pushes work to a named queue with `thing_queue_push`.
+2. **Workers** claim via `thing_queue_claim` with `leaseMs: 30000`. The leased job is invisible to other workers.
+3. **Worker** writes results, then calls `thing_queue_ack` to clear the job.
+4. On failure, `thing_queue_nack` with a `delayMs` schedules a retry.
 
-### Flow:
-1. **Publisher Agent**: Emits status or lifecycle signals to a shared event stream (e.g., `activity:session_123`):
+---
+
+## Pattern 8 — Event-driven pub/sub (signaling & coordination)
+
+Use event streams as a lightweight publish/subscribe bus.
+
+### Flow
+
+1. **Publisher** emits status or lifecycle signals:
    ```json
-   // thing_events_append
    {
      "stream": "activity:session_123",
-     "event": {
-       "type": "draft_completed",
-       "author": "writer-agent",
-       "file": "draft.md"
-     }
+     "event": { "type": "draft_completed", "author": "writer-agent", "file": "draft.md" }
    }
    ```
-2. **Subscriber Agent**: Regularly lists the stream using `thing_events_list` to discover new events. When it detects a `"draft_completed"` event type, it fires its own follow-up workflow (e.g. proofreading).
+2. **Subscriber** polls via `thing_events_list` for new events on the stream and fires follow-up workflows when specific types appear.
+
+---
+
+## Pattern 9 — Session context reload
+
+At the start of every agent session, reload prior context before making decisions:
+
+```txt
+thing_search     { query: "<project>", collections: ["memories", "decisions", "tasks"] }
+thing_events_list { stream: "project:<id>", limit: 20 }
+thing_queue_list  { queue: "scheduler" }
+```
+
+This gives you current truth (objects), history (events), and pending work (queue) — without hallucinating stale state from prior sessions.
+
+---
 
 ## Anti-patterns
 
 - Storing large blobs without chunking — use object refs + queue jobs to process
 - Relying on search for exact id lookup — use `thing_get`
-- Expecting exactly-once queue delivery — use ack/nack and idempotency
+- Expecting exactly-once queue delivery — use ack/nack and idempotency keys
 - Assuming `ThingD.open("./file.db")` persists without `driver: "native"`
+- Creating a new collection per session — use stable shared collection names
+- Skipping `thing_search` before `thing_put` — causes duplicate, conflicting records
+
+---
 
 ## Examples & Quickstarts
 
-We have created fully functional, runnable examples demonstrating these agent patterns inside the [examples/cursor-agent-memory/](file:///Users/sayanmohsin/Space/Programming/personal/thingd/examples/cursor-agent-memory/) directory:
+Fully runnable examples in [`examples/cursor-agent-memory/`](../examples/cursor-agent-memory/):
 
-1. **[.cursorrules](file:///Users/sayanmohsin/Space/Programming/personal/thingd/examples/cursor-agent-memory/.cursorrules)**: Drop-in system configuration rules instructing AI subagents on search-before-put conventions, transaction auditing, and blackboard task queues.
-2. **[quickstart.ts](file:///Users/sayanmohsin/Space/Programming/personal/thingd/examples/cursor-agent-memory/quickstart.ts)**: A runnable script demonstrating automatic native SQLite driver promotion, FTS5 stemming queries (e.g. searching `"learning"` matches `"learn"`), and custom JSON metadata filters.
-3. **[scheduler-heartbeat.ts](file:///Users/sayanmohsin/Space/Programming/personal/thingd/examples/cursor-agent-memory/scheduler-heartbeat.ts)**: A runnable task coordinator executing the **Schedules collection + Scheduler queue** heartbeat cron-like pattern.
+1. **[.cursorrules](../examples/cursor-agent-memory/.cursorrules)** — drop-in system rules for Cursor/Claude agents enforcing all conventions above.
+2. **[quickstart.ts](../examples/cursor-agent-memory/quickstart.ts)** — native SQLite driver, FTS5 stemming search, metadata filters.
+3. **[scheduler-heartbeat.ts](../examples/cursor-agent-memory/scheduler-heartbeat.ts)** — full Schedules + Queue + Heartbeat scheduler pattern.
+
+5-minute install guide: **[docs/QUICKSTART.md](./QUICKSTART.md)**

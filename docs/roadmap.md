@@ -4,7 +4,7 @@ Single source of truth for build order, doc updates, and exit criteria. When the
 recommended next phase changes, update this file first, then
 [handoff.md](./handoff.md) and the short summary in [README.md](../README.md).
 
-Last updated: 2026-05-30.
+Last updated: 2026-05-31.
 
 ## North star (next ~8 weeks)
 
@@ -135,54 +135,62 @@ Phases 8–13 match the priority order in [ai-primitives.md](./ai-primitives.md)
 
 ## Phase 4 — Agent patterns (docs + examples)
 
-**Status:** next up  
-**Detail:** [agent-patterns.md](./agent-patterns.md), [why-agents.md](./why-agents.md)
+**Status:** completed  
+**Detail:** [agent-patterns.md](./agent-patterns.md), [why-agents.md](./why-agents.md), [QUICKSTART.md](./QUICKSTART.md)
 
 ### Deliverables
 
-- [ ] Agent quickstart (install → MCP → put/search/queue in 5 minutes)
-- [ ] Scheduler pattern: `schedules` collection + `scheduler` queue + heartbeat
-- [ ] Example Cursor rule snippet (`examples/cursor-agent-memory/`)
-- [ ] “Search before put” convention for agents
-- [ ] Optional: sample seed script matching MCP tutorial
+- [x] Agent quickstart (install → MCP → put/search/queue in 5 minutes) — `docs/QUICKSTART.md`
+- [x] Scheduler pattern: `schedules` collection + `scheduler` queue + heartbeat
+- [x] Example Cursor rule snippet (`examples/cursor-agent-memory/.cursorrules`)
+- [x] "Search before put" convention for agents
+- [x] Multi-agent coordination patterns (blackboard, task handoff, event pub/sub)
+- [x] Session context reload pattern
+- [x] Runnable example scripts (`quickstart.ts`, `scheduler-heartbeat.ts`)
 
 ### Exit criteria
 
-- New contributor can answer “why thingd for agents?” from docs alone
-- No new Rust required for doc-only slice
+- New contributor can answer "why thingd for agents?" from docs alone ✅
+- No new Rust required for doc-only slice ✅
 
 ### Doc / CLI checklist
 
 | Touch | Update |
 | --- | --- |
-| New examples | `examples/*/README.md`, root README Examples |
-| MCP install | `docs/mcp-server.md` links quickstart |
-| handoff + README | Link `why-agents.md`, `agent-patterns.md` |
+| New examples | `examples/cursor-agent-memory/README.md` updated |
+| Agent quickstart | `docs/QUICKSTART.md` created |
+| Agent patterns | `docs/agent-patterns.md` Pattern 9 added, all links updated |
+| Why agents | `docs/why-agents.md` quickstart link, dashboard section |
+| handoff + README | `docs/handoff.md` updated, root README updated |
 
 ---
 
 ## Phase 5 — Inspector Dashboard UI
 
-**Status:** next up  
+**Status:** completed  
 **Unlocks:** visual local developer inspection and "phpMyAdmin-style" queue supervision
 
 ### Deliverables
 
-- [ ] Create single-page dashboard assets (`index.html`, `style.css`, `app.js`) inside `packages/thingd-cli/src/dashboard/public/`
-- [ ] Implement REST API server routing in `packages/thingd-cli/src/dashboard/server.ts`
-- [ ] Add the `dashboard` command to `thingd-cli` in `packages/thingd-cli/src/index.ts` that auto-spawns a browser tab
-- [ ] Write CLI dashboard integration tests
+- [x] Svelte 5 + Vite frontend inside `packages/thingd-cli/src/dashboard/frontend/`
+- [x] REST API server routing in `packages/thingd-cli/src/dashboard/server.ts`
+- [x] `dashboard` command in `thingd-cli` that auto-opens browser
+- [x] Dashboard integration tests (auth gate, connection swap, static assets)
+- [x] Glassmorphic dark-mode UI: metrics, collections, events, FTS5 search, queue supervision
+- [x] Structured JSON editor (raw + visual builder) for payload and metadata fields
+- [x] Dashboard auth gate via `THINGD_DASHBOARD_TOKEN` env
+- [x] Connection settings modal (swap driver/path live)
 
 ### Exit criteria
 
-- Executing `thingd dashboard` opens a responsive dark-mode glassmorphic dashboard in the browser
-- Dashboard allows viewing all collections, event logs, FTS5 stemming queries, and claiming/ack/nack queue jobs
+- `thingd dashboard` opens a responsive dark-mode glassmorphic dashboard ✅
+- Dashboard covers all collections, event logs, FTS5 stemming queries, and queue jobs ✅
 
 ---
 
 ## Phase 6 — MCP hardening
 
-**Status:** after Dashboard UI
+**Status:** next up
 
 ### Deliverables
 

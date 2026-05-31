@@ -1,55 +1,109 @@
-# thingd Agent System Instructions
+# thingd Agent System Rules
 
-You have access to `thingd` MCP tools. Use them to maintain durable long-term memory, keep state between sessions, and process background queues. Follow these guidelines strictly.
+You have access to `thingd` MCP tools. Use them to maintain durable long-term memory, coordinate background work, and keep structured state between sessions. Follow these guidelines strictly.
 
 ---
 
 ## 🔍 Rule 1: Search-Before-Put (No Duplicates)
 
-Never write or insert a memory object without verifying if it already exists or matches an existing topic.
-- **Always** call `thing_search` with relevant keywords or topic identifiers before calling `thing_put`.
-- If an existing memory object is found, update its contents under the **same ID** instead of creating a duplicate record.
-- Match existing object collections (e.g., `"memories"`, `"decisions"`, `"tasks"`) to preserve consistent schema groups.
+**Always** call `thing_search` before calling `thing_put` for any entity that might already exist.
 
-*Example pattern:*
-1. Call `thing_search` with query `"database migration plan"`.
-2. If hit `id: "migration-plan-v2"` returned, call `thing_put` on collection `"decisions"` with `id: "migration-plan-v2"` and updated fields.
+- Search using relevant keywords, topic names, or identifiers.
+- If a match is found, update it under the **same ID** — never create a duplicate.
+- Match existing collection names to preserve consistent schema groups.
+
+**Pattern:**
+
+```
+1. thing_search { query: "database migration plan", collections: ["decisions"] }
+2. → hit found: id "migration-plan-v2"
+3. thing_put { collection: "decisions", object: { id: "migration-plan-v2", ...updated } }
+```
+
+**Standard collection names** — use these consistently:
+
+| Collection | Purpose |
+|---|---|
+| `memories` | Long-term facts, developer guidelines, codebase knowledge |
+| `decisions` | Technical and architectural choices made during work |
+| `tasks` | Pending work items to track between sessions |
+| `schedules` | Recurring or one-shot scheduled jobs |
+| `agents` | Active agent registrations for multi-agent coordination |
+| `shared_facts` | Blackboard facts gathered by multiple agents |
 
 ---
 
 ## 📝 Rule 2: Transactional Write Auditing
 
-When calling mutation tools (`thing_put`, `thing_delete`, `thing_events_append`, `thing_queue_push`), always populate the audit metadata fields to make writes traceable:
-- `actor`: Set this to your agent profile name (e.g., `"cursor-subagent"`).
-- `source`: Set this to the current task or intent context (e.g., `"nightly-review"`, `"features-implementation"`).
+On every mutation tool call (`thing_put`, `thing_delete`, `thing_events_append`, `thing_queue_push`), always populate audit metadata:
 
-*Example input:*
+- `actor` — your agent profile name, e.g. `"cursor-subagent"`, `"claude-agent"`
+- `source` — the current task or intent context, e.g. `"nightly-review"`, `"release-planning"`
+
+**Example:**
+
 ```json
 {
   "collection": "decisions",
-  "object": {
-    "id": "release-v1",
-    "status": "approved"
-  },
+  "object": { "id": "release-v1", "status": "approved" },
   "actor": "cursor-subagent",
   "source": "release-approval"
 }
 ```
 
----
-
-## 📬 Rule 3: Blackboard Queue Claims
-
-When coordinate processing on background task queues:
-- **At-Most-Once Concurrency**: Always call `thing_queue_claim` to retrieve ready jobs. A successful claim leases the job, preventing other parallel agents from starting it.
-- **Idempotency**: Set a unique `idempotencyKey` when enqueuing jobs via `thing_queue_push` to avoid processing duplicates.
-- **Acknowledge and Resolve**: Immediately after completing a leased job, call `thing_queue_ack` to mark it completed. If the job fails and needs to be retried later, call `thing_queue_nack` with a retry delay.
+Audit events land in `__thingd:mcp:audit` and are readable via `thing_events_list`.
 
 ---
 
-## 🧠 Memory Structure Conventions
+## 📬 Rule 3: Queue Safety (Claim → Work → Ack)
 
-Prefer these standard collection names:
-- `"memories"`: General long-term facts, developer guidelines, and codebase knowledge.
-- `"decisions"`: Technical architecture selections, designs, and decisions made during work.
-- `"tasks"`: Pending work items to track between sessions.
+When processing background task queues:
+
+1. **Claim with a lease** — `thing_queue_claim` returns a job and locks it for `leaseMs`. Other agents skip leased jobs.
+2. **Set idempotency keys** — always pass a unique `idempotencyKey` on `thing_queue_push` to prevent duplicate processing.
+3. **Acknowledge immediately** — after completing a job, call `thing_queue_ack`. If the job fails, call `thing_queue_nack` with a `delayMs` for retry.
+4. **Check dead-letter** — use `thing_queue_dead` to inspect jobs that exceeded `maxAttempts`.
+
+```
+thing_queue_push  { queue: "embed", payload: {...}, idempotencyKey: "embed:doc123:v1" }
+thing_queue_claim { queue: "embed", leaseMs: 30000 }
+→ do work
+thing_queue_ack   { id: "<job-id>" }
+```
+
+---
+
+## 📅 Rule 4: Scheduler Pattern (No Built-in Cron)
+
+`thingd` does not run timers. Use **`schedules` collection + `scheduler` queue + external heartbeat**:
+
+1. **Register** — `thing_put` a schedule object into the `schedules` collection with `runAt`, `action`, and optional `recurringIntervalMs`.
+2. **Heartbeat** — periodically check `runAt <= now` and `enabled === true`. If due, push a job to the `scheduler` queue with `idempotencyKey: "schedule:<id>:<runAt>"`.
+3. **Worker** — `thing_queue_claim` on `scheduler`, run the action, `thing_queue_ack`, then advance `runAt` for recurring schedules.
+
+For one-shot delays, skip the `schedules` collection and use `thing_queue_push` with `delayMs`.
+
+---
+
+## 🤝 Rule 5: Multi-Agent Coordination (Blackboard)
+
+When coordinating with other agents:
+
+- **Register** your agent in the `agents` collection with `id`, `status`, and `specialty`.
+- **Publish facts** to the `shared_facts` collection after processing.
+- **Subscribe** by calling `thing_search` or `thing_objects_list` on `shared_facts` at the start of each session.
+- **Emit signals** via `thing_events_append` on named streams (e.g. `activity:<session-id>`) so other agents can react.
+
+---
+
+## 🧠 Rule 6: Session Context Reload
+
+At the start of every agent session, reload prior context:
+
+```
+thing_search { query: "<project name or topic>", collections: ["memories", "decisions", "tasks"] }
+thing_events_list { stream: "project:<id>", limit: 20 }
+thing_queue_list { queue: "scheduler" }
+```
+
+This gives you current truth (objects), history (events), and pending work (queue) — without hallucinating stale state.

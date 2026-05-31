@@ -302,10 +302,10 @@ For agent value and patterns, read [why-agents.md](./why-agents.md) and
 
 See [roadmap.md](./roadmap.md) for the full ordered plan.
 
-1. **CLI-B** — `doctor`, tables, queue stats ([cli.md](./cli.md))
-2. **Native release** — prebuilds, SDK default path
-3. **Search-A** — SQLite FTS, metadata filters
-4. **Agent patterns** — [agent-patterns.md](./agent-patterns.md), [why-agents.md](./why-agents.md)
+1. **Phase 6** — MCP hardening (collection allowlists, payload limits, MCP resources)
+2. **Phase 7** — CLI-C data movement (export/import/snapshots)
+
+For a 5-minute working example: **[QUICKSTART.md](./QUICKSTART.md)**
 
 Before merging, follow [doc-maintenance.md](./doc-maintenance.md).
 
