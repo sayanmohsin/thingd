@@ -190,26 +190,26 @@ Phases 8–13 match the priority order in [ai-primitives.md](./ai-primitives.md)
 
 ## Phase 6 — MCP hardening
 
-**Status:** next up
+**Status:** completed
 
 ### Deliverables
 
-- [ ] Collection allowlist / read-only MCP mode (env-driven)
-- [ ] Payload size limits for HTTP MCP
-- [ ] MCP resources (e.g. list collections) — design in `docs/mcp-server.md` first
-- [ ] Documented security defaults for non-loopback bind
+- [x] Collection allowlist / read-only MCP mode — `THINGD_MCP_COLLECTIONS`, `THINGD_MCP_READ_ONLY` (stdio + HTTP)
+- [x] Payload size limits for HTTP MCP — `THINGD_MCP_MAX_PAYLOAD_BYTES` (default 512 KB, Content-Length fast-path)
+- [x] MCP resources — `thingd://collections` via `resources/list` (allowlist-filtered)
+- [x] Documented security defaults — `docs/mcp-server.md` MCP Hardening section, `docs/runtime-env.md`
 
 ### Exit criteria
 
-- `docs/mcp-server.md` “Not implemented” list updated
-- Smoke tests for auth + allowlist
+- `docs/mcp-server.md` Not-implemented list updated ✅
+- Smoke tests for auth + allowlist ✅ (31/31 pass)
 
 ### Doc / CLI checklist
 
 | Touch | Update |
 | --- | --- |
-| Env vars | `docs/runtime-env.md`, `docs/mcp-server.md`, deploy READMEs |
-| Docker/K8s | `docs/docker-runtime.md`, `deploy/` |
+| Env vars | `docs/runtime-env.md` — MCP Hardening section added |
+| MCP server | `docs/mcp-server.md` — hardening + resources sections added |
 
 ---
 

@@ -6,6 +6,8 @@ export type {
   ThingdClusterOptions,
   ThingdClusterStatus,
 } from "./cluster.js";
+export type { ThingdMcpHardeningOptions } from "./config.js";
+export { readMcpHardeningOptionsFromEnv } from "./config.js";
 export type { RunningThingdHttpServer, ThingdHttpServerOptions } from "./http.js";
 export { startThingdHttpServer } from "./http.js";
 export type { ThingdMcpServerOptions } from "./server.js";

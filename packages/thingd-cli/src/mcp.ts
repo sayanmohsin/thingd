@@ -1,12 +1,15 @@
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { type CliContext, resolveConnection, withDb } from "./index.js";
+import { readMcpAuditOptionsFromEnv, readMcpHardeningOptionsFromEnv } from "./mcp/config.js";
 import { createThingdMcpServer } from "./mcp/index.js";
 
 export async function runMcp(context: CliContext): Promise<void> {
   const connection = resolveConnection(context);
   await withDb(context, async (db) => {
-    // We pass empty options to createThingdMcpServer so it uses default audit behavior
-    const server = createThingdMcpServer(db);
+    const server = createThingdMcpServer(db, {
+      audit: readMcpAuditOptionsFromEnv(context.env),
+      hardening: readMcpHardeningOptionsFromEnv(context.env),
+    });
     const transport = new StdioServerTransport();
 
     context.stderr.write(`\nthingd stdio MCP server started successfully.\n`);

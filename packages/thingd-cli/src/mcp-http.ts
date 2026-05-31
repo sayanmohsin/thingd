@@ -1,6 +1,11 @@
 import type { CliContext } from "./index.js";
 import { readClusterOptionsFromEnv } from "./mcp/cluster.js";
-import { parsePort, parseThingdDriver, readMcpAuditOptionsFromEnv } from "./mcp/config.js";
+import {
+  parsePort,
+  parseThingdDriver,
+  readMcpAuditOptionsFromEnv,
+  readMcpHardeningOptionsFromEnv,
+} from "./mcp/config.js";
 import { startThingdHttpServer } from "./mcp/http.js";
 import { defaultThingdDbPath, ensureThingdDir } from "./paths.js";
 
@@ -36,6 +41,7 @@ export async function runMcpHttp(context: CliContext): Promise<void> {
     allowUnauthenticated,
     audit: readMcpAuditOptionsFromEnv(context.env),
     cluster: readClusterOptionsFromEnv(context.env),
+    hardening: readMcpHardeningOptionsFromEnv(context.env),
   });
 
   console.error(`thingd MCP HTTP runtime listening at ${runtime.mcpUrl}`);

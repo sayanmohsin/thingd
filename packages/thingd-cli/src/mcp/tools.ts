@@ -7,6 +7,7 @@ import {
   type ThingdMcpAuditMetadata,
   type ThingdMcpAuditOptions,
 } from "./audit.js";
+import type { ThingdMcpHardeningOptions } from "./config.js";
 import { jsonResult } from "./result.js";
 
 const memoryObjectSchema = z.object({ id: z.string().min(1) }).catchall(z.unknown());
@@ -19,6 +20,7 @@ const auditInputSchema = {
 
 export type RegisterThingdToolsOptions = {
   audit?: ThingdMcpAuditOptions | false;
+  hardening?: ThingdMcpHardeningOptions;
 };
 
 export function registerThingdTools(
@@ -27,6 +29,26 @@ export function registerThingdTools(
   options: RegisterThingdToolsOptions = {},
 ): void {
   const audit = resolveThingdMcpAuditOptions(options.audit);
+  const allowlist = options.hardening?.collectionAllowlist;
+  const readOnly = options.hardening?.readOnly ?? false;
+
+  /** Throw a tool-level error if the collection is not in the allowlist. */
+  function assertCollectionAllowed(collection: string): void {
+    if (allowlist && !allowlist.has(collection)) {
+      throw new Error(
+        `Collection "${collection}" is not permitted by this thingd MCP server. Allowed: ${[...allowlist].join(", ")}.`,
+      );
+    }
+  }
+
+  /** Throw a tool-level error if the server is in read-only mode. */
+  function assertWriteAllowed(): void {
+    if (readOnly) {
+      throw new Error(
+        "This thingd MCP server is configured in read-only mode. Write operations are not permitted.",
+      );
+    }
+  }
 
   server.registerTool(
     "thing_search",
@@ -46,8 +68,12 @@ export function registerThingdTools(
         openWorldHint: false,
       },
     },
-    async ({ query, collections, limit, filter }) =>
-      jsonResult(await db.search(query, { collections, limit, filter })),
+    async ({ query, collections, limit, filter }) => {
+      if (collections) {
+        for (const c of collections) assertCollectionAllowed(c);
+      }
+      return jsonResult(await db.search(query, { collections, limit, filter }));
+    },
   );
 
   server.registerTool(
@@ -66,7 +92,10 @@ export function registerThingdTools(
         openWorldHint: false,
       },
     },
-    async ({ collection, id }) => jsonResult(await db.get(collection, id)),
+    async ({ collection, id }) => {
+      assertCollectionAllowed(collection);
+      return jsonResult(await db.get(collection, id));
+    },
   );
 
   server.registerTool(
@@ -87,6 +116,8 @@ export function registerThingdTools(
       },
     },
     async ({ collection, object, actor, source }) => {
+      assertWriteAllowed();
+      assertCollectionAllowed(collection);
       const stored = await db.put(collection, object);
       await appendMcpAuditEvent(db, audit, {
         action: "objects.put",
@@ -124,6 +155,8 @@ export function registerThingdTools(
       },
     },
     async ({ collection, id, actor, source }) => {
+      assertWriteAllowed();
+      assertCollectionAllowed(collection);
       const result = await db.delete(collection, id);
       await appendMcpAuditEvent(db, audit, {
         action: "objects.delete",
@@ -157,6 +190,7 @@ export function registerThingdTools(
       },
     },
     async ({ stream, event, actor, source }) => {
+      assertWriteAllowed();
       const stored = await db.events.append(stream, event);
       await appendMcpAuditEvent(db, audit, {
         action: "events.append",
@@ -215,6 +249,7 @@ export function registerThingdTools(
       },
     },
     async ({ queue, payload, idempotencyKey, maxAttempts, delayMs, actor, source }) => {
+      assertWriteAllowed();
       const job = await db.queue(queue).push(payload, {
         idempotencyKey,
         maxAttempts,
@@ -256,6 +291,7 @@ export function registerThingdTools(
       },
     },
     async ({ queue, leaseMs, actor, source }) => {
+      assertWriteAllowed();
       const job = await db.queue(queue).claim({ leaseMs });
       if (job) {
         await appendMcpAuditEvent(db, audit, {
@@ -296,6 +332,7 @@ export function registerThingdTools(
       },
     },
     async ({ queue, id, actor, source }) => {
+      assertWriteAllowed();
       const result = await db.queue(queue).ack(id);
       if (result.ok) {
         await appendMcpAuditEvent(db, audit, {
@@ -336,6 +373,7 @@ export function registerThingdTools(
       },
     },
     async ({ queue, id, delayMs, error, actor, source }) => {
+      assertWriteAllowed();
       const result = await db.queue(queue).nack(id, { delayMs, error });
       if (result.ok) {
         await appendMcpAuditEvent(db, audit, {
@@ -407,7 +445,10 @@ export function registerThingdTools(
         openWorldHint: false,
       },
     },
-    async ({ collection }) => jsonResult(await db.listObjects(collection)),
+    async ({ collection }) => {
+      assertCollectionAllowed(collection);
+      return jsonResult(await db.listObjects(collection));
+    },
   );
 }
 

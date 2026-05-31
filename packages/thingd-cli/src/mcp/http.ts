@@ -9,7 +9,7 @@ import {
   resolveClusterOptions,
   type ThingdClusterOptions,
 } from "./cluster.js";
-import { ensureHttpRuntimeIsSafe, type ThingDStorageDriver } from "./config.js";
+import { ensureHttpRuntimeIsSafe, type ThingDStorageDriver, type ThingdMcpHardeningOptions } from "./config.js";
 import { createThingdMcpServer } from "./server.js";
 
 export type ThingdHttpServerOptions = {
@@ -23,6 +23,7 @@ export type ThingdHttpServerOptions = {
   cluster?: ThingdClusterOptions;
   mcpPath?: string;
   healthPath?: string;
+  hardening?: ThingdMcpHardeningOptions;
 };
 
 export type RunningThingdHttpServer = {
@@ -40,6 +41,7 @@ type RuntimeState = {
   driver: ThingDStorageDriver | "memory";
   audit?: ThingdMcpAuditOptions | false;
   cluster: ResolvedThingdClusterOptions;
+  hardening?: ThingdMcpHardeningOptions;
 };
 
 export async function startThingdHttpServer(
@@ -66,6 +68,7 @@ export async function startThingdHttpServer(
     driver: options.driver ?? "memory",
     audit: options.audit,
     cluster,
+    hardening: options.hardening,
   };
   const server = createServer((request, response) => {
     void handleRequest(state, request, response);
@@ -145,12 +148,37 @@ async function handleRequest(
       return;
     }
 
+    // Enforce payload size limit.
+    // For requests with Content-Length we can reject immediately without draining the body.
+    // For chunked transfers we wrap the request in a PassThrough that aborts if the limit is exceeded.
+    const maxBytes = state.hardening?.maxPayloadBytes ?? 524_288;
+    const contentLength = parseContentLength(request);
+
+    if (contentLength !== null && contentLength > maxBytes) {
+      writeJson(response, 413, {
+        jsonrpc: "2.0",
+        error: {
+          code: -32_000,
+          message: `Request body exceeds the maximum allowed size of ${maxBytes} bytes.`,
+        },
+        id: null,
+      });
+      return;
+    }
+
     if (state.cluster.mode === "follower") {
       await forwardMcpRequestToLeader(state.cluster, state.mcpPath, request, response);
       return;
     }
 
-    await handleMcpRequest(state, request, response);
+    // For chunked transfers, wrap the request in a PassThrough that enforces the limit
+    // without pre-draining the stream (the MCP transport still drives reading).
+    const wrappedRequest =
+      contentLength === null
+        ? wrapRequestWithSizeLimit(request, response, maxBytes)
+        : request;
+
+    await handleMcpRequest(state, wrappedRequest, response);
   } catch (error) {
     if (!response.headersSent) {
       writeJson(response, 500, {
@@ -242,6 +270,7 @@ async function handleMcpRequest(
 ): Promise<void> {
   const server = createThingdMcpServer(state.db, {
     audit: state.audit,
+    hardening: state.hardening,
   });
   const transport = new StreamableHTTPServerTransport({
     sessionIdGenerator: undefined,
@@ -324,3 +353,60 @@ function close(server: Server): Promise<void> {
     });
   });
 }
+
+/** Parse Content-Length header. Returns null if absent or invalid. */
+function parseContentLength(request: IncomingMessage): number | null {
+  const header = request.headers["content-length"];
+  if (!header) return null;
+  const n = Number.parseInt(header, 10);
+  return Number.isInteger(n) && n >= 0 ? n : null;
+}
+
+/**
+ * Wrap a request in a PassThrough that enforces maxBytes for chunked transfers.
+ * The MCP transport still drives reading — we just count bytes as they flow through
+ * and destroy the stream (causing the transport to error) if the limit is exceeded.
+ * The response is also aborted with HTTP 413 immediately on overflow.
+ */
+function wrapRequestWithSizeLimit(
+  request: IncomingMessage,
+  response: ServerResponse,
+  maxBytes: number,
+): IncomingMessage {
+  const { PassThrough } = require("node:stream") as typeof import("node:stream");
+  const pass = new PassThrough();
+  let total = 0;
+  let aborted = false;
+
+  Object.defineProperties(pass, {
+    method:  { get: () => request.method },
+    url:     { get: () => request.url },
+    headers: { get: () => request.headers },
+  });
+
+  request.on("data", (chunk: Buffer) => {
+    if (aborted) return;
+    total += chunk.length;
+    if (total > maxBytes) {
+      aborted = true;
+      if (!response.headersSent) {
+        writeJson(response, 413, {
+          jsonrpc: "2.0",
+          error: { code: -32_000, message: `Request body exceeds the maximum allowed size of ${maxBytes} bytes.` },
+          id: null,
+        });
+      }
+      pass.destroy();
+      request.destroy();
+      return;
+    }
+    pass.push(chunk);
+  });
+
+  request.on("end", () => { if (!aborted) pass.end(); });
+  request.on("error", (err) => { if (!aborted) pass.destroy(err); });
+
+  return pass as unknown as IncomingMessage;
+}
+
+

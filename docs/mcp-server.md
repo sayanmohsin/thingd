@@ -34,8 +34,6 @@ Not implemented yet:
 - hosted/cloud gateway
 - TLS termination
 - follower local replica catch-up
-- collection allowlists / read-only MCP mode (Phase 5)
-- MCP resources (Phase 5)
 
 ### Search behavior today
 
@@ -147,6 +145,9 @@ THINGD_MCP_AUDIT=true
 THINGD_MCP_ACTOR=mcp-client
 THINGD_MCP_SOURCE=thingd-mcp
 THINGD_MCP_AUDIT_STREAM=__thingd:mcp:audit
+THINGD_MCP_COLLECTIONS=memories,decisions,tasks
+THINGD_MCP_READ_ONLY=false
+THINGD_MCP_MAX_PAYLOAD_BYTES=524288
 THINGD_CLUSTER_MODE=single
 THINGD_CLUSTER_LEADER_URL=
 THINGD_CLUSTER_FORWARD_AUTH_TOKEN=
@@ -164,6 +165,41 @@ curl http://127.0.0.1:8757/cluster/peers
 When the HTTP runtime binds to a non-loopback host such as `0.0.0.0`, it
 requires `THINGD_AUTH_TOKEN`. Set `THINGD_ALLOW_UNAUTHENTICATED=true` only for
 local experiments.
+
+## MCP Hardening
+
+Three env vars control access enforcement on both the stdio and HTTP runtimes:
+
+| Var | Default | Behaviour |
+| --- | --- | --- |
+| `THINGD_MCP_COLLECTIONS` | unset | Comma-separated allowlist. Tool calls for unlisted collections are rejected immediately. |
+| `THINGD_MCP_READ_ONLY` | `false` | When `true`, all write tools return an error. Read tools are unaffected. |
+| `THINGD_MCP_MAX_PAYLOAD_BYTES` | `524288` | HTTP only. Request bodies over this limit receive HTTP 413 before the MCP layer processes them. |
+
+**Examples:**
+
+```bash
+# Allow agents to read/write only two collections
+THINGD_MCP_COLLECTIONS=memories,decisions thingd mcp --driver native
+
+# Public inspector — agents can search and read but not write
+THINGD_MCP_READ_ONLY=true thingd mcp-http --driver native
+
+# Tighter payload limit for untrusted networks
+THINGD_MCP_MAX_PAYLOAD_BYTES=65536 THINGD_AUTH_TOKEN=secret thingd mcp-http
+```
+
+## MCP Resources
+
+The server implements the MCP `resources/list` capability. Agents can call
+`resources/list` to enumerate known collections without a tool call:
+
+```txt
+thingd://collections  — list of known object collection names
+```
+
+If `THINGD_MCP_COLLECTIONS` is set, only allowed collections appear. Returns an
+empty list when using the in-memory driver (no collections have been created yet).
 
 ## Audit Events
 

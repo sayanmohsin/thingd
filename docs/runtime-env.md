@@ -48,6 +48,21 @@ THINGD_MCP_AUDIT_STREAM=__thingd:mcp:audit
 Write tools append audit events by default. Set `THINGD_MCP_AUDIT=false` only
 when you explicitly do not want MCP write events recorded.
 
+## MCP Hardening
+
+```txt
+THINGD_MCP_COLLECTIONS=memories,decisions,tasks
+THINGD_MCP_READ_ONLY=false
+THINGD_MCP_MAX_PAYLOAD_BYTES=524288
+```
+
+| Var | Default | Description |
+| --- | --- | --- |
+| `THINGD_MCP_COLLECTIONS` | unset (all allowed) | Comma-separated allowlist. Tool calls for unlisted collections are rejected. |
+| `THINGD_MCP_READ_ONLY` | `false` | When `true`, all write tools (`thing_put`, `thing_delete`, queue mutations) return an error. |
+| `THINGD_MCP_MAX_PAYLOAD_BYTES` | `524288` (512 KB) | HTTP MCP request body size limit. Requests over this limit receive HTTP 413. |
+
+
 ## Bridge And Cluster
 
 ```txt
@@ -89,3 +104,9 @@ POST /mcp
 GET  /cluster/status
 GET  /cluster/peers
 ```
+
+## MCP Resources
+
+The MCP server exposes a `thingd://collections` resource via the MCP `resources/list` capability.
+Agents can call `resources/list` to enumerate available collection names without using a tool.
+If `THINGD_MCP_COLLECTIONS` is set, only allowed collections appear in the resource list.

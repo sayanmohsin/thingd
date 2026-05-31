@@ -702,7 +702,7 @@ Canonical ordering, exit criteria, and per-phase doc checklists:
 **[docs/roadmap.md](./docs/roadmap.md)**. Quick restart:
 [docs/handoff.md](./docs/handoff.md).
 
-**Next:** Phase 6 **MCP hardening** → Phase 7 **CLI-C data movement**.
+**Next:** Phase 7 **CLI-C data movement** (export/import/snapshots).
 
 ### v0.1 - local core
 
