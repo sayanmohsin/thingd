@@ -36,7 +36,7 @@
     "zod": "^4.4.3"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "pnpm --filter frontend build && tsc -p tsconfig.json && node -e \"fs.mkdirSync('dist/dashboard', { recursive: true }); fs.cpSync('src/dashboard/public', 'dist/dashboard/public', { recursive: true })\"",
     "test": "pnpm build && node --test test/*.test.mjs"
   },
   "engines": {

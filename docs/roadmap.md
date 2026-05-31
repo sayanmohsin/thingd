@@ -34,10 +34,11 @@ Cluster replication, workflow DAGs, and vector search stay important but come
 | 2 | Native release path | ~1 week | `thingd-native`, `thingd`, release |
 | 3 | Search-A (FTS + metadata) | 1–2 weeks | `thingd-core`, `thingd`, MCP |
 | 4 | Agent patterns (docs + examples) | 3–5 days | `docs/`, `examples/` |
-| 5 | MCP hardening | ~1 week | `thingd-cli`, MCP |
-| 6 | CLI-C data movement | 1–2 days | `thingd-cli` |
-| 7 | Sidecar hardening | 1–2 weeks | `thingd-cli`, `deploy/` |
-| 8–13 | AI-native primitives | ongoing | `thingd-core`, SDK, MCP |
+| 5 | Inspector Dashboard UI | 3–5 days | `thingd-cli`, static |
+| 6 | MCP hardening | ~1 week | `thingd-cli`, MCP |
+| 7 | CLI-C data movement | 1–2 days | `thingd-cli` |
+| 8 | Sidecar hardening | 1–2 weeks | `thingd-cli`, `deploy/` |
+| 9–14 | AI-native primitives | ongoing | `thingd-core`, SDK, MCP |
 
 Phases 8–13 match the priority order in [ai-primitives.md](./ai-primitives.md).
 
@@ -160,9 +161,28 @@ Phases 8–13 match the priority order in [ai-primitives.md](./ai-primitives.md)
 
 ---
 
-## Phase 5 — MCP hardening
+## Phase 5 — Inspector Dashboard UI
 
-**Status:** after Search-A
+**Status:** next up  
+**Unlocks:** visual local developer inspection and "phpMyAdmin-style" queue supervision
+
+### Deliverables
+
+- [ ] Create single-page dashboard assets (`index.html`, `style.css`, `app.js`) inside `packages/thingd-cli/src/dashboard/public/`
+- [ ] Implement REST API server routing in `packages/thingd-cli/src/dashboard/server.ts`
+- [ ] Add the `dashboard` command to `thingd-cli` in `packages/thingd-cli/src/index.ts` that auto-spawns a browser tab
+- [ ] Write CLI dashboard integration tests
+
+### Exit criteria
+
+- Executing `thingd dashboard` opens a responsive dark-mode glassmorphic dashboard in the browser
+- Dashboard allows viewing all collections, event logs, FTS5 stemming queries, and claiming/ack/nack queue jobs
+
+---
+
+## Phase 6 — MCP hardening
+
+**Status:** after Dashboard UI
 
 ### Deliverables
 
@@ -185,7 +205,7 @@ Phases 8–13 match the priority order in [ai-primitives.md](./ai-primitives.md)
 
 ---
 
-## Phase 6 — CLI-C (data movement)
+## Phase 7 — CLI-C (data movement)
 
 **Status:** after Search-A + stable list/pagination semantics  
 **Detail:** [cli.md](./cli.md#phase-cli-c---data-movement)
@@ -204,7 +224,7 @@ Phases 8–13 match the priority order in [ai-primitives.md](./ai-primitives.md)
 
 ---
 
-## Phase 7 — Sidecar hardening
+## Phase 8 — Sidecar hardening
 
 **Status:** when Kubernetes/multi-pod is a real need  
 **Detail:** [sidecar-cluster.md](./sidecar-cluster.md)
@@ -225,18 +245,18 @@ Phases 8–13 match the priority order in [ai-primitives.md](./ai-primitives.md)
 
 ---
 
-## Phases 8–13 — AI-native primitives
+## Phases 9–14 — AI-native primitives
 
-Aligned with [ai-primitives.md](./ai-primitives.md). Do not start Phase 9 vectors until Phase 3 Search-A ships.
+Aligned with [ai-primitives.md](./ai-primitives.md). Do not start Phase 10 vectors until Phase 3 Search-A ships.
 
 | Phase | Primitive | Focus |
 | --- | --- | --- |
-| 8 | Graph links | Rust trait, SQLite `links`, SDK `db.links`, MCP read tools |
-| 9 | Hybrid search | Vectors + graph expansion on top of FTS |
-| 10 | Locks & semaphores | Coordination, queue heartbeats |
-| 11 | Workflow DAGs | Multi-step pipelines on queue substrate |
-| 12 | Semantic cache + tool ledger | Cost/latency, audit |
-| 13 | Compaction & snapshots | Long-running memory |
+| 9 | Graph links | Rust trait, SQLite `links`, SDK `db.links`, MCP read tools |
+| 10 | Hybrid search | Vectors + graph expansion on top of FTS |
+| 11 | Locks & semaphores | Coordination, queue heartbeats |
+| 12 | Workflow DAGs | Multi-step pipelines on queue substrate |
+| 13 | Semantic cache + tool ledger | Cost/latency, audit |
+| 14 | Compaction & snapshots | Long-running memory |
 
 Each primitive phase must update: `ai-primitives.md`, `architecture.md`, README “later” checklist, MCP tool list, `packages/thingd/src/types.ts`, tests.
 

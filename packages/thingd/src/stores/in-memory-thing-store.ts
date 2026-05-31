@@ -288,6 +288,10 @@ export class InMemoryThingStore implements ThingStore {
     return Array.from(this.collections.keys()).sort();
   }
 
+  async listQueues(): Promise<string[]> {
+    return Array.from(this.queues.keys()).sort();
+  }
+
   async listStreams(): Promise<string[]> {
     const streams = new Set<string>();
     for (const event of this.events) {

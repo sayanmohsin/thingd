@@ -87,6 +87,7 @@ Usage:
   thingd bench rust --smoke
   thingd bench rust --count <n>
   thingd metrics
+  thingd dashboard [--port <port>] [--path <path>] [--driver <driver>]
 
 Options:
   --url <url>          remote thingd URL. Defaults to THINGD_URL
@@ -255,6 +256,11 @@ async function runCommand(context: CliContext): Promise<void> {
 
   if (command === "metrics") {
     await runMetrics(context);
+    return;
+  }
+
+  if (command === "dashboard") {
+    await runDashboard(context);
     return;
   }
 
@@ -1015,6 +1021,57 @@ function resolveCliPath(): string {
   } catch {
     return resolve(scriptPath);
   }
+}
+
+async function runDashboard(context: CliContext): Promise<void> {
+  const portStr = stringFlag(context.parsed, "port");
+  const port = portStr ? Number.parseInt(portStr, 10) : 8758;
+
+  if (Number.isNaN(port) || port <= 0) {
+    throw new Error("--port must be a positive integer");
+  }
+
+  const connection = resolveConnection(context);
+  context.stderr.write(
+    `\n${pc.bold(pc.blue("thingd Inspector Dashboard"))}\n` +
+      `Starting local REST server on ${pc.cyan(`http://localhost:${port}`)}...\n` +
+      `Database path: ${pc.green(connection.path)}\n` +
+      `Storage engine: ${pc.cyan(connection.driver || "memory")}\n\n`,
+  );
+
+  const { startDashboardServer } = await import("./dashboard/server.js");
+  const { server: _server, close } = await startDashboardServer(connection, port);
+
+  context.stderr.write(
+    `${pc.green("✔ Dashboard successfully loaded.")}\n` +
+      `Opening browser... (Press ${pc.yellow("Ctrl+C")} to stop the server)\n\n`,
+  );
+
+  await openBrowser(`http://localhost:${port}`);
+
+  return new Promise<void>((_resolve) => {
+    process.on("SIGINT", async () => {
+      await close();
+      process.exit(0);
+    });
+    process.on("SIGTERM", async () => {
+      await close();
+      process.exit(0);
+    });
+  });
+}
+
+async function openBrowser(url: string): Promise<void> {
+  const { exec } = await import("node:child_process");
+  const startCommand =
+    process.platform === "darwin"
+      ? "open"
+      : process.platform === "win32"
+        ? "start"
+        : "xdg-open";
+  exec(`${startCommand} ${url}`, () => {
+    // Ignore browser spawn errors silently
+  });
 }
 
 let isMain = false;
