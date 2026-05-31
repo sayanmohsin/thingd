@@ -173,7 +173,17 @@ pub trait QueueStore {
     fn count_dead_jobs(&self) -> ThingdResult<u64>;
 }
 
-/// Full storage interface expected from thingd engine adapters.
-pub trait ThingStore: EventLog + ObjectStore + QueueStore {}
+/// Search operations.
+pub trait Searcher {
+    /// Search memory objects and event logs by query text.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when search query fails.
+    fn search(&self, query: &str, options: crate::SearchOptions) -> ThingdResult<Vec<crate::SearchHit>>;
+}
 
-impl<T> ThingStore for T where T: EventLog + ObjectStore + QueueStore {}
+/// Full storage interface expected from thingd engine adapters.
+pub trait ThingStore: EventLog + ObjectStore + QueueStore + Searcher {}
+
+impl<T> ThingStore for T where T: EventLog + ObjectStore + QueueStore + Searcher {}

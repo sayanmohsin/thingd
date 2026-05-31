@@ -13,7 +13,7 @@ use crate::{
 };
 
 /// Current `SQLite` schema version.
-pub const SQLITE_SCHEMA_VERSION: u32 = 1;
+pub const SQLITE_SCHEMA_VERSION: u32 = 2;
 
 /// `SQLite`-backed memory store.
 pub struct SqliteThingStore {
@@ -87,22 +87,20 @@ impl SqliteThingStore {
 
         let current_version = self.schema_version()?;
 
-        if current_version < 2 {
-            self.connection
-                .execute(
-                    "CREATE INDEX IF NOT EXISTS idx_queue_jobs_status ON queue_jobs (status)",
-                    [],
-                )
-                .ok();
+        if current_version < 1 {
+            self.apply_schema_v1()?;
         }
+
+        let current_version = self.schema_version()?;
+
+        if current_version < 2 {
+            self.apply_schema_v2()?;
+        }
+
         if current_version > SQLITE_SCHEMA_VERSION {
             return Err(ThingdError::Storage(format!(
                 "database schema version {current_version} is newer than supported version {SQLITE_SCHEMA_VERSION}"
             )));
-        }
-
-        if current_version < 1 {
-            self.apply_schema_v1()?;
         }
 
         Ok(())
@@ -186,6 +184,96 @@ impl SqliteThingStore {
 
         Ok(())
     }
+
+    fn apply_schema_v2(&self) -> ThingdResult<()> {
+        self.connection
+            .execute_batch(
+                r"
+                BEGIN;
+
+                CREATE VIRTUAL TABLE IF NOT EXISTS search_index USING fts5(
+                    collection UNINDEXED,
+                    id UNINDEXED,
+                    kind UNINDEXED,
+                    text,
+                    tokenize='porter unicode61'
+                );
+
+                INSERT OR IGNORE INTO thingd_schema_migrations (version, name, applied_at)
+                VALUES (2, 'fts5_search_index', strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));
+
+                COMMIT;
+                ",
+            )
+            .map_err(ThingdError::from)?;
+
+        // Now reindex all existing objects and events
+        self.reindex_all()?;
+
+        Ok(())
+    }
+
+    fn reindex_all(&self) -> ThingdResult<()> {
+        // Read all existing objects
+        let mut stmt_objects = self
+            .connection
+            .prepare("SELECT collection, id, body FROM objects")
+            .map_err(ThingdError::from)?;
+        let rows_objects = stmt_objects
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
+            })
+            .map_err(ThingdError::from)?;
+
+        // Read all existing events
+        let mut stmt_events = self
+            .connection
+            .prepare("SELECT stream, sequence, body FROM events")
+            .map_err(ThingdError::from)?;
+        let rows_events = stmt_events
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, i64>(1)?.to_string(),
+                    row.get::<_, String>(2)?,
+                ))
+            })
+            .map_err(ThingdError::from)?;
+
+        // Now insert everything inside a single transaction using unchecked_transaction
+        let tx = self.connection.unchecked_transaction().map_err(ThingdError::from)?;
+
+        // Clear existing FTS index
+        tx.execute("DELETE FROM search_index", [])
+            .map_err(ThingdError::from)?;
+
+        for row in rows_objects {
+            let (collection, id, body) = row.map_err(ThingdError::from)?;
+            let text = extract_text_from_json(&body);
+            tx.execute(
+                "INSERT INTO search_index (collection, id, kind, text) VALUES (?1, ?2, 'object', ?3)",
+                params![collection, id, text],
+            )
+            .map_err(ThingdError::from)?;
+        }
+
+        for row in rows_events {
+            let (stream, sequence, body) = row.map_err(ThingdError::from)?;
+            let text = extract_text_from_json(&body);
+            tx.execute(
+                "INSERT INTO search_index (collection, id, kind, text) VALUES (?1, ?2, 'event', ?3)",
+                params![stream, sequence, text],
+            )
+            .map_err(ThingdError::from)?;
+        }
+
+        tx.commit().map_err(ThingdError::from)?;
+        Ok(())
+    }
 }
 
 impl ObjectStore for SqliteThingStore {
@@ -225,6 +313,20 @@ impl ObjectStore for SqliteThingStore {
                     &object.body,
                     stored_version
                 ],
+            )
+            .map_err(ThingdError::from)?;
+
+        let text = extract_text_from_json(&object.body);
+        transaction
+            .execute(
+                "DELETE FROM search_index WHERE collection = ?1 AND id = ?2 AND kind = 'object'",
+                params![&object.key.collection, &object.key.id],
+            )
+            .map_err(ThingdError::from)?;
+        transaction
+            .execute(
+                "INSERT INTO search_index (collection, id, kind, text) VALUES (?1, ?2, 'object', ?3)",
+                params![&object.key.collection, &object.key.id, text],
             )
             .map_err(ThingdError::from)?;
 
@@ -297,14 +399,24 @@ impl ObjectStore for SqliteThingStore {
     }
 
     fn delete_object(&mut self, collection: &str, id: &str) -> ThingdResult<bool> {
-        let changed = self
-            .connection
+        let transaction = self.connection.transaction().map_err(ThingdError::from)?;
+        let changed = transaction
             .execute(
                 "DELETE FROM objects WHERE collection = ?1 AND id = ?2",
                 params![collection, id],
             )
             .map_err(ThingdError::from)?;
 
+        if changed > 0 {
+            transaction
+                .execute(
+                    "DELETE FROM search_index WHERE collection = ?1 AND id = ?2 AND kind = 'object'",
+                    params![collection, id],
+                )
+                .map_err(ThingdError::from)?;
+        }
+
+        transaction.commit().map_err(ThingdError::from)?;
         Ok(changed > 0)
     }
 
@@ -337,7 +449,8 @@ impl ObjectStore for SqliteThingStore {
 
 impl EventLog for SqliteThingStore {
     fn append_event(&mut self, mut event: MemoryEvent) -> ThingdResult<MemoryEvent> {
-        self.connection
+        let transaction = self.connection.transaction().map_err(ThingdError::from)?;
+        transaction
             .execute(
                 r"
                 INSERT INTO events (stream, event_type, body, created_at)
@@ -347,8 +460,20 @@ impl EventLog for SqliteThingStore {
             )
             .map_err(ThingdError::from)?;
 
-        event.sequence = u64::try_from(self.connection.last_insert_rowid())
+        let sequence = transaction.last_insert_rowid();
+        event.sequence = u64::try_from(sequence)
             .map_err(|error| ThingdError::Storage(error.to_string()))?;
+
+        let text = extract_text_from_json(&event.body);
+        let seq_str = sequence.to_string();
+        transaction
+            .execute(
+                "INSERT INTO search_index (collection, id, kind, text) VALUES (?1, ?2, 'event', ?3)",
+                params![&event.stream, seq_str, text],
+            )
+            .map_err(ThingdError::from)?;
+
+        transaction.commit().map_err(ThingdError::from)?;
 
         Ok(event)
     }
@@ -739,6 +864,121 @@ impl QueueStore for SqliteThingStore {
     }
 }
 
+impl crate::store::Searcher for SqliteThingStore {
+    fn search(&self, query: &str, options: crate::SearchOptions) -> ThingdResult<Vec<crate::SearchHit>> {
+        let sanitized = sanitize_fts_query(query);
+        if sanitized.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let mut statement = self.connection.prepare(
+            r#"
+            SELECT 
+                s.kind,
+                s.collection,
+                s.id,
+                s.text,
+                o.body AS object_body,
+                o.version AS object_version,
+                o.created_at AS object_created_at,
+                o.updated_at AS object_updated_at,
+                e.event_type AS event_type,
+                e.body AS event_body,
+                e.created_at AS event_created_at,
+                bm25(search_index) AS bm25_score,
+                (strftime('%s', 'now') - strftime('%s', coalesce(o.created_at, e.created_at))) AS age_seconds
+            FROM search_index s
+            LEFT JOIN objects o ON s.kind = 'object' AND s.collection = o.collection AND s.id = o.id
+            LEFT JOIN events e ON s.kind = 'event' AND s.collection = e.stream AND s.id = CAST(e.sequence AS TEXT)
+            WHERE search_index MATCH ?1
+            "#
+        ).map_err(ThingdError::from)?;
+
+        let rows = statement.query_map(params![sanitized], |row| {
+            let kind: String = row.get(0)?;
+            let collection: String = row.get(1)?;
+            let id: String = row.get(2)?;
+            let text: String = row.get(3)?;
+            let bm25_score: f64 = row.get(11)?;
+            let age_seconds: Option<i64> = row.get(12)?;
+
+            let relevance_score = -bm25_score;
+            let age = age_seconds.unwrap_or(0).max(0) as f64;
+            let recency_factor = 1.0 / (1.0 + age / 86400.0);
+            let score = relevance_score * recency_factor;
+
+            let (body, version, created_at, updated_at, event_type) = if kind == "object" {
+                let object_body: String = row.get(4)?;
+                let object_version: i64 = row.get(5)?;
+                let object_created_at: String = row.get(6)?;
+                let object_updated_at: String = row.get(7)?;
+                (
+                    object_body,
+                    Some(object_version as u64),
+                    object_created_at,
+                    Some(object_updated_at),
+                    None,
+                )
+            } else {
+                let event_type_val: String = row.get(8)?;
+                let event_body: String = row.get(9)?;
+                let event_created_at: String = row.get(10)?;
+                (
+                    event_body,
+                    None,
+                    event_created_at,
+                    None,
+                    Some(event_type_val),
+                )
+            };
+
+            Ok(crate::SearchHit {
+                kind,
+                collection,
+                id,
+                text,
+                score,
+                body,
+                version,
+                created_at,
+                updated_at,
+                event_type,
+            })
+        }).map_err(ThingdError::from)?;
+
+        let mut hits = Vec::new();
+        for row in rows {
+            let hit = row.map_err(ThingdError::from)?;
+
+            // Apply collection filter
+            if let Some(ref collections) = options.collections {
+                if !collections.contains(&hit.collection) {
+                    continue;
+                }
+            }
+
+            // Apply metadata filter
+            if let Some(ref filter) = options.filter {
+                if !matches_filter(&hit.body, filter) {
+                    continue;
+                }
+            }
+
+            hits.push(hit);
+        }
+
+        // Sort by score descending
+        hits.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+
+        // Limit results if requested
+        if let Some(limit) = options.limit {
+            hits.truncate(limit);
+        }
+
+        Ok(hits)
+    }
+}
+
 fn row_to_object(row: &rusqlite::Row<'_>) -> rusqlite::Result<MemoryObject> {
     let version = row.get::<_, i64>(3)?;
 
@@ -860,12 +1100,97 @@ fn u32_to_i64(value: u32) -> i64 {
     i64::from(value)
 }
 
+fn sanitize_fts_query(query: &str) -> String {
+    let mut cleaned = String::new();
+    let normalized: String = query
+        .chars()
+        .map(|c| if c.is_alphanumeric() || c.is_whitespace() { c } else { ' ' })
+        .collect();
+
+    for word in normalized.split_whitespace() {
+        if !word.is_empty() {
+            if !cleaned.is_empty() {
+                cleaned.push(' ');
+            }
+            cleaned.push_str(word);
+            cleaned.push('*');
+        }
+    }
+    cleaned
+}
+
+fn extract_text_from_json(json_str: &str) -> String {
+    if let Ok(value) = serde_json::from_str::<serde_json::Value>(json_str) {
+        let mut out = String::new();
+        collect_strings(&value, &mut out);
+        out.trim().to_string()
+    } else {
+        json_str.to_string()
+    }
+}
+
+fn collect_strings(value: &serde_json::Value, out: &mut String) {
+    match value {
+        serde_json::Value::String(s) => {
+            if !out.is_empty() {
+                out.push(' ');
+            }
+            out.push_str(s);
+        }
+        serde_json::Value::Array(arr) => {
+            for val in arr {
+                collect_strings(val, out);
+            }
+        }
+        serde_json::Value::Object(obj) => {
+            for (key, val) in obj {
+                if !out.is_empty() {
+                    out.push(' ');
+                }
+                out.push_str(key);
+                collect_strings(val, out);
+            }
+        }
+        serde_json::Value::Number(num) => {
+            if !out.is_empty() {
+                out.push(' ');
+            }
+            out.push_str(&num.to_string());
+        }
+        serde_json::Value::Bool(b) => {
+            if !out.is_empty() {
+                out.push(' ');
+            }
+            out.push_str(&b.to_string());
+        }
+        _ => {}
+    }
+}
+
+fn matches_filter(body_str: &str, filter: &serde_json::Value) -> bool {
+    let Ok(body) = serde_json::from_str::<serde_json::Value>(body_str) else {
+        return false;
+    };
+
+    let Some(filter_obj) = filter.as_object() else {
+        return true;
+    };
+
+    for (k, v) in filter_obj {
+        if body.get(k) != Some(v) {
+            return false;
+        }
+    }
+    true
+}
+
 #[cfg(test)]
 mod tests {
     use rusqlite::Connection;
     use tempfile::NamedTempFile;
 
     use super::*;
+    use crate::store::Searcher;
 
     #[test]
     fn records_schema_version_on_initialize() {
@@ -1132,5 +1457,55 @@ mod tests {
         assert_eq!(jobs.len(), 1);
         assert_eq!(jobs[0].status, QueueJobStatus::Completed);
         assert_eq!(jobs[0].attempts, 1);
+    }
+
+    #[test]
+    fn test_fts5_search_indexing_and_stemming() {
+        let mut store = SqliteThingStore::open_in_memory().unwrap();
+
+        // Put objects
+        store
+            .put_object(MemoryObject::new(
+                "decisions",
+                "choice-1",
+                "{\"text\":\"I choose this implementation plan because it has great benefits.\", \"status\":\"active\", \"priority\":1}",
+            ))
+            .unwrap();
+
+        store
+            .put_object(MemoryObject::new(
+                "decisions",
+                "choice-2",
+                "{\"text\":\"He chooses that plan.\", \"status\":\"draft\", \"priority\":2}",
+            ))
+            .unwrap();
+
+        // 1. Basic word match
+        let results = store.search("implementation", crate::SearchOptions::default()).unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].id, "choice-1");
+
+        // 2. Stemming test (choose / choosing / choice / chooses should stem to same root)
+        let results_stem = store.search("choosing", crate::SearchOptions::default()).unwrap();
+        assert_eq!(results_stem.len(), 2);
+
+        // 3. Collection filtering
+        let mut options_col = crate::SearchOptions::default();
+        options_col.collections = Some(vec!["unrelated_col".to_string()]);
+        let results_col = store.search("choose", options_col).unwrap();
+        assert_eq!(results_col.len(), 0);
+
+        // 4. Metadata filtering - status = "active"
+        let mut options_filter = crate::SearchOptions::default();
+        options_filter.filter = Some(serde_json::json!({"status": "active"}));
+        let results_filter = store.search("choose", options_filter).unwrap();
+        assert_eq!(results_filter.len(), 1);
+        assert_eq!(results_filter[0].id, "choice-1");
+
+        // 5. Deletion test
+        store.delete_object("decisions", "choice-1").unwrap();
+        let results_after_del = store.search("choose", crate::SearchOptions::default()).unwrap();
+        assert_eq!(results_after_del.len(), 1);
+        assert_eq!(results_after_del[0].id, "choice-2");
     }
 }

@@ -21,11 +21,11 @@ pub use error::{ThingdError, ThingdResult};
 pub use in_memory::MemoryEngine;
 pub use model::{
     MemoryEvent, MemoryObject, ObjectKey, QueueClaimOptions, QueueJob, QueueJobStatus,
-    QueueNackOptions, DEFAULT_QUEUE_LEASE_MS,
+    QueueNackOptions, SearchHit, SearchOptions, DEFAULT_QUEUE_LEASE_MS,
 };
 #[cfg(feature = "sqlite")]
 pub use sqlite::{SqliteThingStore, SQLITE_SCHEMA_VERSION};
-pub use store::{EventLog, ObjectStore, QueueStore, ThingStore};
+pub use store::{EventLog, ObjectStore, QueueStore, ThingStore, Searcher};
 
 pub(crate) fn unix_timestamp_millis() -> i64 {
     let Ok(duration) = SystemTime::now().duration_since(UNIX_EPOCH) else {

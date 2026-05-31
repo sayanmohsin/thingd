@@ -333,9 +333,7 @@ const hits = await db.search("customers who upgraded after a failed deployment",
 });
 ```
 
-**Current behavior:** search uses substring matching over serialized object and
-event JSON (proof store and native path today). Full-text search, metadata
-filters, and object-to-text indexing are [Phase 3 in the roadmap](./docs/roadmap.md#phase-3--search-a-agent-memory). Vector search comes after that foundation is stable.
+**Current behavior:** Search is powered by a high-performance database-native SQLite **FTS5** virtual table with Porter word stemming, custom metadata key-value filters, and dynamic recency-weighted ranking. Vector search is planned for a future release once this foundation is fully integrated.
 
 ## AI-native primitives
 
@@ -701,8 +699,7 @@ Canonical ordering, exit criteria, and per-phase doc checklists:
 **[docs/roadmap.md](./docs/roadmap.md)**. Quick restart:
 [docs/handoff.md](./docs/handoff.md).
 
-**Next:** Phase 2 **native prebuilds** → Phase 3 **Search-A** (FTS) →
-Phase 4 **agent patterns** (docs/examples) → Phase 5 **MCP hardening**.
+**Next:** Phase 4 **agent patterns** (docs/examples) → Phase 5 **MCP hardening**.
 
 ### v0.1 - local core
 
@@ -716,13 +713,13 @@ Phase 4 **agent patterns** (docs/examples) → Phase 5 **MCP hardening**.
 - [x] SQLite queue adapter in the Rust core
 - [x] delayed jobs and configurable lease expiration in the Rust core
 - [x] opt-in native Node adapter to the Rust store
-- [ ] native prebuild/release strategy
+- [x] native prebuild/release strategy
 
 ### v0.2 - agent memory
 
-- [ ] full-text search
-- [ ] metadata filters
-- [ ] object-to-text indexing
+- [x] full-text search
+- [x] metadata filters
+- [x] object-to-text indexing
 - [x] stdio MCP server skeleton
 - [x] remote HTTP MCP server skeleton
 - [x] audit events for MCP writes

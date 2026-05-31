@@ -65,7 +65,7 @@ Usage:
   thingd doctor
   thingd mcp [--path <path>] [--driver <driver>]
   thingd mcp-http [--path <path>] [--driver <driver>] [--host <host>] [--port <port>] [--auth-token <tok>] [--allow-unauthenticated]
-  thingd search <query> [--collection <name>] [--limit <n>]
+  thingd search <query> [--collection <name>] [--limit <n>] [--filter <json>]
   thingd objects list <collection>
   thingd objects get <collection> <id>
   thingd objects put <collection> <id> --text <text>
@@ -95,6 +95,7 @@ Options:
   --driver <driver>   memory, native, or cloud
   --pretty            pretty-print JSON output
   --limit <n>         result limit for search and list commands
+  --filter <json>     metadata key-value filter (e.g. '{"status":"active"}')
   -h, --help          show help
 `;
 
@@ -415,9 +416,11 @@ async function runSearch(context: CliContext): Promise<void> {
   }
 
   await withDb(context, async (db) => {
+    const filterStr = stringFlag(context.parsed, "filter");
     const options: MemorySearchOptions = {
       collections: stringFlags(context.parsed, "collection"),
       limit: optionalInt(context.parsed, "limit"),
+      filter: filterStr ? JSON.parse(filterStr) : undefined,
     };
     const results = await db.search(query, compactOptions(options));
     writeJson(context.stdout, results, context.pretty);

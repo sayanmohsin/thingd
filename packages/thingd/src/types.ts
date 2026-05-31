@@ -74,6 +74,7 @@ export type ThingDeleteResult = {
 export type MemorySearchOptions = {
   collections?: string[];
   limit?: number;
+  filter?: Record<string, unknown>;
 };
 
 export type MemorySearchResult =

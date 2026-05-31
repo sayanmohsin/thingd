@@ -6,7 +6,7 @@ use serde::Serialize;
 use serde_json::Value;
 use thingd_core::{
     EventLog, MemoryEvent, MemoryObject, ObjectStore, QueueClaimOptions, QueueJob, QueueJobStatus,
-    QueueNackOptions, QueueStore, SqliteThingStore,
+    QueueNackOptions, QueueStore, SqliteThingStore, SearchOptions, Searcher,
 };
 
 #[napi]
@@ -208,6 +208,48 @@ impl NativeThingStore {
         let store = self.lock_store()?;
         let queues = store.list_queues().map_err(napi_error)?;
         to_json(&queues)
+    }
+
+    #[napi(js_name = "searchJson")]
+    pub fn search_json(
+        &self,
+        query: String,
+        collections_json: Option<String>,
+        limit: Option<u32>,
+        filter_json: Option<String>,
+    ) -> Result<String> {
+        let collections = parse_optional_string_array(collections_json)?;
+        let limit = limit.map(|l| l as usize);
+        let filter = filter_json
+            .map(|json| serde_json::from_str::<Value>(&json).map_err(napi_error))
+            .transpose()?;
+
+        let options = SearchOptions {
+            collections,
+            limit,
+            filter,
+        };
+
+        let store = self.lock_store()?;
+        let hits = store.search(&query, options).map_err(napi_error)?;
+
+        let records = hits
+            .into_iter()
+            .map(|hit| NativeSearchHit {
+                kind: hit.kind,
+                collection: hit.collection,
+                id: hit.id,
+                text: hit.text,
+                score: hit.score,
+                body: hit.body,
+                version: hit.version,
+                created_at: hit.created_at,
+                updated_at: hit.updated_at,
+                event_type: hit.event_type,
+            })
+            .collect::<Vec<_>>();
+
+        to_json(&records)
     }
 }
 
@@ -429,6 +471,21 @@ struct NativeQueueJobResult {
     job: Option<NativeQueueJobRecord>,
     #[serde(skip_serializing_if = "Option::is_none")]
     reason: Option<&'static str>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct NativeSearchHit {
+    kind: String,
+    collection: String,
+    id: String,
+    text: String,
+    score: f64,
+    body: String,
+    version: Option<u64>,
+    created_at: String,
+    updated_at: Option<String>,
+    event_type: Option<String>,
 }
 
 impl NativeQueueJobResult {

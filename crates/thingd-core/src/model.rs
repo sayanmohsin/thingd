@@ -194,3 +194,39 @@ impl QueueNackOptions {
         Self { delay_ms }
     }
 }
+
+/// Options used when performing a search.
+#[derive(Clone, Debug, Eq, PartialEq, Default)]
+pub struct SearchOptions {
+    /// Limit search to these collection or stream names.
+    pub collections: Option<Vec<String>>,
+    /// Maximum number of hits to return.
+    pub limit: Option<usize>,
+    /// Metadata filters to match custom fields in the JSON body.
+    pub filter: Option<serde_json::Value>,
+}
+
+/// A single match returned by a search query.
+#[derive(Clone, Debug, PartialEq)]
+pub struct SearchHit {
+    /// Result kind: "object" or "event".
+    pub kind: String,
+    /// Collection or stream name.
+    pub collection: String,
+    /// Object id or event sequence number.
+    pub id: String,
+    /// The indexed text that matched.
+    pub text: String,
+    /// Relevancy score.
+    pub score: f64,
+    /// The serialized body.
+    pub body: String,
+    /// Object version (only populated for objects).
+    pub version: Option<u64>,
+    /// Created timestamp.
+    pub created_at: String,
+    /// Updated timestamp (only populated for objects).
+    pub updated_at: Option<String>,
+    /// Event type (only populated for events).
+    pub event_type: Option<String>,
+}

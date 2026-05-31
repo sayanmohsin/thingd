@@ -266,6 +266,116 @@ impl MemoryEngine {
     }
 }
 
+impl crate::store::Searcher for MemoryEngine {
+    fn search(&self, query: &str, options: crate::SearchOptions) -> ThingdResult<Vec<crate::SearchHit>> {
+        let query_words: Vec<String> = query
+            .split_whitespace()
+            .map(|w| w.to_lowercase().chars().filter(|c| c.is_alphanumeric()).collect())
+            .filter(|w: &String| !w.is_empty())
+            .collect();
+
+        if query_words.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let mut hits = Vec::new();
+
+        // 1. Search objects
+        for object in self.objects.values() {
+            // Apply collection filter
+            if let Some(ref collections) = options.collections {
+                if !collections.contains(&object.key.collection) {
+                    continue;
+                }
+            }
+
+            // Apply metadata filter
+            if let Some(ref filter) = options.filter {
+                if !matches_filter_memory(&object.body, filter) {
+                    continue;
+                }
+            }
+
+            let text_to_search = format!("{} {} {}", object.key.collection, object.key.id, object.body).to_lowercase();
+            let matches_all = query_words.iter().all(|word| text_to_search.contains(word));
+
+            if matches_all {
+                hits.push(crate::SearchHit {
+                    kind: "object".to_string(),
+                    collection: object.key.collection.clone(),
+                    id: object.key.id.clone(),
+                    text: object.body.clone(),
+                    score: 1.0,
+                    body: object.body.clone(),
+                    version: Some(object.version),
+                    created_at: "2026-05-30T00:00:00Z".to_string(),
+                    updated_at: Some("2026-05-30T00:00:00Z".to_string()),
+                    event_type: None,
+                });
+            }
+        }
+
+        // 2. Search events
+        for event in &self.events {
+            // Apply collection filter
+            if let Some(ref collections) = options.collections {
+                if !collections.contains(&event.stream) {
+                    continue;
+                }
+            }
+
+            // Apply metadata filter
+            if let Some(ref filter) = options.filter {
+                if !matches_filter_memory(&event.body, filter) {
+                    continue;
+                }
+            }
+
+            let text_to_search = format!("{} {} {}", event.stream, event.event_type, event.body).to_lowercase();
+            let matches_all = query_words.iter().all(|word| text_to_search.contains(word));
+
+            if matches_all {
+                hits.push(crate::SearchHit {
+                    kind: "event".to_string(),
+                    collection: event.stream.clone(),
+                    id: event.sequence.to_string(),
+                    text: event.body.clone(),
+                    score: 1.0,
+                    body: event.body.clone(),
+                    version: None,
+                    created_at: "2026-05-30T00:00:00Z".to_string(),
+                    updated_at: None,
+                    event_type: Some(event.event_type.clone()),
+                });
+            }
+        }
+
+        // Limit results if requested
+        if let Some(limit) = options.limit {
+            hits.truncate(limit);
+        }
+
+        Ok(hits)
+    }
+}
+
+fn matches_filter_memory(body_str: &str, filter: &serde_json::Value) -> bool {
+    let Ok(body) = serde_json::from_str::<serde_json::Value>(body_str) else {
+        return false;
+    };
+
+    let Some(filter_obj) = filter.as_object() else {
+        return true;
+    };
+
+    for (k, v) in filter_obj {
+        if body.get(k) != Some(v) {
+            return false;
+        }
+    }
+    true
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

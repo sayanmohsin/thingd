@@ -43,6 +43,12 @@ type NativeThingStoreBinding = {
   listCollectionsJson(): Promise<string>;
   listStreamsJson(): Promise<string>;
   listQueuesJson(): Promise<string>;
+  searchJson(
+    query: string,
+    collectionsJson?: string,
+    limit?: number,
+    filterJson?: string,
+  ): string;
 };
 
 type NativeThingStoreConstructor = {
@@ -91,6 +97,19 @@ type NativeQueueJobResult =
       ok: false;
       reason: "not_found" | "not_leased" | "terminal";
     };
+
+type NativeSearchHit = {
+  kind: "object" | "event";
+  collection: string;
+  id: string;
+  text: string;
+  score: number;
+  body: string;
+  version?: number;
+  createdAt?: string;
+  updatedAt?: string;
+  eventType?: string;
+};
 
 const DEFAULT_LEASE_MS = 30_000;
 const NATIVE_PACKAGE_NAME = "thingd-native";
@@ -215,43 +234,62 @@ export class NativeThingStore implements ThingStore {
   }
 
   async search(query: string, options: MemorySearchOptions = {}): Promise<MemorySearchResult[]> {
-    const normalizedQuery = query.toLowerCase();
     const collectionsJson = options.collections ? JSON.stringify(options.collections) : undefined;
-    const objects = parseJson<NativeObjectRecord[]>(
-      this.binding.listObjectsJson(collectionsJson),
-    ).map(objectFromNative);
-    const events = parseJson<NativeEventRecord[]>(this.binding.listEventsJson()).map(
-      eventFromNative,
+    const filterJson = options.filter ? JSON.stringify(options.filter) : undefined;
+
+    const hits = parseJson<NativeSearchHit[]>(
+      this.binding.searchJson(
+        query,
+        collectionsJson,
+        options.limit,
+        filterJson,
+      ),
     );
-    const results: MemorySearchResult[] = [];
 
-    for (const object of objects) {
-      const haystack = JSON.stringify(object).toLowerCase();
-      if (haystack.includes(normalizedQuery)) {
-        results.push({
+    return hits.map((hit) => {
+      if (hit.kind === "object") {
+        const objectRecord: NativeObjectRecord = {
+          collection: hit.collection,
+          id: hit.id,
+          body: hit.body,
+          version: hit.version ?? 1,
+        };
+        const storedObject = objectFromNative(objectRecord);
+        if (hit.createdAt) {
+          storedObject.createdAt = hit.createdAt;
+        }
+        if (hit.updatedAt) {
+          storedObject.updatedAt = hit.updatedAt;
+        }
+
+        return {
           kind: "object",
-          id: object.id,
-          collection: object.collection,
-          score: 1,
-          value: object,
-        });
-      }
-    }
+          id: hit.id,
+          collection: hit.collection,
+          score: hit.score,
+          value: storedObject,
+        };
+      } else {
+        const eventRecord: NativeEventRecord = {
+          stream: hit.collection,
+          eventType: hit.eventType ?? "event",
+          body: hit.body,
+          sequence: Number(hit.id),
+        };
+        const storedEvent = eventFromNative(eventRecord);
+        if (hit.createdAt) {
+          storedEvent.createdAt = hit.createdAt;
+        }
 
-    for (const event of events) {
-      const haystack = JSON.stringify(event).toLowerCase();
-      if (haystack.includes(normalizedQuery)) {
-        results.push({
+        return {
           kind: "event",
-          id: event.id,
-          stream: event.stream,
-          score: 1,
-          value: event,
-        });
+          id: hit.id,
+          stream: hit.collection,
+          score: hit.score,
+          value: storedEvent,
+        };
       }
-    }
-
-    return results.slice(0, options.limit ?? 10);
+    });
   }
 
   async countObjects(): Promise<number> {

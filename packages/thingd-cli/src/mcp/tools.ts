@@ -37,6 +37,7 @@ export function registerThingdTools(
         query: z.string().min(1),
         collections: z.array(z.string().min(1)).optional(),
         limit: z.number().int().positive().max(100).optional(),
+        filter: z.record(z.string(), z.unknown()).optional(),
       },
       annotations: {
         readOnlyHint: true,
@@ -45,8 +46,8 @@ export function registerThingdTools(
         openWorldHint: false,
       },
     },
-    async ({ query, collections, limit }) =>
-      jsonResult(await db.search(query, { collections, limit })),
+    async ({ query, collections, limit, filter }) =>
+      jsonResult(await db.search(query, { collections, limit, filter })),
   );
 
   server.registerTool(
