@@ -1,0 +1,18 @@
+{
+  "name": "thingd-cursor-agent-memory-example",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "pnpm build && node dist/quickstart.js",
+    "scheduler": "pnpm build && node dist/scheduler-heartbeat.js"
+  },
+  "dependencies": {
+    "thingd": "file:../../packages/thingd"
+  },
+  "devDependencies": {
+    "typescript": "^6.0.3",
+    "@types/node": "^25.9.1"
+  }
+}

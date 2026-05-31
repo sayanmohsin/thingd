@@ -178,7 +178,10 @@ Use event streams as a lightweight publish/subscribe bus to coordinate agent act
 - Expecting exactly-once queue delivery — use ack/nack and idempotency
 - Assuming `ThingD.open("./file.db")` persists without `driver: "native"`
 
-## Examples (planned)
+## Examples & Quickstarts
 
-Phase 4 in [roadmap.md](./roadmap.md) adds `examples/cursor-agent-memory/` with
-a seed script and sample collections matching these patterns.
+We have created fully functional, runnable examples demonstrating these agent patterns inside the [examples/cursor-agent-memory/](file:///Users/sayanmohsin/Space/Programming/personal/thingd/examples/cursor-agent-memory/) directory:
+
+1. **[.cursorrules](file:///Users/sayanmohsin/Space/Programming/personal/thingd/examples/cursor-agent-memory/.cursorrules)**: Drop-in system configuration rules instructing AI subagents on search-before-put conventions, transaction auditing, and blackboard task queues.
+2. **[quickstart.ts](file:///Users/sayanmohsin/Space/Programming/personal/thingd/examples/cursor-agent-memory/quickstart.ts)**: A runnable script demonstrating automatic native SQLite driver promotion, FTS5 stemming queries (e.g. searching `"learning"` matches `"learn"`), and custom JSON metadata filters.
+3. **[scheduler-heartbeat.ts](file:///Users/sayanmohsin/Space/Programming/personal/thingd/examples/cursor-agent-memory/scheduler-heartbeat.ts)**: A runnable task coordinator executing the **Schedules collection + Scheduler queue** heartbeat cron-like pattern.

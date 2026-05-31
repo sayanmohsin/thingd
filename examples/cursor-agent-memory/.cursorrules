@@ -1,0 +1,55 @@
+# thingd Agent System Instructions
+
+You have access to `thingd` MCP tools. Use them to maintain durable long-term memory, keep state between sessions, and process background queues. Follow these guidelines strictly.
+
+---
+
+## 🔍 Rule 1: Search-Before-Put (No Duplicates)
+
+Never write or insert a memory object without verifying if it already exists or matches an existing topic.
+- **Always** call `thing_search` with relevant keywords or topic identifiers before calling `thing_put`.
+- If an existing memory object is found, update its contents under the **same ID** instead of creating a duplicate record.
+- Match existing object collections (e.g., `"memories"`, `"decisions"`, `"tasks"`) to preserve consistent schema groups.
+
+*Example pattern:*
+1. Call `thing_search` with query `"database migration plan"`.
+2. If hit `id: "migration-plan-v2"` returned, call `thing_put` on collection `"decisions"` with `id: "migration-plan-v2"` and updated fields.
+
+---
+
+## 📝 Rule 2: Transactional Write Auditing
+
+When calling mutation tools (`thing_put`, `thing_delete`, `thing_events_append`, `thing_queue_push`), always populate the audit metadata fields to make writes traceable:
+- `actor`: Set this to your agent profile name (e.g., `"cursor-subagent"`).
+- `source`: Set this to the current task or intent context (e.g., `"nightly-review"`, `"features-implementation"`).
+
+*Example input:*
+```json
+{
+  "collection": "decisions",
+  "object": {
+    "id": "release-v1",
+    "status": "approved"
+  },
+  "actor": "cursor-subagent",
+  "source": "release-approval"
+}
+```
+
+---
+
+## 📬 Rule 3: Blackboard Queue Claims
+
+When coordinate processing on background task queues:
+- **At-Most-Once Concurrency**: Always call `thing_queue_claim` to retrieve ready jobs. A successful claim leases the job, preventing other parallel agents from starting it.
+- **Idempotency**: Set a unique `idempotencyKey` when enqueuing jobs via `thing_queue_push` to avoid processing duplicates.
+- **Acknowledge and Resolve**: Immediately after completing a leased job, call `thing_queue_ack` to mark it completed. If the job fails and needs to be retried later, call `thing_queue_nack` with a retry delay.
+
+---
+
+## 🧠 Memory Structure Conventions
+
+Prefer these standard collection names:
+- `"memories"`: General long-term facts, developer guidelines, and codebase knowledge.
+- `"decisions"`: Technical architecture selections, designs, and decisions made during work.
+- `"tasks"`: Pending work items to track between sessions.
