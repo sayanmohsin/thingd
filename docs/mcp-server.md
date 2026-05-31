@@ -39,9 +39,7 @@ Not implemented yet:
 
 ### Search behavior today
 
-`thing_search` uses **substring matching** over serialized object and event
-JSON. Full-text search and metadata filters are planned in
-[roadmap.md Phase 3](./roadmap.md#phase-3--search-a-agent-memory).
+`thing_search` uses a high-performance database-native SQLite **FTS5** virtual table with Porter word stemming, custom metadata key-value filters, and dynamic recency-weighted ranking.
 
 ## Tool Surface
 

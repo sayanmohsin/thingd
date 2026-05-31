@@ -6,9 +6,9 @@ Last updated: 2026-05-30.
 
 ## Recommended next phase
 
-**Phase 2 — Native release path** from [roadmap.md](./roadmap.md).
+**Phase 4 — Agent patterns** from [roadmap.md](./roadmap.md).
 
-After Phase 2: **Phase 3** Search-A (FTS), **Phase 4** agent pattern docs/examples.
+After Phase 4: **Phase 5** MCP hardening, **Phase 6** compaction and snapshots.
 
 ## Current shape
 
@@ -36,8 +36,7 @@ for AI-native apps. It combines:
 - Sidecar mode is available through `THINGD_URL` and the remote SDK driver.
 - Follower bridge mode forwards MCP traffic to the leader, but follower local
   replica catch-up is not implemented.
-- Search is substring-over-serialized JSON until Phase 3 (Search-A); see
-  [roadmap.md](./roadmap.md#current-behavior-honest-baseline).
+- Search is database-native SQLite FTS5 with Porter stemming, metadata filters, and recency-decay scoring.
 - The project is not production-ready yet.
 - Do not expose SQL as the public API or MCP interface.
 

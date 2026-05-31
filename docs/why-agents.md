@@ -60,8 +60,8 @@ Chat is the CPU; `thingd` is persistence and coordination.
 ## Honest limits
 
 - Agents must be configured to call MCP tools.
-- Search is basic until [Phase 3 Search-A](./roadmap.md#phase-3--search-a-agent-memory) ships.
-- Not semantic memory by default; vectors and graph links are later phases.
+- Search is powered by a high-performance native SQLite FTS5 index with stemming and metadata filtering.
+- Hybrid vector search and graph links are planned for future phases.
 - Schedulers need an external heartbeat (Automation, cron, `/loop`) — thingd
   stores and queues work; it does not replace a clock.
 

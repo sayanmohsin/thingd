@@ -54,13 +54,11 @@ Remove the caveat when the phase exit criteria in [roadmap.md](./roadmap.md) is 
 
 When Phase 2 (native release) changes SDK defaults, update this table everywhere it appears.
 
-## Search behavior (until Phase 3)
+## Search behavior
 
 Document as:
 
-> Substring match over serialized object/event JSON. FTS and metadata filters are Phase 3 (Search-A).
-
-After Phase 3 ships, replace with FTS behavior and update examples.
+> Search is powered by a high-performance database-native SQLite FTS5 virtual table with Porter word stemming, custom metadata key-value filters, and dynamic recency-weighted ranking.
 
 ## Required checks before handoff
 

@@ -19,9 +19,9 @@ Cluster replication, workflow DAGs, and vector search stay important but come
 
 | Area | Today | Target |
 | --- | --- | --- |
-| SDK default | TypeScript in-memory proof store | Native SQLite when prebuild available |
+| SDK default | Native SQLite on path, Memory fallback | Native SQLite when prebuild available |
 | `thingd mcp` default | Native → `~/.thingd/data.db` | Same; document clearly |
-| Search | Substring over serialized JSON (objects + events) | SQLite FTS + metadata filters |
+| Search | SQLite FTS + metadata filters | SQLite FTS + metadata filters |
 | MCP tools | `thing_*` namespace | Stable; no `memory.*` aliases until designed |
 | Scheduler | Pattern on queues + external heartbeat | Documented in [agent-patterns.md](./agent-patterns.md) |
 | Cluster | Leader follower MCP forward | Follower replica catch-up later |
@@ -75,16 +75,16 @@ Phases 8–13 match the priority order in [ai-primitives.md](./ai-primitives.md)
 
 ## Phase 2 — Native release path
 
-**Status:** next up  
+**Status:** completed  
 **Detail:** [persistence-and-native-bindings.md](./persistence-and-native-bindings.md)
 
 ### Deliverables
 
-- [ ] Prebuild strategy (darwin/linux, arm64 + x64)
-- [ ] SDK loads native when available; documented fallback to memory + warning
-- [ ] `thingd install` reports active driver and binding status
-- [ ] `thingd doctor` checks prebuild vs local build
-- [ ] Release docs: npm publish path without `pnpm --filter thingd-native build`
+- [x] Prebuild strategy (darwin/linux, arm64 + x64)
+- [x] SDK loads native when available; documented fallback to memory + warning
+- [x] `thingd install` reports active driver and binding status
+- [x] `thingd doctor` checks prebuild vs local build
+- [x] Release docs: npm publish path without `pnpm --filter thingd-native build`
 
 ### Exit criteria
 
@@ -104,17 +104,17 @@ Phases 8–13 match the priority order in [ai-primitives.md](./ai-primitives.md)
 
 ## Phase 3 — Search-A (agent memory)
 
-**Status:** after Phase 2  
+**Status:** completed  
 **Unlocks:** credible “search local memory” in vision and README
 
 ### Deliverables
 
-- [ ] `search_documents` (or equivalent) table in SQLite adapter
-- [ ] Index object text on put/delete/update
-- [ ] SQLite FTS5 (or approved FTS approach) in `crates/thingd-core`
-- [ ] Metadata filters in SDK + `thing_search` MCP
-- [ ] Simple recency scoring
-- [ ] Rust + Node tests; benchmark note in `docs/benchmarks.md`
+- [x] `search_documents` (or equivalent) table in SQLite adapter
+- [x] Index object text on put/delete/update
+- [x] SQLite FTS5 (or approved FTS approach) in `crates/thingd-core`
+- [x] Metadata filters in SDK + `thing_search` MCP
+- [x] Simple recency scoring
+- [x] Rust + Node tests; benchmark note in `docs/benchmarks.md`
 
 ### Exit criteria
 
@@ -134,7 +134,7 @@ Phases 8–13 match the priority order in [ai-primitives.md](./ai-primitives.md)
 
 ## Phase 4 — Agent patterns (docs + examples)
 
-**Status:** can start in parallel with Phase 3 (docs only)  
+**Status:** next up  
 **Detail:** [agent-patterns.md](./agent-patterns.md), [why-agents.md](./why-agents.md)
 
 ### Deliverables
