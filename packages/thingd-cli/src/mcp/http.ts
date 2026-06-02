@@ -1,11 +1,11 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { PassThrough } from "node:stream";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import { ThingD } from "thingd";
+import { type MemoryEvent, type MemoryObject, ThingD } from "thingd";
 import type { ThingdMcpAuditOptions } from "./audit.js";
 import {
-  clusterStatus,
   forwardMcpRequestToLeader,
+  getClusterStatus,
   type ResolvedThingdClusterOptions,
   resolveClusterOptions,
   type ThingdClusterOptions,
@@ -47,6 +47,8 @@ type RuntimeState = {
   audit?: ThingdMcpAuditOptions | false;
   cluster: ResolvedThingdClusterOptions;
   hardening?: ThingdMcpHardeningOptions;
+  replicationTimer?: NodeJS.Timeout;
+  replicationStopped?: boolean;
 };
 
 export async function startThingdHttpServer(
@@ -60,11 +62,13 @@ export async function startThingdHttpServer(
     allowUnauthenticated: options.allowUnauthenticated,
   });
 
-  const db = await ThingD.open({
+  const originalDb = await ThingD.open({
     path: options.path,
     driver: options.driver,
   });
   const cluster = resolveClusterOptions(options.cluster);
+  const db = createReplicatingDb(originalDb, cluster.mode);
+
   const state: RuntimeState = {
     db,
     authToken: options.authToken,
@@ -86,11 +90,19 @@ export async function startThingdHttpServer(
   const displayHost = host === "0.0.0.0" ? "127.0.0.1" : host;
   const url = `http://${displayHost}:${resolvedPort}`;
 
+  if (cluster.mode === "follower") {
+    startReplicationRunner(state);
+  }
+
   return {
     server,
     url,
     mcpUrl: `${url}${state.mcpPath}`,
-    close: () => close(server),
+    close: async () => {
+      stopReplicationRunner(state);
+      await close(server);
+      await originalDb.close?.();
+    },
   };
 }
 
@@ -111,12 +123,12 @@ async function handleRequest(
     }
 
     if (path === state.healthPath) {
-      handleHealth(state, request, response);
+      await handleHealth(state, request, response);
       return;
     }
 
     if (path === state.cluster.statusPath) {
-      handleClusterStatus(state, request, response);
+      await handleClusterStatus(state, request, response);
       return;
     }
 
@@ -125,7 +137,7 @@ async function handleRequest(
       return;
     }
 
-    if (path !== state.mcpPath) {
+    if (path !== state.mcpPath && path !== "/v1/replication/events") {
       writeJson(response, 404, {
         error: "not_found",
       });
@@ -137,6 +149,11 @@ async function handleRequest(
       writeJson(response, 401, {
         error: "unauthorized",
       });
+      return;
+    }
+
+    if (path === "/v1/replication/events") {
+      await handleReplicationEvents(state, request, response);
       return;
     }
 
@@ -199,11 +216,11 @@ async function handleRequest(
   }
 }
 
-function handleHealth(
+async function handleHealth(
   state: RuntimeState,
   request: IncomingMessage,
   response: ServerResponse,
-): void {
+): Promise<void> {
   if (request.method !== "GET" && request.method !== "HEAD") {
     response.setHeader("Allow", "GET, HEAD, OPTIONS");
     writeJson(response, 405, {
@@ -212,6 +229,7 @@ function handleHealth(
     return;
   }
 
+  const status = await getClusterStatus(state.cluster, state.db);
   writeJson(
     response,
     200,
@@ -220,17 +238,17 @@ function handleHealth(
       service: "thingd-mcp",
       driver: state.driver,
       mcpPath: state.mcpPath,
-      cluster: clusterStatus(state.cluster),
+      cluster: status,
     },
     request.method === "HEAD",
   );
 }
 
-function handleClusterStatus(
+async function handleClusterStatus(
   state: RuntimeState,
   request: IncomingMessage,
   response: ServerResponse,
-): void {
+): Promise<void> {
   if (request.method !== "GET" && request.method !== "HEAD") {
     response.setHeader("Allow", "GET, HEAD, OPTIONS");
     writeJson(response, 405, {
@@ -239,7 +257,8 @@ function handleClusterStatus(
     return;
   }
 
-  writeJson(response, 200, clusterStatus(state.cluster), request.method === "HEAD");
+  const status = await getClusterStatus(state.cluster, state.db);
+  writeJson(response, 200, status, request.method === "HEAD");
 }
 
 function handleClusterPeers(
@@ -416,4 +435,212 @@ function wrapRequestWithSizeLimit(
   });
 
   return pass as unknown as IncomingMessage;
+}
+
+function createReplicatingDb(originalDb: ThingD, mode: string): ThingD {
+  if (mode !== "leader" && mode !== "single") {
+    return originalDb;
+  }
+
+  const proxy = Object.create(originalDb) as ThingD;
+
+  proxy.put = async (collection: string, object: MemoryObject) => {
+    const stored = await originalDb.put(collection, object);
+    if (!collection.startsWith("__thingd")) {
+      try {
+        await originalDb.events.append("__thingd:system:replication", {
+          type: "replication.objects.put",
+          collection,
+          id: stored.id,
+          object: stored,
+        } as unknown as MemoryEvent);
+      } catch (err) {
+        console.error("Replication event append failed:", err);
+      }
+    }
+    return stored;
+  };
+
+  proxy.delete = async (collection: string, id: string) => {
+    const result = await originalDb.delete(collection, id);
+    if (!collection.startsWith("__thingd")) {
+      try {
+        await originalDb.events.append("__thingd:system:replication", {
+          type: "replication.objects.delete",
+          collection,
+          id,
+        } as unknown as MemoryEvent);
+      } catch (err) {
+        console.error("Replication event append failed:", err);
+      }
+    }
+    return result;
+  };
+
+  const originalEventsAppend = originalDb.events.append.bind(originalDb.events);
+  Object.defineProperty(proxy, "events", {
+    value: {
+      ...originalDb.events,
+      append: async (stream: string, event: MemoryEvent) => {
+        const stored = await originalEventsAppend(stream, event);
+        if (stream !== "__thingd:system:replication") {
+          try {
+            await originalEventsAppend("__thingd:system:replication", {
+              type: "replication.events.append",
+              stream,
+              event: stored,
+            } as unknown as MemoryEvent);
+          } catch (err) {
+            console.error("Replication event append failed:", err);
+          }
+        }
+        return stored;
+      },
+    },
+    writable: true,
+    configurable: true,
+  });
+
+  return proxy;
+}
+
+function startReplicationRunner(state: RuntimeState) {
+  const leaderUrl = state.cluster.leaderUrl;
+  if (!leaderUrl) return;
+
+  const pullInterval = 500;
+
+  async function runSync() {
+    if (state.replicationStopped) return;
+
+    try {
+      const status = await state.db.get("__thingd_meta", "replication_status");
+      const lastSeq =
+        status && typeof status.lastReplicatedSequence === "number"
+          ? status.lastReplicatedSequence
+          : 0;
+
+      const url = new URL("/v1/replication/events", leaderUrl);
+      url.searchParams.set("after", String(lastSeq));
+
+      const headers: Record<string, string> = {
+        Accept: "application/json",
+      };
+      if (state.cluster.forwardAuthToken) {
+        headers["Authorization"] = `Bearer ${state.cluster.forwardAuthToken}`;
+      }
+
+      const response = await fetch(url.toString(), { headers });
+      if (!response.ok) {
+        throw new Error(`Leader replication returned HTTP ${response.status}`);
+      }
+
+      const resData = (await response.json()) as {
+        success: boolean;
+        events: {
+          id: string;
+          type: string;
+          collection?: string;
+          object?: Record<string, unknown>;
+          stream?: string;
+          event?: Record<string, unknown>;
+        }[];
+      };
+      if (resData.success && Array.isArray(resData.events) && resData.events.length > 0) {
+        for (const ev of resData.events) {
+          if (state.replicationStopped) return;
+
+          const type = ev.type;
+
+          if (type === "replication.objects.put" && ev.collection) {
+            const { collection, object } = ev;
+            const cleanObj = { ...object } as Record<string, unknown>;
+            delete cleanObj.collection;
+            delete cleanObj.createdAt;
+            delete cleanObj.updatedAt;
+            delete cleanObj.version;
+            await state.db.put(collection, cleanObj as unknown as MemoryObject);
+          } else if (type === "replication.objects.delete" && ev.collection && ev.id) {
+            const { collection, id } = ev;
+            await state.db.delete(collection, id);
+          } else if (type === "replication.events.append" && ev.stream) {
+            const { stream, event } = ev;
+            const cleanEv = { ...event } as Record<string, unknown>;
+            delete cleanEv.id;
+            delete cleanEv.createdAt;
+            delete cleanEv.stream;
+            await state.db.events.append(stream, cleanEv as unknown as MemoryEvent);
+          }
+
+          const seq = Number.parseInt(ev.id, 10);
+          await state.db.put("__thingd_meta", {
+            id: "replication_status",
+            lastReplicatedSequence: seq,
+            updatedAt: new Date().toISOString(),
+          } as unknown as MemoryObject);
+        }
+      }
+    } catch (error) {
+      console.error(
+        "Replication synchronization failure:",
+        error instanceof Error ? error.message : String(error),
+      );
+    } finally {
+      if (!state.replicationStopped) {
+        state.replicationTimer = setTimeout(() => {
+          void runSync();
+        }, pullInterval);
+      }
+    }
+  }
+
+  state.replicationTimer = setTimeout(() => {
+    void runSync();
+  }, pullInterval);
+}
+
+function stopReplicationRunner(state: RuntimeState) {
+  state.replicationStopped = true;
+  if (state.replicationTimer) {
+    clearTimeout(state.replicationTimer);
+    state.replicationTimer = undefined;
+  }
+}
+
+async function handleReplicationEvents(
+  state: RuntimeState,
+  request: IncomingMessage,
+  response: ServerResponse,
+): Promise<void> {
+  if (request.method !== "GET" && request.method !== "HEAD") {
+    response.setHeader("Allow", "GET, HEAD, OPTIONS");
+    writeJson(response, 405, { error: "method_not_allowed" });
+    return;
+  }
+
+  const url = new URL(request.url ?? "", "http://localhost");
+  const afterStr = url.searchParams.get("after");
+  const afterSeq = afterStr ? Number.parseInt(afterStr, 10) : 0;
+
+  try {
+    const allEvents = await state.db.events.list("__thingd:system:replication");
+    const filteredEvents = allEvents.filter((ev) => {
+      const seq = Number.parseInt(ev.id, 10);
+      return !Number.isNaN(seq) && seq > afterSeq;
+    });
+
+    writeJson(
+      response,
+      200,
+      {
+        success: true,
+        events: filteredEvents,
+      },
+      request.method === "HEAD",
+    );
+  } catch (error) {
+    writeJson(response, 500, {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
 }

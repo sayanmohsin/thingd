@@ -1,4 +1,5 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
+import type { ThingD } from "thingd";
 import { parsePort } from "./config.js";
 
 export type ThingdClusterMode = "single" | "leader" | "follower";
@@ -40,7 +41,13 @@ export type ThingdClusterStatus = {
   advertiseUrl?: string;
   discovery: ThingdClusterDiscovery;
   peers: string[];
-  replication: "not-implemented";
+  replication:
+    | {
+        lastReplicatedSequence: number;
+        status: string;
+        lag?: number;
+      }
+    | "not-implemented";
 };
 
 const DEFAULT_CLUSTER_PORT = 8757;
@@ -94,7 +101,71 @@ export function resolveClusterOptions(
   };
 }
 
-export function clusterStatus(cluster: ResolvedThingdClusterOptions): ThingdClusterStatus {
+export async function getClusterStatus(
+  cluster: ResolvedThingdClusterOptions,
+  db: ThingD,
+): Promise<ThingdClusterStatus> {
+  let replication: ThingdClusterStatus["replication"] = "not-implemented";
+
+  if (cluster.mode === "follower") {
+    try {
+      const status = await db.get("__thingd_meta", "replication_status");
+      const lastSeq =
+        status && typeof status.lastReplicatedSequence === "number"
+          ? status.lastReplicatedSequence
+          : 0;
+
+      let lag = 0;
+      let statusStr = "syncing";
+      if (cluster.leaderUrl) {
+        try {
+          const leaderStatusUrl = new URL("/cluster/status", cluster.leaderUrl).toString();
+          const headers: Record<string, string> = { Accept: "application/json" };
+          if (cluster.forwardAuthToken) {
+            headers["Authorization"] = `Bearer ${cluster.forwardAuthToken}`;
+          }
+          const leaderRes = await fetch(leaderStatusUrl, {
+            headers,
+            signal: AbortSignal.timeout(1000),
+          });
+          if (leaderRes.ok) {
+            const leaderStatus = (await leaderRes.json()) as {
+              replication?: { lastReplicatedSequence?: number };
+            };
+            const leaderSeq = leaderStatus?.replication?.lastReplicatedSequence;
+            if (typeof leaderSeq === "number") {
+              lag = Math.max(0, leaderSeq - lastSeq);
+            }
+          } else {
+            statusStr = "error";
+          }
+        } catch {
+          statusStr = "error";
+        }
+      }
+
+      replication = {
+        lastReplicatedSequence: lastSeq,
+        status: statusStr,
+        lag,
+      };
+    } catch {
+      replication = { lastReplicatedSequence: 0, status: "error" };
+    }
+  } else if (cluster.mode === "leader" || cluster.mode === "single") {
+    try {
+      const list = await db.events.list("__thingd:system:replication");
+      const lastEvent = list[list.length - 1];
+      const lastSeq = lastEvent ? Number.parseInt(lastEvent.id, 10) : 0;
+      replication = {
+        lastReplicatedSequence: lastSeq,
+        status: "active",
+      };
+    } catch {
+      replication = { lastReplicatedSequence: 0, status: "error" };
+    }
+  }
+
   return {
     mode: cluster.mode,
     writable: cluster.mode !== "follower",
@@ -103,7 +174,7 @@ export function clusterStatus(cluster: ResolvedThingdClusterOptions): ThingdClus
     advertiseUrl: cluster.advertiseUrl,
     discovery: cluster.discovery,
     peers: cluster.peers,
-    replication: "not-implemented",
+    replication,
   };
 }
 
@@ -118,7 +189,8 @@ export async function forwardMcpRequestToLeader(
     return;
   }
 
-  const upstreamUrl = leaderMcpUrl(cluster.leaderUrl, mcpPath);
+  const leaderUrl = cluster.leaderUrl ?? "";
+  const upstreamUrl = leaderMcpUrl(leaderUrl, mcpPath);
   const body = await readRequestBody(request);
   const upstream = await fetch(upstreamUrl, {
     method: "POST",

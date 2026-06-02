@@ -119,7 +119,8 @@ test("serves cluster status and peers", async () => {
   assert.equal(statusResponse.status, 200);
   assert.equal(status.mode, "leader");
   assert.equal(status.writable, true);
-  assert.equal(status.replication, "not-implemented");
+  assert.equal(status.replication.status, "active");
+  assert.equal(status.replication.lastReplicatedSequence, 0);
   assert.deepEqual(peers.peers, ["http://thingd-0:8757", "http://thingd-1:8757"]);
 
   await runtime.close();

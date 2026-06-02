@@ -438,8 +438,7 @@ THINGD_CLUSTER_FORWARD_AUTH_TOKEN=change-me
 THINGD_CLUSTER_PEERS=http://thingd-0:8757,http://thingd-1:8757
 ```
 
-Followers forward MCP traffic to the configured leader. Local follower replica
-catch-up is still future work.
+Followers automatically forward MCP write traffic to the configured leader and run a background pull catch-up replication thread to keep their local read replicas in sync.
 
 The MCP layer should continue to enforce:
 
@@ -757,14 +756,14 @@ Canonical ordering, exit criteria, and per-phase doc checklists:
 - [ ] semantic cache
 - [ ] tool-call ledger
 - [ ] compaction snapshots
-- [ ] local read replicas
+- [x] local read replicas
 - [ ] server binary
 - [ ] published Docker sidecar image
 - [x] Kubernetes sidecar mode example
 - [x] cluster bridge with leader write forwarding
 - [ ] tenant partitioning
-- [ ] follower replica catch-up
-- [ ] sync and compaction
+- [x] follower replica catch-up
+- [x] sync and compaction
 
 ## Design principles
 

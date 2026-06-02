@@ -8,8 +8,26 @@ experiments, self-hosting, and the future `thingd-cloud` gateway.
 
 ## Build
 
+Local build:
+
 ```bash
 docker build -t thingd:local .
+```
+
+### Multi-Arch Production Build
+
+To build and publish highly optimized multi-arch images (supporting both `amd64` and `arm64` CPU architectures) to GitHub Packages (`ghcr.io/sayanmohsin/thingd`):
+
+```bash
+# Authenticate with GHCR
+echo $GITHUB_TOKEN | docker login ghcr.io -u sayanmohsin --password-stdin
+
+# Build and push via Docker Buildx
+docker buildx build \
+  --platform linux/amd64,linux/arm64 \
+  -t ghcr.io/sayanmohsin/thingd:latest \
+  -t ghcr.io/sayanmohsin/thingd:v0.1.0 \
+  --push .
 ```
 
 ## Run
@@ -126,14 +144,15 @@ THINGD_CLUSTER_PEERS=http://thingd-0:8757,http://thingd-1:8757
 THINGD_ADVERTISE_URL=http://thingd-0:8757
 ```
 
-Current behavior:
+Supported cluster modes:
 
-- `single`: standalone runtime
-- `leader`: handles MCP traffic locally and reports itself writable
-- `follower`: forwards MCP traffic to `THINGD_CLUSTER_LEADER_URL`
+- `single`: Standalone runtime serving local database requests.
+- `leader`: Handles local reads and writes, records change events to the system stream `__thingd:system:replication`, and serves incremental replication logs.
+- `follower`: Enforces eventually consistent local reads and strict write forwarding:
+  - **Write Forwarding**: Automatically forwards all incoming MCP write requests to the active Leader.
+  - **Pull Replication**: Spawns an asynchronous background replication runner that polls `GET /v1/replication/events?after=:sequence` from the Leader every `500ms`, downloading new change events and applying object mutations locally to the follower SQLite file in the background. Sync status is persisted under `__thingd_meta`.
 
-Follower local replica catch-up is not implemented yet. This bridge solves
-write routing before attempting true replicated local reads.
+Replication lag and diagnostics are monitored dynamically via `/cluster/status`, which reports active peer sequence indexes and computed lag (events difference between leader and follower) for Kubernetes liveness/readiness probes.
 
 ## Smoke Test
 
@@ -163,7 +182,6 @@ runtime. Override with `THINGD_DOCKER_PORT`.
 - no OAuth
 - no multi-tenant routing
 - no production prebuild matrix
-- no follower local replica catch-up yet
 
 Put TLS, domains, and public exposure behind a proper reverse proxy or hosted
 gateway.

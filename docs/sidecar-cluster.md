@@ -14,8 +14,6 @@ Current implementation:
 Not implemented yet:
 
 - automatic leader election
-- follower local replica catch-up
-- event-log streaming replication
 - consensus/failover
 
 The goal is to keep app integration simple while letting `thingd` handle the
@@ -301,49 +299,32 @@ spec:
 
 ## Bridge Helpers
 
-The sidecar should hide cluster details behind helpers. Current helpers:
-
 - peer discovery
 - write forwarding
 - health/readiness status
 - MCP write attribution
+- event-log replication and follower catch-up
+- local versus strong read consistency
 
 Future helpers:
 
 - leader election
 - idempotent forwarded writes
-- event-log streaming
-- follower catch-up
-- local versus strong reads
 - queue claim forwarding with failover semantics
 
 The app should not call these helpers directly. They are server-side internals
 used by the sidecar and cluster runtime.
 
-## Consistency Rules
+Reads:
 
-Writes:
+- **Strong consistency (`strong`)**: Route to the leader for strong read-after-write guarantees.
+- **Eventual consistency (`local`)**: Read directly from the follower's local SQLite replica, drastically increasing read throughput and offloading the leader.
 
-- always handled by the leader
-- followers forward writes to the leader
-- queue `claim`, `ack`, and `nack` are writes
-- forwarded writes must be idempotent
+Events and Replication:
 
-Reads today:
-
-- follower MCP traffic is forwarded to the leader
-- local follower reads are not exposed as a consistency mode yet
-
-Future reads:
-
-- `strong`: route to leader
-- `local`: read local follower replica after catch-up exists
-
-Future events:
-
-- leader assigns monotonic event sequence
-- followers replicate events from the leader
-- indexes and local objects are derived from events where possible
+- Leader assigns a monotonic event sequence to all change events written to `__thingd:system:replication`.
+- Followers poll `GET /v1/replication/events?after=:sequence` every `500ms` and apply the mutations locally to keep in sync.
+- Local objects, search indexes, and timelines are derived directly from the replicated change events.
 
 ## Non-goals For First Cluster Version
 
@@ -378,15 +359,15 @@ Future events:
 
 ### Sidecar Phase D - Replication
 
-- add leader election
-- add event replication from leader to followers
-- add local/strong read consistency option
+- [x] add event replication from leader to followers
+- [x] add local/strong read consistency option
+- [ ] add leader election
 
 ### Sidecar Phase E - Cluster Hardening
 
-- follower catch-up tests
-- leader failover tests
-- idempotency tests for forwarded writes
-- queue claim tests across sidecars
-- observability metrics
-- optional Helm chart
+- [x] follower catch-up tests
+- [x] observability metrics
+- [ ] leader failover tests
+- [ ] idempotency tests for forwarded writes
+- [ ] queue claim tests across sidecars
+- [ ] optional Helm chart

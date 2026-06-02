@@ -383,6 +383,23 @@ async function runStatus(context: CliContext): Promise<void> {
     fetchJson(new URL("/cluster/status", baseUrl), connection.authToken),
   ]);
 
+  const castCluster = cluster as
+    | {
+        leaderUrl?: string;
+        replication?: { lastReplicatedSequence?: number; lag?: number };
+      }
+    | null
+    | undefined;
+  const replication = castCluster?.replication;
+  const lastReplicatedSequence =
+    replication && typeof replication === "object" && "lastReplicatedSequence" in replication
+      ? replication.lastReplicatedSequence
+      : undefined;
+  const replicationLag =
+    replication && typeof replication === "object" && "lag" in replication
+      ? replication.lag
+      : undefined;
+
   writeJson(
     context.stdout,
     {
@@ -390,6 +407,9 @@ async function runStatus(context: CliContext): Promise<void> {
       url: resolveCloudMcpUrl(connection.path),
       health,
       cluster,
+      leaderUrl: castCluster?.leaderUrl,
+      lastReplicatedSequence,
+      replicationLag,
     },
     context.pretty,
   );
