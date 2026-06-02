@@ -868,6 +868,7 @@ impl QueueStore for SqliteThingStore {
 }
 
 impl crate::store::Searcher for SqliteThingStore {
+    #[allow(clippy::too_many_lines)]
     fn search(
         &self,
         query: &str,
@@ -879,7 +880,7 @@ impl crate::store::Searcher for SqliteThingStore {
         }
 
         let mut statement = self.connection.prepare(
-            r#"
+            r"
             SELECT 
                 s.kind,
                 s.collection,
@@ -898,7 +899,7 @@ impl crate::store::Searcher for SqliteThingStore {
             LEFT JOIN objects o ON s.kind = 'object' AND s.collection = o.collection AND s.id = o.id
             LEFT JOIN events e ON s.kind = 'event' AND s.collection = e.stream AND s.id = CAST(e.sequence AS TEXT)
             WHERE search_index MATCH ?1
-            "#
+            "
         ).map_err(ThingdError::from)?;
 
         let rows = statement
@@ -911,7 +912,8 @@ impl crate::store::Searcher for SqliteThingStore {
                 let age_seconds: Option<i64> = row.get(12)?;
 
                 let relevance_score = -bm25_score;
-                let age = age_seconds.unwrap_or(0).max(0) as f64;
+                let age =
+                    f64::from(i32::try_from(age_seconds.unwrap_or(0).max(0)).unwrap_or(i32::MAX));
                 let recency_factor = 1.0 / (1.0 + age / 86400.0);
                 let score = relevance_score * recency_factor;
 
@@ -922,7 +924,7 @@ impl crate::store::Searcher for SqliteThingStore {
                     let object_updated_at: String = row.get(7)?;
                     (
                         object_body,
-                        Some(object_version as u64),
+                        Some(object_version.cast_unsigned()),
                         object_created_at,
                         Some(object_updated_at),
                         None,
@@ -1139,13 +1141,14 @@ fn sanitize_fts_query(query: &str) -> String {
 }
 
 fn extract_text_from_json(json_str: &str) -> String {
-    if let Ok(value) = serde_json::from_str::<serde_json::Value>(json_str) {
-        let mut out = String::new();
-        collect_strings(&value, &mut out);
-        out.trim().to_string()
-    } else {
-        json_str.to_string()
-    }
+    serde_json::from_str::<serde_json::Value>(json_str).map_or_else(
+        |_| json_str.to_string(),
+        |value| {
+            let mut out = String::new();
+            collect_strings(&value, &mut out);
+            out.trim().to_string()
+        },
+    )
 }
 
 fn collect_strings(value: &serde_json::Value, out: &mut String) {
@@ -1182,7 +1185,7 @@ fn collect_strings(value: &serde_json::Value, out: &mut String) {
             }
             out.push_str(&b.to_string());
         }
-        _ => {}
+        serde_json::Value::Null => {}
     }
 }
 
@@ -1513,14 +1516,18 @@ mod tests {
         assert_eq!(results_stem.len(), 2);
 
         // 3. Collection filtering
-        let mut options_col = crate::SearchOptions::default();
-        options_col.collections = Some(vec!["unrelated_col".to_string()]);
+        let options_col = crate::SearchOptions {
+            collections: Some(vec!["unrelated_col".to_string()]),
+            ..Default::default()
+        };
         let results_col = store.search("choose", options_col).unwrap();
         assert_eq!(results_col.len(), 0);
 
         // 4. Metadata filtering - status = "active"
-        let mut options_filter = crate::SearchOptions::default();
-        options_filter.filter = Some(serde_json::json!({"status": "active"}));
+        let options_filter = crate::SearchOptions {
+            filter: Some(serde_json::json!({"status": "active"})),
+            ..Default::default()
+        };
         let results_filter = store.search("choose", options_filter).unwrap();
         assert_eq!(results_filter.len(), 1);
         assert_eq!(results_filter[0].id, "choice-1");

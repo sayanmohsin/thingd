@@ -44,6 +44,9 @@ jobs:
       - name: Node unit tests
         run: pnpm test:node
 
+      - name: CLI unit tests
+        run: pnpm test:cli
+
       - name: Package smoke test
         run: pnpm test:package
 

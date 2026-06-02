@@ -314,25 +314,26 @@ thingd bench rust --count <n>
 
 ## Phase CLI-C - Data Movement
 
-Target duration: 1 to 2 focused days after persistence behavior is stable.
+Status: completed.
 
 Deliverables:
 
-- export/import JSONL
-- snapshots for local development
-- redaction hooks for agent memory exports
+- [x] export/import JSONL
+- [x] snapshots for local development
+- [x] redaction hooks for agent memory exports
 
 Commands:
 
 ```txt
-thingd export --collection <name> --out objects.jsonl
-thingd export --events --out events.jsonl
+thingd export --collection <name> --out objects.jsonl [--redact [keys]]
+thingd export --events [--stream <name>] --out events.jsonl [--redact [keys]]
 thingd import --collection <name> --in objects.jsonl
 thingd snapshot create --out snapshot.thingd.json
 thingd snapshot restore --in snapshot.thingd.json
 ```
 
-Do not add this until collection listing and pagination semantics are designed.
+### Redaction Support
+The `--redact` flag on `export` supports custom and default redaction for sensitive fields. If specified without arguments, it redacts common secrets (like passwords, keys, and tokens). It can also accept a comma-separated list of keys to redact (e.g. `--redact secret_key,token`). The export command will recursively search object bodies and redact any matched keys, replacing their values with `"[REDACTED]"`. Any string values in the `text` fields are scanned for email addresses and API keys and replaced automatically.
 
 ## Handoff Notes
 

@@ -6,9 +6,9 @@ Last updated: 2026-05-31.
 
 ## Recommended next phase
 
-**Phase 6 — MCP hardening** from [roadmap.md](./roadmap.md).
+**Phase 8 — Sidecar hardening** from [roadmap.md](./roadmap.md).
 
-After Phase 6: **Phase 7** CLI-C data movement (export/import/snapshots).
+After Phase 8: **Phase 9** Graph links from [ai-primitives.md](./ai-primitives.md).
 
 ## Current shape
 

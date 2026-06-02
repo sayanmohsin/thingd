@@ -16,7 +16,8 @@
       "**/*.jsonc",
       "!**/target",
       "!**/node_modules",
-      "!**/dist"
+      "!**/dist",
+      "!**/packages/thingd-cli/src/dashboard/public/assets"
     ]
   },
   "formatter": {

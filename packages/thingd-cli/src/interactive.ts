@@ -9,7 +9,7 @@ import { ThingD } from "thingd";
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
-function highlightJson(val: any): string {
+function highlightJson(val: unknown): string {
   const str = JSON.stringify(val, null, 2);
   return str.replace(
     /("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+-]?\d+)?)/g,
@@ -35,7 +35,7 @@ function visibleWidth(s: string): number {
   const clean = stripAnsi(s);
   let w = 0;
   for (const ch of clean) {
-    const cp = ch.codePointAt(0)!;
+    const cp = ch.codePointAt(0) ?? 0;
     // Emoji (surrogate pairs / high codepoints) and CJK fullwidth ranges
     if (
       cp > 0xffff ||
@@ -95,7 +95,7 @@ let viewerScroll = 0;
 let loadedItemId = "";
 let loadTimer: ReturnType<typeof setTimeout> | null = null;
 let pollTimer: ReturnType<typeof setInterval> | null = null;
-let keypressHandler: ((str: string, key: any) => void) | null = null;
+let keypressHandler: ((str: string, key: Record<string, unknown>) => void) | null = null;
 
 // ── Form State ───────────────────────────────────────────────────────
 
@@ -162,9 +162,10 @@ function openForm(
         draw();
         const n = buildTree()[cursorIndex];
         if (n) scheduleLoad(n);
-      } catch (err: any) {
+      } catch (err: unknown) {
         if (formState) {
-          formState.error = err?.message || String(err) || "Unknown error occurred";
+          formState.error =
+            err instanceof Error ? err.message : String(err) || "Unknown error occurred";
           formState.isSubmitting = false;
           draw();
         }
@@ -203,7 +204,7 @@ function drawSparkline(data: number[], baselineMax = 0, width = SPARK_WIDTH): st
       const ratio = v / max;
       const idx = Math.max(0, Math.min(dataChars.length - 1, Math.floor(ratio * dataChars.length)));
 
-      return dataChars[idx]!;
+      return dataChars[idx] ?? dataChars[0] ?? "▁";
     })
     .join("");
 
@@ -247,7 +248,7 @@ async function fetchResourcesFallback() {
 
   // Queues
   try {
-    const store = (db as any).store;
+    const store = (db as unknown as { store?: { queues?: Map<string, unknown> } }).store;
     if (store?.queues) {
       queues = (Array.from(store.queues.keys()) as string[]).sort();
     } else {
@@ -303,9 +304,13 @@ async function fetchResources(): Promise<void> {
 
   // Calculate Deltas for Operations Throughput Rates
   const prevObjects =
-    objectsHistory.length > 0 ? objectsHistory[objectsHistory.length - 1]! : totalObjects;
+    objectsHistory.length > 0
+      ? (objectsHistory[objectsHistory.length - 1] ?? totalObjects)
+      : totalObjects;
   const prevEvents =
-    eventsHistory.length > 0 ? eventsHistory[eventsHistory.length - 1]! : totalEventsCount;
+    eventsHistory.length > 0
+      ? (eventsHistory[eventsHistory.length - 1] ?? totalEventsCount)
+      : totalEventsCount;
 
   // Polling is every 2000ms. Operations per second = delta / 2
   const objectWriteRate = Math.max(0, Math.round((totalObjects - prevObjects) / 2));
@@ -379,7 +384,7 @@ interface TreeNode {
   label: string;
   depth: number;
   expandable: boolean;
-  ref?: any;
+  ref?: Record<string, unknown>;
 }
 
 function buildTree(): TreeNode[] {
@@ -599,12 +604,14 @@ async function loadContent(node: TreeNode): Promise<void> {
     let content = "";
 
     if (node.type === "object" && node.ref) {
-      const data = await db.get(node.ref.collection, node.ref.id);
+      const ref = node.ref as { collection: string; id: string };
+      const data = await db.get(ref.collection, ref.id);
       content = data ? highlightJson(data) : pc.yellow("Object not found.");
     } else if (node.type === "collection" && node.ref) {
-      const objs = objectsByCollection.get(node.ref.name) ?? [];
-      const hist = colHistory.get(node.ref.name) ?? [];
-      let res = `${pc.bold(node.ref.name)} ${pc.dim(`(${objs.length} objects)`)}\n\n`;
+      const ref = node.ref as { name: string };
+      const objs = objectsByCollection.get(ref.name) ?? [];
+      const hist = colHistory.get(ref.name) ?? [];
+      let res = `${pc.bold(ref.name)} ${pc.dim(`(${objs.length} objects)`)}\n\n`;
       res += `${pc.bold("Performance")}\n`;
       res += `  Volume    ${pc.cyan(drawSparkline(hist))}\n\n`;
 
@@ -616,17 +623,18 @@ async function loadContent(node: TreeNode): Promise<void> {
       }
       content = res;
     } else if (node.type === "stream" && node.ref) {
-      const events = await db.events.list(node.ref.name);
-      const hist = streamHistory.get(node.ref.name) ?? [];
+      const ref = node.ref as { name: string };
+      const events = await db.events.list(ref.name);
+      const hist = streamHistory.get(ref.name) ?? [];
 
-      let res = `${pc.bold(node.ref.name)} ${pc.dim(`(${events.length} events)`)}\n\n`;
+      let res = `${pc.bold(ref.name)} ${pc.dim(`(${events.length} events)`)}\n\n`;
       res += `${pc.bold("Performance")}\n`;
       res += `  Volume    ${pc.green(drawSparkline(hist))}\n\n`;
 
       if (events.length === 0) {
         res += pc.dim("  No events in this stream.");
       } else {
-        const lines = events.map((e: any) => {
+        const lines = events.map((e) => {
           const ts = e.createdAt ? pc.dim(String(e.createdAt)) : "";
           const type = pc.magenta(e.type || "unknown");
           return `  ${ts} ${type}`;
@@ -635,13 +643,14 @@ async function loadContent(node: TreeNode): Promise<void> {
       }
       content = res;
     } else if (node.type === "queue" && node.ref) {
-      const queue = db.queue(node.ref.name);
+      const ref = node.ref as { name: string };
+      const queue = db.queue(ref.name);
       const [active, dead] = await Promise.all([queue.list(), queue.dead()]);
 
-      const aHist = queueActiveHistory.get(node.ref.name) ?? [];
-      const dHist = queueDeadHistory.get(node.ref.name) ?? [];
+      const aHist = queueActiveHistory.get(ref.name) ?? [];
+      const dHist = queueDeadHistory.get(ref.name) ?? [];
 
-      let res = `${pc.bold(node.ref.name)}\n\n`;
+      let res = `${pc.bold(ref.name)}\n\n`;
       res += `${pc.bold("Performance")}\n`;
       res += `  Active    ${pc.cyan(drawSparkline(aHist))}\n`;
       res += `  Dead      ${pc.red(drawSparkline(dHist))}\n\n`;
@@ -649,7 +658,7 @@ async function loadContent(node: TreeNode): Promise<void> {
       if (active.length === 0) {
         res += pc.dim("  No active jobs\n");
       } else {
-        for (const j of active as any[]) {
+        for (const j of active) {
           res += `  ${pc.dim("●")} ${j.id} ${pc.yellow(j.status)} ${pc.dim(`${j.attempts}/${j.maxAttempts}`)}\n`;
         }
       }
@@ -657,7 +666,7 @@ async function loadContent(node: TreeNode): Promise<void> {
       if (dead.length === 0) {
         res += pc.dim("  No dead jobs\n");
       } else {
-        for (const j of dead as any[]) {
+        for (const j of dead) {
           res += `  ${pc.dim("●")} ${j.id} ${pc.dim(`${j.attempts}/${j.maxAttempts}`)}\n`;
         }
       }
@@ -741,9 +750,9 @@ async function loadContent(node: TreeNode): Promise<void> {
       viewerLines = content.split("\n");
       draw();
     }
-  } catch (err: any) {
+  } catch (err: unknown) {
     if (loadedItemId === snapId) {
-      viewerLines = [pc.red(`Error: ${err.message}`)];
+      viewerLines = [pc.red(`Error: ${err instanceof Error ? err.message : String(err)}`)];
       draw();
     }
   }
@@ -943,7 +952,7 @@ function padToWidth(text: string, width: number): string {
 
 async function launchEditor(f: FormField) {
   if (process.stdin.isTTY) process.stdin.setRawMode(false);
-  process.stdin.removeListener("keypress", keypressHandler!);
+  if (keypressHandler) process.stdin.removeListener("keypress", keypressHandler);
   console.clear();
 
   const tmpFile = path.join(os.tmpdir(), `thingd-edit-${Date.now()}.json`);
@@ -1019,14 +1028,15 @@ async function handleCreate(selected: TreeNode | undefined) {
   let defaultQueue = "";
 
   if (selected) {
+    const ref = selected.ref as { name?: string; collection?: string };
     if (selected.type === "collection") {
-      defaultCol = selected.ref?.name ?? "";
+      defaultCol = ref?.name ?? "";
     } else if (selected.type === "object") {
-      defaultCol = selected.ref?.collection ?? "";
+      defaultCol = ref?.collection ?? "";
     } else if (selected.type === "stream") {
-      defaultStream = selected.ref?.name ?? "";
+      defaultStream = ref?.name ?? "";
     } else if (selected.type === "queue") {
-      defaultQueue = selected.ref?.name ?? "";
+      defaultQueue = ref?.name ?? "";
     }
   }
 
@@ -1092,7 +1102,7 @@ async function handleEdit(selected: TreeNode | undefined) {
   if (!selected) return;
 
   if (selected.type === "object" && selected.ref) {
-    const ref = selected.ref;
+    const ref = selected.ref as { collection: string; id: string };
     const current = await db.get(ref.collection, ref.id);
     const clean = current ? { ...current } : {};
     for (const k of ["id", "collection", "createdAt", "updatedAt", "version"]) {
@@ -1108,7 +1118,7 @@ async function handleEdit(selected: TreeNode | undefined) {
       },
     );
   } else if (selected.type === "queue" && selected.ref) {
-    const ref = selected.ref;
+    const ref = selected.ref as { name: string };
     const queue = db.queue(ref.name);
 
     openForm(
@@ -1151,7 +1161,7 @@ async function handleDelete(selected: TreeNode | undefined) {
   if (!selected) return;
 
   if (selected.type === "object" && selected.ref) {
-    const ref = selected.ref;
+    const ref = selected.ref as { collection: string; id: string };
     openForm(
       `Delete Object: ${ref.id}`,
       [{ id: "confirm", label: 'Type "yes" to confirm deletion', placeholder: "yes" }],
@@ -1161,7 +1171,7 @@ async function handleDelete(selected: TreeNode | undefined) {
       },
     );
   } else if (selected.type === "queue" && selected.ref) {
-    const ref = selected.ref;
+    const ref = selected.ref as { name: string };
     openForm(
       `Resolve Queue Job`,
       [
@@ -1213,10 +1223,17 @@ async function handleSearch() {
         `  ${pc.bold("Search Results:")} ${pc.cyan(query)}`,
         "",
         ...(results.length === 0 ? ["  No results found."] : []),
-        ...results.map((r: any) => {
-          const id = pc.green(r.id);
-          const col = pc.cyan(r.kind === "object" ? r.collection : r.stream);
-          const textStr = r.value?.text ? pc.dim(r.value.text.substring(0, 100)) : "";
+        ...results.map((r) => {
+          const res = r as {
+            id: string;
+            kind: string;
+            collection?: string;
+            stream?: string;
+            value?: { text?: string };
+          };
+          const id = pc.green(res.id);
+          const col = pc.cyan(res.kind === "object" ? (res.collection ?? "") : (res.stream ?? ""));
+          const textStr = res.value?.text ? pc.dim(res.value.text.substring(0, 100)) : "";
           return `  ${col} / ${id} ${textStr}`;
         }),
       ];

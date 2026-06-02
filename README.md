@@ -702,7 +702,7 @@ Canonical ordering, exit criteria, and per-phase doc checklists:
 **[docs/roadmap.md](./docs/roadmap.md)**. Quick restart:
 [docs/handoff.md](./docs/handoff.md).
 
-**Next:** Phase 7 **CLI-C data movement** (export/import/snapshots).
+**Next:** Phase 8 **Sidecar hardening** (bridge forward, multi-pod discovery).
 
 ### v0.1 - local core
 
@@ -745,7 +745,7 @@ Canonical ordering, exit criteria, and per-phase doc checklists:
 
 - [x] CLI-A: `packages/thingd-cli`, `thingd` binary, Interactive TUI Dashboard, Non-interactive JSON output, object/event/queue inspection. (See [CLI documentation](./packages/thingd-cli/README.md))
 - [x] CLI-B: pretty tables, `doctor`, queue stats, benchmark wrappers, clearer runtime errors
-- [ ] CLI-C: export/import, snapshots, and redaction-friendly handoff flows
+- [x] CLI-C: export/import, snapshots, and redaction-friendly handoff flows
 
 ### later
 

@@ -33,7 +33,7 @@ export type RunCliOptions = {
   stderr?: WritableLike;
 };
 
-type ParsedArgs = {
+export type ParsedArgs = {
   tokens: string[];
   flags: Map<string, string[]>;
   booleans: Set<string>;
@@ -88,6 +88,11 @@ Usage:
   thingd bench rust --count <n>
   thingd metrics
   thingd dashboard [--port <port>] [--path <path>] [--driver <driver>]
+  thingd export --collection <name> --out <path> [--redact [keys]]
+  thingd export --events [--stream <name>] --out <path> [--redact [keys]]
+  thingd import --collection <name> --in <path>
+  thingd snapshot create --out <path>
+  thingd snapshot restore --in <path>
 
 Options:
   --url <url>          remote thingd URL. Defaults to THINGD_URL
@@ -111,6 +116,7 @@ const BOOLEAN_FLAGS = new Set([
   "cursor",
   "antigravity",
   "smoke",
+  "events",
 ]);
 
 export async function runCli(
@@ -261,6 +267,24 @@ async function runCommand(context: CliContext): Promise<void> {
 
   if (command === "dashboard") {
     await runDashboard(context);
+    return;
+  }
+
+  if (command === "export") {
+    const { runExport } = await import("./data-movement.js");
+    await runExport(context);
+    return;
+  }
+
+  if (command === "import") {
+    const { runImport } = await import("./data-movement.js");
+    await runImport(context);
+    return;
+  }
+
+  if (command === "snapshot") {
+    const { runSnapshot } = await import("./data-movement.js");
+    await runSnapshot(context);
     return;
   }
 
@@ -883,20 +907,20 @@ function addFlagValue(flags: Map<string, string[]>, name: string, value: string)
   flags.set(name, values);
 }
 
-function hasFlag(parsed: ParsedArgs, name: string): boolean {
+export function hasFlag(parsed: ParsedArgs, name: string): boolean {
   return parsed.booleans.has(name) || parsed.flags.has(name);
 }
 
-function stringFlag(parsed: ParsedArgs, name: string): string | undefined {
+export function stringFlag(parsed: ParsedArgs, name: string): string | undefined {
   return parsed.flags.get(name)?.at(-1);
 }
 
-function stringFlags(parsed: ParsedArgs, name: string): string[] | undefined {
+export function stringFlags(parsed: ParsedArgs, name: string): string[] | undefined {
   const values = parsed.flags.get(name);
   return values && values.length > 0 ? values : undefined;
 }
 
-function requiredFlag(parsed: ParsedArgs, name: string): string {
+export function requiredFlag(parsed: ParsedArgs, name: string): string {
   const value = stringFlag(parsed, name);
   if (value === undefined) {
     throw new Error(`Missing required flag: --${name}`);
@@ -904,11 +928,11 @@ function requiredFlag(parsed: ParsedArgs, name: string): string {
   return value;
 }
 
-function optionalToken(parsed: ParsedArgs, index: number): string | undefined {
+export function optionalToken(parsed: ParsedArgs, index: number): string | undefined {
   return parsed.tokens[index];
 }
 
-function requiredToken(parsed: ParsedArgs, index: number, name: string): string {
+export function requiredToken(parsed: ParsedArgs, index: number, name: string): string {
   const value = optionalToken(parsed, index);
   if (!value) {
     throw new Error(`Missing required argument: ${name}`);
@@ -1003,11 +1027,11 @@ async function fetchJson(url: URL, authToken: string | undefined): Promise<unkno
   return response.json() as Promise<unknown>;
 }
 
-function writeJson(target: WritableLike, data: unknown, pretty: boolean): void {
+export function writeJson(target: WritableLike, data: unknown, pretty: boolean): void {
   target.write(`${JSON.stringify(data, null, pretty ? 2 : 0)}\n`);
 }
 
-function writeText(target: WritableLike, text: string): void {
+export function writeText(target: WritableLike, text: string): void {
   target.write(text.endsWith("\n") ? text : `${text}\n`);
 }
 

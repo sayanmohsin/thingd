@@ -215,14 +215,14 @@ Phases 8–13 match the priority order in [ai-primitives.md](./ai-primitives.md)
 
 ## Phase 7 — CLI-C (data movement)
 
-**Status:** after Search-A + stable list/pagination semantics  
+**Status:** completed  
 **Detail:** [cli.md](./cli.md#phase-cli-c---data-movement)
 
 ### Deliverables
 
-- [ ] export/import JSONL (objects, events)
-- [ ] snapshot create/restore for local dev
-- [ ] Redaction hooks documented for agent exports
+- [x] export/import JSONL (objects, events)
+- [x] snapshot create/restore for local dev
+- [x] Redaction hooks documented for agent exports
 
 ### Doc / CLI checklist
 
