@@ -43,12 +43,7 @@ type NativeThingStoreBinding = {
   listCollectionsJson(): Promise<string>;
   listStreamsJson(): Promise<string>;
   listQueuesJson(): Promise<string>;
-  searchJson(
-    query: string,
-    collectionsJson?: string,
-    limit?: number,
-    filterJson?: string,
-  ): string;
+  searchJson(query: string, collectionsJson?: string, limit?: number, filterJson?: string): string;
 };
 
 type NativeThingStoreConstructor = {
@@ -238,12 +233,7 @@ export class NativeThingStore implements ThingStore {
     const filterJson = options.filter ? JSON.stringify(options.filter) : undefined;
 
     const hits = parseJson<NativeSearchHit[]>(
-      this.binding.searchJson(
-        query,
-        collectionsJson,
-        options.limit,
-        filterJson,
-      ),
+      this.binding.searchJson(query, collectionsJson, options.limit, filterJson),
     );
 
     return hits.map((hit) => {

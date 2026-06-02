@@ -21,7 +21,10 @@ async function main() {
     path: "./agent_memory.db",
     driver: "native",
   });
-  log("1. Database Open", "Opened persistent thingd instance using automatic native driver promotion.");
+  log(
+    "1. Database Open",
+    "Opened persistent thingd instance using automatic native driver promotion.",
+  );
 
   // 2. Put memory records
   const mem1 = await db.put("memories", {
@@ -55,7 +58,7 @@ async function main() {
     resultsStemming.map((r) => ({
       id: r.id,
       score: r.score,
-      text: (r.value as any).text,
+      text: (r.value as Record<string, unknown>).text,
     })),
   );
 
@@ -72,8 +75,8 @@ async function main() {
     resultsFiltered.map((r) => ({
       id: r.id,
       score: r.score,
-      status: (r.value as any).status,
-      text: (r.value as any).text,
+      status: (r.value as Record<string, unknown>).status,
+      text: (r.value as Record<string, unknown>).text,
     })),
   );
 

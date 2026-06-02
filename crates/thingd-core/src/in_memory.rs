@@ -267,10 +267,19 @@ impl MemoryEngine {
 }
 
 impl crate::store::Searcher for MemoryEngine {
-    fn search(&self, query: &str, options: crate::SearchOptions) -> ThingdResult<Vec<crate::SearchHit>> {
+    fn search(
+        &self,
+        query: &str,
+        options: crate::SearchOptions,
+    ) -> ThingdResult<Vec<crate::SearchHit>> {
         let query_words: Vec<String> = query
             .split_whitespace()
-            .map(|w| w.to_lowercase().chars().filter(|c| c.is_alphanumeric()).collect())
+            .map(|w| {
+                w.to_lowercase()
+                    .chars()
+                    .filter(|c| c.is_alphanumeric())
+                    .collect()
+            })
             .filter(|w: &String| !w.is_empty())
             .collect();
 
@@ -296,7 +305,11 @@ impl crate::store::Searcher for MemoryEngine {
                 }
             }
 
-            let text_to_search = format!("{} {} {}", object.key.collection, object.key.id, object.body).to_lowercase();
+            let text_to_search = format!(
+                "{} {} {}",
+                object.key.collection, object.key.id, object.body
+            )
+            .to_lowercase();
             let matches_all = query_words.iter().all(|word| text_to_search.contains(word));
 
             if matches_all {
@@ -331,7 +344,8 @@ impl crate::store::Searcher for MemoryEngine {
                 }
             }
 
-            let text_to_search = format!("{} {} {}", event.stream, event.event_type, event.body).to_lowercase();
+            let text_to_search =
+                format!("{} {} {}", event.stream, event.event_type, event.body).to_lowercase();
             let matches_all = query_words.iter().all(|word| text_to_search.contains(word));
 
             if matches_all {

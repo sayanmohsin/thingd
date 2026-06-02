@@ -1,7 +1,7 @@
-import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { join, dirname, extname } from "node:path";
-import { fileURLToPath } from "node:url";
 import { existsSync, promises as fs, statSync } from "node:fs";
+import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { dirname, extname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { ThingD } from "thingd";
 import type { ConnectionOptions } from "../index.js";
 
@@ -60,7 +60,7 @@ function isCloudPath(path: string): boolean {
 export async function startDashboardServer(
   connectionOptions: ConnectionOptions,
   port: number,
-): Promise<{ server: any; close: () => Promise<void> }> {
+): Promise<{ server: import("node:http").Server; close: () => Promise<void> }> {
   // 1. Maintain dynamic active database options
   let activeOptions = { ...connectionOptions };
   let db = await ThingD.open({
@@ -223,10 +223,10 @@ export async function startDashboardServer(
             const stream = url.searchParams.get("stream") || undefined;
             const limitVal = url.searchParams.get("limit");
             const limit = limitVal ? Number.parseInt(limitVal, 10) : undefined;
-            
+
             const events = await db.events.list(stream);
             const sliced = limit ? events.slice(0, limit) : events;
-            
+
             res.writeHead(200, { "Content-Type": "application/json" });
             res.end(JSON.stringify(sliced));
             return;
@@ -410,9 +410,9 @@ export async function startDashboardServer(
         res.writeHead(404);
         res.end("Not Found");
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("Dashboard server exception:", err);
-      sendError(res, 500, err?.message || String(err));
+      sendError(res, 500, err instanceof Error ? err.message : String(err));
     }
   });
 

@@ -180,7 +180,11 @@ pub trait Searcher {
     /// # Errors
     ///
     /// Returns an error when search query fails.
-    fn search(&self, query: &str, options: crate::SearchOptions) -> ThingdResult<Vec<crate::SearchHit>>;
+    fn search(
+        &self,
+        query: &str,
+        options: crate::SearchOptions,
+    ) -> ThingdResult<Vec<crate::SearchHit>>;
 }
 
 /// Full storage interface expected from thingd engine adapters.

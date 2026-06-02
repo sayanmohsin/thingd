@@ -25,7 +25,7 @@ pub use model::{
 };
 #[cfg(feature = "sqlite")]
 pub use sqlite::{SqliteThingStore, SQLITE_SCHEMA_VERSION};
-pub use store::{EventLog, ObjectStore, QueueStore, ThingStore, Searcher};
+pub use store::{EventLog, ObjectStore, QueueStore, Searcher, ThingStore};
 
 pub(crate) fn unix_timestamp_millis() -> i64 {
     let Ok(duration) = SystemTime::now().duration_since(UNIX_EPOCH) else {

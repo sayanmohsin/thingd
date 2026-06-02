@@ -119,7 +119,7 @@ function isLoopbackHost(host: string): boolean {
  * An empty string or missing env var means all collections are allowed.
  */
 export function parseCollectionAllowlist(value: string | undefined): Set<string> | undefined {
-  if (!value || !value.trim()) {
+  if (!value?.trim()) {
     return undefined;
   }
 

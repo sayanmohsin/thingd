@@ -6,7 +6,7 @@ use serde::Serialize;
 use serde_json::Value;
 use thingd_core::{
     EventLog, MemoryEvent, MemoryObject, ObjectStore, QueueClaimOptions, QueueJob, QueueJobStatus,
-    QueueNackOptions, QueueStore, SqliteThingStore, SearchOptions, Searcher,
+    QueueNackOptions, QueueStore, SearchOptions, Searcher, SqliteThingStore,
 };
 
 #[napi]

@@ -1,4 +1,5 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
+import { PassThrough } from "node:stream";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { ThingD } from "thingd";
 import type { ThingdMcpAuditOptions } from "./audit.js";
@@ -9,7 +10,11 @@ import {
   resolveClusterOptions,
   type ThingdClusterOptions,
 } from "./cluster.js";
-import { ensureHttpRuntimeIsSafe, type ThingDStorageDriver, type ThingdMcpHardeningOptions } from "./config.js";
+import {
+  ensureHttpRuntimeIsSafe,
+  type ThingDStorageDriver,
+  type ThingdMcpHardeningOptions,
+} from "./config.js";
 import { createThingdMcpServer } from "./server.js";
 
 export type ThingdHttpServerOptions = {
@@ -174,9 +179,7 @@ async function handleRequest(
     // For chunked transfers, wrap the request in a PassThrough that enforces the limit
     // without pre-draining the stream (the MCP transport still drives reading).
     const wrappedRequest =
-      contentLength === null
-        ? wrapRequestWithSizeLimit(request, response, maxBytes)
-        : request;
+      contentLength === null ? wrapRequestWithSizeLimit(request, response, maxBytes) : request;
 
     await handleMcpRequest(state, wrappedRequest, response);
   } catch (error) {
@@ -373,14 +376,13 @@ function wrapRequestWithSizeLimit(
   response: ServerResponse,
   maxBytes: number,
 ): IncomingMessage {
-  const { PassThrough } = require("node:stream") as typeof import("node:stream");
   const pass = new PassThrough();
   let total = 0;
   let aborted = false;
 
   Object.defineProperties(pass, {
-    method:  { get: () => request.method },
-    url:     { get: () => request.url },
+    method: { get: () => request.method },
+    url: { get: () => request.url },
     headers: { get: () => request.headers },
   });
 
@@ -392,7 +394,10 @@ function wrapRequestWithSizeLimit(
       if (!response.headersSent) {
         writeJson(response, 413, {
           jsonrpc: "2.0",
-          error: { code: -32_000, message: `Request body exceeds the maximum allowed size of ${maxBytes} bytes.` },
+          error: {
+            code: -32_000,
+            message: `Request body exceeds the maximum allowed size of ${maxBytes} bytes.`,
+          },
           id: null,
         });
       }
@@ -403,10 +408,12 @@ function wrapRequestWithSizeLimit(
     pass.push(chunk);
   });
 
-  request.on("end", () => { if (!aborted) pass.end(); });
-  request.on("error", (err) => { if (!aborted) pass.destroy(err); });
+  request.on("end", () => {
+    if (!aborted) pass.end();
+  });
+  request.on("error", (err) => {
+    if (!aborted) pass.destroy(err);
+  });
 
   return pass as unknown as IncomingMessage;
 }
-
-

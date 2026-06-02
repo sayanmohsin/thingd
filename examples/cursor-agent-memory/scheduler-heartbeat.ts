@@ -38,19 +38,26 @@ async function main() {
     recurringIntervalMs: intervalMs,
   });
 
-  log("1. Register Schedule", "Created a recurring schedule in the 'schedules' collection, marked as immediately due:", {
-    id: scheduleId,
-    runAt,
-    recurringIntervalMs: intervalMs,
-  });
+  log(
+    "1. Register Schedule",
+    "Created a recurring schedule in the 'schedules' collection, marked as immediately due:",
+    {
+      id: scheduleId,
+      runAt,
+      recurringIntervalMs: intervalMs,
+    },
+  );
 
   // 2. Scheduler Heartbeat Routine
   // This simulates an external clock or cron trigger querying due schedules and pushing jobs to the queue.
-  log("2. Run Scheduler Heartbeat", "Heartbeat query: checking for enabled, due schedules (runAt <= now)...");
+  log(
+    "2. Run Scheduler Heartbeat",
+    "Heartbeat query: checking for enabled, due schedules (runAt <= now)...",
+  );
 
   // Query schedules (in a real app, you would query schedules that match the criteria)
   const schedule = await db.get("schedules", scheduleId);
-  if (schedule && schedule.enabled && new Date(schedule.runAt as string).getTime() <= Date.now()) {
+  if (schedule?.enabled && new Date(schedule.runAt as string).getTime() <= Date.now()) {
     const queue = db.queue("scheduler");
 
     // Push task into queue with a safe idempotency key to prevent double enqueuing
@@ -66,7 +73,11 @@ async function main() {
       },
     );
 
-    log("2a. Push Task to Queue", `Schedule is due! Enqueued a new scheduler job with idempotencyKey "${idempotencyKey}":`, job);
+    log(
+      "2a. Push Task to Queue",
+      `Schedule is due! Enqueued a new scheduler job with idempotencyKey "${idempotencyKey}":`,
+      job,
+    );
 
     // Update the schedule's next run time
     const nextRun = new Date(Date.now() + (schedule.recurringIntervalMs as number)).toISOString();
@@ -85,16 +96,27 @@ async function main() {
   const claimedJob = await queue.claim({ leaseMs: 15_000 });
 
   if (claimedJob) {
-    log("3a. Task Claimed", `Successfully claimed job "${claimedJob.id}". Concurrency lock is active for 15s.`, claimedJob);
+    log(
+      "3a. Task Claimed",
+      `Successfully claimed job "${claimedJob.id}". Concurrency lock is active for 15s.`,
+      claimedJob,
+    );
 
     // Simulate task execution
     const taskPayload = claimedJob.payload;
-    console.log(`\n⏳ [Executing Action] Running "${taskPayload.action}" with payload:`, taskPayload.payload);
+    console.log(
+      `\n⏳ [Executing Action] Running "${taskPayload.action}" with payload:`,
+      taskPayload.payload,
+    );
     await new Promise((resolve) => setTimeout(resolve, 1000)); // simulate 1s work
 
     // Acknowledge task completion
     const acked = await queue.ack(claimedJob.id);
-    log("3b. Task Acknowledged", "Job completed and acknowledged successfully. Task cleared from queue.", acked);
+    log(
+      "3b. Task Acknowledged",
+      "Job completed and acknowledged successfully. Task cleared from queue.",
+      acked,
+    );
   }
 
   // 4. Clean close

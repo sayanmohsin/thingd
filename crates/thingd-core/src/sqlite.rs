@@ -245,7 +245,10 @@ impl SqliteThingStore {
             .map_err(ThingdError::from)?;
 
         // Now insert everything inside a single transaction using unchecked_transaction
-        let tx = self.connection.unchecked_transaction().map_err(ThingdError::from)?;
+        let tx = self
+            .connection
+            .unchecked_transaction()
+            .map_err(ThingdError::from)?;
 
         // Clear existing FTS index
         tx.execute("DELETE FROM search_index", [])
@@ -461,8 +464,8 @@ impl EventLog for SqliteThingStore {
             .map_err(ThingdError::from)?;
 
         let sequence = transaction.last_insert_rowid();
-        event.sequence = u64::try_from(sequence)
-            .map_err(|error| ThingdError::Storage(error.to_string()))?;
+        event.sequence =
+            u64::try_from(sequence).map_err(|error| ThingdError::Storage(error.to_string()))?;
 
         let text = extract_text_from_json(&event.body);
         let seq_str = sequence.to_string();
@@ -865,7 +868,11 @@ impl QueueStore for SqliteThingStore {
 }
 
 impl crate::store::Searcher for SqliteThingStore {
-    fn search(&self, query: &str, options: crate::SearchOptions) -> ThingdResult<Vec<crate::SearchHit>> {
+    fn search(
+        &self,
+        query: &str,
+        options: crate::SearchOptions,
+    ) -> ThingdResult<Vec<crate::SearchHit>> {
         let sanitized = sanitize_fts_query(query);
         if sanitized.is_empty() {
             return Ok(Vec::new());
@@ -894,57 +901,59 @@ impl crate::store::Searcher for SqliteThingStore {
             "#
         ).map_err(ThingdError::from)?;
 
-        let rows = statement.query_map(params![sanitized], |row| {
-            let kind: String = row.get(0)?;
-            let collection: String = row.get(1)?;
-            let id: String = row.get(2)?;
-            let text: String = row.get(3)?;
-            let bm25_score: f64 = row.get(11)?;
-            let age_seconds: Option<i64> = row.get(12)?;
+        let rows = statement
+            .query_map(params![sanitized], |row| {
+                let kind: String = row.get(0)?;
+                let collection: String = row.get(1)?;
+                let id: String = row.get(2)?;
+                let text: String = row.get(3)?;
+                let bm25_score: f64 = row.get(11)?;
+                let age_seconds: Option<i64> = row.get(12)?;
 
-            let relevance_score = -bm25_score;
-            let age = age_seconds.unwrap_or(0).max(0) as f64;
-            let recency_factor = 1.0 / (1.0 + age / 86400.0);
-            let score = relevance_score * recency_factor;
+                let relevance_score = -bm25_score;
+                let age = age_seconds.unwrap_or(0).max(0) as f64;
+                let recency_factor = 1.0 / (1.0 + age / 86400.0);
+                let score = relevance_score * recency_factor;
 
-            let (body, version, created_at, updated_at, event_type) = if kind == "object" {
-                let object_body: String = row.get(4)?;
-                let object_version: i64 = row.get(5)?;
-                let object_created_at: String = row.get(6)?;
-                let object_updated_at: String = row.get(7)?;
-                (
-                    object_body,
-                    Some(object_version as u64),
-                    object_created_at,
-                    Some(object_updated_at),
-                    None,
-                )
-            } else {
-                let event_type_val: String = row.get(8)?;
-                let event_body: String = row.get(9)?;
-                let event_created_at: String = row.get(10)?;
-                (
-                    event_body,
-                    None,
-                    event_created_at,
-                    None,
-                    Some(event_type_val),
-                )
-            };
+                let (body, version, created_at, updated_at, event_type) = if kind == "object" {
+                    let object_body: String = row.get(4)?;
+                    let object_version: i64 = row.get(5)?;
+                    let object_created_at: String = row.get(6)?;
+                    let object_updated_at: String = row.get(7)?;
+                    (
+                        object_body,
+                        Some(object_version as u64),
+                        object_created_at,
+                        Some(object_updated_at),
+                        None,
+                    )
+                } else {
+                    let event_type_val: String = row.get(8)?;
+                    let event_body: String = row.get(9)?;
+                    let event_created_at: String = row.get(10)?;
+                    (
+                        event_body,
+                        None,
+                        event_created_at,
+                        None,
+                        Some(event_type_val),
+                    )
+                };
 
-            Ok(crate::SearchHit {
-                kind,
-                collection,
-                id,
-                text,
-                score,
-                body,
-                version,
-                created_at,
-                updated_at,
-                event_type,
+                Ok(crate::SearchHit {
+                    kind,
+                    collection,
+                    id,
+                    text,
+                    score,
+                    body,
+                    version,
+                    created_at,
+                    updated_at,
+                    event_type,
+                })
             })
-        }).map_err(ThingdError::from)?;
+            .map_err(ThingdError::from)?;
 
         let mut hits = Vec::new();
         for row in rows {
@@ -968,7 +977,11 @@ impl crate::store::Searcher for SqliteThingStore {
         }
 
         // Sort by score descending
-        hits.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+        hits.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
 
         // Limit results if requested
         if let Some(limit) = options.limit {
@@ -1104,7 +1117,13 @@ fn sanitize_fts_query(query: &str) -> String {
     let mut cleaned = String::new();
     let normalized: String = query
         .chars()
-        .map(|c| if c.is_alphanumeric() || c.is_whitespace() { c } else { ' ' })
+        .map(|c| {
+            if c.is_alphanumeric() || c.is_whitespace() {
+                c
+            } else {
+                ' '
+            }
+        })
         .collect();
 
     for word in normalized.split_whitespace() {
@@ -1481,12 +1500,16 @@ mod tests {
             .unwrap();
 
         // 1. Basic word match
-        let results = store.search("implementation", crate::SearchOptions::default()).unwrap();
+        let results = store
+            .search("implementation", crate::SearchOptions::default())
+            .unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].id, "choice-1");
 
         // 2. Stemming test (choose / choosing / choice / chooses should stem to same root)
-        let results_stem = store.search("choosing", crate::SearchOptions::default()).unwrap();
+        let results_stem = store
+            .search("choosing", crate::SearchOptions::default())
+            .unwrap();
         assert_eq!(results_stem.len(), 2);
 
         // 3. Collection filtering
@@ -1504,7 +1527,9 @@ mod tests {
 
         // 5. Deletion test
         store.delete_object("decisions", "choice-1").unwrap();
-        let results_after_del = store.search("choose", crate::SearchOptions::default()).unwrap();
+        let results_after_del = store
+            .search("choose", crate::SearchOptions::default())
+            .unwrap();
         assert_eq!(results_after_del.len(), 1);
         assert_eq!(results_after_del[0].id, "choice-2");
     }

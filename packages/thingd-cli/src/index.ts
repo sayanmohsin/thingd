@@ -1064,11 +1064,7 @@ async function runDashboard(context: CliContext): Promise<void> {
 async function openBrowser(url: string): Promise<void> {
   const { exec } = await import("node:child_process");
   const startCommand =
-    process.platform === "darwin"
-      ? "open"
-      : process.platform === "win32"
-        ? "start"
-        : "xdg-open";
+    process.platform === "darwin" ? "open" : process.platform === "win32" ? "start" : "xdg-open";
   exec(`${startCommand} ${url}`, () => {
     // Ignore browser spawn errors silently
   });
