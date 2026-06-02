@@ -181,5 +181,14 @@ thingd queues list embed
 thingd queues dead embed
 ```
 
+**Data Movement & Snapshots**
+```bash
+# Export & Import Data with optional recursive secret/email/key redaction
+thingd export --collection decisions --out decisions.jsonl [--redact]
+thingd export --events [--stream name] --out events.jsonl [--redact custom_secret]
+thingd import --collection decisions_restored --in decisions.jsonl
 
-
+# Snapshot & Restore full database state
+thingd snapshot create --out snapshot.thingd.json
+thingd snapshot restore --in snapshot.thingd.json
+```
