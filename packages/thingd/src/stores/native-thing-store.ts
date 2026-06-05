@@ -246,7 +246,7 @@ export class NativeThingStore implements ThingStore {
           collection: hit.collection,
           id: hit.id,
           body: hit.body,
-          version: hit.version ?? 1,
+          version: hit.version ?? 0,
           createdAt: hit.createdAt ?? "",
           updatedAt: hit.updatedAt ?? "",
         };
@@ -264,7 +264,7 @@ export class NativeThingStore implements ThingStore {
           stream: hit.collection,
           eventType: hit.eventType ?? "event",
           body: hit.body,
-          sequence: Number(hit.id),
+          sequence: Number(hit.id) || 0,
           createdAt: hit.createdAt ?? "",
         };
         const storedEvent = eventFromNative(eventRecord);
