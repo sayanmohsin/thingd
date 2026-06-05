@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   rust:
-    name: Rust
+    name: Rust ${{ matrix.check }}
     strategy:
       matrix:
         check: [fmt, clippy, test]
@@ -31,20 +31,20 @@ jobs:
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2
 
-      - name: Format check
+      - name: cargo fmt
         if: matrix.check == 'fmt'
         run: cargo fmt --all --check
 
-      - name: Clippy
+      - name: cargo clippy
         if: matrix.check == 'clippy'
         run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
-      - name: Unit tests
+      - name: cargo test
         if: matrix.check == 'test'
         run: cargo test --workspace --all-targets --all-features
 
   node:
-    name: Node
+    name: Lint, build & test (TS)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
