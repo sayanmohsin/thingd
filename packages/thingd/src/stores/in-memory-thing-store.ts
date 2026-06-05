@@ -18,26 +18,64 @@ import type {
 
 const DEFAULT_LEASE_MS = 30_000;
 
+class Mutex {
+  private queue: (() => void)[] = [];
+  private locked = false;
+
+  async acquire(): Promise<() => void> {
+    if (!this.locked) {
+      this.locked = true;
+      return () => this.release();
+    }
+    return new Promise<() => void>((resolve) => {
+      this.queue.push(() => {
+        this.locked = true;
+        resolve(() => this.release());
+      });
+    });
+  }
+
+  private release(): void {
+    const next = this.queue.shift();
+    if (next) {
+      next();
+    } else {
+      this.locked = false;
+    }
+  }
+}
+
 export class InMemoryThingStore implements ThingStore {
   private readonly collections = new Map<string, Map<string, StoredMemoryObject>>();
   private readonly events: StoredMemoryEvent[] = [];
   private readonly queues = new Map<string, QueueJob[]>();
+  private readonly mutex = new Mutex();
+
+  private async withLock<T>(fn: () => T): Promise<T> {
+    const release = await this.mutex.acquire();
+    try {
+      return fn();
+    } finally {
+      release();
+    }
+  }
 
   async put(collection: string, object: MemoryObject): Promise<StoredMemoryObject> {
-    const records = this.getCollection(collection);
-    const now = new Date().toISOString();
-    const existing = records.get(object.id);
-    const record: StoredMemoryObject = {
-      ...object,
-      id: object.id,
-      collection,
-      createdAt: existing?.createdAt ?? now,
-      updatedAt: now,
-      version: (existing?.version ?? 0) + 1,
-    };
-
-    records.set(object.id, record);
-    return record;
+    return this.withLock(() => {
+      const records = this.getCollection(collection);
+      const now = new Date().toISOString();
+      const existing = records.get(object.id);
+      const record: StoredMemoryObject = {
+        ...object,
+        id: object.id,
+        collection,
+        createdAt: existing?.createdAt ?? now,
+        updatedAt: now,
+        version: (existing?.version ?? 0) + 1,
+      };
+      records.set(object.id, record);
+      return record;
+    });
   }
 
   async get(collection: string, id: string): Promise<StoredMemoryObject | null> {
@@ -45,9 +83,9 @@ export class InMemoryThingStore implements ThingStore {
   }
 
   async delete(collection: string, id: string): Promise<ThingDeleteResult> {
-    return {
+    return this.withLock(() => ({
       deleted: this.collections.get(collection)?.delete(id) ?? false,
-    };
+    }));
   }
 
   async listObjects(collection: string): Promise<StoredMemoryObject[]> {
@@ -56,22 +94,22 @@ export class InMemoryThingStore implements ThingStore {
   }
 
   async appendEvent(stream: string, event: MemoryEvent): Promise<StoredMemoryEvent> {
-    const record: StoredMemoryEvent = {
-      ...event,
-      id: randomUUID(),
-      stream,
-      createdAt: new Date().toISOString(),
-    };
-
-    this.events.push(record);
-    return record;
+    return this.withLock(() => {
+      const record: StoredMemoryEvent = {
+        ...event,
+        id: randomUUID(),
+        stream,
+        createdAt: new Date().toISOString(),
+      };
+      this.events.push(record);
+      return record;
+    });
   }
 
   async listEvents(stream?: string): Promise<StoredMemoryEvent[]> {
     if (!stream) {
       return [...this.events];
     }
-
     return this.events.filter((event) => event.stream === stream);
   }
 
@@ -80,83 +118,77 @@ export class InMemoryThingStore implements ThingStore {
     payload: QueueJobPayload,
     options: QueueJobOptions = {},
   ): Promise<QueueJob> {
-    const jobs = this.getQueue(queue);
-    const now = new Date().toISOString();
-    const job: QueueJob = {
-      id: options.idempotencyKey ?? randomUUID(),
-      queue,
-      payload,
-      status: "ready",
-      attempts: 0,
-      maxAttempts: options.maxAttempts ?? 3,
-      createdAt: now,
-      availableAt: new Date(Date.now() + (options.delayMs ?? 0)).toISOString(),
-    };
+    return this.withLock(() => {
+      const jobs = this.getQueue(queue);
+      const now = new Date().toISOString();
+      const job: QueueJob = {
+        id: options.idempotencyKey ?? randomUUID(),
+        queue,
+        payload,
+        status: "ready",
+        attempts: 0,
+        maxAttempts: options.maxAttempts ?? 3,
+        createdAt: now,
+        availableAt: new Date(Date.now() + (options.delayMs ?? 0)).toISOString(),
+      };
 
-    const existing = jobs.find((candidate) => candidate.id === job.id);
-    if (existing) {
-      return this.cloneJob(existing);
-    }
+      const existing = jobs.find((candidate) => candidate.id === job.id);
+      if (existing) {
+        return this.cloneJob(existing);
+      }
 
-    jobs.push(job);
-    return this.cloneJob(job);
+      jobs.push(job);
+      return this.cloneJob(job);
+    });
   }
 
   async claimJob(queue: string, options: QueueClaimOptions = {}): Promise<QueueJob | null> {
-    this.releaseExpiredLeases(queue);
+    return this.withLock(() => {
+      this.releaseExpiredLeases(queue);
 
-    const now = new Date();
-    const job = this.queues
-      .get(queue)
-      ?.find(
-        (candidate) => candidate.status === "ready" && candidate.availableAt <= now.toISOString(),
-      );
+      const now = new Date();
+      const job = this.queues
+        .get(queue)
+        ?.find(
+          (candidate) => candidate.status === "ready" && candidate.availableAt <= now.toISOString(),
+        );
 
-    if (!job) {
-      return null;
-    }
+      if (!job) {
+        return null;
+      }
 
-    job.status = "leased";
-    job.attempts += 1;
-    job.leasedAt = now.toISOString();
-    job.leaseExpiresAt = new Date(
-      now.getTime() + (options.leaseMs ?? DEFAULT_LEASE_MS),
-    ).toISOString();
+      job.status = "leased";
+      job.attempts += 1;
+      job.leasedAt = now.toISOString();
+      job.leaseExpiresAt = new Date(
+        now.getTime() + (options.leaseMs ?? DEFAULT_LEASE_MS),
+      ).toISOString();
 
-    return this.cloneJob(job);
+      return this.cloneJob(job);
+    });
   }
 
   async ackJob(queue: string, jobId: string): Promise<QueueJobResult> {
-    const job = this.findJob(queue, jobId);
+    return this.withLock(() => {
+      const job = this.findJob(queue, jobId);
 
-    if (!job) {
-      return {
-        ok: false,
-        reason: "not_found",
-      };
-    }
+      if (!job) {
+        return { ok: false, reason: "not_found" } as QueueJobResult;
+      }
 
-    if (job.status === "completed" || job.status === "dead") {
-      return {
-        ok: false,
-        reason: "terminal",
-      };
-    }
+      if (job.status === "completed" || job.status === "dead") {
+        return { ok: false, reason: "terminal" } as QueueJobResult;
+      }
 
-    if (job.status !== "leased") {
-      return {
-        ok: false,
-        reason: "not_leased",
-      };
-    }
+      if (job.status !== "leased") {
+        return { ok: false, reason: "not_leased" } as QueueJobResult;
+      }
 
-    job.status = "completed";
-    job.completedAt = new Date().toISOString();
+      job.status = "completed";
+      job.completedAt = new Date().toISOString();
 
-    return {
-      ok: true,
-      job: this.cloneJob(job),
-    };
+      return { ok: true, job: this.cloneJob(job) };
+    });
   }
 
   async nackJob(
@@ -164,45 +196,35 @@ export class InMemoryThingStore implements ThingStore {
     jobId: string,
     options: QueueNackOptions = {},
   ): Promise<QueueJobResult> {
-    const job = this.findJob(queue, jobId);
+    return this.withLock(() => {
+      const job = this.findJob(queue, jobId);
 
-    if (!job) {
-      return {
-        ok: false,
-        reason: "not_found",
-      };
-    }
+      if (!job) {
+        return { ok: false, reason: "not_found" } as QueueJobResult;
+      }
 
-    if (job.status === "completed" || job.status === "dead") {
-      return {
-        ok: false,
-        reason: "terminal",
-      };
-    }
+      if (job.status === "completed" || job.status === "dead") {
+        return { ok: false, reason: "terminal" } as QueueJobResult;
+      }
 
-    if (job.status !== "leased") {
-      return {
-        ok: false,
-        reason: "not_leased",
-      };
-    }
+      if (job.status !== "leased") {
+        return { ok: false, reason: "not_leased" } as QueueJobResult;
+      }
 
-    job.lastError = options.error;
-    job.leasedAt = undefined;
-    job.leaseExpiresAt = undefined;
+      job.lastError = options.error;
+      job.leasedAt = undefined;
+      job.leaseExpiresAt = undefined;
 
-    if (job.attempts >= job.maxAttempts) {
-      job.status = "dead";
-      job.deadAt = new Date().toISOString();
-    } else {
-      job.status = "ready";
-      job.availableAt = new Date(Date.now() + (options.delayMs ?? 0)).toISOString();
-    }
+      if (job.attempts >= job.maxAttempts) {
+        job.status = "dead";
+        job.deadAt = new Date().toISOString();
+      } else {
+        job.status = "ready";
+        job.availableAt = new Date(Date.now() + (options.delayMs ?? 0)).toISOString();
+      }
 
-    return {
-      ok: true,
-      job: this.cloneJob(job),
-    };
+      return { ok: true, job: this.cloneJob(job) };
+    });
   }
 
   async listJobs(queue: string): Promise<QueueJob[]> {
@@ -298,6 +320,10 @@ export class InMemoryThingStore implements ThingStore {
       streams.add(event.stream);
     }
     return Array.from(streams).sort();
+  }
+
+  async close(): Promise<void> {
+    // no-op for in-memory store
   }
 
   private getCollection(collection: string): Map<string, StoredMemoryObject> {
