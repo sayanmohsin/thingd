@@ -3,7 +3,10 @@
   "version": "0.0.0-development",
   "description": "Private native Node.js binding for thingd.",
   "type": "module",
-  "private": true,
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
   "author": "Sayan Mohsin",
   "license": "Apache-2.0",
   "repository": {
@@ -13,7 +16,6 @@
   "main": "./index.js",
   "types": "./index.d.ts",
   "files": [
-    "dist",
     "prebuilds",
     "index.js",
     "index.d.ts",

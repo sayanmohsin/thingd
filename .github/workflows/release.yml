@@ -18,8 +18,49 @@ permissions:
   id-token: write
 
 jobs:
+  build-native:
+    name: Build native (${{ matrix.platform }}-${{ matrix.arch }})
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux
+            arch: x64
+          - os: macos-14
+            platform: darwin
+            arch: arm64
+          - os: macos-13
+            platform: darwin
+            arch: x64
+          - os: windows-latest
+            platform: win32
+            arch: x64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build native binary
+        run: cargo build -p thingd-native --release
+
+      - name: Copy prebuild
+        run: node packages/thingd-native/scripts/copy-prebuild.mjs
+
+      - name: Upload prebuild artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: prebuild-${{ matrix.platform }}-${{ matrix.arch }}
+          path: packages/thingd-native/prebuilds/
+
   release:
     name: Publish to npm
+    needs: [build-native]
     if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-latest
     env:
@@ -47,12 +88,24 @@ jobs:
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2
 
+      - name: Download all prebuild artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: prebuild-artifacts
+
+      - name: Merge prebuilds into thingd-native package
+        run: |
+          mkdir -p packages/thingd-native/prebuilds
+          for dir in prebuild-artifacts/*/; do
+            if [ -d "$dir" ]; then
+              cp -r "$dir". packages/thingd-native/prebuilds/
+            fi
+          done
+          echo "Prebuilds after merge:"
+          ls -la packages/thingd-native/prebuilds/*/
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
-
-      - name: Build native binary
-        working-directory: packages/thingd-native
-        run: pnpm build
 
       - name: Build packages (skip examples)
         run: pnpm --filter !examples* -r --if-present build

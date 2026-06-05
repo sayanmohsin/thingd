@@ -325,7 +325,7 @@ async function loadNativeModule(): Promise<NativeThingStoreModule> {
     }
   }
 
-  // Try direct import first
+  // Try direct import (resolves via node_modules when published, or workspace link locally)
   try {
     const mod = (await import(NATIVE_PACKAGE_NAME)) as NativeThingStoreModule;
     return {
@@ -333,90 +333,34 @@ async function loadNativeModule(): Promise<NativeThingStoreModule> {
       loadedPath: mod.loadedPath,
     };
   } catch (importError) {
-    // If direct import fails, try to auto-detect from known locations
+    // Fallback: scan workspace-relative paths for local development
     try {
       const { existsSync } = await import("node:fs");
-      const { homedir } = await import("node:os");
       const { join, dirname } = await import("node:path");
       const { fileURLToPath } = await import("node:url");
 
-      const candidates: string[] = [];
+      const __dirname = dirname(fileURLToPath(import.meta.url));
+      const platform = process.platform;
+      const arch = process.arch;
 
-      try {
-        const __dirname = dirname(fileURLToPath(import.meta.url));
-        const platform = process.platform;
-        const arch = process.arch;
-
-        // standard monorepo workspace path relative to packages/thingd/dist/stores/native-thing-store.js:
-        candidates.push(join(__dirname, "../../../../thingd-native/dist/thingd_native.node"));
-        candidates.push(
-          join(
-            __dirname,
-            "../../../../thingd-native/prebuilds",
-            `${platform}-${arch}`,
-            "thingd_native.node",
-          ),
-        );
-        // sibling to thingd-cli if installed in global node_modules:
-        candidates.push(join(__dirname, "../../../../../../thingd-native/dist/thingd_native.node"));
-        candidates.push(
-          join(
-            __dirname,
-            "../../../../../../thingd-native/prebuilds",
-            `${platform}-${arch}`,
-            "thingd_native.node",
-          ),
-        );
-        // inside thingd-cli node_modules:
-        candidates.push(join(__dirname, "../../../../thingd-native/dist/thingd_native.node"));
-        candidates.push(
-          join(
-            __dirname,
-            "../../../../thingd-native/prebuilds",
-            `${platform}-${arch}`,
-            "thingd_native.node",
-          ),
-        );
-      } catch (error) {
-        console.warn("native: candidate path resolution error:", error);
-      }
-
-      try {
-        const home = homedir();
-        const platform = process.platform;
-        const arch = process.arch;
-
-        candidates.push(
-          join(
-            home,
-            "Space/Programming/personal/thingd/packages/thingd-native/dist/thingd_native.node",
-          ),
-        );
-        candidates.push(
-          join(
-            home,
-            "Space/Programming/personal/thingd/packages/thingd-native/prebuilds",
-            `${platform}-${arch}`,
-            "thingd_native.node",
-          ),
-        );
-        candidates.push(
-          join(
-            home,
-            "Space/Programming/personal/thingd-cloud/packages/thingd-native/dist/thingd_native.node",
-          ),
-        );
-        candidates.push(
-          join(
-            home,
-            "Space/Programming/personal/thingd-cloud/packages/thingd-native/prebuilds",
-            `${platform}-${arch}`,
-            "thingd_native.node",
-          ),
-        );
-      } catch (error) {
-        console.warn("native: home dir resolution error:", error);
-      }
+      const candidates = [
+        // monorepo: packages/thingd/dist/stores/ -> ../../../../thingd-native/
+        join(__dirname, "../../../../thingd-native/dist/thingd_native.node"),
+        join(
+          __dirname,
+          "../../../../thingd-native/prebuilds",
+          `${platform}-${arch}`,
+          "thingd_native.node",
+        ),
+        // global install: sibling to thingd-cli in node_modules
+        join(__dirname, "../../../../../../thingd-native/dist/thingd_native.node"),
+        join(
+          __dirname,
+          "../../../../../../thingd-native/prebuilds",
+          `${platform}-${arch}`,
+          "thingd_native.node",
+        ),
+      ];
 
       for (const candidate of candidates) {
         if (existsSync(candidate)) {
@@ -429,13 +373,13 @@ async function loadNativeModule(): Promise<NativeThingStoreModule> {
                 loadedPath: candidate,
               };
             }
-          } catch (error) {
-            console.warn(`native: failed to load candidate "${candidate}":`, error);
+          } catch {
+            // candidate failed to load, try next
           }
         }
       }
-    } catch (error) {
-      console.warn("native: module resolution error:", error);
+    } catch {
+      // fallback resolution failed
     }
 
     throw new Error(

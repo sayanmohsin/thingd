@@ -158,25 +158,35 @@ export async function runCli(
   args = process.argv.slice(2),
   options: RunCliOptions = {},
 ): Promise<number> {
-  // Auto-detect and set THINGD_NATIVE_PATH if not already set, to allow global execution
-  // to seamlessly locate the native compiled library in the workspace or global node_modules.
+  // Auto-detect native binary for global/local dev execution
   if (!process.env.THINGD_NATIVE_PATH) {
     try {
       const { existsSync } = await import("node:fs");
-      const { homedir } = await import("node:os");
       const { join } = await import("node:path");
 
       const cliDir = join(resolveCliPath(), "..", "..");
+      const platform = process.platform;
+      const arch = process.arch;
       const candidates = [
+        // installed via pnpm/npm as transitive dependency of thingd
         join(cliDir, "node_modules", "thingd-native", "dist", "thingd_native.node"),
+        join(
+          cliDir,
+          "node_modules",
+          "thingd-native",
+          "prebuilds",
+          `${platform}-${arch}`,
+          "thingd_native.node",
+        ),
+        // workspace sibling (local dev)
         join(cliDir, "..", "thingd-native", "dist", "thingd_native.node"),
         join(
-          homedir(),
-          "Space/Programming/personal/thingd/packages/thingd-native/dist/thingd_native.node",
-        ),
-        join(
-          homedir(),
-          "Space/Programming/personal/thingd-cloud/packages/thingd-native/dist/thingd_native.node",
+          cliDir,
+          "..",
+          "thingd-native",
+          "prebuilds",
+          `${platform}-${arch}`,
+          "thingd_native.node",
         ),
       ];
       for (const candidate of candidates) {
