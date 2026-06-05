@@ -122,7 +122,7 @@ impl NativeThingStore {
     pub fn claim_job_json(&self, queue: String, lease_ms: i64) -> Result<Option<String>> {
         let mut store = self.lock_store()?;
         let job = store
-            .claim_job_with_options(&queue, QueueClaimOptions::new(non_negative_u64(lease_ms)))
+            .claim_job_with_options(&queue, QueueClaimOptions::new(non_negative_u64(lease_ms)?))
             .map_err(napi_error)?
             .map(job_record)
             .map(|record| to_json(&record))
@@ -166,7 +166,7 @@ impl NativeThingStore {
                     .nack_job_with_options(
                         &queue,
                         &id,
-                        QueueNackOptions::new(non_negative_u64(delay_ms)),
+                        QueueNackOptions::new(non_negative_u64(delay_ms)?),
                     )
                     .map_err(napi_error)?
                     .ok_or_else(|| Error::from_reason("leased job disappeared during nack"))?;
@@ -592,8 +592,8 @@ fn to_json<T: Serialize>(value: &T) -> Result<String> {
     serde_json::to_string(value).map_err(napi_error)
 }
 
-fn non_negative_u64(value: i64) -> u64 {
-    u64::try_from(value).unwrap_or(0)
+fn non_negative_u64(value: i64) -> Result<u64> {
+    u64::try_from(value).map_err(|_| Error::from_reason(format!("expected non-negative integer, got {value}")))
 }
 
 fn napi_error(error: impl std::fmt::Display) -> Error {

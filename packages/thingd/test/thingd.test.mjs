@@ -196,7 +196,7 @@ function runThingDBehaviorSuite(label, openDb) {
 
     const pushed = await queue.push({ object: "docs/doc_123" });
     const firstClaim = await queue.claim({
-      leaseMs: -1,
+      leaseMs: 0,
     });
     const secondClaim = await queue.claim();
 
