@@ -5,7 +5,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import readline from "node:readline";
 import pc from "picocolors";
-import { ThingD } from "thingd";
+import { type MemorySearchOptions, ThingD, type ThingDDriver } from "thingd";
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
@@ -939,18 +939,18 @@ async function launchEditor(f: FormField) {
   } catch (_e) {}
 
   if (process.stdin.isTTY) process.stdin.setRawMode(true);
-  process.stdin.on("keypress", keypressHandler!);
+  if (keypressHandler) process.stdin.on("keypress", keypressHandler);
   draw();
 }
 
-function parsePayload(str: string): any {
+function parsePayload(str: string): Record<string, unknown> {
   str = str.trim();
   if (!str) return {};
   if (str.startsWith("{") || str.startsWith("[")) {
     return JSON.parse(str);
   }
 
-  const obj: Record<string, any> = {};
+  const obj: Record<string, unknown> = {};
   const parts = str.match(/(?:[^\s"]+|"[^"]*")+/g) || [];
 
   for (const part of parts) {
@@ -960,7 +960,7 @@ function parsePayload(str: string): any {
       continue;
     }
     const k = part.substring(0, eqIdx);
-    let v: any = part.substring(eqIdx + 1);
+    let v: string | boolean | number = part.substring(eqIdx + 1);
 
     if (v.startsWith('"') && v.endsWith('"')) {
       v = v.substring(1, v.length - 1);
@@ -1059,8 +1059,8 @@ async function handleEdit(selected: TreeNode | undefined) {
     const ref = selected.ref as { collection: string; id: string };
     const current = await db.get(ref.collection, ref.id);
     const clean = current ? { ...current } : {};
-    for (const k of ["id", "collection", "createdAt", "updatedAt", "version"]) {
-      delete (clean as any)[k];
+    for (const k of ["id", "collection", "createdAt", "updatedAt", "version"] as const) {
+      delete (clean as Record<string, unknown>)[k];
     }
 
     openForm(
@@ -1165,7 +1165,7 @@ async function handleSearch() {
       const query = (vals.query || "").trim();
       if (!query) throw new Error("Search query required.");
       const limitStr = vals.limit || "";
-      const options: any = {};
+      const options: MemorySearchOptions = {};
       if (limitStr) {
         const limit = parseInt(limitStr, 10);
         if (!Number.isNaN(limit)) options.limit = limit;
@@ -1238,8 +1238,9 @@ async function handleInfo() {
           .split("\n")
           .map((l) => ` ${pc.dim(l)}`),
       );
-    } catch (err: any) {
-      lines.push("", ` ${pc.red("Cloud Query Failed:")} ${err.message}`);
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      lines.push("", ` ${pc.red("Cloud Query Failed:")} ${errMsg}`);
     }
   }
 
@@ -1450,7 +1451,7 @@ function cleanup() {
 async function handleConnect(node: TreeNode) {
   if (node.type !== "driver" || !node.ref) return;
 
-  const selectedDriver = node.ref.driver as string;
+  const selectedDriver = node.ref.driver as ThingDDriver;
 
   if (selectedDriver === "native" || selectedDriver === "cloud") {
     openForm(
@@ -1478,7 +1479,7 @@ async function handleConnect(node: TreeNode) {
         db = await ThingD.open({
           path: resolvedPath,
           url: selectedDriver === "cloud" ? resolvedPath : undefined,
-          driver: selectedDriver as any,
+          driver: selectedDriver,
           authToken: vals.token,
         });
 
@@ -1515,7 +1516,7 @@ async function handleConnect(node: TreeNode) {
     try {
       db = await ThingD.open({
         path: ":memory:",
-        driver: "memory" as any,
+        driver: "memory",
       });
       connected = true;
       startedAt = Date.now();
@@ -1527,8 +1528,9 @@ async function handleConnect(node: TreeNode) {
       const tree = buildTree();
       const first = tree[cursorIndex];
       if (first) scheduleLoad(first);
-    } catch (error: any) {
-      viewerLines = [pc.red(`Failed to connect: ${error.message}`)];
+    } catch (error) {
+      const errMsg = error instanceof Error ? error.message : String(error);
+      viewerLines = [pc.red(`Failed to connect: ${errMsg}`)];
       draw();
     }
   }

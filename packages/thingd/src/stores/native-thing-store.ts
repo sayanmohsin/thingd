@@ -327,7 +327,7 @@ async function loadNativeModule(): Promise<NativeThingStoreModule> {
 
   // Try direct import first
   try {
-    const mod = (await import(NATIVE_PACKAGE_NAME)) as any;
+    const mod = (await import(NATIVE_PACKAGE_NAME)) as NativeThingStoreModule;
     return {
       NativeThingStore: mod.NativeThingStore,
       loadedPath: mod.loadedPath,
