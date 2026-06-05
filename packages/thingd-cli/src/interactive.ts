@@ -86,7 +86,6 @@ let dbSizeHistory: number[] = [];
 let objectWriteRateHistory: number[] = [];
 let eventAppendRateHistory: number[] = [];
 
-
 let viewerLines: string[] = ["Select an item to view details."];
 let viewerScroll = 0;
 let loadedItemId = "";

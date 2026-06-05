@@ -122,7 +122,7 @@ export async function getClusterStatus(
           const leaderStatusUrl = new URL("/cluster/status", cluster.leaderUrl).toString();
           const headers: Record<string, string> = { Accept: "application/json" };
           if (cluster.forwardAuthToken) {
-            headers["Authorization"] = `Bearer ${cluster.forwardAuthToken}`;
+            headers.Authorization = `Bearer ${cluster.forwardAuthToken}`;
           }
           const leaderRes = await fetch(leaderStatusUrl, {
             headers,

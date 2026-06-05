@@ -401,10 +401,14 @@ async function runStatus(context: CliContext): Promise<void> {
 
   if (!connection.cloud) {
     if (context.pretty) {
-      writeLog(context.stdout, [
-        { label: "Driver", value: pc.cyan(connection.driver ?? "memory") },
-        { label: "Path", value: pc.dim(connection.path) },
-      ], "thingd  status");
+      writeLog(
+        context.stdout,
+        [
+          { label: "Driver", value: pc.cyan(connection.driver ?? "memory") },
+          { label: "Path", value: pc.dim(connection.path) },
+        ],
+        "thingd  status",
+      );
       return;
     }
     writeJson(
@@ -542,7 +546,11 @@ async function runSearch(context: CliContext): Promise<void> {
         const col = res.kind === "object" ? (res.collection ?? "") : (res.stream ?? "");
         return `${pc.green(res.id)} ${pc.dim(col)}`;
       });
-      writeLogBullets(context.stdout, bullets.map((t) => ({ text: t })), `thingd  search  ${query}`);
+      writeLogBullets(
+        context.stdout,
+        bullets.map((t) => ({ text: t })),
+        `thingd  search  ${query}`,
+      );
       return;
     }
     writeJson(context.stdout, results, context.pretty);
@@ -562,7 +570,11 @@ async function runObjects(context: CliContext): Promise<void> {
           const meta = `${pc.dim(`v${version}`)}  ${createdAt ? pc.dim(new Date(createdAt).toLocaleString()) : ""}`;
           return `${pc.green(id)}  ${meta}`;
         });
-        writeLogBullets(context.stdout, bullets.map((t) => ({ text: t })), `thingd  objects  list  ${collection}`);
+        writeLogBullets(
+          context.stdout,
+          bullets.map((t) => ({ text: t })),
+          `thingd  objects  list  ${collection}`,
+        );
       } else {
         writeJson(context.stdout, objects, false);
       }
@@ -598,7 +610,11 @@ async function runEvents(context: CliContext): Promise<void> {
     if (action === "streams") {
       const streams = await db.listStreams();
       if (context.pretty) {
-        writeLogBullets(context.stdout, streams.map((s) => ({ text: pc.green(s), icon: pc.green("●") })), "thingd  events  streams");
+        writeLogBullets(
+          context.stdout,
+          streams.map((s) => ({ text: pc.green(s), icon: pc.green("●") })),
+          "thingd  events  streams",
+        );
       } else {
         writeJson(context.stdout, streams, false);
       }
@@ -615,7 +631,11 @@ async function runEvents(context: CliContext): Promise<void> {
           const dataStr = Object.keys(data).length > 0 ? ` ${pc.dim(JSON.stringify(data))}` : "";
           return `${pc.green(id)} ${pc.magenta(type)} ${ts}${dataStr}`;
         });
-        writeLogBullets(context.stdout, bullets.map((t) => ({ text: t, icon: pc.green("●") })), stream ? `thingd  events  list  ${stream}` : "thingd  events  list");
+        writeLogBullets(
+          context.stdout,
+          bullets.map((t) => ({ text: t, icon: pc.green("●") })),
+          stream ? `thingd  events  list  ${stream}` : "thingd  events  list",
+        );
       } else {
         writeJson(context.stdout, events, false);
       }
@@ -640,7 +660,11 @@ async function runCollections(context: CliContext): Promise<void> {
     if (action === "list") {
       const collections = await db.listCollections();
       if (context.pretty) {
-        writeLogBullets(context.stdout, collections.map((c) => ({ text: pc.cyan(c) })), "thingd  collections  list");
+        writeLogBullets(
+          context.stdout,
+          collections.map((c) => ({ text: pc.cyan(c) })),
+          "thingd  collections  list",
+        );
       } else {
         writeJson(context.stdout, collections, false);
       }
@@ -656,7 +680,11 @@ async function runStreams(context: CliContext): Promise<void> {
     if (action === "list") {
       const streams = await db.listStreams();
       if (context.pretty) {
-        writeLogBullets(context.stdout, streams.map((s) => ({ text: pc.green(s), icon: pc.green("●") })), "thingd  streams  list");
+        writeLogBullets(
+          context.stdout,
+          streams.map((s) => ({ text: pc.green(s), icon: pc.green("●") })),
+          "thingd  streams  list",
+        );
       } else {
         writeJson(context.stdout, streams, false);
       }
@@ -675,12 +703,16 @@ async function runMetrics(context: CliContext): Promise<void> {
       db.countDeadJobs(),
     ]);
     if (context.pretty) {
-      writeLog(context.stdout, [
-        { label: "Objects", value: pc.cyan(String(objects)) },
-        { label: "Events", value: pc.green(String(events)) },
-        { label: "Active Jobs", value: pc.yellow(String(activeJobs)) },
-        { label: "Dead Jobs", value: pc.red(String(deadJobs)) },
-      ], "thingd  metrics");
+      writeLog(
+        context.stdout,
+        [
+          { label: "Objects", value: pc.cyan(String(objects)) },
+          { label: "Events", value: pc.green(String(events)) },
+          { label: "Active Jobs", value: pc.yellow(String(activeJobs)) },
+          { label: "Dead Jobs", value: pc.red(String(deadJobs)) },
+        ],
+        "thingd  metrics",
+      );
       return;
     }
     writeJson(
@@ -703,7 +735,11 @@ async function runQueues(context: CliContext): Promise<void> {
     if (action === "list-all") {
       const queues = await db.listQueues();
       if (context.pretty) {
-        writeLogBullets(context.stdout, queues.map((q) => ({ text: pc.magenta(q), icon: pc.magenta("◇") })), "thingd  queues  list-all");
+        writeLogBullets(
+          context.stdout,
+          queues.map((q) => ({ text: pc.magenta(q), icon: pc.magenta("◇") })),
+          "thingd  queues  list-all",
+        );
       } else {
         writeJson(context.stdout, queues, false);
       }
@@ -722,13 +758,17 @@ async function runQueues(context: CliContext): Promise<void> {
       const readyJobs = activeJobs.filter((job) => job.status === "ready");
 
       if (context.pretty) {
-        writeLog(context.stdout, [
-          { label: "Queue", value: pc.magenta(queueName) },
-          { label: "Ready", value: pc.cyan(String(readyJobs.length)) },
-          { label: "Leased", value: pc.yellow(String(leasedJobs.length)) },
-          { label: "Dead", value: pc.red(String(totalDead)) },
-          { label: "Total Active", value: String(totalActive) },
-        ], "thingd  queues  stats");
+        writeLog(
+          context.stdout,
+          [
+            { label: "Queue", value: pc.magenta(queueName) },
+            { label: "Ready", value: pc.cyan(String(readyJobs.length)) },
+            { label: "Leased", value: pc.yellow(String(leasedJobs.length)) },
+            { label: "Dead", value: pc.red(String(totalDead)) },
+            { label: "Total Active", value: String(totalActive) },
+          ],
+          "thingd  queues  stats",
+        );
         return;
       }
 
@@ -794,7 +834,11 @@ async function runQueues(context: CliContext): Promise<void> {
           const statusColor = job.status === "leased" ? pc.yellow : pc.cyan;
           return `${pc.dim(job.id)} ${statusColor(job.status)} ${pc.dim(`${job.attempts}/${job.maxAttempts}`)}`;
         });
-        writeLogBullets(context.stdout, bullets.map((t) => ({ text: t, icon: pc.cyan("●") })), `thingd  queues  list  ${queueName}`);
+        writeLogBullets(
+          context.stdout,
+          bullets.map((t) => ({ text: t, icon: pc.cyan("●") })),
+          `thingd  queues  list  ${queueName}`,
+        );
       } else {
         writeJson(context.stdout, jobs, false);
       }
@@ -808,7 +852,11 @@ async function runQueues(context: CliContext): Promise<void> {
           const err = job.lastError ? ` ${pc.dim(job.lastError)}` : "";
           return `${pc.dim(job.id)} ${pc.dim(`${job.attempts}/${job.maxAttempts}`)}${err}`;
         });
-        writeLogBullets(context.stdout, bullets.map((t) => ({ text: t, icon: pc.red("○") })), `thingd  queues  dead  ${queueName}`);
+        writeLogBullets(
+          context.stdout,
+          bullets.map((t) => ({ text: t, icon: pc.red("○") })),
+          `thingd  queues  dead  ${queueName}`,
+        );
       } else {
         writeJson(context.stdout, jobs, false);
       }

@@ -191,9 +191,9 @@ export class CloudThingStore implements ThingStore {
     })) as CallToolResult;
 
     if (result.isError) {
-      const text = result.content
-        .find((part): part is { type: "text"; text: string } => part.type === "text")
-        ?.text;
+      const text = result.content.find(
+        (part): part is { type: "text"; text: string } => part.type === "text",
+      )?.text;
       throw new Error(text ?? `thingd cloud tool "${name}" returned an error`);
     }
 

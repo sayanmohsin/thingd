@@ -527,7 +527,7 @@ function startReplicationRunner(state: RuntimeState) {
         Accept: "application/json",
       };
       if (state.cluster.forwardAuthToken) {
-        headers["Authorization"] = `Bearer ${state.cluster.forwardAuthToken}`;
+        headers.Authorization = `Bearer ${state.cluster.forwardAuthToken}`;
       }
 
       const response = await fetch(url.toString(), { headers });
