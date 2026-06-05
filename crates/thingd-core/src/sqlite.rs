@@ -4,7 +4,7 @@
 
 use std::path::Path;
 
-use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
+use rusqlite::{params, Connection, OptionalExtension, Transaction, TransactionBehavior};
 
 use crate::{
     u64_to_i64, unix_timestamp_millis, EventLog, MemoryEvent, MemoryObject, ObjectKey, ObjectStore,
@@ -189,37 +189,38 @@ impl SqliteThingStore {
     }
 
     fn apply_schema_v2(&self) -> ThingdResult<()> {
-        self.connection
-            .execute_batch(
-                r"
-                BEGIN;
-
-                CREATE VIRTUAL TABLE IF NOT EXISTS search_index USING fts5(
-                    collection UNINDEXED,
-                    id UNINDEXED,
-                    kind UNINDEXED,
-                    text,
-                    tokenize='porter unicode61'
-                );
-
-                INSERT OR IGNORE INTO thingd_schema_migrations (version, name, applied_at)
-                VALUES (2, 'fts5_search_index', strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));
-
-                COMMIT;
-                ",
-            )
+        let tx = self
+            .connection
+            .unchecked_transaction()
             .map_err(ThingdError::from)?;
 
-        // Now reindex all existing objects and events
-        self.reindex_all()?;
+        tx.execute_batch(
+            "CREATE VIRTUAL TABLE IF NOT EXISTS search_index USING fts5(
+                collection UNINDEXED,
+                id UNINDEXED,
+                kind UNINDEXED,
+                text,
+                tokenize='porter unicode61'
+            );",
+        )
+        .map_err(ThingdError::from)?;
 
+        // Reindex all existing objects and events inside the same transaction
+        self.reindex_all_into(&tx)?;
+
+        tx.execute(
+            "INSERT OR IGNORE INTO thingd_schema_migrations (version, name, applied_at)
+             VALUES (2, 'fts5_search_index', strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))",
+            [],
+        )
+        .map_err(ThingdError::from)?;
+
+        tx.commit().map_err(ThingdError::from)?;
         Ok(())
     }
 
-    fn reindex_all(&self) -> ThingdResult<()> {
-        // Read all existing objects
-        let mut stmt_objects = self
-            .connection
+    fn reindex_all_into(&self, tx: &rusqlite::Transaction<'_>) -> ThingdResult<()> {
+        let mut stmt_objects = tx
             .prepare("SELECT collection, id, body FROM objects")
             .map_err(ThingdError::from)?;
         let rows_objects = stmt_objects
@@ -232,9 +233,7 @@ impl SqliteThingStore {
             })
             .map_err(ThingdError::from)?;
 
-        // Read all existing events
-        let mut stmt_events = self
-            .connection
+        let mut stmt_events = tx
             .prepare("SELECT stream, sequence, body FROM events")
             .map_err(ThingdError::from)?;
         let rows_events = stmt_events
@@ -245,12 +244,6 @@ impl SqliteThingStore {
                     row.get::<_, String>(2)?,
                 ))
             })
-            .map_err(ThingdError::from)?;
-
-        // Now insert everything inside a single transaction using unchecked_transaction
-        let tx = self
-            .connection
-            .unchecked_transaction()
             .map_err(ThingdError::from)?;
 
         // Clear existing FTS index
@@ -277,7 +270,6 @@ impl SqliteThingStore {
             .map_err(ThingdError::from)?;
         }
 
-        tx.commit().map_err(ThingdError::from)?;
         Ok(())
     }
 }
