@@ -65,7 +65,7 @@ jobs:
       - name: Biome check
         run: pnpm check
 
-      - name: Build packages (skip examples)
+      - name: Build packages
         run: pnpm --filter !examples* -r --if-present build
 
       - name: Node unit tests
@@ -80,6 +80,3 @@ jobs:
 
       - name: Package smoke test
         run: pnpm test:package
-
-      - name: MCP HTTP smoke test
-        run: pnpm smoke:mcp

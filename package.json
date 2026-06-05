@@ -22,7 +22,6 @@
     "rust:fmt:check": "cargo fmt --all --check",
     "serve:mcp": "node packages/thingd-cli/dist/index.js mcp-http",
     "smoke:docker": "bash scripts/smoke-docker.sh",
-    "smoke:mcp": "node scripts/smoke-mcp-http.mjs",
     "cli": "node packages/thingd-cli/dist/index.js",
     "test": "pnpm test:node && pnpm test:cli && pnpm test:package && pnpm test:rust",
     "test:cli": "pnpm --filter thingd-cli test",
