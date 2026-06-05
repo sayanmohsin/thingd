@@ -424,11 +424,9 @@ impl ObjectStore for SqliteThingStore {
     }
 
     fn count_objects(&self) -> ThingdResult<u64> {
-        let count = self
+        let count: i64 = self
             .connection
-            .query_row("SELECT coalesce(max(rowid), 0) FROM objects", [], |row| {
-                row.get::<_, i64>(0)
-            })
+            .query_row("SELECT COUNT(*) FROM objects", [], |row| row.get(0))
             .map_err(ThingdError::from)?;
         Ok(u64::try_from(count).unwrap_or(0))
     }
@@ -516,11 +514,9 @@ impl EventLog for SqliteThingStore {
     }
 
     fn count_events(&self) -> ThingdResult<u64> {
-        let count = self
+        let count: i64 = self
             .connection
-            .query_row("SELECT coalesce(max(rowid), 0) FROM events", [], |row| {
-                row.get::<_, i64>(0)
-            })
+            .query_row("SELECT COUNT(*) FROM events", [], |row| row.get(0))
             .map_err(ThingdError::from)?;
         Ok(u64::try_from(count).unwrap_or(0))
     }
@@ -1539,5 +1535,47 @@ mod tests {
             .unwrap();
         assert_eq!(results_after_del.len(), 1);
         assert_eq!(results_after_del[0].id, "choice-2");
+    }
+
+    #[test]
+    fn counts_objects_correctly_after_deletions() {
+        let mut store = SqliteThingStore::open_in_memory().unwrap();
+
+        assert_eq!(store.count_objects().unwrap(), 0);
+
+        store
+            .put_object(MemoryObject::new("col1", "a", "{}"))
+            .unwrap();
+        store
+            .put_object(MemoryObject::new("col1", "b", "{}"))
+            .unwrap();
+        store
+            .put_object(MemoryObject::new("col2", "c", "{}"))
+            .unwrap();
+        assert_eq!(store.count_objects().unwrap(), 3);
+
+        store.delete_object("col1", "a").unwrap();
+        assert_eq!(store.count_objects().unwrap(), 2);
+
+        store.delete_object("col1", "b").unwrap();
+        assert_eq!(store.count_objects().unwrap(), 1);
+
+        store.delete_object("col2", "c").unwrap();
+        assert_eq!(store.count_objects().unwrap(), 0);
+    }
+
+    #[test]
+    fn counts_events_correctly() {
+        let mut store = SqliteThingStore::open_in_memory().unwrap();
+
+        assert_eq!(store.count_events().unwrap(), 0);
+
+        store
+            .append_event(MemoryEvent::new("test", "a", ""))
+            .unwrap();
+        store
+            .append_event(MemoryEvent::new("test", "b", ""))
+            .unwrap();
+        assert_eq!(store.count_events().unwrap(), 2);
     }
 }
