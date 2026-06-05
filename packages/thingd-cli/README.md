@@ -91,6 +91,38 @@ You can configure the connection via environment variables or CLI flags:
 --limit <n>          result limit for search and list commands
 ```
 
+### Native Driver (SQLite)
+
+Use the native SQLite driver for persistent local storage:
+
+```bash
+thingd --path ./my-data.db --driver native
+```
+
+Or set environment variables:
+
+```bash
+export THINGD_PATH=./app-data.db
+export THINGD_DRIVER=native
+thingd
+```
+
+All commands work identically — objects, events, queues, and search are all persisted.
+
+### MCP Server
+
+Run a persistent Streamable HTTP MCP server for remote agents:
+
+```bash
+thingd mcp-http --path ./data.db --driver native --auth-token my-token
+```
+
+Connect via MCP stdio for Claude Desktop and Cursor:
+
+```bash
+thingd mcp --path ./data.db --driver native
+```
+
 ### MCP Integration
 
 The `thingd` CLI has a built-in `mcp` subcommand that exposes an MCP server over `stdio`. This allows Claude Desktop to securely connect to your `thingd` database.

@@ -92,6 +92,57 @@ const hits = await db.search("why did we choose rust?", {
 });
 ```
 
+## Using the Native Driver Directly
+
+For persistent file-based storage, use the native SQLite driver instead of the in-memory store:
+
+```ts
+import { ThingD } from "thingd";
+
+const db = await ThingD.open({
+  path: "./my-app.db",
+  driver: "native",
+});
+
+await db.put("collections", { id: "notes", text: "My first note" });
+const result = await db.get("collections", "notes");
+console.log(result);
+await db.close();
+```
+
+You can also import the store class directly for more control:
+
+```ts
+import { NativeThingStore } from "thingd";
+
+const store = new NativeThingStore({ path: "./data.db" });
+await store.init();
+
+await store.put("users", { id: "alice", name: "Alice" });
+const user = await store.get("users", "alice");
+await store.close();
+```
+
+## MCP Client
+
+Connect to a remote thingd MCP server programmatically:
+
+```ts
+import { CloudThingStore } from "thingd";
+
+const store = new CloudThingStore({
+  url: "http://127.0.0.1:8757/mcp",
+  authToken: "change-me",
+});
+
+await store.init();
+
+await store.put("tasks", { id: "demo", text: "MCP-powered task" });
+const tasks = await store.listObjects("tasks");
+console.log(tasks);
+await store.close();
+```
+
 ## Running against a sidecar / Docker Runtime
 
 To use a running `thingd` sidecar or Docker runtime instead of the local memory, you can connect over HTTP MCP:
