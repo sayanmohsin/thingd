@@ -452,8 +452,8 @@ function objectFromNative(record: NativeObjectRecord): StoredMemoryObject {
     ...value,
     id: record.id,
     collection: record.collection,
-    createdAt: record.createdAt || new Date().toISOString(),
-    updatedAt: record.updatedAt || new Date().toISOString(),
+    createdAt: record.createdAt ?? new Date().toISOString(),
+    updatedAt: record.updatedAt ?? new Date().toISOString(),
     version: record.version,
   };
 }
@@ -466,7 +466,7 @@ function eventFromNative(record: NativeEventRecord): StoredMemoryEvent {
     type: value.type ?? record.eventType,
     id: String(record.sequence),
     stream: record.stream,
-    createdAt: record.createdAt || new Date().toISOString(),
+    createdAt: record.createdAt ?? new Date().toISOString(),
   };
 }
 
@@ -478,7 +478,7 @@ function jobFromNative(record: NativeQueueJobRecord): QueueJob {
     status: record.status,
     attempts: record.attempts,
     maxAttempts: record.maxAttempts,
-    createdAt: record.createdAt || new Date().toISOString(),
+    createdAt: record.createdAt ?? new Date().toISOString(),
     availableAt: timestampToIso(record.availableAtMs),
     leasedAt: optionalTimestampToIso(record.leasedAtMs),
     leaseExpiresAt: optionalTimestampToIso(record.leaseExpiresAtMs),
