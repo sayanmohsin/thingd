@@ -5,7 +5,6 @@ import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import Table from "cli-table3";
 import pc from "picocolors";
 import {
   type MemoryEvent,
@@ -46,6 +45,42 @@ export type CliContext = {
   stderr: WritableLike;
   pretty: boolean;
 };
+
+// ── Opencode-style log output ──────────────────────────────────────
+
+function writeLog(
+  target: WritableLike,
+  data: { label: string; value: string }[],
+  header?: string,
+): void {
+  const W = 60;
+  if (header) {
+    target.write(` ${pc.bold(header)}\n`);
+    target.write(` ${pc.dim("─".repeat(W))}\n`);
+  }
+  for (const { label, value } of data) {
+    target.write(` ${pc.cyan("●")} ${pc.dim(label.padEnd(14))} ${value}\n`);
+  }
+  target.write("\n");
+}
+
+function writeLogBullets(
+  target: WritableLike,
+  items: { icon?: string; text: string; indent?: number }[],
+  header?: string,
+): void {
+  const W = 60;
+  if (header) {
+    target.write(` ${pc.bold(header)}\n`);
+    target.write(` ${pc.dim("─".repeat(W))}\n`);
+  }
+  for (const item of items) {
+    const icon = item.icon ?? pc.cyan("○");
+    const indent = " ".repeat(item.indent ?? 1);
+    target.write(`${indent}${icon} ${item.text}\n`);
+  }
+  target.write("\n");
+}
 
 export type ConnectionOptions = {
   path: string;
@@ -99,7 +134,7 @@ Options:
   --auth-token <tok>  remote bearer token. Defaults to THINGD_AUTH_TOKEN
   --path <path>       local database path. Defaults to THINGD_PATH or ~/.thingd/data.db
   --driver <driver>   memory, native, or cloud
-  --pretty            pretty-print JSON output
+  --pretty            opencode-style log output (human-readable)
   --limit <n>         result limit for search and list commands
   --filter <json>     metadata key-value filter (e.g. '{"status":"active"}')
   -h, --help          show help
@@ -365,6 +400,13 @@ async function runStatus(context: CliContext): Promise<void> {
   const connection = resolveConnection(context);
 
   if (!connection.cloud) {
+    if (context.pretty) {
+      writeLog(context.stdout, [
+        { label: "Driver", value: pc.cyan(connection.driver ?? "memory") },
+        { label: "Path", value: pc.dim(connection.path) },
+      ], "thingd  status");
+      return;
+    }
     writeJson(
       context.stdout,
       {
@@ -399,6 +441,21 @@ async function runStatus(context: CliContext): Promise<void> {
     replication && typeof replication === "object" && "lag" in replication
       ? replication.lag
       : undefined;
+
+  if (context.pretty) {
+    const items: { label: string; value: string }[] = [
+      { label: "Mode", value: pc.cyan("cloud") },
+      { label: "URL", value: pc.dim(resolveCloudMcpUrl(connection.path)) },
+    ];
+    if (lastReplicatedSequence !== undefined) {
+      items.push({ label: "Last Seq", value: String(lastReplicatedSequence) });
+    }
+    if (replicationLag !== undefined) {
+      items.push({ label: "Repl Lag", value: `${replicationLag}ms` });
+    }
+    writeLog(context.stdout, items, "thingd  status");
+    return;
+  }
 
   writeJson(
     context.stdout,
@@ -473,6 +530,21 @@ async function runSearch(context: CliContext): Promise<void> {
       filter: filterStr ? JSON.parse(filterStr) : undefined,
     };
     const results = await db.search(query, compactOptions(options));
+    if (context.pretty) {
+      const bullets = results.map((r) => {
+        const res = r as {
+          id: string;
+          kind: string;
+          collection?: string;
+          stream?: string;
+          value?: { text?: string };
+        };
+        const col = res.kind === "object" ? (res.collection ?? "") : (res.stream ?? "");
+        return `${pc.green(res.id)} ${pc.dim(col)}`;
+      });
+      writeLogBullets(context.stdout, bullets.map((t) => ({ text: t })), `thingd  search  ${query}`);
+      return;
+    }
     writeJson(context.stdout, results, context.pretty);
   });
 }
@@ -485,21 +557,12 @@ async function runObjects(context: CliContext): Promise<void> {
     if (action === "list") {
       const objects = await db.listObjects(collection);
       if (context.pretty) {
-        const table = new Table({
-          head: ["ID", "Version", "Created At", "Updated At", "Data"],
-          style: { head: ["green"] },
+        const bullets = objects.map((obj) => {
+          const { id, version, createdAt } = obj;
+          const meta = `${pc.dim(`v${version}`)}  ${createdAt ? pc.dim(new Date(createdAt).toLocaleString()) : ""}`;
+          return `${pc.green(id)}  ${meta}`;
         });
-        for (const obj of objects) {
-          const { id, collection: _, createdAt, updatedAt, version, ...data } = obj;
-          table.push([
-            id,
-            String(version),
-            createdAt ? new Date(createdAt).toLocaleString() : "",
-            updatedAt ? new Date(updatedAt).toLocaleString() : "",
-            JSON.stringify(data),
-          ]);
-        }
-        context.stdout.write(`${table.toString()}\n`);
+        writeLogBullets(context.stdout, bullets.map((t) => ({ text: t })), `thingd  objects  list  ${collection}`);
       } else {
         writeJson(context.stdout, objects, false);
       }
@@ -535,14 +598,7 @@ async function runEvents(context: CliContext): Promise<void> {
     if (action === "streams") {
       const streams = await db.listStreams();
       if (context.pretty) {
-        const table = new Table({
-          head: ["Stream Name"],
-          style: { head: ["green"] },
-        });
-        for (const str of streams) {
-          table.push([str]);
-        }
-        context.stdout.write(`${table.toString()}\n`);
+        writeLogBullets(context.stdout, streams.map((s) => ({ text: pc.green(s), icon: pc.green("●") })), "thingd  events  streams");
       } else {
         writeJson(context.stdout, streams, false);
       }
@@ -553,22 +609,13 @@ async function runEvents(context: CliContext): Promise<void> {
       const stream = optionalToken(context.parsed, 2);
       const events = limitItems(await db.events.list(stream), optionalInt(context.parsed, "limit"));
       if (context.pretty) {
-        const table = new Table({
-          head: ["Event ID", "Stream", "Event Type", "Created At", "Text", "Data"],
-          style: { head: ["green"] },
+        const bullets = events.map((ev) => {
+          const { id, type, createdAt, ...data } = ev;
+          const ts = createdAt ? pc.dim(new Date(createdAt).toLocaleString()) : "";
+          const dataStr = Object.keys(data).length > 0 ? ` ${pc.dim(JSON.stringify(data))}` : "";
+          return `${pc.green(id)} ${pc.magenta(type)} ${ts}${dataStr}`;
         });
-        for (const ev of events) {
-          const { id, stream: evStream, type, createdAt, text, ...data } = ev;
-          table.push([
-            id,
-            evStream,
-            type,
-            createdAt ? new Date(createdAt).toLocaleString() : "",
-            text ?? "",
-            JSON.stringify(data),
-          ]);
-        }
-        context.stdout.write(`${table.toString()}\n`);
+        writeLogBullets(context.stdout, bullets.map((t) => ({ text: t, icon: pc.green("●") })), stream ? `thingd  events  list  ${stream}` : "thingd  events  list");
       } else {
         writeJson(context.stdout, events, false);
       }
@@ -593,14 +640,7 @@ async function runCollections(context: CliContext): Promise<void> {
     if (action === "list") {
       const collections = await db.listCollections();
       if (context.pretty) {
-        const table = new Table({
-          head: ["Collection Name"],
-          style: { head: ["green"] },
-        });
-        for (const col of collections) {
-          table.push([col]);
-        }
-        context.stdout.write(`${table.toString()}\n`);
+        writeLogBullets(context.stdout, collections.map((c) => ({ text: pc.cyan(c) })), "thingd  collections  list");
       } else {
         writeJson(context.stdout, collections, false);
       }
@@ -616,14 +656,7 @@ async function runStreams(context: CliContext): Promise<void> {
     if (action === "list") {
       const streams = await db.listStreams();
       if (context.pretty) {
-        const table = new Table({
-          head: ["Stream Name"],
-          style: { head: ["green"] },
-        });
-        for (const str of streams) {
-          table.push([str]);
-        }
-        context.stdout.write(`${table.toString()}\n`);
+        writeLogBullets(context.stdout, streams.map((s) => ({ text: pc.green(s), icon: pc.green("●") })), "thingd  streams  list");
       } else {
         writeJson(context.stdout, streams, false);
       }
@@ -641,6 +674,15 @@ async function runMetrics(context: CliContext): Promise<void> {
       db.countActiveJobs(),
       db.countDeadJobs(),
     ]);
+    if (context.pretty) {
+      writeLog(context.stdout, [
+        { label: "Objects", value: pc.cyan(String(objects)) },
+        { label: "Events", value: pc.green(String(events)) },
+        { label: "Active Jobs", value: pc.yellow(String(activeJobs)) },
+        { label: "Dead Jobs", value: pc.red(String(deadJobs)) },
+      ], "thingd  metrics");
+      return;
+    }
     writeJson(
       context.stdout,
       {
@@ -661,14 +703,7 @@ async function runQueues(context: CliContext): Promise<void> {
     if (action === "list-all") {
       const queues = await db.listQueues();
       if (context.pretty) {
-        const table = new Table({
-          head: ["Queue Name"],
-          style: { head: ["green"] },
-        });
-        for (const q of queues) {
-          table.push([q]);
-        }
-        context.stdout.write(`${table.toString()}\n`);
+        writeLogBullets(context.stdout, queues.map((q) => ({ text: pc.magenta(q), icon: pc.magenta("◇") })), "thingd  queues  list-all");
       } else {
         writeJson(context.stdout, queues, false);
       }
@@ -686,30 +721,28 @@ async function runQueues(context: CliContext): Promise<void> {
       const leasedJobs = activeJobs.filter((job) => job.status === "leased");
       const readyJobs = activeJobs.filter((job) => job.status === "ready");
 
-      const stats = {
-        queue: queueName,
-        totalActive,
-        ready: readyJobs.length,
-        leased: leasedJobs.length,
-        dead: totalDead,
-      };
-
       if (context.pretty) {
-        const table = new Table({
-          head: ["Stat Metric", "Value"],
-          style: { head: ["green"] },
-        });
-        table.push(
-          ["Queue Name", queueName],
-          ["Ready Jobs", String(readyJobs.length)],
-          ["Leased Jobs", String(leasedJobs.length)],
-          ["Dead Jobs", String(totalDead)],
-          ["Total Active", String(totalActive)],
-        );
-        context.stdout.write(`${table.toString()}\n`);
-      } else {
-        writeJson(context.stdout, stats, false);
+        writeLog(context.stdout, [
+          { label: "Queue", value: pc.magenta(queueName) },
+          { label: "Ready", value: pc.cyan(String(readyJobs.length)) },
+          { label: "Leased", value: pc.yellow(String(leasedJobs.length)) },
+          { label: "Dead", value: pc.red(String(totalDead)) },
+          { label: "Total Active", value: String(totalActive) },
+        ], "thingd  queues  stats");
+        return;
       }
+
+      writeJson(
+        context.stdout,
+        {
+          queue: queueName,
+          totalActive,
+          ready: readyJobs.length,
+          leased: leasedJobs.length,
+          dead: totalDead,
+        },
+        false,
+      );
       return;
     }
 
@@ -757,21 +790,11 @@ async function runQueues(context: CliContext): Promise<void> {
     if (action === "list") {
       const jobs = limitItems(await queue.list(), optionalInt(context.parsed, "limit"));
       if (context.pretty) {
-        const table = new Table({
-          head: ["Job ID", "Status", "Attempts", "Max Attempts", "Available At", "Payload"],
-          style: { head: ["green"] },
+        const bullets = jobs.map((job) => {
+          const statusColor = job.status === "leased" ? pc.yellow : pc.cyan;
+          return `${pc.dim(job.id)} ${statusColor(job.status)} ${pc.dim(`${job.attempts}/${job.maxAttempts}`)}`;
         });
-        for (const job of jobs) {
-          table.push([
-            job.id,
-            job.status,
-            String(job.attempts),
-            String(job.maxAttempts),
-            job.availableAt ? new Date(job.availableAt).toLocaleString() : "",
-            JSON.stringify(job.payload),
-          ]);
-        }
-        context.stdout.write(`${table.toString()}\n`);
+        writeLogBullets(context.stdout, bullets.map((t) => ({ text: t, icon: pc.cyan("●") })), `thingd  queues  list  ${queueName}`);
       } else {
         writeJson(context.stdout, jobs, false);
       }
@@ -781,21 +804,11 @@ async function runQueues(context: CliContext): Promise<void> {
     if (action === "dead") {
       const jobs = limitItems(await queue.dead(), optionalInt(context.parsed, "limit"));
       if (context.pretty) {
-        const table = new Table({
-          head: ["Job ID", "Attempts", "Max Attempts", "Dead At", "Last Error", "Payload"],
-          style: { head: ["green"] },
+        const bullets = jobs.map((job) => {
+          const err = job.lastError ? ` ${pc.dim(job.lastError)}` : "";
+          return `${pc.dim(job.id)} ${pc.dim(`${job.attempts}/${job.maxAttempts}`)}${err}`;
         });
-        for (const job of jobs) {
-          table.push([
-            job.id,
-            String(job.attempts),
-            String(job.maxAttempts),
-            job.deadAt ? new Date(job.deadAt).toLocaleString() : "",
-            job.lastError ?? "",
-            JSON.stringify(job.payload),
-          ]);
-        }
-        context.stdout.write(`${table.toString()}\n`);
+        writeLogBullets(context.stdout, bullets.map((t) => ({ text: t, icon: pc.red("○") })), `thingd  queues  dead  ${queueName}`);
       } else {
         writeJson(context.stdout, jobs, false);
       }

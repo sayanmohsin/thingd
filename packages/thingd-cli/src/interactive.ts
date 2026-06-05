@@ -85,10 +85,7 @@ let deadJobsHistory: number[] = [];
 let dbSizeHistory: number[] = [];
 let objectWriteRateHistory: number[] = [];
 let eventAppendRateHistory: number[] = [];
-const colHistory = new Map<string, number[]>();
-const streamHistory = new Map<string, number[]>();
-const queueActiveHistory = new Map<string, number[]>();
-const queueDeadHistory = new Map<string, number[]>();
+
 
 let viewerLines: string[] = ["Select an item to view details."];
 let viewerScroll = 0;
@@ -393,7 +390,7 @@ function buildTree(): TreeNode[] {
       {
         id: "drv:memory",
         type: "driver",
-        label: `${pc.dim("●")} ${pc.bold("Memory")}    ${pc.dim("ephemeral")}`,
+        label: `${pc.cyan("●")} ${pc.bold("Memory")}    ${pc.dim("ephemeral")}`,
         depth: 0,
         expandable: false,
         ref: { driver: "memory" },
@@ -401,7 +398,7 @@ function buildTree(): TreeNode[] {
       {
         id: "drv:native",
         type: "driver",
-        label: `${pc.dim("●")} ${pc.bold("Native")}    ${pc.dim("SQLite file")}`,
+        label: `${pc.cyan("●")} ${pc.bold("Native")}    ${pc.dim("SQLite file")}`,
         depth: 0,
         expandable: false,
         ref: { driver: "native" },
@@ -409,7 +406,7 @@ function buildTree(): TreeNode[] {
       {
         id: "drv:cloud",
         type: "driver",
-        label: `${pc.dim("●")} ${pc.bold("Cloud")}     ${pc.dim("remote")}`,
+        label: `${pc.cyan("●")} ${pc.bold("Cloud")}     ${pc.dim("remote")}`,
         depth: 0,
         expandable: false,
         ref: { driver: "cloud" },
@@ -424,7 +421,7 @@ function buildTree(): TreeNode[] {
   nodes.push({
     id: "cat:collections",
     type: "category",
-    label: `${colsOpen ? pc.yellow("▾") : pc.dim("▸")} ${pc.bold("Collections")}`,
+    label: `${colsOpen ? pc.cyan("▾") : pc.dim("▸")} ${pc.bold("Collections")}`,
     depth: 0,
     expandable: true,
   });
@@ -445,7 +442,7 @@ function buildTree(): TreeNode[] {
         id: colId,
         parentId: "cat:collections",
         type: "collection",
-        label: `${colOpen ? pc.yellow("▾") : pc.dim("▸")} ${pc.cyan(col)}`,
+        label: `${colOpen ? pc.cyan("▾") : pc.dim("▸")} ${pc.cyan(col)}`,
         depth: 1,
         expandable: true,
         ref: { name: col },
@@ -467,7 +464,7 @@ function buildTree(): TreeNode[] {
             id: `obj:${col}:${objId}`,
             parentId: colId,
             type: "object",
-            label: `${pc.dim("●")} ${objId}`,
+            label: `${pc.cyan("○")} ${objId}`,
             depth: 2,
             expandable: false,
             ref: { collection: col, id: objId },
@@ -482,7 +479,7 @@ function buildTree(): TreeNode[] {
   nodes.push({
     id: "cat:streams",
     type: "category",
-    label: `${strsOpen ? pc.yellow("▾") : pc.dim("▸")} ${pc.bold("Streams")}`,
+    label: `${strsOpen ? pc.cyan("▾") : pc.dim("▸")} ${pc.bold("Streams")}`,
     depth: 0,
     expandable: true,
   });
@@ -501,7 +498,7 @@ function buildTree(): TreeNode[] {
         id: `stream:${stream}`,
         parentId: "cat:streams",
         type: "stream",
-        label: `${pc.dim("~")} ${pc.green(stream)}`,
+        label: `${pc.green("●")} ${pc.green(stream)}`,
         depth: 1,
         expandable: false,
         ref: { name: stream },
@@ -514,7 +511,7 @@ function buildTree(): TreeNode[] {
   nodes.push({
     id: "cat:queues",
     type: "category",
-    label: `${qOpen ? pc.yellow("▾") : pc.dim("▸")} ${pc.bold("Queues")}`,
+    label: `${qOpen ? pc.cyan("▾") : pc.dim("▸")} ${pc.bold("Queues")}`,
     depth: 0,
     expandable: true,
   });
@@ -533,7 +530,7 @@ function buildTree(): TreeNode[] {
         id: `queue:${q}`,
         parentId: "cat:queues",
         type: "queue",
-        label: `${pc.dim("◆")} ${pc.magenta(q)}`,
+        label: `${pc.magenta("◇")} ${pc.magenta(q)}`,
         depth: 1,
         expandable: false,
         ref: { name: q },
@@ -545,7 +542,7 @@ function buildTree(): TreeNode[] {
   nodes.push({
     id: "node:status",
     type: "status",
-    label: `${pc.dim("○")} ${pc.dim("Metrics")}`,
+    label: `${pc.cyan("◉")} ${pc.dim("Metrics")}`,
     depth: 0,
     expandable: false,
   });
@@ -553,33 +550,22 @@ function buildTree(): TreeNode[] {
   return nodes;
 }
 
-// ── Content Loading ──────────────────────────────────────────────────
-
 function scheduleLoad(node: TreeNode) {
   if (!connected) {
     // Show driver info in viewer
     if (node.type === "driver" && node.ref) {
       const d = node.ref.driver as string;
-      let info = "";
-      if (d === "memory") {
-        info = `${pc.bold("Memory Driver")}\n\n`;
-        info += `  Ephemeral in-memory database.\n`;
-        info += `  All data is destroyed on exit.\n\n`;
-        info += `  ${pc.dim("Best for: testing, prototyping")}\n\n`;
-        info += `  Press ${pc.bold("Enter")} to connect.`;
-      } else if (d === "native") {
-        info = `${pc.bold("Native Driver")}\n\n`;
-        info += `  Persistent SQLite database.\n`;
-        info += `  Data is stored on disk.\n\n`;
-        info += `  ${pc.dim("Best for: local development, single-node")}\n\n`;
-        info += `  Press ${pc.bold("Enter")} to connect.`;
-      } else if (d === "cloud") {
-        info = `${pc.bold("Cloud Driver")}\n\n`;
-        info += `  Connect to a remote thingd instance.\n`;
-        info += `  Requires a URL and optional auth token.\n\n`;
-        info += `  ${pc.dim("Best for: production, multi-node")}\n\n`;
-        info += `  Press ${pc.bold("Enter")} to connect.`;
-      }
+      const info = [
+        ` ${pc.bold(pc.cyan("◈"))} ${pc.bold("thingd")} ${pc.dim("— local data engine")}`,
+        "",
+        ` ${pc.bold(d === "memory" ? "Memory Driver" : d === "native" ? "Native Driver" : "Cloud Driver")}`,
+        "",
+        d === "memory"
+          ? ` Ephemeral in-memory database.\n All data is destroyed on exit.\n\n ${pc.dim("Best for: testing, prototyping")}\n\n ${pc.dim("Press")} ${pc.bold("Enter")} ${pc.dim("to connect.")}`
+          : d === "native"
+            ? ` Persistent SQLite database.\n Data is stored on disk.\n\n ${pc.dim("Best for: local development, single-node")}\n\n ${pc.dim("Press")} ${pc.bold("Enter")} ${pc.dim("to connect.")}`
+            : ` Connect to a remote thingd instance.\n Requires a URL and optional auth token.\n\n ${pc.dim("Best for: production, multi-node")}\n\n ${pc.dim("Press")} ${pc.bold("Enter")} ${pc.dim("to connect.")}`,
+      ].join("\n");
       viewerLines = info.split("\n");
       loadedItemId = node.id;
     }
@@ -610,34 +596,27 @@ async function loadContent(node: TreeNode): Promise<void> {
     } else if (node.type === "collection" && node.ref) {
       const ref = node.ref as { name: string };
       const objs = objectsByCollection.get(ref.name) ?? [];
-      const hist = colHistory.get(ref.name) ?? [];
       let res = `${pc.bold(ref.name)} ${pc.dim(`(${objs.length} objects)`)}\n\n`;
-      res += `${pc.bold("Performance")}\n`;
-      res += `  Volume    ${pc.cyan(drawSparkline(hist))}\n\n`;
 
       if (objs.length === 0) {
-        res += pc.dim("  No objects in this collection.");
+        res += pc.dim("No objects in this collection.");
       } else {
-        const lines = objs.map((id) => `  ${pc.dim("●")} ${id}`);
+        const lines = objs.map((id) => ` ${pc.cyan("○")} ${id}`);
         res += lines.join("\n");
       }
       content = res;
     } else if (node.type === "stream" && node.ref) {
       const ref = node.ref as { name: string };
       const events = await db.events.list(ref.name);
-      const hist = streamHistory.get(ref.name) ?? [];
-
       let res = `${pc.bold(ref.name)} ${pc.dim(`(${events.length} events)`)}\n\n`;
-      res += `${pc.bold("Performance")}\n`;
-      res += `  Volume    ${pc.green(drawSparkline(hist))}\n\n`;
 
       if (events.length === 0) {
-        res += pc.dim("  No events in this stream.");
+        res += pc.dim("No events in this stream.");
       } else {
         const lines = events.map((e) => {
           const ts = e.createdAt ? pc.dim(String(e.createdAt)) : "";
           const type = pc.magenta(e.type || "unknown");
-          return `  ${ts} ${type}`;
+          return ` ${ts} ${type}`;
         });
         res += lines.join("\n");
       }
@@ -647,27 +626,21 @@ async function loadContent(node: TreeNode): Promise<void> {
       const queue = db.queue(ref.name);
       const [active, dead] = await Promise.all([queue.list(), queue.dead()]);
 
-      const aHist = queueActiveHistory.get(ref.name) ?? [];
-      const dHist = queueDeadHistory.get(ref.name) ?? [];
-
       let res = `${pc.bold(ref.name)}\n\n`;
-      res += `${pc.bold("Performance")}\n`;
-      res += `  Active    ${pc.cyan(drawSparkline(aHist))}\n`;
-      res += `  Dead      ${pc.red(drawSparkline(dHist))}\n\n`;
       res += `${pc.cyan("Active")} ${pc.dim(`(${active.length})`)}\n`;
       if (active.length === 0) {
-        res += pc.dim("  No active jobs\n");
+        res += pc.dim(" No jobs\n");
       } else {
         for (const j of active) {
-          res += `  ${pc.dim("●")} ${j.id} ${pc.yellow(j.status)} ${pc.dim(`${j.attempts}/${j.maxAttempts}`)}\n`;
+          res += ` ${pc.cyan("●")} ${j.id} ${pc.yellow(j.status)} ${pc.dim(`${j.attempts}/${j.maxAttempts}`)}\n`;
         }
       }
-      res += `\n${pc.red("Dead")} ${pc.dim(`(${dead.length})`)}\n`;
+      res += `${pc.red("Dead")} ${pc.dim(`(${dead.length})`)}\n`;
       if (dead.length === 0) {
-        res += pc.dim("  No dead jobs\n");
+        res += pc.dim(" No dead jobs\n");
       } else {
         for (const j of dead) {
-          res += `  ${pc.dim("●")} ${j.id} ${pc.dim(`${j.attempts}/${j.maxAttempts}`)}\n`;
+          res += ` ${pc.red("○")} ${j.id} ${pc.dim(`${j.attempts}/${j.maxAttempts}`)}\n`;
         }
       }
       content = res;
@@ -675,18 +648,16 @@ async function loadContent(node: TreeNode): Promise<void> {
       const W = process.stdout.columns || 80;
       const sideW = Math.min(40, Math.max(20, Math.floor(W * 0.35)));
       const viewW = Math.max(20, W - sideW - 3);
-      const fullRule = pc.dim("─".repeat(Math.max(10, viewW - 2)));
 
       const uptime = startedAt ? formatUptime(Date.now() - startedAt) : "--";
 
       // ── Header
-      const titleStr = `${pc.bold("thingd")}  ${pc.cyan("METRICS")}`;
       const pathStr = pc.dim(dbPath || ":memory:");
       const pathRaw = dbPath || ":memory:";
+      const titleStr = `${pc.bold("thingd")}  ${pc.cyan("METRICS")}`;
       const gap = Math.max(2, viewW - 2 - 8 - "METRICS".length - pathRaw.length);
-      content = `  ${titleStr}${" ".repeat(gap)}${pathStr}\n`;
-      content += `  ${pc.dim("uptime")} ${pc.dim(uptime)}\n`;
-      content += `  ${fullRule}\n\n`;
+      content = ` ${titleStr}${" ".repeat(gap)}${pathStr}\n`;
+      content += ` ${pc.dim("uptime")} ${pc.dim(uptime)}\n\n`;
 
       // ── Physical Store & Driver Logic
       let sizeKb = 0;
@@ -698,48 +669,37 @@ async function loadContent(node: TreeNode): Promise<void> {
       const dbSizeStr = driver === "native" ? `${sizeKb} KB` : "--";
 
       let driverName = "Unknown";
-      if (driver === "memory") driverName = "SQLite (Memory)";
-      else if (driver === "native") driverName = "SQLite (Native)";
-      else if (driver === "cloud") driverName = "Cloud (Remote)";
+      if (driver === "memory") driverName = "In-Memory";
+      else if (driver === "native") driverName = "SQLite";
+      else if (driver === "cloud") driverName = "Cloud";
 
-      const objVal = String(totalObjects).padEnd(8);
-      const evtVal = String(totalEventsCount).padEnd(8);
-      const actVal = String(totalActiveJobsCount).padEnd(8);
-      const ddtVal = String(totalDeadJobsCount).padEnd(8);
+      // ── Metrics Layout (opencode style: clean groups, no horizontal rules)
+      content += ` ${pc.bold("Capacity & Storage")}\n`;
+      content += ` ${pc.dim("Objects".padEnd(14))} ${pc.cyan(String(totalObjects).padEnd(6))} ${pc.dim("total")}\n`;
+      content += ` ${pc.dim("Events".padEnd(14))} ${pc.green(String(totalEventsCount).padEnd(6))} ${pc.dim("total")}\n`;
+      content += ` ${pc.dim("Active Jobs".padEnd(14))} ${pc.yellow(String(totalActiveJobsCount).padEnd(6))} ${pc.dim("in flight")}\n`;
+      content += ` ${pc.dim("Dead Jobs".padEnd(14))} ${pc.red(String(totalDeadJobsCount).padEnd(6))} ${pc.dim("failed")}\n\n`;
 
-      // ── Metrics Layout
-      content += `  ${pc.bold("CAPACITY & STORAGE METRICS")}\n`;
-      content += `  ${fullRule}\n`;
-      content += `  ${pc.dim("Objects").padEnd(20)}  ${pc.cyan(objVal)} ${pc.dim("total objects stored")}\n`;
-      content += `  ${pc.dim("Events").padEnd(20)}  ${pc.green(evtVal)} ${pc.dim("total events in streams")}\n`;
-      content += `  ${pc.dim("Active Jobs").padEnd(20)}  ${pc.yellow(actVal)} ${pc.dim("jobs currently processing")}\n`;
-      content += `  ${pc.dim("Dead Jobs").padEnd(20)}  ${pc.red(ddtVal)} ${pc.dim("failed/dead jobs")}\n\n`;
-
-      content += `  ${pc.bold("PHYSICAL STORE & CONNECTION")}\n`;
-      content += `  ${fullRule}\n`;
-      content += `  ${pc.dim("Database Size").padEnd(20)}  ${pc.blue(dbSizeStr)}\n`;
-      content += `  ${pc.dim("Driver Type").padEnd(20)}  ${driverName}\n`;
-      content += `  ${pc.dim("Storage Path").padEnd(20)}  ${dbPath || ":memory:"}\n`;
-      content += `  ${pc.dim("CLI Shortcuts").padEnd(20)}  ${pc.bold("[c]")} Create  ${pc.bold("[r]")} Refresh\n\n`;
+      content += ` ${pc.bold("Connection")}\n`;
+      content += ` ${pc.dim("Driver".padEnd(14))} ${driverName}\n`;
+      content += ` ${pc.dim("Path".padEnd(14))} ${dbPath || ":memory:"}\n`;
+      content += ` ${pc.dim("Size".padEnd(14))} ${dbSizeStr}\n\n`;
 
       // ── Throughput & Activity Metrics
       const currentWrite = objectWriteRateHistory[objectWriteRateHistory.length - 1] ?? 0;
       const currentAppend = eventAppendRateHistory[eventAppendRateHistory.length - 1] ?? 0;
 
-      const peakWrite = Math.max(5, ...objectWriteRateHistory);
-      const peakAppend = Math.max(5, ...eventAppendRateHistory);
-
-      // Adjust sparkline width to prevent terminal wrapping. Total fixed chars ~55.
+      // Adjust sparkline width to prevent terminal wrapping.
       const sparkW = Math.max(10, viewW - 55);
 
       const wLine = drawSparkline(objectWriteRateHistory, 5, sparkW);
       const apLine = drawSparkline(eventAppendRateHistory, 5, sparkW);
 
-      content += `  ${pc.bold("THROUGHPUT & ACTIVITY METRICS")}\n`;
-      content += `  ${fullRule}\n`;
+      content += ` ${pc.bold("Throughput & Activity")}\n`;
+      content += ` ${pc.dim("Writes".padEnd(14))} ${pc.cyan(wLine)}  ${pc.cyan(String(currentWrite).padEnd(4))} ${pc.dim(`w/s`)}\n`;
+      content += ` ${pc.dim("Appends".padEnd(14))} ${pc.green(apLine)}  ${pc.green(String(currentAppend).padEnd(4))} ${pc.dim(`e/s`)}\n\n`;
 
-      content += `  ${pc.dim("Object Writes".padEnd(16))} ${pc.cyan(wLine)}  ${pc.cyan(String(currentWrite).padEnd(4))} ${pc.dim(`writes/s  (Peak: ${peakWrite}/s)`)}\n\n`;
-      content += `  ${pc.dim("Event Appends".padEnd(16))} ${pc.green(apLine)}  ${pc.green(String(currentAppend).padEnd(4))} ${pc.dim(`appends/s (Peak: ${peakAppend}/s)`)}\n\n`;
+      content += ` ${pc.dim("Shortcuts:")} ${pc.bold("[c]")} Create  ${pc.bold("[r]")} Refresh  ${pc.bold("[/]")} Search\n`;
     } else if (node.type === "category") {
       content = pc.dim("Expand to browse items.");
     } else {
@@ -787,23 +747,20 @@ function draw() {
 
   let buf = "\u001B[H"; // Move to top-left
 
-  // Header
-  let titleStr: string;
+  // Header — opencode style: clean, no inverse bar
   if (!connected) {
-    titleStr = ` thingd  ${pc.dim("|")} Select Environment `;
+    buf += ` ${pc.cyan("◈")} ${pc.bold("thingd")}  ${pc.dim("Select Environment")}\n`;
   } else if (formState?.active) {
-    titleStr = ` thingd  ${pc.dim("|")} ${driver.toUpperCase()} ${pc.dim("|")} Input Mode `;
+    buf += ` ${pc.cyan("◈")} ${pc.bold("thingd")}  ${pc.cyan(driver.toUpperCase())}  ${pc.dim("Input Mode")}\n`;
   } else {
-    titleStr = ` thingd  ${pc.dim("|")} ${driver.toUpperCase()} ${pc.dim("|")} ${dbPath} `;
+    const label = ` ${pc.cyan("◈")} ${pc.bold("thingd")}  ${pc.cyan(driver.toUpperCase())} ${pc.dim(dbPath)}`;
+    buf += `${padToWidth(label, W)}\n`;
   }
-  buf += `${pc.inverse(padToWidth(titleStr, W))}\n`;
-
-  // Separator
-  buf += `${pc.dim(`${"─".repeat(sideW)}─┬─${"─".repeat(viewW)}`)}\n`;
+  buf += `${pc.dim("─".repeat(W))}\n`;
 
   // Build Form Lines if active
   if (formState?.active) {
-    viewerLines = [`${pc.bgCyan(pc.black(` ${formState.title} `))}`, ""];
+    viewerLines = [` ${pc.cyan(formState.title)}`, ""];
     for (let i = 0; i < formState.fields.length; i++) {
       const f = formState.fields[i];
       if (!f) continue;
@@ -812,7 +769,7 @@ function draw() {
       if (f.options && f.allowCustom && f.value && !f.options.includes(f.value)) {
         displayLabel += pc.green(" (New)");
       }
-      viewerLines.push(`${isSel ? pc.yellow("▶") : " "} ${pc.bold(displayLabel)}`);
+      viewerLines.push(`${isSel ? pc.cyan("▸") : " "} ${pc.bold(displayLabel)}`);
 
       let displayVal = f.value;
       if (f.isSecret) displayVal = "*".repeat(displayVal.length);
@@ -822,30 +779,30 @@ function draw() {
 
       if (isSel && !formState.isSubmitting) {
         if (f.options && !f.allowCustom) {
-          viewerLines.push(`    ${pc.cyan("◀ ")}${pc.inverse(displayVal || " ")}${pc.cyan(" ▶")}`);
+          viewerLines.push(`   ${pc.cyan("◀ ")}${pc.inverse(displayVal || " ")}${pc.cyan(" ▶")}`);
         } else if (f.options && f.allowCustom) {
           const inOptions = f.options.includes(f.value);
           if (inOptions) {
-            viewerLines.push(`    ${pc.cyan("◀ ")}${displayVal}${pc.inverse(" ")}${pc.cyan(" ▶")}`);
+            viewerLines.push(`   ${pc.cyan("◀ ")}${displayVal}${pc.inverse(" ")}${pc.cyan(" ▶")}`);
           } else {
-            viewerLines.push(`    ${displayVal}${pc.inverse(" ")}`);
+            viewerLines.push(`   ${displayVal}${pc.inverse(" ")}`);
           }
         } else {
-          viewerLines.push(`    ${displayVal}${pc.inverse(" ")}`); // cursor block
+          viewerLines.push(`   ${displayVal}${pc.inverse(" ")}`); // cursor block
         }
       } else {
-        viewerLines.push(`    ${displayVal}`);
+        viewerLines.push(`   ${displayVal}`);
       }
       viewerLines.push("");
     }
     if (formState.error) {
-      viewerLines.push(pc.red(formState.error));
+      viewerLines.push(` ${pc.red(formState.error)}`);
     }
     if (formState.isSubmitting) {
-      viewerLines.push(pc.cyan("Processing..."));
+      viewerLines.push(` ${pc.cyan("Processing...")}`);
     }
     viewerLines.push("");
-    viewerLines.push(pc.dim("  [Enter] Next/Submit   [Esc] Cancel"));
+    viewerLines.push(pc.dim(" [Enter] Next/Submit   [Esc] Cancel"));
   }
 
   // Body rows
@@ -870,10 +827,7 @@ function draw() {
     buf += `${left + pc.dim(" │ ") + right}\n`;
   }
 
-  // Separator
-  buf += `${pc.dim(`${"─".repeat(sideW)}─┴─${"─".repeat(viewW)}`)}\n`;
-
-  // Footer
+  // Footer — opencode style: subtle separator + help
   let help: string;
   if (formState?.active) {
     const hasOptions = formState.fields[formState.activeIndex]?.options;
@@ -883,6 +837,7 @@ function draw() {
   } else {
     help = ` ${pc.dim("↑↓")} nav  ${pc.dim("←→")} toggle  ${pc.dim("c")} create  ${pc.dim("e")} edit  ${pc.dim("d")} delete  ${pc.dim("/")} search  ${pc.dim("i")} info  ${pc.dim("r")} refresh  ${pc.dim("s")} switch  ${pc.dim("q")} quit `;
   }
+  buf += `${pc.dim("─".repeat(W))}\n`;
   buf += padToWidth(help, W);
 
   // Clear to end
@@ -1220,9 +1175,9 @@ async function handleSearch() {
 
       // Display results in the viewer
       viewerLines = [
-        `  ${pc.bold("Search Results:")} ${pc.cyan(query)}`,
+        ` ${pc.bold("Search Results:")} ${pc.cyan(query)}`,
         "",
-        ...(results.length === 0 ? ["  No results found."] : []),
+        ...(results.length === 0 ? [" No results found."] : []),
         ...results.map((r) => {
           const res = r as {
             id: string;
@@ -1234,7 +1189,7 @@ async function handleSearch() {
           const id = pc.green(res.id);
           const col = pc.cyan(res.kind === "object" ? (res.collection ?? "") : (res.stream ?? ""));
           const textStr = res.value?.text ? pc.dim(res.value.text.substring(0, 100)) : "";
-          return `  ${col} / ${id} ${textStr}`;
+          return ` ${col} / ${id} ${textStr}`;
         }),
       ];
       loadedItemId = "search_results";
@@ -1244,10 +1199,10 @@ async function handleSearch() {
 
 async function handleInfo() {
   const lines: string[] = [
-    `  ${pc.bold("Connection Status")}`,
+    ` ${pc.bold("Connection Status")}`,
     "",
-    `  Driver: ${pc.cyan(driver)}`,
-    `  Path:   ${pc.cyan(dbPath)}`,
+    ` ${pc.dim("Driver")}  ${pc.cyan(driver)}`,
+    ` ${pc.dim("Path")}    ${pc.cyan(dbPath)}`,
   ];
 
   if (driver === "cloud") {
@@ -1270,22 +1225,22 @@ async function handleInfo() {
       const cluster = await fetchJson("/cluster/status");
 
       lines.push("");
-      lines.push(`  ${pc.bold("Cloud Health")}`);
+      lines.push(` ${pc.bold("Cloud Health")}`);
       lines.push(
         ...JSON.stringify(health, null, 2)
           .split("\n")
-          .map((l) => `  ${pc.dim(l)}`),
+          .map((l) => ` ${pc.dim(l)}`),
       );
 
       lines.push("");
-      lines.push(`  ${pc.bold("Cloud Cluster")}`);
+      lines.push(` ${pc.bold("Cloud Cluster")}`);
       lines.push(
         ...JSON.stringify(cluster, null, 2)
           .split("\n")
-          .map((l) => `  ${pc.dim(l)}`),
+          .map((l) => ` ${pc.dim(l)}`),
       );
     } catch (err: any) {
-      lines.push("", `  ${pc.red("Cloud Query Failed:")} ${err.message}`);
+      lines.push("", ` ${pc.red("Cloud Query Failed:")} ${err.message}`);
     }
   }
 
@@ -1617,7 +1572,11 @@ export async function runInteractiveCli(): Promise<void> {
   process.stdout.write("\u001B[?1049h\u001B[H\u001B[?25l");
 
   // Show the driver selection screen
-  viewerLines = ["Select an environment to connect."];
+  viewerLines = [
+    ` ${pc.bold(pc.cyan("◈"))} ${pc.bold("thingd")} ${pc.dim("— local data engine")}`,
+    "",
+    pc.dim("  Select an environment to connect."),
+  ];
   draw();
   const tree = buildTree();
   const first = tree[cursorIndex];
