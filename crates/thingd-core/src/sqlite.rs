@@ -60,6 +60,9 @@ impl SqliteThingStore {
         if current_mode.to_lowercase() != "wal" {
             self.connection
                 .query_row("PRAGMA journal_mode = WAL;", [], |_| Ok(()))
+                .map_err(|e| {
+                    eprintln!("warning: failed to enable WAL journal mode: {e}");
+                })
                 .ok();
         }
 

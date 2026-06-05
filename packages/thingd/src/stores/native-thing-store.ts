@@ -518,6 +518,5 @@ function formatUnknownError(error: unknown): string {
   if (error instanceof Error) {
     return `Original error: ${error.message}`;
   }
-
-  return "";
+  return `Original error: ${String(error)}`;
 }
