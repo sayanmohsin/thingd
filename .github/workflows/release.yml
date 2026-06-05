@@ -23,6 +23,7 @@ jobs:
     if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-latest
     env:
+      NODE_OPTIONS: "--no-deprecation"
       NPM_CONFIG_AUDIT: "false"
       NPM_CONFIG_FUND: "false"
     steps:
