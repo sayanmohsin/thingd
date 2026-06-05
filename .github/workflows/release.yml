@@ -54,8 +54,8 @@ jobs:
         working-directory: packages/thingd-native
         run: pnpm build
 
-      - name: Build packages
-        run: pnpm build
+      - name: Build packages (skip examples)
+        run: pnpm --filter !examples* -r --if-present build
 
       - name: Publish release
         env:
