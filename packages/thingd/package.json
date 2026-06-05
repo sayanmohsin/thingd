@@ -1,7 +1,7 @@
 {
   "name": "thingd",
   "version": "0.0.0-development",
-  "description": "Object-shaped local memory for AI-native apps.",
+  "description": "Object-shaped local memory for modern apps.",
   "type": "module",
   "author": "Sayan Mohsin",
   "license": "Apache-2.0",

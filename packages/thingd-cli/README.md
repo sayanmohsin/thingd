@@ -4,7 +4,7 @@
 
 Command-line interface, Interactive TUI Dashboard, and Model Context Protocol (MCP) server for [thingd](https://www.npmjs.com/package/thingd).
 
-This package provides the unified `thingd` binary, which serves as a persistent stdio/HTTP MCP server for AI editors (Cursor, Claude Desktop), an interactive terminal UI dashboard for database operations, and a scriptable JSON utility to inspect and manage local or remote databases.
+This package provides the unified `thingd` binary, which serves as a persistent stdio/HTTP MCP server for editors (Cursor, Claude Desktop), an interactive terminal UI dashboard for database operations, and a scriptable JSON utility to inspect and manage local or remote databases.
 
 ## Installation
 
@@ -22,7 +22,7 @@ npx thingd-cli
 
 ## Quick Start: Zero-Config MCP Setup
 
-The easiest way to integrate `thingd` with your AI editors (Claude Desktop and Cursor) is to run the automated setup command:
+The easiest way to integrate `thingd` with your editors (Claude Desktop and Cursor) is to run the automated setup command:
 
 ```bash
 thingd install
@@ -39,7 +39,7 @@ This command will:
 The CLI is designed to support both human operators and automated scripts through two distinct modes:
 
 1. **Interactive Dashboard (TUI)**: Run `thingd` without any arguments to launch a beautiful, interactive terminal UI. Perfect for exploring collections, editing objects, and managing queues manually.
-2. **Non-Interactive CLI**: Run `thingd <command>` for one-off operations. This mode intentionally emits JSON so it is easy to use from shell scripts, CI/CD pipelines, and AI-agent workflows.
+2. **Non-Interactive CLI**: Run `thingd <command>` for one-off operations. This mode intentionally emits JSON so it is easy to use from shell scripts, CI/CD pipelines, and automated workflows.
 
 ---
 
@@ -91,7 +91,7 @@ You can configure the connection via environment variables or CLI flags:
 --limit <n>          result limit for search and list commands
 ```
 
-### Claude Desktop & MCP Integration
+### MCP Integration
 
 The `thingd` CLI has a built-in `mcp` subcommand that exposes an MCP server over `stdio`. This allows Claude Desktop to securely connect to your `thingd` database.
 

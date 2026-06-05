@@ -2,7 +2,7 @@
 
 [![npm version (SDK)](https://badge.fury.io/js/thingd.svg)](https://www.npmjs.com/package/thingd)
 
-Object-shaped local memory for AI-native apps. SQLite-simple, MCP-native, with search, events, and durable queues.
+Object-shaped local memory for modern apps. SQLite-simple, MCP-native, with search, events, and durable queues.
 
 This is the Node.js SDK for `thingd`. It exposes the intended object/event/queue abstractions with an in-memory store by default. 
 
@@ -40,7 +40,7 @@ const decision = await db.get("decisions", "rust-core");
 
 ### 2. Events and Timelines
 
-Every meaningful mutation can produce an event. Events make memory easier for humans and agents to understand.
+Every meaningful mutation can produce an event. Events make memory easier to understand and audit.
 
 ```ts
 await db.events.append("project:thingd", {
@@ -54,7 +54,7 @@ const events = await db.events.list("project:thingd");
 
 ### 3. Durable Queues
 
-`thingd` includes queue primitives because AI apps constantly need background work (chunking, embeddings, summarization, etc).
+`thingd` includes queue primitives because apps constantly need background work (chunking, embeddings, summarization, etc).
 
 ```ts
 // Enqueue a job

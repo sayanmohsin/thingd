@@ -2,20 +2,20 @@
 
 [![npm version (SDK)](https://badge.fury.io/js/thingd.svg)](https://www.npmjs.com/package/thingd) [![npm version (CLI)](https://badge.fury.io/js/thingd-cli.svg)](https://www.npmjs.com/package/thingd-cli)
 
-Object-shaped local memory for AI-native apps. SQLite-simple, MCP-native, with search, events, and durable queues.
+Object-shaped local memory for modern apps. SQLite-simple, MCP-native, with search, events, and durable queues.
 
-`thingd` is an experimental Rust-powered local data engine for applications and AI agents. It is designed for developers who like the simplicity of SQLite, but want a higher-level object API, agent-readable memory, built-in workflow primitives, and first-class MCP access.
+`thingd` is an experimental Rust-powered local data engine for applications. It is designed for developers who like the simplicity of SQLite, but want a higher-level object API, programmatic memory, built-in workflow primitives, and first-class MCP access.
 
 The short version:
 
 ```txt
 SQLite-like local deployment
 + Mongo-like object shape
-+ AI-readable events and memory
++ searchable events and memory
 + full-text and vector-ready search
-+ durable queues for workers and agents
++ durable queues for workers and background jobs
 + graph links, leases, workflows, and semantic cache later
-+ MCP tools for safe AI access
++ MCP tools for safe programmatic access
 + optional sidecar/cluster bridge mode
 ```
 
@@ -40,7 +40,7 @@ The repository currently contains:
 - bridge-mode env vars with leader/follower MCP forwarding
 - SQLite schema version tracking and migration guardrails
 - MCP audit events for write tools
-- architecture, release, persistence, and agent integration docs
+- architecture, release, persistence, and integration docs
 
 It is not production-ready yet. The default public Node.js SDK path still uses the TypeScript in-memory store for API exploration and local integration tests. The Rust core has SQLite-backed object, event, and queue persistence behind the `sqlite` feature, and the repo now has an opt-in private native driver for local testing. Node apps can also use the remote driver to talk to a `thingd` sidecar through `THINGD_URL`. Native prebuilds, production packaging, and deployment hardening are still next.
 
@@ -54,9 +54,9 @@ Build order and doc update rules: [docs/roadmap.md](./docs/roadmap.md), [docs/do
 
 ## Why thingd?
 
-SQLite is excellent. It is small, fast, local, durable, and easy to deploy. But AI-native apps often need a friendlier layer above raw SQL.
+SQLite is excellent. It is small, fast, local, durable, and easy to deploy. But modern apps often need a friendlier layer above raw SQL.
 
-AI agents and modern app workflows commonly need to:
+Modern app workflows commonly need to:
 
 - store object-shaped records without designing relational tables first
 - search memory semantically and by keyword
@@ -74,11 +74,11 @@ AI agents and modern app workflows commonly need to:
 
 - an open source Apache-2.0 project
 - an object-shaped local data layer for apps
-- an AI-readable memory store
+- a searchable memory store
 - a durable queue engine for background jobs
 - an event log for timelines and audit trails
 - a search layer across text, metadata, and vectors
-- an MCP server for controlled agent access
+- an MCP server for controlled programmatic access
 - a Rust core with a friendly TypeScript/Node.js SDK
 - a sidecar/server runtime shape for Kubernetes-style deployments
 
@@ -94,7 +94,7 @@ It is not:
 - a hosted vector database
 - a finished production system today
 
-The goal is a practical local-first engine for small and medium apps, agent workflows, devtools, internal tools, edge deployments, and AI memory systems.
+The goal is a practical local-first engine for small and medium apps, devtools, internal tools, edge deployments, and persistent memory systems.
 
 ## Core primitives
 
@@ -106,11 +106,11 @@ thingd
   queue       durable jobs, retries, leases, delays, and DLQ
   graph       links between objects, memories, sources, and decisions
   locks       leases for multi-worker and multi-pod coordination
-  workflow    DAGs for multi-step AI jobs and pipelines
+  workflow    DAGs for multi-step background jobs and pipelines
   cache       semantic cache for model/tool outputs
   ledger      tool-call history, latency, cost, and replay data
   snapshots   compaction summaries linked to raw events
-  mcp         agent-facing tools and resources
+  mcp         programmatic tools and resources
 ```
 
 ## Installation
@@ -209,7 +209,7 @@ await db.put("customers", {
 Objects should be:
 
 - easy for app code to mutate
-- easy for AI tools to read
+- easy for tools and scripts to read
 - indexable by metadata
 - convertible into searchable text
 - linkable to events, jobs, and other objects
@@ -230,7 +230,7 @@ version
 
 ## Events and timelines
 
-Every meaningful mutation can produce an event. Events make memory easier for humans and agents to understand.
+Every meaningful mutation can produce an event. Events make memory easier to understand and audit.
 
 ```ts
 await db.events.append("customer:cus_123", {
@@ -244,14 +244,14 @@ await db.events.append("customer:cus_123", {
 Events are useful for:
 
 - audit trails
-- agent timelines
+- activity timelines
 - rebuilding indexes
 - sync and replication
 - answering questions like "what changed?" or "why did this happen?"
 
 ## Durable queues
 
-`thingd` includes queue primitives because AI apps constantly need background work:
+`thingd` includes queue primitives because apps constantly need background work:
 
 - chunk a document
 - create embeddings
@@ -259,7 +259,7 @@ Events are useful for:
 - retry a failed tool call
 - rebuild a search index
 - compact old memory
-- run an agent task
+- run a background task
 
 Target API:
 
@@ -335,15 +335,15 @@ const hits = await db.search("customers who upgraded after a failed deployment",
 
 **Current behavior:** Search is powered by a high-performance database-native SQLite **FTS5** virtual table with Porter word stemming, custom metadata key-value filters, and dynamic recency-weighted ranking. Vector search is planned for a future release once this foundation is fully integrated.
 
-## AI-native primitives
+## Advanced primitives
 
 Beyond objects, events, and queues, `thingd` should grow workflow primitives
-that are valuable for modern AI applications:
+that are valuable for modern applications:
 
 - graph links for source tracing and explainable retrieval
 - hybrid search across text, metadata, graph links, recency, and vectors
 - locks, leases, and semaphores for worker and pod coordination
-- workflow DAGs for document ingestion, indexing, and agent pipelines
+- workflow DAGs for document ingestion, indexing, and processing pipelines
 - semantic cache for expensive model/tool outputs
 - tool-call ledger for replay, audit, latency, and cost
 - compaction snapshots for long-running memory
@@ -353,7 +353,7 @@ target APIs, storage shapes, MCP tools, and future phases.
 
 ## MCP-native access
 
-MCP is a core part of the design. The database ships with stdio and Streamable HTTP MCP server entrypoints so agents can read and write through explicit tools instead of guessing internal schemas.
+MCP is a core part of the design. The database ships with stdio and Streamable HTTP MCP server entrypoints so tools can read and write through explicit operations instead of guessing internal schemas.
 
 Current tools:
 
@@ -557,11 +557,11 @@ docs/
 
 ## Examples
 
-- [cursor-agent-memory](./examples/cursor-agent-memory) — 5-minute agent quickstart, `.cursorrules`, scheduler heartbeat, and MCP registration for Cursor and Claude Desktop.
+- [cursor-agent-memory](./examples/cursor-agent-memory) — 5-minute quickstart, `.cursorrules`, scheduler heartbeat, and MCP registration for Cursor and Claude Desktop.
 - [Node basic](./examples/node-basic) shows the intended SDK shape.
 - [NestJS basic](./examples/nestjs-basic) shows how `thingd` can sit behind a normal NestJS module, service, and controller setup.
 
-Agent quickstart guide: **[docs/QUICKSTART.md](./docs/QUICKSTART.md)**
+Quickstart guide: **[docs/QUICKSTART.md](./docs/QUICKSTART.md)**
 
 ## Local testing without npm publish
 
@@ -605,7 +605,7 @@ Publishing to npm is only needed once you want other machines or users to instal
 
 ## Tooling and standards
 
-Project conventions live in checked-in files so this private repo stays easy to work on with normal dev tools and AI coding sessions:
+Project conventions live in checked-in files so this private repo stays easy to work on with normal dev tools:
 
 - [biome.json](./biome.json) controls TypeScript, JavaScript, and JSON formatting/linting.
 - [rustfmt.toml](./rustfmt.toml) controls Rust formatting.
@@ -614,7 +614,7 @@ Project conventions live in checked-in files so this private repo stays easy to 
 - [docs/doc-maintenance.md](./docs/doc-maintenance.md) lists which docs to update when code changes.
 - [docs/why-agents.md](./docs/why-agents.md) explains the agent leverage story.
 - [docs/agent-patterns.md](./docs/agent-patterns.md) documents memory, scheduler, and queue patterns.
-- [docs/agent-implementation-guide.md](./docs/agent-implementation-guide.md) explains how AI agents and contributors should integrate `thingd` into apps.
+- [docs/agent-implementation-guide.md](./docs/agent-implementation-guide.md) explains how to integrate `thingd` into projects.
 - [docs/ai-primitives.md](./docs/ai-primitives.md) plans graph links, hybrid search, locks, workflow DAGs, semantic cache, tool ledger, and compaction.
 - [docs/cli.md](./docs/cli.md) describes the current runtime CLIs and the planned admin/operator CLI phases.
 - [docs/coding-standards.md](./docs/coding-standards.md) explains the coding standards.
@@ -668,12 +668,12 @@ pnpm release:dry-run
 
 | Tool | Great at | Why thingd is different |
 | --- | --- | --- |
-| SQLite | local relational storage | object API, MCP tools, events, queues, AI search |
+| SQLite | local relational storage | object API, MCP tools, events, queues, full-text search |
 | MongoDB | flexible documents | local-first tiny runtime, Rust core, MCP-native |
 | Redis / BullMQ | fast queues and workers | durable local engine without requiring Redis |
 | Postgres job queues | reliable jobs on Postgres | lighter local deployment for Node apps |
 | LanceDB / vector DBs | vector search | broader memory runtime with events and queues |
-| MCP servers | exposing tools to agents | storage engine designed around MCP from the start |
+| MCP servers | exposing tools to clients | storage engine designed around MCP from the start |
 
 ## Development
 
@@ -717,7 +717,7 @@ Canonical ordering, exit criteria, and per-phase doc checklists:
 - [x] opt-in native Node adapter to the Rust store
 - [x] native prebuild/release strategy
 
-### v0.2 - agent memory
+### v0.2 - search and searchable memory
 
 - [x] full-text search
 - [x] metadata filters
@@ -769,7 +769,7 @@ Canonical ordering, exit criteria, and per-phase doc checklists:
 
 - Keep the local developer experience simple.
 - Prefer boring durable storage under the hood.
-- Expose object-shaped APIs to apps and agents.
+- Expose object-shaped APIs to apps and services.
 - Make every important mutation explainable through events.
 - Treat vector search as one retrieval signal, not the whole memory system.
 - Use at-least-once queues and make idempotency easy.
