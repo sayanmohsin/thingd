@@ -348,7 +348,7 @@ impl Task for ListCollectionsTask {
             .store
             .lock()
             .map_err(|_| Error::from_reason("poisoned"))?;
-        let collections = store.list_collections().unwrap_or_default();
+        let collections = store.list_collections().map_err(napi_error)?;
         to_json(&collections)
     }
     fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
@@ -368,7 +368,7 @@ impl Task for ListStreamsTask {
             .store
             .lock()
             .map_err(|_| Error::from_reason("poisoned"))?;
-        let streams = store.list_streams().unwrap_or_default();
+        let streams = store.list_streams().map_err(napi_error)?;
         to_json(&streams)
     }
     fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
