@@ -1270,6 +1270,7 @@ mod tests {
 
     use super::*;
     use crate::store::Searcher;
+    use crate::SearchOptions;
 
     #[test]
     fn records_schema_version_on_initialize() {
@@ -1638,5 +1639,120 @@ mod tests {
             .append_event(MemoryEvent::new("test", "b", ""))
             .unwrap();
         assert_eq!(store.count_events().unwrap(), 2);
+    }
+
+    #[test]
+    fn counts_jobs_correctly() {
+        let mut store = SqliteThingStore::open_in_memory().unwrap();
+
+        assert_eq!(store.count_active_jobs().unwrap(), 0);
+        assert_eq!(store.count_dead_jobs().unwrap(), 0);
+
+        store
+            .push_job(QueueJob::new("work", "j1", "p1", 3))
+            .unwrap();
+        store
+            .push_job(QueueJob::new("work", "j2", "p2", 3))
+            .unwrap();
+        store
+            .push_job(QueueJob::new("other", "j3", "p3", 1))
+            .unwrap();
+        assert_eq!(store.count_active_jobs().unwrap(), 3);
+
+        store.claim_job("other").unwrap();
+        store.nack_job("other", "j3").unwrap();
+        assert_eq!(store.count_dead_jobs().unwrap(), 1);
+        assert_eq!(store.count_active_jobs().unwrap(), 2);
+    }
+
+    #[test]
+    fn lists_collections_streams_and_queues() {
+        let mut store = SqliteThingStore::open_in_memory().unwrap();
+
+        assert!(store.list_collections().unwrap().is_empty());
+        assert!(store.list_streams().unwrap().is_empty());
+        assert!(store.list_queues().unwrap().is_empty());
+
+        store
+            .put_object(MemoryObject::new("col-a", "x", "{}"))
+            .unwrap();
+        store
+            .put_object(MemoryObject::new("col-b", "y", "{}"))
+            .unwrap();
+        store
+            .put_object(MemoryObject::new("col-a", "z", "{}"))
+            .unwrap();
+        let collections = store.list_collections().unwrap();
+        assert_eq!(collections, vec!["col-a", "col-b"]);
+
+        store
+            .append_event(MemoryEvent::new("s1", "t", "e1"))
+            .unwrap();
+        store
+            .append_event(MemoryEvent::new("s2", "t", "e2"))
+            .unwrap();
+        let streams = store.list_streams().unwrap();
+        assert_eq!(streams, vec!["s1", "s2"]);
+
+        store
+            .push_job(QueueJob::new("work", "j1", "p1", 3))
+            .unwrap();
+        store
+            .push_job(QueueJob::new("jobs", "j2", "p2", 3))
+            .unwrap();
+        let queues = store.list_queues().unwrap();
+        assert_eq!(queues, vec!["jobs", "work"]);
+    }
+
+    #[test]
+    fn search_respects_filter_and_limit() {
+        let mut store = SqliteThingStore::open_in_memory().unwrap();
+
+        store
+            .put_object(MemoryObject::new(
+                "docs",
+                "a",
+                r#"{"text":"hello world","tag":"greeting"}"#,
+            ))
+            .unwrap();
+        store
+            .put_object(MemoryObject::new(
+                "docs",
+                "b",
+                r#"{"text":"hello there","tag":"greeting"}"#,
+            ))
+            .unwrap();
+        store
+            .put_object(MemoryObject::new(
+                "docs",
+                "c",
+                r#"{"text":"goodbye world","tag":"farewell"}"#,
+            ))
+            .unwrap();
+
+        let all = store.search("world", SearchOptions::default()).unwrap();
+        assert_eq!(all.len(), 2);
+
+        let limited = store
+            .search(
+                "world",
+                SearchOptions {
+                    limit: Some(1),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        assert_eq!(limited.len(), 1);
+
+        let filtered = store
+            .search(
+                "hello",
+                SearchOptions {
+                    collections: Some(vec!["docs".into()]),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        assert_eq!(filtered.len(), 2);
     }
 }

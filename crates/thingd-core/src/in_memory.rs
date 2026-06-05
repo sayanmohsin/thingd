@@ -404,6 +404,8 @@ fn matches_filter_memory(body_str: &str, filter: &serde_json::Value) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::store::Searcher;
+    use crate::SearchOptions;
 
     #[test]
     fn stores_and_reads_objects() {
@@ -539,5 +541,144 @@ mod tests {
 
         assert_eq!(retried.status, QueueJobStatus::Ready);
         assert!(engine.claim_job("embed").unwrap().is_none());
+    }
+
+    #[test]
+    fn counts_objects_events_and_jobs() {
+        let mut engine = MemoryEngine::new();
+
+        assert_eq!(engine.count_objects().unwrap(), 0);
+        assert_eq!(engine.count_events().unwrap(), 0);
+        assert_eq!(engine.count_active_jobs().unwrap(), 0);
+        assert_eq!(engine.count_dead_jobs().unwrap(), 0);
+
+        engine
+            .put_object(MemoryObject::new("col-a", "o1", r#"{"v":1}"#))
+            .unwrap();
+        engine
+            .put_object(MemoryObject::new("col-a", "o2", r#"{"v":2}"#))
+            .unwrap();
+        engine
+            .put_object(MemoryObject::new("col-b", "o3", r#"{"v":3}"#))
+            .unwrap();
+        assert_eq!(engine.count_objects().unwrap(), 3);
+
+        engine
+            .append_event(MemoryEvent::new("s1", "t1", "e1"))
+            .unwrap();
+        engine
+            .append_event(MemoryEvent::new("s1", "t2", "e2"))
+            .unwrap();
+        engine
+            .append_event(MemoryEvent::new("s2", "t3", "e3"))
+            .unwrap();
+        assert_eq!(engine.count_events().unwrap(), 3);
+
+        engine
+            .push_job(QueueJob::new("work", "j1", "p1", 3))
+            .unwrap();
+        engine
+            .push_job(QueueJob::new("work", "j2", "p2", 3))
+            .unwrap();
+        engine
+            .push_job(QueueJob::new("other", "j3", "p3", 1))
+            .unwrap();
+        assert_eq!(engine.count_active_jobs().unwrap(), 3);
+
+        engine.claim_job("other").unwrap();
+        engine.nack_job("other", "j3").unwrap();
+        assert_eq!(engine.count_dead_jobs().unwrap(), 1);
+        assert_eq!(engine.count_active_jobs().unwrap(), 2);
+    }
+
+    #[test]
+    fn lists_collections_streams_and_queues() {
+        let mut engine = MemoryEngine::new();
+
+        assert!(engine.list_collections().unwrap().is_empty());
+        assert!(engine.list_streams().unwrap().is_empty());
+        assert!(engine.list_queues().unwrap().is_empty());
+
+        engine
+            .put_object(MemoryObject::new("col-a", "x", "{}"))
+            .unwrap();
+        engine
+            .put_object(MemoryObject::new("col-b", "y", "{}"))
+            .unwrap();
+        engine
+            .put_object(MemoryObject::new("col-a", "z", "{}"))
+            .unwrap();
+        let collections = engine.list_collections().unwrap();
+        assert_eq!(collections, vec!["col-a", "col-b"]);
+
+        engine
+            .append_event(MemoryEvent::new("s1", "t", "e1"))
+            .unwrap();
+        engine
+            .append_event(MemoryEvent::new("s2", "t", "e2"))
+            .unwrap();
+        let streams = engine.list_streams().unwrap();
+        assert_eq!(streams, vec!["s1", "s2"]);
+
+        engine
+            .push_job(QueueJob::new("work", "j1", "p1", 3))
+            .unwrap();
+        engine
+            .push_job(QueueJob::new("jobs", "j2", "p2", 3))
+            .unwrap();
+        let queues = engine.list_queues().unwrap();
+        assert_eq!(queues, vec!["jobs", "work"]);
+    }
+
+    #[test]
+    fn search_respects_filter_and_limit() {
+        let mut engine = MemoryEngine::new();
+
+        engine
+            .put_object(MemoryObject::new(
+                "docs",
+                "a",
+                r#"{"text":"hello world","tag":"greeting"}"#,
+            ))
+            .unwrap();
+        engine
+            .put_object(MemoryObject::new(
+                "docs",
+                "b",
+                r#"{"text":"hello there","tag":"greeting"}"#,
+            ))
+            .unwrap();
+        engine
+            .put_object(MemoryObject::new(
+                "docs",
+                "c",
+                r#"{"text":"goodbye world","tag":"farewell"}"#,
+            ))
+            .unwrap();
+
+        let all = engine.search("world", SearchOptions::default()).unwrap();
+        assert_eq!(all.len(), 2);
+
+        let limited = engine
+            .search(
+                "world",
+                SearchOptions {
+                    limit: Some(1),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        assert_eq!(limited.len(), 1);
+
+        let filtered = engine
+            .search(
+                "hello",
+                SearchOptions {
+                    collections: Some(vec!["docs".into()]),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        assert_eq!(filtered.len(), 2);
     }
 }

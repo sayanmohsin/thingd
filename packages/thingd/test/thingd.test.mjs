@@ -279,4 +279,129 @@ function runThingDBehaviorSuite(label, openDb) {
 
     assert.ok(event.createdAt, "event createdAt should be set");
   });
+
+  test(`${label}: counts objects, events, and jobs correctly`, async () => {
+    const db = await openDb();
+
+    assert.equal(await db.countObjects(), 0);
+    assert.equal(await db.countEvents(), 0);
+    assert.equal(await db.countActiveJobs(), 0);
+    assert.equal(await db.countDeadJobs(), 0);
+
+    await db.put("col-a", { id: "obj-1" });
+    await db.put("col-a", { id: "obj-2" });
+    await db.put("col-b", { id: "obj-3" });
+    assert.equal(await db.countObjects(), 3);
+
+    await db.events.append("stream-1", { type: "test" });
+    await db.events.append("stream-1", { type: "test" });
+    await db.events.append("stream-2", { type: "test" });
+    assert.equal(await db.countEvents(), 3);
+
+    const q = db.queue("work");
+    await q.push({ task: "a" });
+    await q.push({ task: "b" });
+    await q.push({ task: "c" });
+    assert.equal(await db.countActiveJobs(), 3);
+
+    // push a doomed job to a separate queue with maxAttempts=1
+    const deadQ = db.queue("dead-letter-test");
+    const doomed = await deadQ.push({ task: "d" }, { maxAttempts: 1 });
+    await deadQ.claim();
+    await deadQ.nack(doomed.id, { error: "fail" });
+    assert.equal(await db.countDeadJobs(), 1);
+    assert.equal(await db.countActiveJobs(), 3);
+  });
+
+  test(`${label}: lists collections, streams, and queues`, async () => {
+    const db = await openDb();
+
+    assert.deepEqual(await db.listCollections(), []);
+    assert.deepEqual(await db.listStreams(), []);
+    assert.deepEqual(await db.listQueues(), []);
+
+    await db.put("col-a", { id: "x" });
+    await db.put("col-b", { id: "y" });
+    await db.put("col-a", { id: "z" });
+    assert.deepEqual(await db.listCollections(), ["col-a", "col-b"]);
+
+    await db.events.append("stream-1", { type: "t" });
+    await db.events.append("stream-2", { type: "t" });
+    assert.deepEqual(await db.listStreams(), ["stream-1", "stream-2"]);
+
+    await db.queue("work").push({ task: "x" });
+    await db.queue("jobs").push({ task: "y" });
+    assert.deepEqual(await db.listQueues(), ["jobs", "work"]);
+  });
+
+  test(`${label}: searches with filter and limit options`, async () => {
+    const db = await openDb();
+
+    await db.put("docs", { id: "a", text: "hello world" });
+    await db.put("docs", { id: "b", text: "hello there" });
+    await db.put("docs", { id: "c", text: "goodbye world" });
+
+    const all = await db.search("world");
+    assert.equal(all.length, 2);
+
+    const limited = await db.search("world", { limit: 1 });
+    assert.equal(limited.length, 1);
+
+    const byCollection = await db.search("hello", { collections: ["docs"] });
+    assert.equal(byCollection.length, 2);
+
+    const noMatch = await db.search("hello", { collections: ["nonexistent"] });
+    assert.equal(noMatch.length, 0);
+  });
+
+  test(`${label}: returns errors for invalid ack/nack operations`, async () => {
+    const db = await openDb();
+    const q = db.queue("test");
+
+    // ack/nack non-existent job
+    const missingAck = await q.ack("no-such-job");
+    assert.equal(missingAck.ok, false);
+    assert.equal(missingAck.ok ? null : missingAck.reason, "not_found");
+
+    const missingNack = await q.nack("no-such-job");
+    assert.equal(missingNack.ok, false);
+    assert.equal(missingNack.ok ? null : missingNack.reason, "not_found");
+
+    // ack/nack a completed job
+    const pushed = await q.push({ task: "x" });
+    await q.claim();
+    await q.ack(pushed.id);
+
+    const doubleAck = await q.ack(pushed.id);
+    assert.equal(doubleAck.ok, false);
+    assert.equal(doubleAck.ok ? null : doubleAck.reason, "terminal");
+
+    const ackAfterComplete = await q.nack(pushed.id);
+    assert.equal(ackAfterComplete.ok, false);
+    assert.equal(ackAfterComplete.ok ? null : ackAfterComplete.reason, "terminal");
+  });
+
+  test(`${label}: ThingD facade convenience accessors`, async () => {
+    const db = await openDb();
+
+    // events.append / events.list via facade
+    await db.events.append("facade-stream", { type: "test", text: "via events" });
+    const evts = await db.events.list("facade-stream");
+    assert.equal(evts.length, 1);
+    assert.equal(evts[0].type, "test");
+
+    // queue() returns a MemoryQueue
+    const mq = db.queue("facade-queue");
+    const pushed = await mq.push({ task: "via queue" });
+    const claimed = await mq.claim();
+    assert.equal(claimed?.id, pushed.id);
+
+    // listObjects via facade
+    await db.put("facade-col", { id: "obj-1" });
+    const objects = await db.listObjects("facade-col");
+    assert.equal(objects.length, 1);
+
+    // close does not throw
+    await db.close();
+  });
 }
