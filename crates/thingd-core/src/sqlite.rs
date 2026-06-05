@@ -379,21 +379,20 @@ impl ObjectStore for SqliteThingStore {
     fn list_objects(&self, collections: Option<&[String]>) -> ThingdResult<Vec<MemoryObject>> {
         let mut objects = Vec::new();
 
-        if let Some(collections) = collections {
-            for collection in collections {
-                let mut statement = self
-                    .connection
-                    .prepare(
-                        "SELECT collection, id, body, version, created_at, updated_at FROM objects WHERE collection = ?1 ORDER BY collection, id",
-                    )
-                    .map_err(ThingdError::from)?;
-                let rows = statement
-                    .query_map(params![collection], row_to_object)
-                    .map_err(ThingdError::from)?;
-
-                for row in rows {
-                    objects.push(row.map_err(ThingdError::from)?);
-                }
+        if let Some(cols) = collections.filter(|c| !c.is_empty()) {
+            let placeholders: Vec<String> = (0..cols.len()).map(|_| "?".to_string()).collect();
+            let sql = format!(
+                "SELECT collection, id, body, version, created_at, updated_at FROM objects WHERE collection IN ({}) ORDER BY collection, id",
+                placeholders.join(", ")
+            );
+            let mut statement = self.connection.prepare(&sql).map_err(ThingdError::from)?;
+            let params: Vec<&dyn rusqlite::types::ToSql> =
+                cols.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
+            let rows = statement
+                .query_map(params.as_slice(), row_to_object)
+                .map_err(ThingdError::from)?;
+            for row in rows {
+                objects.push(row.map_err(ThingdError::from)?);
             }
         } else {
             let mut statement = self
@@ -405,7 +404,6 @@ impl ObjectStore for SqliteThingStore {
             let rows = statement
                 .query_map([], row_to_object)
                 .map_err(ThingdError::from)?;
-
             for row in rows {
                 objects.push(row.map_err(ThingdError::from)?);
             }
