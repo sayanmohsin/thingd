@@ -70,3 +70,49 @@ jobs:
 
       - name: Package smoke test
         run: pnpm test:package
+
+  build-native:
+    name: Build native (${{ matrix.platform }}-${{ matrix.arch }})
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: test
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux
+            arch: x64
+          - os: macos-14
+            platform: darwin
+            arch: arm64
+          - os: macos-13
+            platform: darwin
+            arch: x64
+          - os: windows-latest
+            platform: win32
+            arch: x64
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build native binary
+        run: cargo build -p thingd-native --release
+
+      - name: Copy prebuild
+        run: node packages/thingd-native/scripts/copy-prebuild.mjs
+
+      - name: Upload prebuild artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: prebuild-${{ matrix.platform }}-${{ matrix.arch }}
+          path: packages/thingd-native/prebuilds/
+          retention-days: 7
