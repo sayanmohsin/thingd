@@ -378,8 +378,8 @@ async function loadNativeModule(): Promise<NativeThingStoreModule> {
             "thingd_native.node",
           ),
         );
-      } catch {
-        // Ignore URL/path resolution errors
+      } catch (error) {
+        console.warn("native: candidate path resolution error:", error);
       }
 
       try {
@@ -415,8 +415,8 @@ async function loadNativeModule(): Promise<NativeThingStoreModule> {
             "thingd_native.node",
           ),
         );
-      } catch {
-        // Ignore home dir resolution errors
+      } catch (error) {
+        console.warn("native: home dir resolution error:", error);
       }
 
       for (const candidate of candidates) {
@@ -430,13 +430,13 @@ async function loadNativeModule(): Promise<NativeThingStoreModule> {
                 loadedPath: candidate,
               };
             }
-          } catch {
-            // Ignore loading failures for this candidate, try others
+          } catch (error) {
+            console.warn(`native: failed to load candidate "${candidate}":`, error);
           }
         }
       }
-    } catch {
-      // Ignore resolution errors, fall through to throwing the main error
+    } catch (error) {
+      console.warn("native: module resolution error:", error);
     }
 
     throw new Error(
