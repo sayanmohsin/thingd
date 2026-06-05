@@ -1,10 +1,9 @@
 packages:
   - "packages/*"
   - "packages/thingd-cli/src/dashboard/frontend"
-  - "examples/*"
 
 allowBuilds:
-  '@nestjs/core': true
+  '@nestjs/core': set this to true or false
   'esbuild': true
 
 minimumReleaseAgeExclude:
