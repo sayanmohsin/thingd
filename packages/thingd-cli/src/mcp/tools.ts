@@ -450,6 +450,118 @@ export function registerThingdTools(
       return jsonResult(await db.listObjects(collection));
     },
   );
+
+  server.registerTool(
+    "thing_count_objects",
+    {
+      title: "Count Objects",
+      description: "Count all objects across all collections.",
+      inputSchema: {},
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async () => jsonResult(await db.countObjects()),
+  );
+
+  server.registerTool(
+    "thing_count_events",
+    {
+      title: "Count Events",
+      description: "Count all events across all streams.",
+      inputSchema: {},
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async () => jsonResult(await db.countEvents()),
+  );
+
+  server.registerTool(
+    "thing_count_active_jobs",
+    {
+      title: "Count Active Jobs",
+      description: "Count all active (non-dead) queue jobs.",
+      inputSchema: {},
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async () => jsonResult(await db.countActiveJobs()),
+  );
+
+  server.registerTool(
+    "thing_count_dead_jobs",
+    {
+      title: "Count Dead Jobs",
+      description: "Count all dead-letter queue jobs.",
+      inputSchema: {},
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async () => jsonResult(await db.countDeadJobs()),
+  );
+
+  server.registerTool(
+    "thing_list_collections",
+    {
+      title: "List Collections",
+      description: "List all object collection names.",
+      inputSchema: {},
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async () => jsonResult(await db.listCollections()),
+  );
+
+  server.registerTool(
+    "thing_list_streams",
+    {
+      title: "List Streams",
+      description: "List all event stream names.",
+      inputSchema: {},
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async () => jsonResult(await db.listStreams()),
+  );
+
+  server.registerTool(
+    "thing_list_queues",
+    {
+      title: "List Queues",
+      description: "List all queue names.",
+      inputSchema: {},
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async () => jsonResult(await db.listQueues()),
+  );
 }
 
 function auditMetadata(

@@ -148,7 +148,36 @@ export class CloudThingStore implements ThingStore {
       query,
       collections: options.collections,
       limit: options.limit,
+      filter: options.filter,
     });
+  }
+
+  async countObjects(): Promise<number> {
+    return this.callTool("thing_count_objects", {});
+  }
+
+  async countEvents(): Promise<number> {
+    return this.callTool("thing_count_events", {});
+  }
+
+  async countActiveJobs(): Promise<number> {
+    return this.callTool("thing_count_active_jobs", {});
+  }
+
+  async countDeadJobs(): Promise<number> {
+    return this.callTool("thing_count_dead_jobs", {});
+  }
+
+  async listCollections(): Promise<string[]> {
+    return this.callTool("thing_list_collections", {});
+  }
+
+  async listStreams(): Promise<string[]> {
+    return this.callTool("thing_list_streams", {});
+  }
+
+  async listQueues(): Promise<string[]> {
+    return this.callTool("thing_list_queues", {});
   }
 
   async close(): Promise<void> {
@@ -156,12 +185,19 @@ export class CloudThingStore implements ThingStore {
   }
 
   private async callTool<T>(name: string, args: Record<string, unknown>): Promise<T> {
-    return parseJsonToolResult<T>(
-      (await this.client.callTool({
-        name,
-        arguments: args,
-      })) as CallToolResult,
-    );
+    const result = (await this.client.callTool({
+      name,
+      arguments: args,
+    })) as CallToolResult;
+
+    if (result.isError) {
+      const text = result.content
+        .find((part): part is { type: "text"; text: string } => part.type === "text")
+        ?.text;
+      throw new Error(text ?? `thingd cloud tool "${name}" returned an error`);
+    }
+
+    return parseJsonToolResult<T>(result);
   }
 }
 
