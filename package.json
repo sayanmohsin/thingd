@@ -4,7 +4,7 @@
   "private": true,
   "author": "Sayan Mohsin",
   "license": "Apache-2.0",
-  "packageManager": "pnpm@11.5.0",
+  "packageManager": "pnpm@11.5.1",
   "scripts": {
     "build": "pnpm -r --if-present build",
     "bench:rust": "cargo run --release -p thingd-core --example storage_bench --features sqlite",

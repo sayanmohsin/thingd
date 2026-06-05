@@ -1,4 +1,4 @@
-FROM node:22-bookworm AS build
+FROM node:24-bookworm AS build
 
 WORKDIR /app
 
@@ -23,7 +23,7 @@ COPY examples ./examples
 RUN pnpm install --frozen-lockfile
 RUN pnpm build
 
-FROM node:22-bookworm-slim AS runtime
+FROM node:24-bookworm-slim AS runtime
 
 WORKDIR /app
 
