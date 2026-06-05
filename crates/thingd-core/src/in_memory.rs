@@ -3,9 +3,9 @@
 use std::collections::{BTreeMap, VecDeque};
 
 use crate::{
-    u64_to_i64, unix_timestamp_millis, EventLog, MemoryEvent, MemoryObject, ObjectKey, ObjectStore,
-    QueueClaimOptions, QueueJob, QueueJobStatus, QueueNackOptions, QueueStore, ThingdError,
-    ThingdResult,
+    now_iso_string, u64_to_i64, unix_timestamp_millis, EventLog, MemoryEvent, MemoryObject,
+    ObjectKey, ObjectStore, QueueClaimOptions, QueueJob, QueueJobStatus, QueueNackOptions,
+    QueueStore, ThingdError, ThingdResult,
 };
 
 /// In-memory engine used to prove the storage boundary.
@@ -26,13 +26,17 @@ impl MemoryEngine {
 
 impl ObjectStore for MemoryEngine {
     fn put_object(&mut self, mut object: MemoryObject) -> ThingdResult<MemoryObject> {
+        let now = now_iso_string();
         let version = self
             .objects
             .get(&object.key)
             .map_or(1, |existing| existing.version + 1);
 
-        // Memory engine doesn't track timestamps; keep what was passed
         object.version = version;
+        object.updated_at = now.clone();
+        if object.created_at.is_empty() {
+            object.created_at = now;
+        }
         self.objects.insert(object.key.clone(), object.clone());
 
         Ok(object)
@@ -82,6 +86,9 @@ impl EventLog for MemoryEngine {
     fn append_event(&mut self, mut event: MemoryEvent) -> ThingdResult<MemoryEvent> {
         self.next_event_sequence += 1;
         event.sequence = self.next_event_sequence;
+        if event.created_at.is_empty() {
+            event.created_at = now_iso_string();
+        }
         self.events.push(event.clone());
 
         Ok(event)
@@ -322,8 +329,8 @@ impl crate::store::Searcher for MemoryEngine {
                     score: 1.0,
                     body: object.body.clone(),
                     version: Some(object.version),
-                    created_at: "2026-05-30T00:00:00Z".to_string(),
-                    updated_at: Some("2026-05-30T00:00:00Z".to_string()),
+                    created_at: object.created_at.clone(),
+                    updated_at: Some(object.updated_at.clone()),
                     event_type: None,
                 });
             }
@@ -358,7 +365,7 @@ impl crate::store::Searcher for MemoryEngine {
                     score: 1.0,
                     body: event.body.clone(),
                     version: None,
-                    created_at: "2026-05-30T00:00:00Z".to_string(),
+                    created_at: event.created_at.clone(),
                     updated_at: None,
                     event_type: Some(event.event_type.clone()),
                 });

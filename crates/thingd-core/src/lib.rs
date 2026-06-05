@@ -38,3 +38,7 @@ pub(crate) fn unix_timestamp_millis() -> i64 {
 pub(crate) fn u64_to_i64(value: u64) -> i64 {
     i64::try_from(value).unwrap_or(i64::MAX)
 }
+
+pub(crate) fn now_iso_string() -> String {
+    chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
+}
