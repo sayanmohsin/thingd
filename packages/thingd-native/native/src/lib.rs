@@ -153,7 +153,7 @@ impl NativeThingStore {
     }
 
     #[napi(js_name = "nackJobJson")]
-    pub fn nack_job_json(&self, queue: String, id: String, delay_ms: i64) -> Result<String> {
+    pub fn nack_job_json(&self, queue: String, id: String, delay_ms: i64, error: Option<String>) -> Result<String> {
         let mut store = self.lock_store()?;
         let result = match current_job_status(&store, &queue, &id)? {
             None => NativeQueueJobResult::failed("not_found"),
@@ -166,7 +166,7 @@ impl NativeThingStore {
                     .nack_job_with_options(
                         &queue,
                         &id,
-                        QueueNackOptions::new(non_negative_u64(delay_ms)?),
+                        QueueNackOptions::with_error(non_negative_u64(delay_ms)?, error.unwrap_or_default()),
                     )
                     .map_err(napi_error)?
                     .ok_or_else(|| Error::from_reason("leased job disappeared during nack"))?;
@@ -465,6 +465,7 @@ struct NativeQueueJobRecord {
     completed_at_ms: Option<i64>,
     dead_at_ms: Option<i64>,
     created_at: String,
+    last_error: String,
 }
 
 #[derive(Serialize)]
@@ -545,6 +546,7 @@ fn job_record(job: QueueJob) -> NativeQueueJobRecord {
         completed_at_ms: job.completed_at_ms,
         dead_at_ms: job.dead_at_ms,
         created_at: job.created_at,
+        last_error: job.last_error,
     }
 }
 

@@ -13,7 +13,7 @@ use crate::{
 };
 
 /// Current `SQLite` schema version.
-pub const SQLITE_SCHEMA_VERSION: u32 = 2;
+pub const SQLITE_SCHEMA_VERSION: u32 = 3;
 
 /// `SQLite`-backed memory store.
 pub struct SqliteThingStore {
@@ -98,6 +98,12 @@ impl SqliteThingStore {
 
         if current_version < 2 {
             self.apply_schema_v2()?;
+        }
+
+        let current_version = self.schema_version()?;
+
+        if current_version < 3 {
+            self.apply_schema_v3()?;
         }
 
         if current_version > SQLITE_SCHEMA_VERSION {
@@ -216,6 +222,23 @@ impl SqliteThingStore {
         .map_err(ThingdError::from)?;
 
         tx.commit().map_err(ThingdError::from)?;
+        Ok(())
+    }
+
+    fn apply_schema_v3(&self) -> ThingdResult<()> {
+        self.connection
+            .execute(
+                "ALTER TABLE queue_jobs ADD COLUMN last_error TEXT NOT NULL DEFAULT ''",
+                [],
+            )
+            .map_err(ThingdError::from)?;
+        self.connection
+            .execute(
+                "INSERT OR IGNORE INTO thingd_schema_migrations (version, name, applied_at)
+                 VALUES (3, 'queue_jobs_last_error', strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))",
+                [],
+            )
+            .map_err(ThingdError::from)?;
         Ok(())
     }
 
@@ -788,6 +811,10 @@ impl QueueStore for SqliteThingStore {
             QueueJobStatus::Ready
         };
 
+        if !options.error.is_empty() {
+            job.last_error = options.error;
+        }
+
         transaction
             .execute(
                 r"
@@ -798,6 +825,7 @@ impl QueueStore for SqliteThingStore {
                     leased_at_ms = NULL,
                     lease_expires_at_ms = NULL,
                     dead_at_ms = ?6,
+                    last_error = ?7,
                     updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
                 WHERE queue = ?1 AND id = ?2
                 ",
@@ -807,7 +835,8 @@ impl QueueStore for SqliteThingStore {
                     u32_to_i64(job.attempts),
                     status_to_str(job.status),
                     job.available_at_ms,
-                    job.dead_at_ms
+                    job.dead_at_ms,
+                    job.last_error
                 ],
             )
             .map_err(ThingdError::from)?;
@@ -1060,7 +1089,7 @@ fn row_to_event(row: &rusqlite::Row<'_>) -> rusqlite::Result<MemoryEvent> {
 
 fn queue_job_select_sql(predicate: &str) -> String {
     format!(
-        "SELECT queue, id, body, attempts, max_attempts, status, available_at_ms, leased_at_ms, lease_expires_at_ms, completed_at_ms, dead_at_ms, created_at FROM queue_jobs {predicate}"
+        "SELECT queue, id, body, attempts, max_attempts, status, available_at_ms, leased_at_ms, lease_expires_at_ms, completed_at_ms, dead_at_ms, created_at, last_error FROM queue_jobs {predicate}"
     )
 }
 
@@ -1106,6 +1135,7 @@ fn row_to_queue_job(row: &rusqlite::Row<'_>) -> rusqlite::Result<QueueJob> {
         completed_at_ms: row.get(9)?,
         dead_at_ms: row.get(10)?,
         created_at: row.get::<_, String>(11).unwrap_or_default(),
+        last_error: row.get::<_, String>(12).unwrap_or_default(),
     })
 }
 

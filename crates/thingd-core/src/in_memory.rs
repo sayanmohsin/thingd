@@ -195,6 +195,9 @@ impl QueueStore for MemoryEngine {
         let now = unix_timestamp_millis();
         job.leased_at_ms = None;
         job.lease_expires_at_ms = None;
+        if !options.error.is_empty() {
+            job.last_error = options.error;
+        }
         job.status = if job.attempts >= job.max_attempts {
             job.dead_at_ms = Some(now);
             QueueJobStatus::Dead

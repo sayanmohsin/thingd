@@ -33,7 +33,7 @@ type NativeThingStoreBinding = {
   ): string;
   claimJobJson(queue: string, leaseMs: number): string | null;
   ackJobJson(queue: string, id: string): string;
-  nackJobJson(queue: string, id: string, delayMs: number): string;
+  nackJobJson(queue: string, id: string, delayMs: number, error?: string): string;
   listJobsJson(queue: string): string;
   listDeadJobsJson(queue: string): string;
   countObjectsJson(): Promise<number>;
@@ -85,6 +85,7 @@ type NativeQueueJobRecord = {
   completedAtMs?: number;
   deadAtMs?: number;
   createdAt: string;
+  lastError: string;
 };
 
 type NativeQueueJobResult =
@@ -212,12 +213,10 @@ export class NativeThingStore implements ThingStore {
     options: QueueNackOptions = {},
   ): Promise<QueueJobResult> {
     const result = resultFromNative(
-      parseJson<NativeQueueJobResult>(this.binding.nackJobJson(queue, jobId, options.delayMs ?? 0)),
+      parseJson<NativeQueueJobResult>(
+        this.binding.nackJobJson(queue, jobId, options.delayMs ?? 0, options.error),
+      ),
     );
-
-    if (result.ok && options.error) {
-      result.job.lastError = options.error;
-    }
 
     return result;
   }
@@ -484,6 +483,7 @@ function jobFromNative(record: NativeQueueJobRecord): QueueJob {
     leaseExpiresAt: optionalTimestampToIso(record.leaseExpiresAtMs),
     completedAt: optionalTimestampToIso(record.completedAtMs),
     deadAt: optionalTimestampToIso(record.deadAtMs),
+    lastError: record.lastError || undefined,
   };
 }
 

@@ -128,6 +128,8 @@ pub struct QueueJob {
     pub dead_at_ms: Option<i64>,
     /// ISO 8601 creation timestamp. Empty if not set.
     pub created_at: String,
+    /// Error message from last nack. Empty if not set.
+    pub last_error: String,
 }
 
 impl QueueJob {
@@ -151,6 +153,7 @@ impl QueueJob {
             completed_at_ms: None,
             dead_at_ms: None,
             created_at: String::new(),
+            last_error: String::new(),
         }
     }
 
@@ -193,17 +196,31 @@ impl QueueClaimOptions {
 }
 
 /// Options used when rejecting a leased queue job.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Default)]
+#[derive(Clone, Debug, Eq, PartialEq, Default)]
 pub struct QueueNackOptions {
     /// Delay before a retry can be claimed.
     pub delay_ms: u64,
+    /// Error message from the worker, stored as last_error on the job.
+    pub error: String,
 }
 
 impl QueueNackOptions {
     /// Create queue nack options with the given retry delay.
     #[must_use]
     pub const fn new(delay_ms: u64) -> Self {
-        Self { delay_ms }
+        Self {
+            delay_ms,
+            error: String::new(),
+        }
+    }
+
+    /// Create queue nack options with retry delay and an error message.
+    #[must_use]
+    pub fn with_error(delay_ms: u64, error: impl Into<String>) -> Self {
+        Self {
+            delay_ms,
+            error: error.into(),
+        }
     }
 }
 

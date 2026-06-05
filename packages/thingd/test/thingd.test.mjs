@@ -152,6 +152,22 @@ function runThingDBehaviorSuite(label, openDb) {
     assert.equal(reclaimed?.attempts, 2);
   });
 
+  test(`${label}: persists lastError in the store after nack`, async () => {
+    const db = await openDb();
+    const queue = db.queue("embed");
+
+    const pushed = await queue.push({ object: "docs/doc_123" });
+    await queue.claim();
+    await queue.nack(pushed.id, {
+      error: "persistent error message",
+    });
+
+    const jobs = await queue.list();
+    const nackedJob = jobs.find((j) => j.id === pushed.id);
+    assert.ok(nackedJob, "nacked job should appear in list");
+    assert.equal(nackedJob?.lastError, "persistent error message");
+  });
+
   test(`${label}: does not claim delayed jobs before they are available`, async () => {
     const db = await openDb();
     const queue = db.queue("embed");
