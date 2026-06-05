@@ -227,4 +227,40 @@ function runThingDBehaviorSuite(label, openDb) {
     assert.equal(objectHits[0].kind, "object");
     assert.equal(eventHits[0].kind, "event");
   });
+
+  test(`${label}: preserves createdAt and updatedAt timestamps`, async () => {
+    const db = await openDb();
+
+    const created = await db.put("decisions", {
+      id: "timestamp-test",
+      text: "Check timestamp preservation.",
+    });
+
+    assert.ok(created.createdAt, "createdAt should be set");
+    assert.ok(created.updatedAt, "updatedAt should be set");
+    assert.equal(created.createdAt, created.updatedAt, "createdAt and updatedAt should match on creation");
+
+    // Read back and verify timestamps persist
+    const stored = await db.get("decisions", "timestamp-test");
+    assert.ok(stored, "object should exist");
+    assert.equal(stored.createdAt, created.createdAt, "createdAt should persist across read");
+    assert.equal(stored.updatedAt, created.updatedAt, "updatedAt should persist across read");
+
+    // Update the object and verify updatedAt changes
+    const updated = await db.put("decisions", {
+      id: "timestamp-test",
+      text: "Updated content.",
+    });
+
+    assert.equal(updated.createdAt, created.createdAt, "createdAt should not change on update");
+    assert.ok(new Date(updated.updatedAt) >= new Date(created.updatedAt), "updatedAt should not go backwards");
+
+    // Events
+    const event = await db.events.append("timestamp-test-stream", {
+      type: "test.event",
+      text: "Check event timestamp.",
+    });
+
+    assert.ok(event.createdAt, "event createdAt should be set");
+  });
 }

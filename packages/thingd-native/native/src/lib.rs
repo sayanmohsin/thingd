@@ -436,6 +436,8 @@ struct NativeObjectRecord {
     id: String,
     body: String,
     version: u64,
+    created_at: String,
+    updated_at: String,
 }
 
 #[derive(Serialize)]
@@ -445,6 +447,7 @@ struct NativeEventRecord {
     event_type: String,
     body: String,
     sequence: u64,
+    created_at: String,
 }
 
 #[derive(Serialize)]
@@ -461,6 +464,7 @@ struct NativeQueueJobRecord {
     lease_expires_at_ms: Option<i64>,
     completed_at_ms: Option<i64>,
     dead_at_ms: Option<i64>,
+    created_at: String,
 }
 
 #[derive(Serialize)]
@@ -512,6 +516,8 @@ fn object_record(object: MemoryObject) -> NativeObjectRecord {
         id: object.key.id,
         body: object.body,
         version: object.version,
+        created_at: object.created_at,
+        updated_at: object.updated_at,
     }
 }
 
@@ -521,6 +527,7 @@ fn event_record(event: MemoryEvent) -> NativeEventRecord {
         event_type: event.event_type,
         body: event.body,
         sequence: event.sequence,
+        created_at: event.created_at,
     }
 }
 
@@ -537,6 +544,7 @@ fn job_record(job: QueueJob) -> NativeQueueJobRecord {
         lease_expires_at_ms: job.lease_expires_at_ms,
         completed_at_ms: job.completed_at_ms,
         dead_at_ms: job.dead_at_ms,
+        created_at: job.created_at,
     }
 }
 

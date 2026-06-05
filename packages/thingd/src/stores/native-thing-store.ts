@@ -60,6 +60,8 @@ type NativeObjectRecord = {
   id: string;
   body: string;
   version: number;
+  createdAt: string;
+  updatedAt: string;
 };
 
 type NativeEventRecord = {
@@ -67,6 +69,7 @@ type NativeEventRecord = {
   eventType: string;
   body: string;
   sequence: number;
+  createdAt: string;
 };
 
 type NativeQueueJobRecord = {
@@ -81,6 +84,7 @@ type NativeQueueJobRecord = {
   leaseExpiresAtMs?: number;
   completedAtMs?: number;
   deadAtMs?: number;
+  createdAt: string;
 };
 
 type NativeQueueJobResult =
@@ -243,14 +247,10 @@ export class NativeThingStore implements ThingStore {
           id: hit.id,
           body: hit.body,
           version: hit.version ?? 1,
+          createdAt: hit.createdAt ?? "",
+          updatedAt: hit.updatedAt ?? "",
         };
         const storedObject = objectFromNative(objectRecord);
-        if (hit.createdAt) {
-          storedObject.createdAt = hit.createdAt;
-        }
-        if (hit.updatedAt) {
-          storedObject.updatedAt = hit.updatedAt;
-        }
 
         return {
           kind: "object",
@@ -265,11 +265,9 @@ export class NativeThingStore implements ThingStore {
           eventType: hit.eventType ?? "event",
           body: hit.body,
           sequence: Number(hit.id),
+          createdAt: hit.createdAt ?? "",
         };
         const storedEvent = eventFromNative(eventRecord);
-        if (hit.createdAt) {
-          storedEvent.createdAt = hit.createdAt;
-        }
 
         return {
           kind: "event",
@@ -449,14 +447,13 @@ async function loadNativeModule(): Promise<NativeThingStoreModule> {
 
 function objectFromNative(record: NativeObjectRecord): StoredMemoryObject {
   const value = parseJson<MemoryObject>(record.body);
-  const now = new Date().toISOString();
 
   return {
     ...value,
     id: record.id,
     collection: record.collection,
-    createdAt: now,
-    updatedAt: now,
+    createdAt: record.createdAt || new Date().toISOString(),
+    updatedAt: record.updatedAt || new Date().toISOString(),
     version: record.version,
   };
 }
@@ -469,7 +466,7 @@ function eventFromNative(record: NativeEventRecord): StoredMemoryEvent {
     type: value.type ?? record.eventType,
     id: String(record.sequence),
     stream: record.stream,
-    createdAt: new Date().toISOString(),
+    createdAt: record.createdAt || new Date().toISOString(),
   };
 }
 
@@ -481,7 +478,7 @@ function jobFromNative(record: NativeQueueJobRecord): QueueJob {
     status: record.status,
     attempts: record.attempts,
     maxAttempts: record.maxAttempts,
-    createdAt: new Date().toISOString(),
+    createdAt: record.createdAt || new Date().toISOString(),
     availableAt: timestampToIso(record.availableAtMs),
     leasedAt: optionalTimestampToIso(record.leasedAtMs),
     leaseExpiresAt: optionalTimestampToIso(record.leaseExpiresAtMs),

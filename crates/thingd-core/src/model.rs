@@ -33,6 +33,10 @@ pub struct MemoryObject {
     pub body: String,
     /// Monotonic object version assigned by the store.
     pub version: u64,
+    /// ISO 8601 creation timestamp, e.g. "2026-06-01T12:00:00.000Z". Empty if not set.
+    pub created_at: String,
+    /// ISO 8601 last-update timestamp. Empty if not set.
+    pub updated_at: String,
 }
 
 impl MemoryObject {
@@ -46,6 +50,8 @@ impl MemoryObject {
             key: ObjectKey::new(collection, id),
             body: body.into(),
             version: 0,
+            created_at: String::new(),
+            updated_at: String::new(),
         }
     }
 }
@@ -61,6 +67,8 @@ pub struct MemoryEvent {
     pub body: String,
     /// Monotonic sequence assigned by the event log.
     pub sequence: u64,
+    /// ISO 8601 creation timestamp. Empty if not set.
+    pub created_at: String,
 }
 
 impl MemoryEvent {
@@ -75,6 +83,7 @@ impl MemoryEvent {
             event_type: event_type.into(),
             body: body.into(),
             sequence: 0,
+            created_at: String::new(),
         }
     }
 }
@@ -117,6 +126,8 @@ pub struct QueueJob {
     pub completed_at_ms: Option<i64>,
     /// Unix timestamp in milliseconds when this job moved to dead-letter state.
     pub dead_at_ms: Option<i64>,
+    /// ISO 8601 creation timestamp. Empty if not set.
+    pub created_at: String,
 }
 
 impl QueueJob {
@@ -139,6 +150,7 @@ impl QueueJob {
             lease_expires_at_ms: None,
             completed_at_ms: None,
             dead_at_ms: None,
+            created_at: String::new(),
         }
     }
 

@@ -308,7 +308,7 @@ impl ObjectStore for SqliteThingStore {
                 ON CONFLICT(collection, id) DO UPDATE SET
                     body = excluded.body,
                     version = excluded.version,
-                    updated_at = excluded.updated_at
+                    updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
                 ",
                 params![
                     &object.key.collection,
@@ -318,6 +318,22 @@ impl ObjectStore for SqliteThingStore {
                 ],
             )
             .map_err(ThingdError::from)?;
+
+        // Read back timestamps from the database
+        let timestamps = transaction
+            .query_row(
+                "SELECT created_at, updated_at FROM objects WHERE collection = ?1 AND id = ?2",
+                params![&object.key.collection, &object.key.id],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0).unwrap_or_default(),
+                        row.get::<_, String>(1).unwrap_or_default(),
+                    ))
+                },
+            )
+            .map_err(ThingdError::from)?;
+        object.created_at = timestamps.0;
+        object.updated_at = timestamps.1;
 
         let text = extract_text_from_json(&object.body);
         transaction
@@ -341,7 +357,7 @@ impl ObjectStore for SqliteThingStore {
     fn get_object(&self, collection: &str, id: &str) -> ThingdResult<Option<MemoryObject>> {
         self.connection
             .query_row(
-                "SELECT collection, id, body, version FROM objects WHERE collection = ?1 AND id = ?2",
+                "SELECT collection, id, body, version, created_at, updated_at FROM objects WHERE collection = ?1 AND id = ?2",
                 params![collection, id],
                 |row| {
                     let version = row.get::<_, i64>(3)?;
@@ -356,6 +372,8 @@ impl ObjectStore for SqliteThingStore {
                                 Box::new(error),
                             )
                         })?,
+                        created_at: row.get::<_, String>(4).unwrap_or_default(),
+                        updated_at: row.get::<_, String>(5).unwrap_or_default(),
                     })
                 },
             )
@@ -371,7 +389,7 @@ impl ObjectStore for SqliteThingStore {
                 let mut statement = self
                     .connection
                     .prepare(
-                        "SELECT collection, id, body, version FROM objects WHERE collection = ?1 ORDER BY collection, id",
+                        "SELECT collection, id, body, version, created_at, updated_at FROM objects WHERE collection = ?1 ORDER BY collection, id",
                     )
                     .map_err(ThingdError::from)?;
                 let rows = statement
@@ -386,7 +404,7 @@ impl ObjectStore for SqliteThingStore {
             let mut statement = self
                 .connection
                 .prepare(
-                    "SELECT collection, id, body, version FROM objects ORDER BY collection, id",
+                    "SELECT collection, id, body, version, created_at, updated_at FROM objects ORDER BY collection, id",
                 )
                 .map_err(ThingdError::from)?;
             let rows = statement
@@ -465,6 +483,15 @@ impl EventLog for SqliteThingStore {
         event.sequence =
             u64::try_from(sequence).map_err(|error| ThingdError::Storage(error.to_string()))?;
 
+        let created_at: String = transaction
+            .query_row(
+                "SELECT created_at FROM events WHERE sequence = ?1",
+                params![sequence],
+                |row| row.get(0),
+            )
+            .map_err(ThingdError::from)?;
+        event.created_at = created_at;
+
         let text = extract_text_from_json(&event.body);
         let seq_str = sequence.to_string();
         transaction
@@ -486,7 +513,7 @@ impl EventLog for SqliteThingStore {
             let mut statement = self
                 .connection
                 .prepare(
-                    "SELECT stream, event_type, body, sequence FROM events WHERE stream = ?1 ORDER BY sequence",
+                    "SELECT stream, event_type, body, sequence, created_at FROM events WHERE stream = ?1 ORDER BY sequence",
                 )
                 .map_err(ThingdError::from)?;
             let rows = statement
@@ -499,7 +526,7 @@ impl EventLog for SqliteThingStore {
         } else {
             let mut statement = self
                 .connection
-                .prepare("SELECT stream, event_type, body, sequence FROM events ORDER BY sequence")
+                .prepare("SELECT stream, event_type, body, sequence, created_at FROM events ORDER BY sequence")
                 .map_err(ThingdError::from)?;
             let rows = statement
                 .query_map([], row_to_event)
@@ -608,8 +635,20 @@ impl QueueStore for SqliteThingStore {
             )
             .map_err(ThingdError::from)?;
 
+        let created_at: String = transaction
+            .query_row(
+                "SELECT created_at FROM queue_jobs WHERE queue = ?1 AND id = ?2",
+                params![&job.queue, &job.id],
+                |row| row.get(0),
+            )
+            .map_err(ThingdError::from)?;
+
         transaction.commit().map_err(ThingdError::from)?;
-        Ok(job)
+
+        Ok(QueueJob {
+            created_at,
+            ..job
+        })
     }
 
     fn claim_job_with_options(
@@ -1003,6 +1042,8 @@ fn row_to_object(row: &rusqlite::Row<'_>) -> rusqlite::Result<MemoryObject> {
                 Box::new(error),
             )
         })?,
+        created_at: row.get::<_, String>(4).unwrap_or_default(),
+        updated_at: row.get::<_, String>(5).unwrap_or_default(),
     })
 }
 
@@ -1020,12 +1061,13 @@ fn row_to_event(row: &rusqlite::Row<'_>) -> rusqlite::Result<MemoryEvent> {
                 Box::new(error),
             )
         })?,
+        created_at: row.get::<_, String>(4).unwrap_or_default(),
     })
 }
 
 fn queue_job_select_sql(predicate: &str) -> String {
     format!(
-        "SELECT queue, id, body, attempts, max_attempts, status, available_at_ms, leased_at_ms, lease_expires_at_ms, completed_at_ms, dead_at_ms FROM queue_jobs {predicate}"
+        "SELECT queue, id, body, attempts, max_attempts, status, available_at_ms, leased_at_ms, lease_expires_at_ms, completed_at_ms, dead_at_ms, created_at FROM queue_jobs {predicate}"
     )
 }
 
@@ -1038,20 +1080,39 @@ fn row_to_queue_job(row: &rusqlite::Row<'_>) -> rusqlite::Result<QueueJob> {
         queue: row.get(0)?,
         id: row.get(1)?,
         body: row.get(2)?,
-        attempts: i64_to_u32(attempts, 3)?,
-        max_attempts: i64_to_u32(max_attempts, 4)?,
-        status: str_to_status(&status).map_err(|error| {
+        attempts: u32::try_from(attempts).map_err(|error| {
             rusqlite::Error::FromSqlConversionFailure(
-                5,
-                rusqlite::types::Type::Text,
+                3,
+                rusqlite::types::Type::Integer,
                 Box::new(error),
             )
         })?,
+        max_attempts: u32::try_from(max_attempts).map_err(|error| {
+            rusqlite::Error::FromSqlConversionFailure(
+                4,
+                rusqlite::types::Type::Integer,
+                Box::new(error),
+            )
+        })?,
+        status: match status.as_str() {
+            "ready" => QueueJobStatus::Ready,
+            "leased" => QueueJobStatus::Leased,
+            "completed" => QueueJobStatus::Completed,
+            "dead" => QueueJobStatus::Dead,
+            other => {
+                return Err(rusqlite::Error::FromSqlConversionFailure(
+                    5,
+                    rusqlite::types::Type::Text,
+                    Box::new(std::fmt::Error::default()),
+                ))
+            }
+        },
         available_at_ms: row.get(6)?,
         leased_at_ms: row.get(7)?,
         lease_expires_at_ms: row.get(8)?,
         completed_at_ms: row.get(9)?,
         dead_at_ms: row.get(10)?,
+        created_at: row.get::<_, String>(11).unwrap_or_default(),
     })
 }
 

@@ -31,6 +31,7 @@ impl ObjectStore for MemoryEngine {
             .get(&object.key)
             .map_or(1, |existing| existing.version + 1);
 
+        // Memory engine doesn't track timestamps; keep what was passed
         object.version = version;
         self.objects.insert(object.key.clone(), object.clone());
 
