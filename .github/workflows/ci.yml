@@ -10,42 +10,19 @@ permissions:
   contents: read
 
 jobs:
-  rust:
-    name: Rust ${{ matrix.check }}
+  test:
+    name: Test (${{ matrix.os }})
     strategy:
+      fail-fast: false
       matrix:
-        check: [fmt, clippy, test]
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v5
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v5
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy, rustfmt
-
-      - name: Rust Cache
-        uses: Swatinem/rust-cache@v2
-
-      - name: cargo fmt
-        if: matrix.check == 'fmt'
-        run: cargo fmt --all --check
-
-      - name: cargo clippy
-        if: matrix.check == 'clippy'
-        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
-
-      - name: cargo test
-        if: matrix.check == 'test'
-        run: cargo test --workspace --all-targets --all-features
-
-  node:
-    name: Lint, build & test (TS)
-    runs-on: ubuntu-latest
+        include:
+          - os: ubuntu-latest
+            node: 24
+          - os: macos-14
+            node: 24
+          - os: windows-latest
+            node: 24
+    runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -56,11 +33,28 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v5
         with:
-          node-version: 24
+          node-version: ${{ matrix.node }}
           cache: pnpm
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Rust fmt check
+        run: cargo fmt --all --check
+
+      - name: Rust clippy
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+
+      - name: Rust tests
+        run: cargo test --workspace --all-targets --all-features
 
       - name: Biome check
         run: pnpm check
@@ -70,10 +64,6 @@ jobs:
 
       - name: Node unit tests
         run: pnpm test:node
-
-      - name: Build native binary
-        working-directory: packages/thingd-native
-        run: pnpm build
 
       - name: CLI unit tests
         run: pnpm test:cli
