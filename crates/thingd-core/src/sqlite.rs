@@ -4,7 +4,7 @@
 
 use std::path::Path;
 
-use rusqlite::{params, Connection, OptionalExtension, Transaction, TransactionBehavior};
+use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
 
 use crate::{
     u64_to_i64, unix_timestamp_millis, EventLog, MemoryEvent, MemoryObject, ObjectKey, ObjectStore,
@@ -212,7 +212,7 @@ impl SqliteThingStore {
         .map_err(ThingdError::from)?;
 
         // Reindex all existing objects and events inside the same transaction
-        self.reindex_all_into(&tx)?;
+        Self::reindex_all_into(&tx)?;
 
         tx.execute(
             "INSERT OR IGNORE INTO thingd_schema_migrations (version, name, applied_at)
@@ -242,7 +242,7 @@ impl SqliteThingStore {
         Ok(())
     }
 
-    fn reindex_all_into(&self, tx: &rusqlite::Transaction<'_>) -> ThingdResult<()> {
+    fn reindex_all_into(tx: &rusqlite::Transaction<'_>) -> ThingdResult<()> {
         let mut stmt_objects = tx
             .prepare("SELECT collection, id, body FROM objects")
             .map_err(ThingdError::from)?;
@@ -409,8 +409,10 @@ impl ObjectStore for SqliteThingStore {
                 placeholders.join(", ")
             );
             let mut statement = self.connection.prepare(&sql).map_err(ThingdError::from)?;
-            let params: Vec<&dyn rusqlite::types::ToSql> =
-                cols.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
+            let params: Vec<&dyn rusqlite::types::ToSql> = cols
+                .iter()
+                .map(|s| s as &dyn rusqlite::types::ToSql)
+                .collect();
             let rows = statement
                 .query_map(params.as_slice(), row_to_object)
                 .map_err(ThingdError::from)?;
@@ -661,10 +663,7 @@ impl QueueStore for SqliteThingStore {
 
         transaction.commit().map_err(ThingdError::from)?;
 
-        Ok(QueueJob {
-            created_at,
-            ..job
-        })
+        Ok(QueueJob { created_at, ..job })
     }
 
     fn claim_job_with_options(
@@ -1121,11 +1120,11 @@ fn row_to_queue_job(row: &rusqlite::Row<'_>) -> rusqlite::Result<QueueJob> {
             "leased" => QueueJobStatus::Leased,
             "completed" => QueueJobStatus::Completed,
             "dead" => QueueJobStatus::Dead,
-            other => {
+            _other => {
                 return Err(rusqlite::Error::FromSqlConversionFailure(
                     5,
                     rusqlite::types::Type::Text,
-                    Box::new(std::fmt::Error::default()),
+                    Box::new(std::fmt::Error),
                 ))
             }
         },
@@ -1167,28 +1166,6 @@ const fn status_to_str(status: QueueJobStatus) -> &'static str {
         QueueJobStatus::Completed => "completed",
         QueueJobStatus::Dead => "dead",
     }
-}
-
-fn str_to_status(status: &str) -> ThingdResult<QueueJobStatus> {
-    match status {
-        "ready" => Ok(QueueJobStatus::Ready),
-        "leased" => Ok(QueueJobStatus::Leased),
-        "completed" => Ok(QueueJobStatus::Completed),
-        "dead" => Ok(QueueJobStatus::Dead),
-        _ => Err(ThingdError::Storage(format!(
-            "unknown queue job status: {status}"
-        ))),
-    }
-}
-
-fn i64_to_u32(value: i64, index: usize) -> rusqlite::Result<u32> {
-    u32::try_from(value).map_err(|error| {
-        rusqlite::Error::FromSqlConversionFailure(
-            index,
-            rusqlite::types::Type::Integer,
-            Box::new(error),
-        )
-    })
 }
 
 fn u32_to_i64(value: u32) -> i64 {

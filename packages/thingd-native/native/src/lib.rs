@@ -153,7 +153,13 @@ impl NativeThingStore {
     }
 
     #[napi(js_name = "nackJobJson")]
-    pub fn nack_job_json(&self, queue: String, id: String, delay_ms: i64, error: Option<String>) -> Result<String> {
+    pub fn nack_job_json(
+        &self,
+        queue: String,
+        id: String,
+        delay_ms: i64,
+        error: Option<String>,
+    ) -> Result<String> {
         let mut store = self.lock_store()?;
         let result = match current_job_status(&store, &queue, &id)? {
             None => NativeQueueJobResult::failed("not_found"),
@@ -166,7 +172,10 @@ impl NativeThingStore {
                     .nack_job_with_options(
                         &queue,
                         &id,
-                        QueueNackOptions::with_error(non_negative_u64(delay_ms)?, error.unwrap_or_default()),
+                        QueueNackOptions::with_error(
+                            non_negative_u64(delay_ms)?,
+                            error.unwrap_or_default(),
+                        ),
                     )
                     .map_err(napi_error)?
                     .ok_or_else(|| Error::from_reason("leased job disappeared during nack"))?;
@@ -595,7 +604,8 @@ fn to_json<T: Serialize>(value: &T) -> Result<String> {
 }
 
 fn non_negative_u64(value: i64) -> Result<u64> {
-    u64::try_from(value).map_err(|_| Error::from_reason(format!("expected non-negative integer, got {value}")))
+    u64::try_from(value)
+        .map_err(|_| Error::from_reason(format!("expected non-negative integer, got {value}")))
 }
 
 fn napi_error(error: impl std::fmt::Display) -> Error {

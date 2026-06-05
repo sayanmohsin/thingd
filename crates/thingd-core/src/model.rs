@@ -200,7 +200,7 @@ impl QueueClaimOptions {
 pub struct QueueNackOptions {
     /// Delay before a retry can be claimed.
     pub delay_ms: u64,
-    /// Error message from the worker, stored as last_error on the job.
+    /// Error message from the worker, stored as `last_error` on the job.
     pub error: String,
 }
 

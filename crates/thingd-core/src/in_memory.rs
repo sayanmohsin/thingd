@@ -33,7 +33,7 @@ impl ObjectStore for MemoryEngine {
             .map_or(1, |existing| existing.version + 1);
 
         object.version = version;
-        object.updated_at = now.clone();
+        object.updated_at.clone_from(&now);
         if object.created_at.is_empty() {
             object.created_at = now;
         }
