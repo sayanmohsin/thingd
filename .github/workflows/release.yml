@@ -1,8 +1,10 @@
 name: Release
 
 on:
-  push:
+  workflow_run:
+    workflows: [CI]
     branches: [main]
+    types: [completed]
   workflow_dispatch:
 
 concurrency:
@@ -18,6 +20,7 @@ permissions:
 jobs:
   release:
     name: Release npm package
+    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-latest
     env:
       NPM_CONFIG_AUDIT: "false"
@@ -38,16 +41,8 @@ jobs:
           registry-url: https://registry.npmjs.org
           cache: pnpm
 
-      - name: Show tool versions
-        run: |
-          node --version
-          npm --version
-          pnpm --version
-
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy, rustfmt
 
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2
@@ -55,29 +50,12 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Biome check
-        run: pnpm check
+      - name: Build native binary
+        working-directory: packages/thingd-native
+        run: pnpm build
 
       - name: Build packages
         run: pnpm build
-
-      - name: Node unit tests
-        run: pnpm test:node
-
-      - name: Package smoke test
-        run: pnpm test:package
-
-      - name: Rust format check
-        run: pnpm rust:fmt:check
-
-      - name: Clippy
-        run: pnpm rust:clippy
-
-      - name: Rust unit tests
-        run: pnpm test:rust
-
-      - name: Rust benchmark smoke test
-        run: pnpm bench:rust:smoke
 
       - name: Publish release
         env:

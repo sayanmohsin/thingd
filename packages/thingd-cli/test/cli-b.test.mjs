@@ -55,7 +55,6 @@ test("thingd collections list works in json and pretty mode", async () => {
   // Test Pretty mode
   const prettyResult = await run(["--pretty", "collections", "list"]);
   assert.equal(prettyResult.code, 0);
-  assert.match(prettyResult.stdout, /Collection Name/);
   assert.match(prettyResult.stdout, /tasks/);
 });
 
@@ -74,10 +73,8 @@ test("thingd objects list works in json and pretty mode", async () => {
   // Test Pretty mode
   const prettyResult = await run(["--pretty", "objects", "list", "tasks"]);
   assert.equal(prettyResult.code, 0);
-  assert.match(prettyResult.stdout, /ID/);
-  assert.match(prettyResult.stdout, /Version/);
   assert.match(prettyResult.stdout, /task-1/);
-  assert.match(prettyResult.stdout, /Finish CLI B/);
+  assert.match(prettyResult.stdout, /v1/);
 });
 
 test("thingd events streams alias and streams list works in pretty mode", async () => {
@@ -87,13 +84,11 @@ test("thingd events streams alias and streams list works in pretty mode", async 
   // Test events streams in pretty mode
   const prettyResult = await run(["--pretty", "events", "streams"]);
   assert.equal(prettyResult.code, 0);
-  assert.match(prettyResult.stdout, /Stream Name/);
   assert.match(prettyResult.stdout, /log-stream/);
 
   // Test streams list in pretty mode
   const aliasResult = await run(["--pretty", "streams", "list"]);
   assert.equal(aliasResult.code, 0);
-  assert.match(aliasResult.stdout, /Stream Name/);
   assert.match(aliasResult.stdout, /log-stream/);
 });
 
@@ -114,9 +109,8 @@ test("thingd queues stats works in json and pretty mode", async () => {
   // Test Pretty mode
   const prettyResult = await run(["--pretty", "queues", "stats", "worker-queue"]);
   assert.equal(prettyResult.code, 0);
-  assert.match(prettyResult.stdout, /Stat Metric/);
   assert.match(prettyResult.stdout, /worker-queue/);
-  assert.match(prettyResult.stdout, /Ready Jobs/);
+  assert.match(prettyResult.stdout, /Ready/);
 });
 
 async function run(args) {

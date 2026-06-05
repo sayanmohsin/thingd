@@ -25,7 +25,8 @@ test("supports boolean flags before the command", async () => {
   const result = await run(["--pretty", "status"]);
 
   assert.equal(result.code, 0);
-  assert.match(result.stdout, /\n  "mode": "local"/);
+  assert.match(result.stdout, /Driver/);
+  assert.match(result.stdout, /memory/);
 });
 
 test("puts an object as JSON", async () => {

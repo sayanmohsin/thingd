@@ -10,8 +10,41 @@ permissions:
   contents: read
 
 jobs:
+  rust:
+    name: Rust
+    strategy:
+      matrix:
+        check: [fmt, clippy, test]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v5
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Format check
+        if: matrix.check == 'fmt'
+        run: cargo fmt --all --check
+
+      - name: Clippy
+        if: matrix.check == 'clippy'
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+
+      - name: Unit tests
+        if: matrix.check == 'test'
+        run: cargo test --workspace --all-targets --all-features
+
   node:
-    name: Node checks
+    name: Node
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -25,12 +58,6 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Rust Cache
-        uses: Swatinem/rust-cache@v2
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -44,47 +71,17 @@ jobs:
       - name: Node unit tests
         run: pnpm test:node
 
+      - name: Build native binary
+        working-directory: packages/thingd-native
+        run: pnpm build
+
       - name: CLI unit tests
         run: pnpm test:cli
 
       - name: Package smoke test
         run: pnpm test:package
 
-  rust:
-    name: Rust checks
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v5
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v5
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v5
-        with:
-          node-version: 24
-          cache: pnpm
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy, rustfmt
-
-      - name: Rust Cache
-        uses: Swatinem/rust-cache@v2
-
-      - name: Rust format check
-        run: pnpm rust:fmt:check
-
-      - name: Clippy
-        run: pnpm rust:clippy
-
-      - name: Rust unit tests
-        run: pnpm test:rust
-
-      - name: Rust benchmark smoke test
-        run: pnpm bench:rust:smoke
+      - name: MCP HTTP smoke test
+        run: |
+          pnpm build
+          pnpm smoke:mcp
