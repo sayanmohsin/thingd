@@ -59,12 +59,13 @@ test("thingd collections list works in json and pretty mode", async () => {
 });
 
 test("thingd objects list works in json and pretty mode", async () => {
-  const id = `task-${Date.now()}`;
-  const putRes = await run(["objects", "put", "tasks", id, "--text", "Finish CLI B"]);
+  const collection = `tasks-${Date.now()}`;
+  const id = `task-1`;
+  const putRes = await run(["objects", "put", collection, id, "--text", "Finish CLI B"]);
   assert.equal(putRes.code, 0);
 
   // Test JSON mode
-  const jsonResult = await run(["objects", "list", "tasks"]);
+  const jsonResult = await run(["objects", "list", collection]);
   assert.equal(jsonResult.code, 0);
   const list = JSON.parse(jsonResult.stdout);
   assert.ok(Array.isArray(list));
@@ -72,7 +73,7 @@ test("thingd objects list works in json and pretty mode", async () => {
   assert.equal(list[0].id, id);
 
   // Test Pretty mode
-  const prettyResult = await run(["--pretty", "objects", "list", "tasks"]);
+  const prettyResult = await run(["--pretty", "objects", "list", collection]);
   assert.equal(prettyResult.code, 0);
   assert.match(prettyResult.stdout, /v1/);
 });
