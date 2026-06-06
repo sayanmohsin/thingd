@@ -24,6 +24,9 @@ const run = (args, options = {}) => {
     ...options,
   });
   if (result.status !== 0) {
+    if (result.error) {
+      console.error(`Failed to run pnpm: ${result.error.message}`);
+    }
     process.exit(result.status ?? 1);
   }
 };
@@ -31,10 +34,16 @@ const run = (args, options = {}) => {
 const runJson = (args, options = {}) => {
   const result = spawn.sync("pnpm", args, {
     encoding: "utf8",
-    stdio: ["ignore", "pipe", "inherit"],
+    stdio: ["ignore", "pipe", "pipe"],
     ...options,
   });
   if (result.status !== 0) {
+    if (result.stderr) {
+      console.error(result.stderr);
+    }
+    if (result.error) {
+      console.error(`Failed to run pnpm: ${result.error.message}`);
+    }
     process.exit(result.status ?? 1);
   }
   return JSON.parse(result.stdout);
