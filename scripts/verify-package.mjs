@@ -18,20 +18,24 @@ const { values } = parseArgs({
 });
 
 const run = (command, args, options = {}) => {
-  const fullCommand = process.platform === "win32" && command === "pnpm" ? "pnpm.cmd" : command;
+  const isWin = process.platform === "win32";
+  const fullCommand = isWin && command === "pnpm" ? "pnpm.cmd" : command;
+  const opts = isWin ? { ...options, shell: true } : options;
   execFileSync(fullCommand, args, {
     encoding: "utf8",
     stdio: "inherit",
-    ...options,
+    ...opts,
   });
 };
 
 const runJson = (command, args, options = {}) => {
-  const fullCommand = process.platform === "win32" && command === "pnpm" ? "pnpm.cmd" : command;
+  const isWin = process.platform === "win32";
+  const fullCommand = isWin && command === "pnpm" ? "pnpm.cmd" : command;
+  const opts = isWin ? { ...options, shell: true } : options;
   const output = execFileSync(fullCommand, args, {
     encoding: "utf8",
     stdio: ["ignore", "pipe", "inherit"],
-    ...options,
+    ...opts,
   });
 
   return JSON.parse(output);
