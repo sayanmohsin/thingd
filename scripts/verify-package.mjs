@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { chdir, cwd, env as processEnv } from "node:process";
 import { parseArgs } from "node:util";
-import { execFileSync } from "node:child_process";
+import spawn from "cross-spawn";
 
 const rootDir = resolve(new URL("..", import.meta.url).pathname);
 const packageDir = join(rootDir, "packages", "thingd");
@@ -17,25 +17,27 @@ const { values } = parseArgs({
   },
 });
 
-const isWin = process.platform === "win32";
-const pnpmCmd = isWin ? "pnpm.cmd" : "pnpm";
-
 const run = (args, options = {}) => {
-  execFileSync(pnpmCmd, args, {
+  const result = spawn.sync("pnpm", args, {
     encoding: "utf8",
     stdio: "inherit",
     ...options,
   });
+  if (result.status !== 0) {
+    process.exit(result.status ?? 1);
+  }
 };
 
 const runJson = (args, options = {}) => {
-  const output = execFileSync(pnpmCmd, args, {
+  const result = spawn.sync("pnpm", args, {
     encoding: "utf8",
     stdio: ["ignore", "pipe", "inherit"],
     ...options,
   });
-
-  return JSON.parse(output);
+  if (result.status !== 0) {
+    process.exit(result.status ?? 1);
+  }
+  return JSON.parse(result.stdout);
 };
 
 const tempDir = await mkdtemp(join(tmpdir(), "thingd-package-smoke-"));
