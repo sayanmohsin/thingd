@@ -112,7 +112,7 @@ test("resolves to default database path when THINGD_PATH is not set", async () =
   assert.equal(result.code, 0);
   const status = JSON.parse(result.stdout);
   assert.equal(status.mode, "local");
-  assert.match(status.path, /\.thingd\/data\.db$/);
+  assert.match(status.path, /\.thingd[\\/]data\.db$/);
 });
 
 test("runs install command and prints configuration", async () => {
