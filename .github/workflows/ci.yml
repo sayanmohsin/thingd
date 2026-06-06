@@ -10,71 +10,87 @@ permissions:
   contents: read
 
 jobs:
-  test:
-    name: Test (${{ matrix.os }})
+  rust-fmt:
+    name: Rust fmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --all --check
+
+  rust-clippy:
+    name: Rust clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+
+  rust-test:
+    name: Rust test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --workspace --all-targets --all-features
+
+  node-check:
+    name: Node check (${{ matrix.os }})
     strategy:
       fail-fast: false
       matrix:
         include:
           - os: ubuntu-latest
-            node: 24
           - os: macos-14
-            node: 24
           - os: windows-latest
-            node: 24
     runs-on: ${{ matrix.os }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@v5
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v5
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v5
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v5
+      - uses: actions/setup-node@v5
         with:
-          node-version: ${{ matrix.node }}
+          node-version: 24
           cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm check
 
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
+  node-build-test:
+    name: Node build+test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+          - os: macos-14
+          - os: windows-latest
+    runs-on: ${{ matrix.os }}
+    needs: [rust-test, node-check]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v5
+      - uses: actions/setup-node@v5
         with:
-          components: clippy, rustfmt
-
-      - name: Rust Cache
-        uses: Swatinem/rust-cache@v2
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Rust fmt check
-        run: cargo fmt --all --check
-
-      - name: Rust clippy
-        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
-
-      - name: Rust tests
-        run: cargo test --workspace --all-targets --all-features
-
-      - name: Biome check
-        run: pnpm check
-
-      - name: Build packages
-        run: pnpm --filter !examples* -r --if-present build
-
-      - name: Node unit tests
-        run: pnpm test:node
-
-      - name: CLI unit tests
-        run: pnpm test:cli
-
-      - name: Package smoke test
-        run: pnpm test:package
+          node-version: 24
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter !examples* -r --if-present build
+      - run: pnpm test:node
+      - run: pnpm test:cli
+      - run: pnpm test:package
 
   build-native:
     name: Build native (${{ matrix.platform }}-${{ matrix.arch }})
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: test
+    needs: [rust-test, node-build-test]
     strategy:
       fail-fast: false
       matrix:
@@ -95,23 +111,12 @@ jobs:
     permissions:
       contents: write
     steps:
-      - name: Checkout
-        uses: actions/checkout@v5
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Rust Cache
-        uses: Swatinem/rust-cache@v2
-
-      - name: Build native binary
-        run: cargo build -p thingd-native --release
-
-      - name: Copy prebuild
-        run: node packages/thingd-native/scripts/copy-prebuild.mjs
-
-      - name: Upload prebuild artifact
-        uses: actions/upload-artifact@v4
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build -p thingd-native --release
+      - run: node packages/thingd-native/scripts/copy-prebuild.mjs
+      - uses: actions/upload-artifact@v4
         with:
           name: prebuild-${{ matrix.platform }}-${{ matrix.arch }}
           path: packages/thingd-native/prebuilds/

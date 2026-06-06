@@ -26,16 +26,13 @@ jobs:
       NPM_CONFIG_AUDIT: "false"
       NPM_CONFIG_FUND: "false"
     steps:
-      - name: Checkout
-        uses: actions/checkout@v5
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v5
+      - uses: pnpm/action-setup@v5
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: 24
           registry-url: https://registry.npmjs.org
@@ -59,11 +56,9 @@ jobs:
           echo "Prebuilds after merge:"
           ls -la packages/thingd-native/prebuilds/*/
 
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+      - run: pnpm install --frozen-lockfile
 
-      - name: Build packages (skip examples)
-        run: pnpm --filter !examples* -r --if-present build
+      - run: pnpm --filter !examples* -r --if-present build
 
       - name: Publish release
         env:
