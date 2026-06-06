@@ -17,6 +17,8 @@ const { values } = parseArgs({
   },
 });
 
+// Use pnpm via cross-spawn for cross-platform compatibility.
+// On Windows, pnpm is a .cmd file and needs special handling.
 const run = (args, options = {}) => {
   const result = spawn.sync("pnpm", args, {
     encoding: "utf8",
@@ -24,6 +26,9 @@ const run = (args, options = {}) => {
     ...options,
   });
   if (result.status !== 0) {
+    if (result.stderr) {
+      console.error(result.stderr.toString());
+    }
     if (result.error) {
       console.error(`Failed to run pnpm: ${result.error.message}`);
     }
@@ -39,7 +44,7 @@ const runJson = (args, options = {}) => {
   });
   if (result.status !== 0) {
     if (result.stderr) {
-      console.error(result.stderr);
+      console.error(result.stderr.toString());
     }
     if (result.error) {
       console.error(`Failed to run pnpm: ${result.error.message}`);

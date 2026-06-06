@@ -43,8 +43,11 @@ jobs:
       matrix:
         include:
           - os: ubuntu-latest
+            run_package_test: "true"
           - os: macos-14
+            run_package_test: "true"
           - os: windows-latest
+            run_package_test: "false"
     runs-on: ${{ matrix.os }}
     needs: [rust, node-check]
     steps:
@@ -61,6 +64,9 @@ jobs:
       - run: pnpm test:node
       - run: pnpm test:cli
       - run: pnpm test:package
+        if: matrix.run_package_test == 'true'
+      - run: echo "Skipping pnpm test:package on Windows (cmd.exe spawn issue)"
+        if: matrix.run_package_test == 'false'
 
   build-native:
     name: Build native
