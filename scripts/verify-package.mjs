@@ -18,9 +18,8 @@ const { values } = parseArgs({
 });
 
 const run = (command, args, options = {}) => {
-  const isWin = process.platform === "win32";
-  if (isWin && command === "pnpm") {
-    execFileSync("cmd.exe", ["/c", "pnpm", ...args], {
+  if (command === "pnpm") {
+    execFileSync("npx", ["pnpm", ...args], {
       encoding: "utf8",
       stdio: "inherit",
       ...options,
@@ -35,9 +34,8 @@ const run = (command, args, options = {}) => {
 };
 
 const runJson = (command, args, options = {}) => {
-  const isWin = process.platform === "win32";
-  if (isWin && command === "pnpm") {
-    const output = execFileSync("cmd.exe", ["/c", "pnpm", ...args], {
+  if (command === "pnpm") {
+    const output = execFileSync("npx", ["pnpm", ...args], {
       encoding: "utf8",
       stdio: ["ignore", "pipe", "inherit"],
       ...options,
