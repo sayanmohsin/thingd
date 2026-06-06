@@ -63,7 +63,7 @@ jobs:
       - run: pnpm test:package
 
   build-native:
-    name: Build native (${{ matrix.platform }}-${{ matrix.arch }})
+    name: Build native
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: node-build-test
     strategy:

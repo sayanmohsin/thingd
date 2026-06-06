@@ -17,38 +17,25 @@ const { values } = parseArgs({
   },
 });
 
-const run = (command, args, options = {}) => {
-  if (command === "pnpm") {
-    execFileSync("npx", ["pnpm", ...args], {
-      encoding: "utf8",
-      stdio: "inherit",
-      ...options,
-    });
-  } else {
-    execFileSync(command, args, {
-      encoding: "utf8",
-      stdio: "inherit",
-      ...options,
-    });
-  }
+const isWin = process.platform === "win32";
+const pnpmCmd = isWin ? "pnpm.cmd" : "pnpm";
+
+const run = (args, options = {}) => {
+  execFileSync(pnpmCmd, args, {
+    encoding: "utf8",
+    stdio: "inherit",
+    ...options,
+  });
 };
 
-const runJson = (command, args, options = {}) => {
-  if (command === "pnpm") {
-    const output = execFileSync("npx", ["pnpm", ...args], {
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "inherit"],
-      ...options,
-    });
-    return JSON.parse(output);
-  } else {
-    const output = execFileSync(command, args, {
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "inherit"],
-      ...options,
-    });
-    return JSON.parse(output);
-  }
+const runJson = (args, options = {}) => {
+  const output = execFileSync(pnpmCmd, args, {
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "inherit"],
+    ...options,
+  });
+
+  return JSON.parse(output);
 };
 
 const tempDir = await mkdtemp(join(tmpdir(), "thingd-package-smoke-"));
@@ -60,7 +47,7 @@ const packageManagerEnv = {
 };
 
 try {
-  const packOutput = runJson("pnpm", ["pack", "--json", "--pack-destination", tempDir], {
+  const packOutput = runJson(["pack", "--json", "--pack-destination", tempDir], {
     cwd: packageDir,
     env: packageManagerEnv,
   });
@@ -81,7 +68,7 @@ try {
     ),
   );
 
-  run("pnpm", ["add", tarball, "--ignore-scripts"], {
+  run(["add", tarball, "--ignore-scripts"], {
     cwd: tempDir,
     env: packageManagerEnv,
   });
@@ -119,7 +106,7 @@ assert.equal(acked?.ok, true);
   );
 
   chdir(tempDir);
-  run("node", ["smoke.mjs"]);
+  run(["node", "smoke.mjs"]);
   chdir(originalCwd);
 
   console.log(`Verified package tarball: ${tarball}`);
