@@ -23,8 +23,21 @@ jobs:
       - run: cargo clippy --workspace --all-targets --all-features -- -D warnings
       - run: cargo test --workspace --all-targets --all-features
 
-  node:
-    name: Node (check, build, test)
+  node-check:
+    name: Node check (biome)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm check
+
+  node-build-test:
+    name: Node build+test (${{ matrix.os }})
     strategy:
       fail-fast: false
       matrix:
@@ -33,7 +46,7 @@ jobs:
           - os: macos-14
           - os: windows-latest
     runs-on: ${{ matrix.os }}
-    needs: rust
+    needs: [rust, node-check]
     steps:
       - uses: actions/checkout@v5
       - uses: pnpm/action-setup@v5
@@ -44,7 +57,6 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: pnpm install --frozen-lockfile
-      - run: pnpm check
       - run: pnpm --filter !examples* -r --if-present build
       - run: pnpm test:node
       - run: pnpm test:cli
@@ -53,7 +65,7 @@ jobs:
   build-native:
     name: Build native (${{ matrix.platform }}-${{ matrix.arch }})
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: node
+    needs: node-build-test
     strategy:
       fail-fast: false
       matrix:
