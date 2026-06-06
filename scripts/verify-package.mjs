@@ -19,26 +19,38 @@ const { values } = parseArgs({
 
 const run = (command, args, options = {}) => {
   const isWin = process.platform === "win32";
-  const fullCommand = isWin && command === "pnpm" ? "pnpm.cmd" : command;
-  const opts = isWin ? { ...options, shell: true } : options;
-  execFileSync(fullCommand, args, {
-    encoding: "utf8",
-    stdio: "inherit",
-    ...opts,
-  });
+  if (isWin && command === "pnpm") {
+    execFileSync("cmd.exe", ["/c", "pnpm", ...args], {
+      encoding: "utf8",
+      stdio: "inherit",
+      ...options,
+    });
+  } else {
+    execFileSync(command, args, {
+      encoding: "utf8",
+      stdio: "inherit",
+      ...options,
+    });
+  }
 };
 
 const runJson = (command, args, options = {}) => {
   const isWin = process.platform === "win32";
-  const fullCommand = isWin && command === "pnpm" ? "pnpm.cmd" : command;
-  const opts = isWin ? { ...options, shell: true } : options;
-  const output = execFileSync(fullCommand, args, {
-    encoding: "utf8",
-    stdio: ["ignore", "pipe", "inherit"],
-    ...opts,
-  });
-
-  return JSON.parse(output);
+  if (isWin && command === "pnpm") {
+    const output = execFileSync("cmd.exe", ["/c", "pnpm", ...args], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "inherit"],
+      ...options,
+    });
+    return JSON.parse(output);
+  } else {
+    const output = execFileSync(command, args, {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "inherit"],
+      ...options,
+    });
+    return JSON.parse(output);
+  }
 };
 
 const tempDir = await mkdtemp(join(tmpdir(), "thingd-package-smoke-"));
