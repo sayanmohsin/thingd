@@ -48,7 +48,7 @@ jobs:
             run_package_test: "true"
           - os: macos-14
             run_package_test: "true"
-          - os: windows-latest
+          - os: windows-2025
             run_package_test: "false"
     runs-on: ${{ matrix.os }}
     needs: [rust]
