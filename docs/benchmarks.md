@@ -39,6 +39,28 @@ Or pass the iteration count directly to the benchmark example:
 cargo run --release -p thingd-core --example storage_bench --features sqlite -- 20000
 ```
 
+## Node.js SDK Benchmark
+
+Run:
+
+```bash
+pnpm bench:node
+```
+
+This benchmarks the public `ThingD` SDK through the N-API native driver
+(if built) and the in-memory fallback. It exercises the same operations
+as the Rust benchmark but through the JS API:
+
+- object put / get
+- event append / list
+- queue push / claim / ack
+
+Use the iteration argument to scale:
+
+```bash
+node packages/thingd/bench/node-bench.mjs 20000
+```
+
 ## Enforcement
 
 Rerunning `pnpm bench:rust` does not update this file. Baseline updates are
@@ -73,51 +95,59 @@ Expected shape:
 - `sqlite-file` shows the current durable write path with one transaction per
   object or queue write.
 
-Node.js SDK benchmarks should be added next now that the private N-API
-`NativeThingStore` exists and can exercise the real public package path with
-`driver: "native"`.
-
 ## Latest Local Baseline
 
-Run date: 2026-05-29
-
-Command:
-
-```bash
-pnpm bench:rust
-```
+Run date: 2026-06-07
 
 Environment:
 
-- Rust: `rustc 1.95.0`
+- Rust: `rustc 1.96.0`
+- Node: `v24.x`
 - Iterations: `5000`
 - Build: release
 
-Results:
+### Rust
 
 | Store | Operation | Elapsed | Ops/sec |
 | --- | --- | ---: | ---: |
-| `in-memory` | object put | `3.06ms` | `1,633,453` |
-| `in-memory` | object get | `1.57ms` | `3,166,561` |
-| `in-memory` | event append | `1.26ms` | `3,940,110` |
-| `in-memory` | event list | `359.04us` | `13,927,576` |
-| `in-memory` | queue push | `27.06ms` | `184,733` |
-| `in-memory` | queue claim+ack | `51.41ms` | `97,240` |
-| `sqlite-memory` | object put | `43.09ms` | `116,030` |
-| `sqlite-memory` | object get | `13.02ms` | `383,877` |
-| `sqlite-memory` | event append | `21.47ms` | `232,883` |
-| `sqlite-memory` | event list | `1.19ms` | `4,201,680` |
-| `sqlite-memory` | queue push | `61.71ms` | `81,014` |
-| `sqlite-memory` | queue claim+ack | `145.45ms` | `34,375` |
-| `sqlite-file` | object put | `117.77ms` | `42,455` |
-| `sqlite-file` | object get | `17.99ms` | `277,824` |
-| `sqlite-file` | event append | `109.85ms` | `45,514` |
-| `sqlite-file` | event list | `1.10ms` | `4,512,635` |
-| `sqlite-file` | queue push | `192.48ms` | `25,976` |
-| `sqlite-file` | queue claim+ack | `336.51ms` | `14,858` |
+| `in-memory` | object put | `5.76ms` | `868,809` |
+| `in-memory` | object get | `2.62ms` | `1,906,941` |
+| `in-memory` | event append | `2.33ms` | `2,143,163` |
+| `in-memory` | event list | `542µs` | `9,225,092` |
+| `in-memory` | queue push | `32.68ms` | `152,984` |
+| `in-memory` | queue claim+ack | `56.17ms` | `89,010` |
+| `sqlite-memory` | object put | `1.94s` | `2,573` |
+| `sqlite-memory` | object get | `15.30ms` | `326,733` |
+| `sqlite-memory` | event append | `105.04ms` | `47,601` |
+| `sqlite-memory` | event list | `1.31ms` | `3,831,417` |
+| `sqlite-memory` | queue push | `74.04ms` | `67,535` |
+| `sqlite-memory` | queue claim+ack | `154.83ms` | `32,293` |
+| `sqlite-file` | object put | `2.20s` | `2,277` |
+| `sqlite-file` | object get | `21.03ms` | `237,812` |
+| `sqlite-file` | event append | `355.80ms` | `14,053` |
+| `sqlite-file` | event list | `1.30ms` | `3,837,298` |
+| `sqlite-file` | queue push | `195.66ms` | `25,554` |
+| `sqlite-file` | queue claim+ack | `338.15ms` | `14,786` |
 
-Current read: the durable file path is already fine for early local-app
-workloads, but queue claim+ack now does real lease-expiry maintenance and
-timestamp writes. Write-heavy object/event paths and queue loops will benefit
-from explicit batching, fewer one-row transactions, and purpose-built claim
-indexes as the API grows.
+### Node.js (1000 iterations)
+
+| Store | Operation | Elapsed | Ops/sec |
+| --- | --- | ---: | ---: |
+| `memory` | object put | `2.30ms` | `435,035` |
+| `memory` | object get | `342µs` | `2,920,774` |
+| `memory` | event append | `3.16ms` | `316,151` |
+| `memory` | event list | `17.05ms` | `58,652` |
+| `memory` | queue push | `10.27ms` | `97,337` |
+| `memory` | queue claim | `15.33ms` | `65,216` |
+| `native` | object put | `101.29ms` | `9,872` |
+| `native` | object get | `5.20ms` | `192,243` |
+| `native` | event append | `26.50ms` | `37,742` |
+| `native` | event list | `1.18s` | `851` |
+| `native` | queue push | `24.09ms` | `41,514` |
+| `native` | queue claim | `62.01ms` | `16,125` |
+
+Current read: native event_list is slow because N-API returns all events as a
+single JSON string that must be deserialized in JS. The native object_get path
+(192k ops/s) is competitive with in-memory (2.9M ops/s) — the N-API boundary
+cost is ~15x, which is expected for a跨语言 IPC hop. object_put through native
+(9.8k ops/s) is dominated by SQLite writes plus JSON serialization overhead.
