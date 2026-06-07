@@ -39,6 +39,7 @@ jobs:
 
   node-build-test:
     name: Node build+test (${{ matrix.os }})
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     strategy:
       fail-fast: false
       matrix:
@@ -47,16 +48,9 @@ jobs:
             run_package_test: "true"
           - os: macos-14
             run_package_test: "true"
-            # Only run full matrix on main push
-            if_main: "true"
           - os: windows-latest
             run_package_test: "false"
-            if_main: "true"
     runs-on: ${{ matrix.os }}
-    # On PRs, only run ubuntu; on main, run all three
-    if: >-
-      github.event_name == 'push' && github.ref == 'refs/heads/main'
-      || matrix.if_main != 'true'
     needs: [rust]
     steps:
       - uses: actions/checkout@v5
@@ -68,7 +62,6 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: pnpm install --frozen-lockfile
-      # Biome check (merged from node-check job)
       - run: pnpm check
       - run: pnpm --filter !examples* -r --if-present build
       - run: pnpm test:node
@@ -77,3 +70,24 @@ jobs:
         if: matrix.run_package_test == 'true'
       - run: echo "Skipping pnpm test:package on Windows (cmd.exe spawn issue)"
         if: matrix.run_package_test == 'false'
+
+  node-build-test-pr:
+    name: Node build+test (ubuntu)
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    needs: [rust]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm check
+      - run: pnpm --filter !examples* -r --if-present build
+      - run: pnpm test:node
+      - run: pnpm test:cli
+      - run: pnpm test:package
