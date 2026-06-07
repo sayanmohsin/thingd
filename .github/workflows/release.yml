@@ -18,9 +18,41 @@ permissions:
   id-token: write
 
 jobs:
+  build-native:
+    name: Build native (${{ matrix.platform }}-${{ matrix.arch }})
+    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux
+            arch: x64
+          - os: macos-14
+            platform: darwin
+            arch: arm64
+          - os: macos-15
+            platform: darwin
+            arch: x64
+          - os: windows-latest
+            platform: win32
+            arch: x64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build -p thingd-native --release
+      - run: node packages/thingd-native/scripts/copy-prebuild.mjs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: prebuild-${{ matrix.platform }}-${{ matrix.arch }}
+          path: packages/thingd-native/prebuilds/
+          retention-days: 1
+
   release:
     name: Publish to npm
-    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
+    needs: [build-native]
     runs-on: ubuntu-latest
     env:
       NPM_CONFIG_AUDIT: "false"
@@ -38,12 +70,11 @@ jobs:
           registry-url: https://registry.npmjs.org
           cache: pnpm
 
-      - name: Download prebuild artifacts from CI
+      - name: Download prebuild artifacts
         uses: actions/download-artifact@v4
         with:
           path: prebuild-artifacts
-          workflow: ci.yml
-          workflow_run: ${{ github.event.workflow_run.id }}
+          pattern: prebuild-*
 
       - name: Merge prebuilds into thingd-native package
         run: |

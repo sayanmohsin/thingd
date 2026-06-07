@@ -3,8 +3,22 @@ name: CI
 on:
   pull_request:
     branches: [main]
+    paths-ignore:
+      - "*.md"
+      - "docs/**"
+      - "LICENSE"
+      - ".gitignore"
   push:
     branches: [main]
+    paths-ignore:
+      - "*.md"
+      - "docs/**"
+      - "LICENSE"
+      - ".gitignore"
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -23,19 +37,6 @@ jobs:
       - run: cargo clippy --workspace --all-targets --all-features -- -D warnings
       - run: cargo test --workspace --all-targets --all-features
 
-  node-check:
-    name: Node check (biome)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-      - uses: pnpm/action-setup@v5
-      - uses: actions/setup-node@v5
-        with:
-          node-version: 24
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm check
-
   node-build-test:
     name: Node build+test (${{ matrix.os }})
     strategy:
@@ -46,10 +47,17 @@ jobs:
             run_package_test: "true"
           - os: macos-14
             run_package_test: "true"
+            # Only run full matrix on main push
+            if_main: "true"
           - os: windows-latest
             run_package_test: "false"
+            if_main: "true"
     runs-on: ${{ matrix.os }}
-    needs: [rust, node-check]
+    # On PRs, only run ubuntu; on main, run all three
+    if: >-
+      github.event_name == 'push' && github.ref == 'refs/heads/main'
+      || matrix.if_main != 'true'
+    needs: [rust]
     steps:
       - uses: actions/checkout@v5
       - uses: pnpm/action-setup@v5
@@ -60,6 +68,8 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: pnpm install --frozen-lockfile
+      # Biome check (merged from node-check job)
+      - run: pnpm check
       - run: pnpm --filter !examples* -r --if-present build
       - run: pnpm test:node
       - run: pnpm test:cli
@@ -67,38 +77,3 @@ jobs:
         if: matrix.run_package_test == 'true'
       - run: echo "Skipping pnpm test:package on Windows (cmd.exe spawn issue)"
         if: matrix.run_package_test == 'false'
-
-  build-native:
-    name: Build native
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: node-build-test
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu-latest
-            platform: linux
-            arch: x64
-          - os: macos-14
-            platform: darwin
-            arch: arm64
-          - os: macos-15
-            platform: darwin
-            arch: x64
-          - os: windows-latest
-            platform: win32
-            arch: x64
-    runs-on: ${{ matrix.os }}
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@v5
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - run: cargo build -p thingd-native --release
-      - run: node packages/thingd-native/scripts/copy-prebuild.mjs
-      - uses: actions/upload-artifact@v4
-        with:
-          name: prebuild-${{ matrix.platform }}-${{ matrix.arch }}
-          path: packages/thingd-native/prebuilds/
-          retention-days: 7
