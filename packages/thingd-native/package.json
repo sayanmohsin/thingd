@@ -4,8 +4,7 @@
   "description": "Private native Node.js binding for thingd.",
   "type": "module",
   "publishConfig": {
-    "access": "public",
-    "provenance": true
+    "access": "public"
   },
   "author": "Sayan Mohsin",
   "license": "Apache-2.0",
