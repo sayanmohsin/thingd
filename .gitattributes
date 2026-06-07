@@ -1,0 +1,10 @@
+# Enforce LF line endings for all text files
+* text=auto eol=lf
+
+# Explicitly mark binary files
+*.node binary
+*.dylib binary
+*.so binary
+*.dll binary
+*.db binary
+*.tgz binary
