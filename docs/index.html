@@ -330,15 +330,21 @@
         <span class="prompt">$</span> <span class="accent">npm install</span> thingd<br>
         <span class="dim">+ thingd 0.18.3</span><br>
         <span class="dim">added 1 package in 0.5s</span><br><br>
-        <span class="prompt">$</span> node<br>
-        <span class="prompt">&gt;</span> <span class="accent">const</span> { ThingD } = <span class="accent">require</span>(<span class="green">"thingd"</span>);<br>
-        <span class="prompt">&gt;</span> <span class="accent">const</span> db = <span class="accent">await</span> ThingD.<span class="pink">open</span>(<span class="green">":memory:"</span>);<br>
-        <span class="dim">→ ThingD { store: InMemoryThingStore }</span><br>
-        <span class="prompt">&gt;</span> <span class="accent">await</span> db.<span class="pink">put</span>(<span class="green">"notes"</span>, { id: <span class="green">"hello"</span>, text: <span class="green">"Hello world"</span> });<br>
-        <span class="dim">→ { id: "hello", text: "Hello world", version: 1 }</span><br>
-        <span class="prompt">&gt;</span> <span class="accent">await</span> db.<span class="pink">search</span>(<span class="green">"hello"</span>);<br>
-        <span class="dim">→ [ { collection: "notes", id: "hello", score: 0.85 } ]</span><br>
-        <span class="prompt">&gt;</span> <span class="orange">_</span><span class="cursor-blink"></span>
+        <span class="prompt">$</span> <span class="accent">cat</span> app.mjs<br>
+        <span class="dim">import { ThingD } from "thingd";</span><br>
+        <span class="dim">const db = await ThingD.open(":memory:");</span><br>
+        <span class="dim">await db.put("notes", { id: "hello", text: "Hello world" });</span><br>
+        <span class="dim">await db.events.append("notes", { type: "created" });</span><br>
+        <span class="dim">await db.queue("embed").push({ object: "notes/hello" });</span><br>
+        <span class="dim">const hits = await db.search("hello");</span><br>
+        <span class="dim">console.log(hits.length);</span><br><br>
+        <span class="prompt">$</span> <span class="accent">node</span> app.mjs<br>
+        <span class="string">1</span><br><br>
+        <span class="prompt">$</span> <span class="accent">thingd</span> search "hello" --pretty<br>
+        <span class="dim">[</span><br>
+        <span class="dim">  { collection: "notes", id: "hello", score: 0.85 }</span><br>
+        <span class="dim">]</span><br>
+        <span class="prompt">$</span> <span class="cursor-blink"></span>
       </div>
     </div>
 
@@ -469,6 +475,8 @@
           if (termBody && npm.version) {
             termBody.innerHTML = termBody.innerHTML.replace(
               'thingd 0.18.3', 'thingd ' + npm.version
+            ).replace(
+              '0.18.3', npm.version
             );
           }
         }
@@ -602,14 +610,18 @@
       body.innerHTML = '';
       let pos = 0;
       function type() {
-        if (pos >= html.length) return;
-        const next = html.indexOf('>', pos);
-        const chunkEnd = next !== -1 ? next + 1 : html.length;
-        body.innerHTML = html.substring(0, chunkEnd) + '<span class="cursor-blink"></span>';
-        pos = chunkEnd;
-        setTimeout(type, 40 + Math.random() * 60);
+        if (pos >= html.length) {
+          body.innerHTML = html + '<span class="cursor-blink"></span>';
+          return;
+        }
+        const chunk = html.charAt(pos) === '&' ? html.indexOf(';', pos) + 1 : pos + 1;
+        const next = html.substring(0, chunk);
+        body.innerHTML = next + '<span class="cursor-blink"></span>';
+        pos = chunk;
+        const delay = html.charAt(pos - 1) === '\n' ? 80 : Math.random() * 40 + 15;
+        setTimeout(type, delay);
       }
-      setTimeout(type, 600);
+      setTimeout(type, 800);
     })();
   </script>
 </body>
