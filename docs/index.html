@@ -186,21 +186,35 @@
     }
     .mcp-card.visible { opacity: 1; transform: translateY(0); }
     .mcp-card h3 { font-size: 1rem; font-weight: 600; margin-bottom: 1.25rem; }
+    .mcp-group { margin-bottom: 1.25rem; }
+    .mcp-group:last-child { margin-bottom: 0; }
+    .mcp-group-label {
+      font-size: 0.7rem; font-weight: 600; text-transform: uppercase;
+      letter-spacing: 0.12em; color: var(--accent-light);
+      margin-bottom: 0.5rem; opacity: 0.7;
+    }
     .mcp-grid {
       display: grid;
-      grid-template-columns: 1fr 1fr 1fr;
-      gap: 0.4rem;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.3rem;
     }
     .mcp-tool {
-      display: flex; align-items: center; gap: 0.5rem;
-      font-family: 'JetBrains Mono', monospace; font-size: 0.78rem;
-      padding: 0.5rem 0.75rem;
-      background: rgba(255,255,255,0.02);
-      border-radius: 6px; color: var(--muted); transition: all .2s;
+      display: flex; align-items: center; gap: 0.3rem;
+      font-family: 'JetBrains Mono', monospace; font-size: 0.75rem;
+      padding: 0.35rem 0.5rem;
+      background: rgba(255,255,255,0.015);
+      border-radius: 4px; color: var(--muted); transition: all .15s;
+      min-width: 0;
     }
-    .mcp-tool:hover { background: rgba(255,255,255,0.05); }
-    .mcp-tool .name { color: var(--accent); }
-    .mcp-tool .desc { color: var(--muted); }
+    .mcp-tool:hover { background: rgba(255,255,255,0.04); }
+    .mcp-tool .name { color: var(--accent); white-space: nowrap; }
+    .mcp-tool .desc {
+      color: var(--muted); font-size: 0.7rem;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;
+    }
+    .mcp-tool .tag {
+      display: none;
+    }
 
     /* ── Tabs ── */
     .install-card {
@@ -385,7 +399,7 @@
         <div class="feature-card"><div class="icon">📋</div><h3>Durable queues</h3><p>At-least-once with leases, retries, delays, idempotency keys, and dead-letter queue.</p></div>
         <div class="feature-card"><div class="icon">📡</div><h3>Event streams</h3><p>Append-only timelines with auto-incrementing sequences. Built for audit and replication.</p></div>
         <div class="feature-card"><div class="icon">🔍</div><h3>Full-text search</h3><p>SQLite FTS5 with Porter stemming, metadata filters, and recency-weighted BM25 ranking.</p></div>
-        <div class="feature-card"><div class="icon">🤖</div><h3>MCP-native</h3><p>20 built-in MCP tools. AI agents read, write, search, and process jobs without custom code.</p></div>
+        <div class="feature-card"><div class="icon">🤖</div><h3>MCP-native</h3><p><span data-dynamic="tools">20</span> built-in MCP tools. AI agents read, write, search, and process jobs without custom code.</p></div>
         <div class="feature-card"><div class="icon">⚡</div><h3>Multi-mode</h3><p>Embedded, sidecar, or cluster. In-memory or persistent SQLite. Same API everywhere.</p></div>
       </div>
     </section>
@@ -393,29 +407,52 @@
     <!-- ═══ MCP TOOLS ═══ -->
     <section>
       <h2 class="section-title">Built-in MCP tools</h2>
-      <p class="section-sub">AI agents interact with thingd through 20 standardized tools — no custom integrations needed.</p>
+      <p class="section-sub">AI agents interact with thingd through <span data-dynamic="tools">20</span> standardized tools — no custom integrations needed.</p>
       <div class="mcp-card" id="mcp-card">
-        <div class="mcp-grid">
-          <div class="mcp-tool"><span class="name">thing_search</span><span class="desc"> · search objects and events</span></div>
-          <div class="mcp-tool"><span class="name">thing_get</span><span class="desc"> · get object by ID</span></div>
-          <div class="mcp-tool"><span class="name">thing_put</span><span class="desc"> · create or update</span></div>
-          <div class="mcp-tool"><span class="name">thing_delete</span><span class="desc"> · delete object</span></div>
-          <div class="mcp-tool"><span class="name">thing_events_append</span><span class="desc"> · append to stream</span></div>
-          <div class="mcp-tool"><span class="name">thing_events_list</span><span class="desc"> · list stream events</span></div>
-          <div class="mcp-tool"><span class="name">thing_queue_push</span><span class="desc"> · enqueue job</span></div>
-          <div class="mcp-tool"><span class="name">thing_queue_claim</span><span class="desc"> · claim job</span></div>
-          <div class="mcp-tool"><span class="name">thing_queue_ack</span><span class="desc"> · acknowledge success</span></div>
-          <div class="mcp-tool"><span class="name">thing_queue_nack</span><span class="desc"> · retry / fail</span></div>
-          <div class="mcp-tool"><span class="name">thing_queue_list</span><span class="desc"> · list queue jobs</span></div>
-          <div class="mcp-tool"><span class="name">thing_queue_dead</span><span class="desc"> · list dead-letter jobs</span></div>
-          <div class="mcp-tool"><span class="name">thing_objects_list</span><span class="desc"> · list all objects</span></div>
-          <div class="mcp-tool"><span class="name">thing_count_objects</span><span class="desc"> · count objects</span></div>
-          <div class="mcp-tool"><span class="name">thing_count_events</span><span class="desc"> · count events</span></div>
-          <div class="mcp-tool"><span class="name">thing_count_active_jobs</span><span class="desc"> · count active jobs</span></div>
-          <div class="mcp-tool"><span class="name">thing_count_dead_jobs</span><span class="desc"> · count dead-letter jobs</span></div>
-          <div class="mcp-tool"><span class="name">thing_list_collections</span><span class="desc"> · list collections</span></div>
-          <div class="mcp-tool"><span class="name">thing_list_streams</span><span class="desc"> · list event streams</span></div>
-          <div class="mcp-tool"><span class="name">thing_list_queues</span><span class="desc"> · list queues</span></div>
+        <div class="mcp-group">
+          <div class="mcp-group-label">Search &amp; Objects</div>
+          <div class="mcp-grid">
+            <div class="mcp-tool"><span class="name">thing_search</span><span class="desc">search objects and events</span></div>
+            <div class="mcp-tool"><span class="name">thing_get</span><span class="desc">get object by ID</span></div>
+            <div class="mcp-tool"><span class="name">thing_put</span><span class="desc">create or update</span></div>
+            <div class="mcp-tool"><span class="name">thing_delete</span><span class="desc">delete object</span></div>
+            <div class="mcp-tool"><span class="name">thing_objects_list</span><span class="desc">list all objects</span></div>
+          </div>
+        </div>
+        <div class="mcp-group">
+          <div class="mcp-group-label">Events</div>
+          <div class="mcp-grid">
+            <div class="mcp-tool"><span class="name">thing_events_append</span><span class="desc">append to stream</span></div>
+            <div class="mcp-tool"><span class="name">thing_events_list</span><span class="desc">list stream events</span></div>
+          </div>
+        </div>
+        <div class="mcp-group">
+          <div class="mcp-group-label">Queues</div>
+          <div class="mcp-grid">
+            <div class="mcp-tool"><span class="name">thing_queue_push</span><span class="desc">enqueue job</span></div>
+            <div class="mcp-tool"><span class="name">thing_queue_claim</span><span class="desc">claim job</span></div>
+            <div class="mcp-tool"><span class="name">thing_queue_ack</span><span class="desc">acknowledge success</span></div>
+            <div class="mcp-tool"><span class="name">thing_queue_nack</span><span class="desc">retry / fail</span></div>
+            <div class="mcp-tool"><span class="name">thing_queue_list</span><span class="desc">list queue jobs</span></div>
+            <div class="mcp-tool"><span class="name">thing_queue_dead</span><span class="desc">list dead-letter jobs</span></div>
+          </div>
+        </div>
+        <div class="mcp-group">
+          <div class="mcp-group-label">Metrics</div>
+          <div class="mcp-grid">
+            <div class="mcp-tool"><span class="name">thing_count_objects</span><span class="desc">count objects</span></div>
+            <div class="mcp-tool"><span class="name">thing_count_events</span><span class="desc">count events</span></div>
+            <div class="mcp-tool"><span class="name">thing_count_active_jobs</span><span class="desc">count active jobs</span></div>
+            <div class="mcp-tool"><span class="name">thing_count_dead_jobs</span><span class="desc">count dead-letter jobs</span></div>
+          </div>
+        </div>
+        <div class="mcp-group">
+          <div class="mcp-group-label">System</div>
+          <div class="mcp-grid">
+            <div class="mcp-tool"><span class="name">thing_list_collections</span><span class="desc">list collections</span></div>
+            <div class="mcp-tool"><span class="name">thing_list_streams</span><span class="desc">list event streams</span></div>
+            <div class="mcp-tool"><span class="name">thing_list_queues</span><span class="desc">list queues</span></div>
+          </div>
         </div>
       </div>
     </section>
@@ -466,7 +503,7 @@
     <!-- ═══ DEPLOY ═══ -->
     <section>
       <h2 class="section-title">Deploy your way</h2>
-      <p class="section-sub">Same engine. Same API. Three deployment profiles.</p>
+      <p class="section-sub">Same engine. Same API. <span data-dynamic="modes">3</span> deployment profiles.</p>
       <div class="deploy-grid">
         <div class="deploy-card"><div style="font-size:2rem;margin-bottom:0.5rem">📦</div><h3>Embedded</h3><p>Native Rust binding in-process with your Node app. Zero infra.</p></div>
         <div class="deploy-card"><div style="font-size:2rem;margin-bottom:0.5rem">🔄</div><h3>Sidecar</h3><p>Standalone MCP server for multi-process or multi-language apps.</p></div>
@@ -507,7 +544,7 @@
           <span class="agent-icon">⚙</span>
           <span class="agent-name">Any MCP client</span>
           <span class="agent-mode">stdio / HTTP</span>
-          <span class="agent-desc">12 tools: search, objects, events, queues</span>
+          <span class="agent-desc"><span data-dynamic="tools">20</span> tools: search, objects, events, queues</span>
         </div>
       </div>
       <p style="text-align:center;margin-top:1.5rem;font-size:0.85rem;color:var(--muted)">
@@ -540,6 +577,7 @@
 
   <script>
     // ─── FETCH LIVE DATA ───
+    let liveVersion = null;
     (async function fetchLiveData() {
       try {
         const [npmRes, ghRes, toolsRes] = await Promise.all([
@@ -547,24 +585,40 @@
           fetch('https://api.github.com/repos/sayanmohsin/thingd/releases?per_page=1'),
           fetch('https://raw.githubusercontent.com/sayanmohsin/thingd/main/packages/thingd-cli/src/mcp/tools.ts'),
         ]);
+
         if (npmRes.ok) {
           const npm = await npmRes.json();
-          const verEl = document.getElementById('version-num');
-          if (verEl && npm.version) verEl.textContent = 'v' + npm.version;
+          if (npm.version) {
+            liveVersion = 'v' + npm.version;
+            const verEl = document.getElementById('version-num');
+            if (verEl) verEl.textContent = liveVersion;
+          }
         }
         if (ghRes.ok) {
           const link = ghRes.headers.get('Link');
           if (link) {
             const match = link.match(/page=(\d+)>; rel="last"/);
-            const el = document.querySelector('[data-stat="releases"]');
-            if (match && el) el.dataset.count = parseInt(match[1]);
+            if (match) {
+              const el = document.querySelector('[data-stat="releases"]');
+              if (el) el.dataset.count = parseInt(match[1]);
+            }
           }
         }
         if (toolsRes.ok) {
           const text = await toolsRes.text();
           const count = (text.match(/registerTool\(/g) || []).length;
-          const el = document.querySelector('[data-stat="tools"]');
-          if (count && el) el.dataset.count = count;
+          if (count) {
+            const statEl = document.querySelector('[data-stat="tools"]');
+            if (statEl) statEl.dataset.count = count;
+            document.querySelectorAll('[data-dynamic="tools"]').forEach(el => { el.textContent = count; });
+          }
+        }
+
+        const modeCount = document.querySelectorAll('.deploy-card').length;
+        if (modeCount) {
+          const modeStat = document.querySelector('[data-stat="modes"]');
+          if (modeStat) modeStat.dataset.count = modeCount;
+          document.querySelectorAll('[data-dynamic="modes"]').forEach(el => { el.textContent = modeCount; });
         }
       } catch {}
     })();
@@ -681,9 +735,7 @@
       const body = document.getElementById('terminal-body');
       const divs = Array.from(body.children);
 
-      // Replace version in stored divs before starting
-      const verEl = document.getElementById('version-num');
-      const version = verEl && verEl.textContent !== '—' ? verEl.textContent.replace(/^v/, '') : null;
+      const version = liveVersion ? liveVersion.replace(/^v/, '') : null;
       if (version) {
         for (const div of divs) {
           if (div.textContent.includes('0.18.3')) {
