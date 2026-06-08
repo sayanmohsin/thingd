@@ -8,3 +8,5 @@ dist/
 *.sqlite
 *.sqlite3
 thingd-*.tgz
+package-lock.json
+test*.mjs
