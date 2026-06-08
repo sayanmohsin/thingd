@@ -1,0 +1,133 @@
+# thingd
+
+A fast object-first data engine for applications and AI agents.
+
+thingd is a high-performance object-first data engine that combines persistent storage, durable queues, event streams, full-text search, and MCP-native access into a single system that can run embedded, standalone, or in the cloud.
+
+## Quick start
+
+```bash
+docker run -p 8757:8757 sayanmohsin/thingd
+```
+
+This starts an HTTP MCP server at `http://localhost:8757/mcp`.
+
+## Persist data
+
+```bash
+docker run -p 8757:8757 \
+  -v ./data:/data \
+  sayanmohsin/thingd
+```
+
+Data is stored at `/data/thingd.db` inside the container.
+
+## Securing the server
+
+```bash
+docker run -p 8757:8757 \
+  -e THINGD_AUTH_TOKEN=your-secret \
+  sayanmohsin/thingd
+```
+
+Without an auth token, the server only binds to loopback (127.0.0.1). Setting `THINGD_AUTH_TOKEN` enables non-loopback binding.
+
+## Environment variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `THINGD_PATH` | `/data/thingd.db` | Path to the SQLite database file |
+| `THINGD_DRIVER` | `native` | Storage driver (`native` or `memory`) |
+| `THINGD_HOST` | `0.0.0.0` | Bind address |
+| `THINGD_PORT` | `8757` | HTTP server port |
+| `THINGD_AUTH_TOKEN` | — | Bearer token for `/mcp` endpoint. Required for non-loopback binding |
+| `THINGD_ALLOW_UNAUTHENTICATED` | `false` | Set to `true` to allow non-loopback binding without auth (local experiments only) |
+| `THINGD_MCP_AUDIT` | `true` | Enable audit events for MCP write tools |
+| `THINGD_MCP_ACTOR` | — | Default actor name for MCP audit events |
+| `THINGD_MCP_SOURCE` | — | Default source name for MCP audit events |
+| `THINGD_MCP_COLLECTIONS` | — | Comma-separated allowlist of collection names |
+| `THINGD_MCP_READ_ONLY` | `false` | Set to `true` to disable all write tools |
+| `THINGD_MCP_MAX_PAYLOAD_BYTES` | `524288` | Maximum MCP request payload size in bytes |
+
+## Cluster mode
+
+thingd supports leader/follower cluster deployments.
+
+```bash
+# Leader
+docker run -p 8757:8757 \
+  -e THINGD_CLUSTER_MODE=leader \
+  sayanmohsin/thingd
+
+# Follower
+docker run -p 8757:8757 \
+  -e THINGD_CLUSTER_MODE=follower \
+  -e THINGD_CLUSTER_LEADER_URL=http://leader:8757 \
+  sayanmohsin/thingd
+```
+
+### Cluster environment variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `THINGD_CLUSTER_MODE` | `single` | `single`, `leader`, or `follower` |
+| `THINGD_CLUSTER_LEADER_URL` | — | Leader URL (required for followers) |
+| `THINGD_CLUSTER_LEADER_FALLBACK_URL` | — | Fallback leader URL for basic failover |
+| `THINGD_CLUSTER_FORWARD_AUTH_TOKEN` | — | Bearer token for cross-pod forwarding. Falls back to `THINGD_AUTH_TOKEN` |
+| `THINGD_CLUSTER_PEERS` | — | Comma-separated peer URLs for discovery |
+| `THINGD_CLUSTER_DISCOVERY` | — | `none`, `static`, or `kubernetes` |
+| `THINGD_CLUSTER_SERVICE` | — | Kubernetes service name for DNS discovery |
+| `THINGD_CLUSTER_NAMESPACE` | `default` | Kubernetes namespace |
+| `THINGD_CLUSTER_PORT` | `8757` | Port for Kubernetes service discovery |
+| `THINGD_ADVERTISE_URL` | — | Self-advertised URL reported in cluster status |
+
+## Docker Compose
+
+```yaml
+services:
+  thingd:
+    image: sayanmohsin/thingd
+    ports:
+      - "8757:8757"
+    volumes:
+      - ./data:/data
+    environment:
+      - THINGD_AUTH_TOKEN=change-me
+```
+
+See the [deploy/docker-compose.yml](https://github.com/sayanmohsin/thingd/blob/main/deploy/docker-compose.yml) for a full leader/follower example.
+
+## Kubernetes
+
+Kubernetes deployment manifests (sidecar and leader/follower) are available in the [deploy/kubernetes](https://github.com/sayanmohsin/thingd/tree/main/deploy/kubernetes) directory.
+
+## Connecting with the SDK
+
+```ts
+import { ThingD } from "thingd";
+
+const db = await ThingD.open({
+  url: "http://localhost:8757/mcp",
+  authToken: "change-me",
+  driver: "remote",
+});
+```
+
+## Health check
+
+```
+GET /healthz
+```
+
+## Cluster status
+
+```
+GET /cluster/status
+```
+
+## Links
+
+- [GitHub](https://github.com/sayanmohsin/thingd)
+- [npm (SDK)](https://www.npmjs.com/package/thingd)
+- [npm (CLI)](https://www.npmjs.com/package/thingd-cli)
+- [Documentation](https://github.com/sayanmohsin/thingd/tree/main/docs)
