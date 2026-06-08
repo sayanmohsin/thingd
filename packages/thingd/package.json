@@ -13,12 +13,21 @@
     "ai",
     "agents",
     "mcp",
+    "mcp-server",
+    "mcp-database",
     "memory",
     "queue",
+    "durable-queues",
     "sqlite",
     "rust",
     "local-first",
-    "embedded-database"
+    "data-engine",
+    "object-store",
+    "embedded-database",
+    "ai-memory",
+    "local-database",
+    "full-text-search",
+    "event-stream"
   ],
   "sideEffects": false,
   "repository": {

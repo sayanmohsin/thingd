@@ -5,6 +5,18 @@
   "type": "module",
   "author": "Sayan Mohsin",
   "license": "Apache-2.0",
+  "keywords": [
+    "thingd",
+    "cli",
+    "mcp",
+    "mcp-server",
+    "ai-agents",
+    "dashboard",
+    "tui",
+    "data-engine",
+    "queue",
+    "local-first"
+  ],
   "publishConfig": {
     "access": "public",
     "provenance": true

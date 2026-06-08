@@ -9,6 +9,14 @@
   },
   "author": "Sayan Mohsin",
   "license": "Apache-2.0",
+  "keywords": [
+    "thingd",
+    "native",
+    "sqlite",
+    "napi-rs",
+    "rust",
+    "data-engine"
+  ],
   "repository": {
     "type": "git",
     "url": "git+https://github.com/sayanmohsin/thingd.git"
