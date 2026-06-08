@@ -188,8 +188,8 @@
     .mcp-card h3 { font-size: 1rem; font-weight: 600; margin-bottom: 1.25rem; }
     .mcp-grid {
       display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 0.5rem;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 0.4rem;
     }
     .mcp-tool {
       display: flex; align-items: center; gap: 0.5rem;
@@ -339,10 +339,10 @@
         Persistent storage, durable queues, event streams, full-text search, and MCP-native access.
       </p>
       <div class="hero-badges">
-        <a href="https://www.npmjs.com/package/thingd"><img src="https://badge.fury.io/js/thingd.svg" alt="npm SDK"></a>
-        <a href="https://www.npmjs.com/package/thingd-cli"><img src="https://badge.fury.io/js/thingd-cli.svg" alt="npm CLI"></a>
-        <a href="https://hub.docker.com/r/sayanmohsin/thingd"><img src="https://img.shields.io/docker/pulls/sayanmohsin/thingd?logo=docker" alt="Docker pulls"></a>
-        <a href="https://github.com/sayanmohsin/thingd"><img src="https://img.shields.io/github/stars/sayanmohsin/thingd?style=social" alt="Stars"></a>
+        <a href="https://www.npmjs.com/package/thingd"><img src="https://img.shields.io/npm/dm/thingd?label=SDK&logo=npm&color=ff6a00" alt="npm SDK"></a>
+        <a href="https://www.npmjs.com/package/thingd-cli"><img src="https://img.shields.io/npm/dm/thingd-cli?label=CLI&logo=npm&color=ff6a00" alt="npm CLI"></a>
+        <a href="https://hub.docker.com/r/sayanmohsin/thingd"><img src="https://img.shields.io/docker/pulls/sayanmohsin/thingd?label=Docker&logo=docker&color=ff6a00" alt="Docker pulls"></a>
+        <a href="https://github.com/sayanmohsin/thingd"><img src="https://img.shields.io/github/stars/sayanmohsin/thingd?label=Stars&logo=github&color=ff6a00" alt="Stars"></a>
       </div>
       <div class="hero-cta">
         <a class="cta cta-primary" href="https://github.com/sayanmohsin/thingd#installation">Get started →</a>
@@ -385,7 +385,7 @@
         <div class="feature-card"><div class="icon">📋</div><h3>Durable queues</h3><p>At-least-once with leases, retries, delays, idempotency keys, and dead-letter queue.</p></div>
         <div class="feature-card"><div class="icon">📡</div><h3>Event streams</h3><p>Append-only timelines with auto-incrementing sequences. Built for audit and replication.</p></div>
         <div class="feature-card"><div class="icon">🔍</div><h3>Full-text search</h3><p>SQLite FTS5 with Porter stemming, metadata filters, and recency-weighted BM25 ranking.</p></div>
-        <div class="feature-card"><div class="icon">🤖</div><h3>MCP-native</h3><p>12 built-in MCP tools. AI agents read, write, search, and process jobs without custom code.</p></div>
+        <div class="feature-card"><div class="icon">🤖</div><h3>MCP-native</h3><p>20 built-in MCP tools. AI agents read, write, search, and process jobs without custom code.</p></div>
         <div class="feature-card"><div class="icon">⚡</div><h3>Multi-mode</h3><p>Embedded, sidecar, or cluster. In-memory or persistent SQLite. Same API everywhere.</p></div>
       </div>
     </section>
@@ -393,7 +393,7 @@
     <!-- ═══ MCP TOOLS ═══ -->
     <section>
       <h2 class="section-title">Built-in MCP tools</h2>
-      <p class="section-sub">AI agents interact with thingd through 12 standardized tools — no custom integrations needed.</p>
+      <p class="section-sub">AI agents interact with thingd through 20 standardized tools — no custom integrations needed.</p>
       <div class="mcp-card" id="mcp-card">
         <div class="mcp-grid">
           <div class="mcp-tool"><span class="name">thing_search</span><span class="desc"> · search objects and events</span></div>
@@ -408,6 +408,14 @@
           <div class="mcp-tool"><span class="name">thing_queue_nack</span><span class="desc"> · retry / fail</span></div>
           <div class="mcp-tool"><span class="name">thing_queue_list</span><span class="desc"> · list queue jobs</span></div>
           <div class="mcp-tool"><span class="name">thing_queue_dead</span><span class="desc"> · list dead-letter jobs</span></div>
+          <div class="mcp-tool"><span class="name">thing_objects_list</span><span class="desc"> · list all objects</span></div>
+          <div class="mcp-tool"><span class="name">thing_count_objects</span><span class="desc"> · count objects</span></div>
+          <div class="mcp-tool"><span class="name">thing_count_events</span><span class="desc"> · count events</span></div>
+          <div class="mcp-tool"><span class="name">thing_count_active_jobs</span><span class="desc"> · count active jobs</span></div>
+          <div class="mcp-tool"><span class="name">thing_count_dead_jobs</span><span class="desc"> · count dead-letter jobs</span></div>
+          <div class="mcp-tool"><span class="name">thing_list_collections</span><span class="desc"> · list collections</span></div>
+          <div class="mcp-tool"><span class="name">thing_list_streams</span><span class="desc"> · list event streams</span></div>
+          <div class="mcp-tool"><span class="name">thing_list_queues</span><span class="desc"> · list queues</span></div>
         </div>
       </div>
     </section>
@@ -509,9 +517,9 @@
 
     <!-- ═══ STATS ═══ -->
     <div class="stats-row" id="stats-row">
-      <div class="stat"><div class="stat-num" data-count="12">0</div><div class="stat-label">MCP tools</div></div>
-      <div class="stat"><div class="stat-num" data-count="4">0</div><div class="stat-label">deployment modes</div></div>
-      <div class="stat"><div class="stat-num" data-count="18">0</div><div class="stat-label">npm releases</div></div>
+      <div class="stat"><div class="stat-num" data-stat="tools" data-count="20">0</div><div class="stat-label">MCP tools</div></div>
+      <div class="stat"><div class="stat-num" data-stat="modes" data-count="4">0</div><div class="stat-label">deployment modes</div></div>
+      <div class="stat"><div class="stat-num" data-stat="releases" data-count="23">0</div><div class="stat-label">npm releases</div></div>
       <div class="stat"><div class="stat-num" id="version-num">—</div><div class="stat-label">latest version</div></div>
     </div>
 
@@ -534,9 +542,10 @@
     // ─── FETCH LIVE DATA ───
     (async function fetchLiveData() {
       try {
-        const [npmRes, ghRes] = await Promise.all([
+        const [npmRes, ghRes, toolsRes] = await Promise.all([
           fetch('https://registry.npmjs.org/thingd/latest'),
           fetch('https://api.github.com/repos/sayanmohsin/thingd/releases?per_page=1'),
+          fetch('https://raw.githubusercontent.com/sayanmohsin/thingd/main/packages/thingd-cli/src/mcp/tools.ts'),
         ]);
         if (npmRes.ok) {
           const npm = await npmRes.json();
@@ -547,14 +556,15 @@
           const link = ghRes.headers.get('Link');
           if (link) {
             const match = link.match(/page=(\d+)>; rel="last"/);
-            if (match) {
-              const countEl = document.querySelector('.stat-num[data-count="18"]');
-              if (countEl) {
-                const total = parseInt(match[1]);
-                countEl.dataset.count = total;
-              }
-            }
+            const el = document.querySelector('[data-stat="releases"]');
+            if (match && el) el.dataset.count = parseInt(match[1]);
           }
+        }
+        if (toolsRes.ok) {
+          const text = await toolsRes.text();
+          const count = (text.match(/registerTool\(/g) || []).length;
+          const el = document.querySelector('[data-stat="tools"]');
+          if (count && el) el.dataset.count = count;
         }
       } catch {}
     })();
