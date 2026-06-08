@@ -5,6 +5,7 @@ packages:
 allowBuilds:
   '@nestjs/core': set this to true or false
   'esbuild': true
+  lefthook: true
 
 minimumReleaseAgeExclude:
   - '@types/node@25.9.1'

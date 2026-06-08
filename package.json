@@ -6,6 +6,7 @@
   "license": "Apache-2.0",
   "packageManager": "pnpm@11.5.2",
   "scripts": {
+    "postinstall": "lefthook install",
     "build": "pnpm -r --if-present build",
     "bench:node": "pnpm build && node packages/thingd/bench/node-bench.mjs",
     "bench:rust": "cargo run --release -p thingd-core --example storage_bench --features sqlite",
@@ -45,6 +46,7 @@
     "@types/node": "25.9.2",
     "conventional-changelog-conventionalcommits": "9.3.1",
     "cross-spawn": "^7.0.6",
+    "lefthook": "^2.1.9",
     "semantic-release": "25.0.3",
     "thingd-native": "file:packages/thingd-native",
     "typescript": "6.0.3"
