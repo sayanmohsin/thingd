@@ -21,6 +21,7 @@ Master build order: [roadmap.md](./roadmap.md).
 | **Roadmap / phase** | `docs/roadmap.md` first, then `docs/handoff.md`, README Roadmap summary |
 | **Positioning / FAQ** | `docs/faq.md`, root `README.md` tagline and description |
 | **Agent integration** | `docs/agent-implementation-guide.md`, `docs/agent-patterns.md`, `docs/why-agents.md` |
+| **Agent setup / MCP connection** | `docs/agent-setup.md`, landing page (`docs/index.html`), `docs/QUICKSTART.md` |
 
 ## MCP tool naming
 

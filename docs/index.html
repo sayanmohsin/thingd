@@ -254,6 +254,29 @@
     .deploy-card h3 { font-size: 0.95rem; font-weight: 600; margin-bottom: 0.3rem; }
     .deploy-card p { font-size: 0.82rem; color: var(--muted); }
 
+    /* ── Agent setup ── */
+    .agent-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 1.5rem 2rem;
+      opacity: 0; transform: translateY(24px);
+    }
+    .agent-card.visible { opacity: 1; transform: translateY(0); }
+    .agent-card h3 { font-size: 1rem; font-weight: 600; margin-bottom: 0.75rem; }
+    .agent-card .agent-row {
+      display: flex; align-items: center; gap: 1rem;
+      padding: 0.6rem 0;
+      border-bottom: 1px solid var(--border);
+      font-size: 0.88rem;
+    }
+    .agent-card .agent-row:last-child { border-bottom: none; }
+    .agent-card .agent-icon { font-size: 1.3rem; flex-shrink: 0; }
+    .agent-card .agent-name { font-weight: 600; min-width: 100px; }
+    .agent-card .agent-mode { color: var(--accent); font-family: 'JetBrains Mono', monospace; font-size: 0.78rem; }
+    .agent-card .agent-desc { color: var(--muted); font-size: 0.82rem; margin-left: auto; text-align: right; }
+    .agent-card .badge { font-size: 0.7rem; padding: 0.15rem 0.5rem; border-radius: 4px; background: var(--accent-glow); color: var(--accent-light); margin-left: 0.5rem; }
+
     /* ── Stats ── */
     .stats-row {
       display: flex; justify-content: center; gap: 3rem;
@@ -437,6 +460,47 @@
       </div>
     </section>
 
+    <!-- ═══ AGENT SETUP ═══ -->
+    <section>
+      <h2 class="section-title">Connect your AI agent</h2>
+      <p class="section-sub">One store. Every agent. Three connection modes.</p>
+      <div class="agent-card" id="agent-card">
+        <div class="agent-row">
+          <span class="agent-icon"></span>
+          <span class="agent-name">Cursor</span>
+          <span class="agent-mode">stdio</span>
+          <span class="agent-desc"><span class="badge">recommended</span> thingd mcp --driver native</span>
+        </div>
+        <div class="agent-row">
+          <span class="agent-icon"></span>
+          <span class="agent-name">Cursor</span>
+          <span class="agent-mode">HTTP</span>
+          <span class="agent-desc">docker run → http://localhost:8757/mcp</span>
+        </div>
+        <div class="agent-row">
+          <span class="agent-icon">◆</span>
+          <span class="agent-name">Claude Desktop</span>
+          <span class="agent-mode">stdio</span>
+          <span class="agent-desc"><span class="badge">recommended</span> thingd install</span>
+        </div>
+        <div class="agent-row">
+          <span class="agent-icon">✦</span>
+          <span class="agent-name">ChatGPT</span>
+          <span class="agent-mode">HTTPS</span>
+          <span class="agent-desc">public URL + reverse proxy + token</span>
+        </div>
+        <div class="agent-row">
+          <span class="agent-icon">⚙</span>
+          <span class="agent-name">Any MCP client</span>
+          <span class="agent-mode">stdio / HTTP</span>
+          <span class="agent-desc">12 tools: search, objects, events, queues</span>
+        </div>
+      </div>
+      <p style="text-align:center;margin-top:1.5rem;font-size:0.85rem;color:var(--muted)">
+        Full walkthrough: <a href="https://github.com/sayanmohsin/thingd/blob/main/docs/agent-setup.md" style="color:var(--accent)">agent-setup.md</a>
+      </p>
+    </section>
+
     <!-- ═══ STATS ═══ -->
     <div class="stats-row" id="stats-row">
       <div class="stat"><div class="stat-num" data-count="12">0</div><div class="stat-label">MCP tools</div></div>
@@ -453,6 +517,7 @@
         <a href="https://www.npmjs.com/package/thingd-cli">npm (CLI)</a>
         <a href="https://hub.docker.com/r/sayanmohsin/thingd">Docker Hub</a>
         <a href="https://github.com/sayanmohsin/thingd/tree/main/docs">Docs</a>
+        <a href="https://github.com/sayanmohsin/thingd/blob/main/docs/agent-setup.md">Agent setup</a>
       </div>
       thingd is open source under the Apache-2.0 license.
     </footer>
@@ -524,11 +589,9 @@
         if (this.y < 0 || this.y > canvas.height) this.vy *= -1;
       }
       draw() {
-        ctx.beginPath(); ctx.arc(this.x, this.y, this.r, 0, Math.PI * 2);
-        ctx.fillStyle = `rgba(255,106,0,${this.alpha})`;
-
         ctx.beginPath();
-        ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+        ctx.arc(this.x, this.y, this.r, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(255,106,0,${this.alpha})`;
         ctx.fill();
       }
     }
@@ -536,9 +599,7 @@
     const particles = [];
     for (let i = 0; i < 60; i++) particles.push(new Particle());
 
-    function animateParticles() {
-      ctx.clearRect(0, 0, cw, ch);
-      for (const p of particles) { p.update(); p.draw(); }
+    function drawLines() {
       for (let i = 0; i < particles.length; i++) {
         for (let j = i + 1; j < particles.length; j++) {
           const dx = particles[i].x - particles[j].x;
@@ -572,7 +633,7 @@
       });
     }, { threshold: 0.15 });
 
-    document.querySelectorAll('.feature-card, .mcp-card, .install-card, .deploy-card').forEach(el => {
+    document.querySelectorAll('.feature-card, .mcp-card, .install-card, .deploy-card, .agent-card').forEach(el => {
       observer.observe(el);
     });
 
