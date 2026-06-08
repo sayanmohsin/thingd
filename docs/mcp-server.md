@@ -29,12 +29,7 @@ Implemented:
 - bridge-mode cluster status endpoints
 - follower MCP forwarding to a configured leader
 
-Not implemented yet:
-
-- hosted/cloud gateway
-- TLS termination
-
-### Search behavior today
+### Search behavior
 
 `thing_search` uses a high-performance database-native SQLite **FTS5** virtual table with Porter word stemming, custom metadata key-value filters, and dynamic recency-weighted ranking.
 
@@ -241,7 +236,8 @@ THINGD_ADVERTISE_URL=http://thingd-0:8757
 
 Followers forward MCP traffic to the leader. This gives Kubernetes pods one
 local endpoint while avoiding multi-writer SQLite. Local follower replica
-catch-up is still future work.
+catch-up runs as an async background process that polls the leader every 500ms
+for new change events.
 
 ## Docker Usage
 

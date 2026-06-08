@@ -6,19 +6,9 @@ A fast object-first data engine for applications and AI agents.
 
 🌐 [sayanmohsin.github.io/thingd](https://sayanmohsin.github.io/thingd) — landing page
 
-thingd is a high-performance object-first data engine built for modern applications and AI agents. It combines persistent storage, in-memory performance, durable queues, event streams, full-text search, and MCP-native access into a single system that can run embedded, standalone, or in the cloud.
+thingd is a high-performance object-first data engine built for modern applications and AI agents. It combines persistent storage, durable queues, event streams, full-text search, and MCP-native access into a single system that can run embedded, standalone, or in a cluster.
 
-thingd is a fast, object-first data engine designed for modern software and AI-native applications. It provides a simple way to store, search, process, and share data without stitching together multiple infrastructure components.
-
-At its core, thingd stores versioned JSON objects organized into collections, making it easy to work with application data without complex schemas or heavy abstraction layers. Around that foundation, thingd includes durable queues, append-only event streams, full-text search, and AI-native tooling as built-in capabilities rather than external services.
-
-Applications can run thingd entirely in memory for maximum speed, persist data locally for long-term storage, or connect to managed cloud deployments as they become available. The same APIs work across all deployment modes, allowing applications to move from development to production without architectural changes.
-
-thingd is also designed for AI-native workflows. Through built-in MCP support, agents can search records, retrieve data, create objects, process jobs, and interact with application state using standardized tools instead of custom integrations. This makes thingd a shared memory layer that works equally well for application code and AI systems.
-
-For larger deployments, thingd supports leader/follower architectures that provide a single write authority while scaling reads across replicas. The result is a system that remains simple to deploy locally while growing into production-scale environments when needed.
-
-Instead of combining a database, queue system, search engine, event store, and agent integration layer, thingd brings them together in a single object-first platform built for speed, simplicity, and AI-native development.
+thingd stores versioned JSON objects in collections, with built-in durable queues, append-only event streams, and full-text search — no stitching together separate infrastructure. The same API works in-memory, persisted locally, or connected to a remote sidecar.
 
 ## Status
 
@@ -50,8 +40,6 @@ It is not production-ready yet. The default public Node.js SDK path still uses t
 | `ThingD.open()` from npm (today) | memory | n/a |
 | `thingd mcp` / `mcp-http` | native (when built) | `~/.thingd/data.db` |
 | `THINGD_URL` set | remote | sidecar |
-
-Build order and doc update rules: [docs/roadmap.md](./docs/roadmap.md), [docs/doc-maintenance.md](./docs/doc-maintenance.md).
 
 ## Why thingd?
 
@@ -358,9 +346,6 @@ that are valuable for modern applications:
 - tool-call ledger for replay, audit, latency, and cost
 - compaction snapshots for long-running memory
 
-See [docs/ai-primitives.md](./docs/ai-primitives.md) for the priority order,
-target APIs, storage shapes, MCP tools, and future phases.
-
 ## MCP-native access
 
 MCP is a core part of the design. The database ships with stdio and Streamable HTTP MCP server entrypoints so tools can read and write through explicit operations instead of guessing internal schemas.
@@ -488,9 +473,9 @@ const db = await ThingD.open();
 With `THINGD_URL` set, this uses the remote SDK driver and talks to the local
 sidecar over Streamable HTTP MCP.
 
-See [docs/sidecar-cluster.md](./docs/sidecar-cluster.md),
-[docs/runtime-env.md](./docs/runtime-env.md), and the [deploy](./deploy)
-examples for the current bridge env, Kubernetes shape, and reverse proxy shape.
+See [docs/mcp-server.md](./docs/mcp-server.md#bridge-mode) for the bridge
+environment, [docs/runtime-env.md](./docs/runtime-env.md) for all env vars, and
+the [deploy](./deploy) examples for Kubernetes and proxy shapes.
 
 ## Multi-pod direction
 
@@ -552,18 +537,9 @@ packages/
 examples/
   node-basic/         Minimal Node.js example
   nestjs-basic/       NestJS API example
-
-docs/
-  vision.md
-  ai-primitives.md
-  architecture.md
-  agent-implementation-guide.md
-  coding-standards.md
-  persistence-and-native-bindings.md
-  sidecar-cluster.md
-  benchmarks.md
-  release.md
 ```
+
+Full documentation: [docs/](./docs/)
 
 ## Examples
 
@@ -615,25 +591,13 @@ Publishing to npm is only needed once you want other machines or users to instal
 
 ## Tooling and standards
 
-Project conventions live in checked-in files so this private repo stays easy to work on with normal dev tools:
+Project conventions live in checked-in files so this repo stays easy to work on:
 
 - [biome.json](./biome.json) controls TypeScript, JavaScript, and JSON formatting/linting.
 - [rustfmt.toml](./rustfmt.toml) controls Rust formatting.
 - [Cargo.toml](./Cargo.toml) defines workspace Rust and Clippy lints.
-- [docs/roadmap.md](./docs/roadmap.md) is the canonical build order and phase exit criteria.
-- [docs/faq.md](./docs/faq.md) answers hard questions about consistency, durability, performance, and production readiness.
-- [docs/doc-maintenance.md](./docs/doc-maintenance.md) lists which docs to update when code changes.
-- [docs/why-agents.md](./docs/why-agents.md) explains the agent leverage story.
-- [docs/agent-patterns.md](./docs/agent-patterns.md) documents memory, scheduler, and queue patterns.
-- [docs/agent-implementation-guide.md](./docs/agent-implementation-guide.md) explains how to integrate `thingd` into projects.
-- [docs/ai-primitives.md](./docs/ai-primitives.md) plans graph links, hybrid search, locks, workflow DAGs, semantic cache, tool ledger, and compaction.
-- [docs/cli.md](./docs/cli.md) describes the current runtime CLIs and the planned admin/operator CLI phases.
-- [docs/coding-standards.md](./docs/coding-standards.md) explains the coding standards.
-- [docs/handoff.md](./docs/handoff.md) is the quick restart point for future work.
-- [docs/persistence-and-native-bindings.md](./docs/persistence-and-native-bindings.md) explains the Rust persistence boundary and native binding direction.
-- [docs/sidecar-cluster.md](./docs/sidecar-cluster.md) explains the planned sidecar, Kubernetes, and cluster bridge shape.
-- [docs/benchmarks.md](./docs/benchmarks.md) explains local benchmark commands and how to interpret them.
-- [docs/release.md](./docs/release.md) explains npm publishing and automatic versioning.
+
+Documentation: see [docs/](./docs/) for quickstart, MCP server reference, agent setup, patterns, FAQ, and architecture.
 
 Useful commands:
 
@@ -688,6 +652,8 @@ pnpm release:dry-run
 
 ## Development
 
+Development planning and phase tracking is maintained in the private **thingd-cloud** repo.
+
 Start with the local Node/package gate:
 
 ```bash
@@ -696,85 +662,6 @@ cd thingd
 pnpm install
 pnpm test:local
 ```
-
-If Rust is installed, also run:
-
-```bash
-pnpm rust:check
-pnpm rust:fmt:check
-pnpm rust:clippy
-pnpm test:rust
-```
-
-## Roadmap
-
-Canonical ordering, exit criteria, and per-phase doc checklists:
-**[docs/roadmap.md](./docs/roadmap.md)**. Quick restart:
-[docs/handoff.md](./docs/handoff.md).
-
-**Next:** Phase 8 **Sidecar hardening** (leader failover, Docker release).
-
-### v0.1 - local core
-
-- [x] object put/get/delete in the Node SDK proof store
-- [x] append-only event API in the Node SDK proof store
-- [x] queue claim/ack/nack in the Node SDK proof store
-- [x] delayed jobs and dead-letter queue in the Node SDK proof store
-- [x] basic Node.js SDK
-- [x] Rust storage boundary traits
-- [x] SQLite object/event adapter in the Rust core
-- [x] SQLite queue adapter in the Rust core
-- [x] delayed jobs and configurable lease expiration in the Rust core
-- [x] opt-in native Node adapter to the Rust store
-- [x] native prebuild/release strategy
-
-### v0.2 - search and searchable memory
-
-- [x] full-text search
-- [x] metadata filters
-- [x] object-to-text indexing
-- [x] stdio MCP server skeleton
-- [x] remote HTTP MCP server skeleton
-- [x] audit events for MCP writes
-
-### v0.3 - production shape
-
-- [x] SQLite schema migration guardrails
-- [ ] worker heartbeats
-- [x] idempotency keys in the Node SDK proof store
-- [x] delayed jobs in the Node SDK proof store
-- [x] persistent SDK store backed by native Rust for local repo testing
-- [x] remote SDK driver for sidecar mode over Streamable HTTP MCP
-- [x] Docker runtime scaffold
-- [x] bridge-mode env vars and follower MCP forwarding
-- [x] Docker/Kubernetes/proxy deployment examples
-- [x] admin/operator CLI
-- [x] inspector UI (Phase 5 complete — `thingd dashboard`)
-
-### CLI phases
-
-- [x] CLI-A: `packages/thingd-cli`, `thingd` binary, Interactive TUI Dashboard, Non-interactive JSON output, object/event/queue inspection. (See [CLI documentation](./packages/thingd-cli/README.md))
-- [x] CLI-B: pretty tables, `doctor`, queue stats, benchmark wrappers, clearer runtime errors
-- [x] CLI-C: export/import, snapshots, and redaction-friendly handoff flows
-
-### later
-
-- [ ] vector search
-- [ ] graph links
-- [ ] hybrid search
-- [ ] locks, leases, and semaphores
-- [ ] workflow DAGs
-- [ ] semantic cache
-- [ ] tool-call ledger
-- [ ] compaction snapshots
-- [x] local read replicas
-- [ ] server binary
-- [ ] published Docker sidecar image
-- [x] Kubernetes sidecar mode example
-- [x] cluster bridge with leader write forwarding
-- [ ] tenant partitioning
-- [x] follower replica catch-up
-- [x] sync and compaction
 
 ## Design principles
 

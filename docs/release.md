@@ -119,7 +119,7 @@ The release workflow does not push version commits back to `main`; semantic-rele
 
 ---
 
-## Native Prebuilds Workflow (Phase 2)
+## Native Prebuilds Workflow
 
 Prebuild binaries (`.node` files) are compiled for common architectures and platforms, then bundled inside the `thingd-native` package.
 

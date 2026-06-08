@@ -2,8 +2,7 @@
 
 This document explains the agent leverage story in plain terms. For integration
 steps see [agent-implementation-guide.md](./agent-implementation-guide.md). For
-patterns see [agent-patterns.md](./agent-patterns.md). For build order see
-[roadmap.md](./roadmap.md).
+patterns see [agent-patterns.md](./agent-patterns.md).
 
 **Ready to start?** → [5-minute quickstart](./QUICKSTART.md)
 
@@ -81,7 +80,6 @@ Chat is the CPU; `thingd` is persistence and coordination.
 
 - Agents must be configured to call MCP tools.
 - Search is powered by high-performance native SQLite FTS5 with Porter stemming and metadata filtering.
-- Hybrid vector search and graph links are planned for future phases.
 - Schedulers need an external heartbeat (Automation, cron, `/loop`) — `thingd`
   stores and queues work; it does not replace a clock.
 - Queues are at-least-once — consumers must be idempotent.

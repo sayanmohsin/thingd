@@ -2,9 +2,6 @@
 
 `thingd` is split into a Rust core and thin developer-facing packages.
 
-Build order and phase exit criteria: [roadmap.md](./roadmap.md). Doc update
-checklist: [doc-maintenance.md](./doc-maintenance.md).
-
 ```txt
 Rust core
   object store
@@ -102,24 +99,23 @@ The practical path is:
 4. tenant or queue partitioning
 5. consensus only if real demand proves it is worth the complexity
 
-Sidecar cluster mode is planned as a runtime layer above SQLite, not a
+Sidecar cluster mode runs as a runtime layer above SQLite, not a
 multi-primary SQLite design. Each app talks to a local `thingd` sidecar. The
 current bridge scaffold exposes peer metadata and can run as `single`,
 `leader`, or `follower`. Followers forward MCP traffic to the configured leader.
-Follower replica catch-up is still planned.
 
-For the detailed API, environment, Kubernetes, and phase plan, read
-[sidecar-cluster.md](./sidecar-cluster.md).
+For the runtime API, environment, and Kubernetes deployment, see
+[docker-runtime.md](./docker-runtime.md) and [mcp-server.md](./mcp-server.md).
 
 ## AI-Native Primitive Direction
 
 `thingd` should prioritize workflow primitives that help agents understand,
-retrieve, coordinate, and audit work. The planned order is graph links, hybrid
+retrieve, coordinate, and audit work: graph links, hybrid
 search, locks/leases/semaphores, workflow DAGs, semantic cache, tool-call
 ledger, and compaction snapshots.
 
-For target APIs, storage shapes, MCP surfaces, and phase planning, read
-[ai-primitives.md](./ai-primitives.md).
+Development planning and phase tracking is maintained in the private
+**thingd-cloud** repo.
 
 ## MCP Server Direction
 
@@ -139,7 +135,7 @@ local and remote access and can inspect objects, events, queues, dead jobs, MCP
 tools, and runtime status. The next CLI phase should add operator polish before
 any inspector UI is built.
 
-For command phases and handoff details, read [cli.md](./cli.md).
+For commands and runtime options, read [cli-reference.md](./cli-reference.md).
 
 ## Native Binding Direction
 

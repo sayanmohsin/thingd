@@ -18,7 +18,6 @@ Current implementation:
 - `packages/thingd-cli` exposes the visual TUI dashboard, non-interactive CLI commands, and integrated stdio and Streamable HTTP MCP servers.
 - the HTTP MCP runtime supports `single`, `leader`, and `follower` bridge modes.
 - `examples/nestjs-basic` demonstrates app integration shape.
-- `docs/cli.md` is the handoff plan for remaining admin/operator CLI phases.
 
 Do not present the public Node package as production-ready persistent storage yet.
 
@@ -35,7 +34,7 @@ SQLite-simple local deployment
 + MCP-native agent access
 ```
 
-There are two planned runtime modes:
+There are two runtime modes:
 
 ```txt
 embedded mode:
@@ -272,11 +271,9 @@ crates/thingd-core
 
 Do not introduce a second app-facing API from the native package. The native path should pass the same SDK tests that the in-memory store passes.
 
-For storage decisions, read [persistence-and-native-bindings.md](./persistence-and-native-bindings.md).
-For future AI-native data structures, read [ai-primitives.md](./ai-primitives.md).
-For sidecar and cluster planning, read [sidecar-cluster.md](./sidecar-cluster.md).
-For CLI work, read [cli.md](./cli.md) before creating commands or package structure.
-For a project restart summary, read [handoff.md](./handoff.md).
+For storage decisions and the Rust/native binding direction, development planning is tracked in the private **thingd-cloud** repo.
+
+For CLI work, read [cli-reference.md](./cli-reference.md) before creating commands or package structure.
 For agent value and patterns, read [why-agents.md](./why-agents.md) and
 [agent-patterns.md](./agent-patterns.md).
 
@@ -292,22 +289,13 @@ For agent value and patterns, read [why-agents.md](./why-agents.md) and
 - Do not claim exactly-once queue delivery. The queue is at-least-once.
 - Do not hide distributed-system tradeoffs. Multi-pod writes need server/sidecar or primary-writer mode.
 - Do not add multi-primary cluster behavior. Planned cluster mode is leader-writer with forwarding and event replication.
-- Do not add generic textbook structures as public features unless they map to an AI-native workflow primitive in `docs/ai-primitives.md`.
-- Keep sidecar environment variables and Kubernetes examples aligned with `docs/sidecar-cluster.md`.
+- Do not add generic textbook structures as public features unless they map to an AI-native workflow primitive.
+- Keep sidecar environment variables and Kubernetes examples aligned with the private **thingd-cloud** repo.
 - Keep package publish behavior in `release.config.mjs` and `docs/release.md` aligned.
 - For CLI work, create a dedicated package and use the public SDK instead of reaching into internal stores.
-- Keep CLI command behavior documented in `docs/cli.md`.
+- Keep CLI command behavior documented in [cli-reference.md](./cli-reference.md).
 
-## Recommended Next Phase
-
-See [roadmap.md](./roadmap.md) for the full ordered plan.
-
-1. **Phase 6** — MCP hardening (collection allowlists, payload limits, MCP resources)
-2. **Phase 7** — CLI-C data movement (export/import/snapshots)
-
-For a 5-minute working example: **[QUICKSTART.md](./QUICKSTART.md)**
-
-Before merging, follow [doc-maintenance.md](./doc-maintenance.md).
+## For a 5-minute working example: **[QUICKSTART.md](./QUICKSTART.md)**
 
 ## Required Checks
 

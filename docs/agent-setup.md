@@ -226,8 +226,7 @@ ChatGPT can now call all 12 thingd tools in any conversation.
 
 ### Option C: thingd-cloud (future)
 
-A hosted gateway with automatic TLS and multi-tenant routing is planned. See
-[roadmap.md](./roadmap.md).
+A hosted gateway with automatic TLS and multi-tenant routing is planned.
 
 ---
 

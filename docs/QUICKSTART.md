@@ -177,6 +177,6 @@ Or see the full example at [examples/cursor-agent-memory/](../examples/cursor-ag
 
 - **Scheduler pattern** — background recurring jobs without a cron daemon: [agent-patterns.md](./agent-patterns.md#pattern-2--scheduler-no-built-in-cron)
 - **Multi-agent blackboard** — coordinate agents via shared collections: [agent-patterns.md](./agent-patterns.md#pattern-6--multi-agent-blackboard-shared-state--facts)
-- **Sidecar mode** — share one store between your app and agents: [sidecar-cluster.md](./sidecar-cluster.md)
+- **Sidecar mode** — share one store between your app and agents: [mcp-server.md](./mcp-server.md#bridge-mode)
 - **MCP hardening** — collection allowlists, read-only mode, payload limits: [mcp-server.md](./mcp-server.md)
 - **Why thingd?** — the full agent value proposition: [why-agents.md](./why-agents.md)
