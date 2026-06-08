@@ -55,7 +55,7 @@ jobs:
     needs: [build-native]
     runs-on: ubuntu-latest
     outputs:
-      version: ${{ steps.semantic.outputs.version }}
+      version: ${{ steps.version.outputs.version }}
     env:
       NPM_CONFIG_AUDIT: "false"
       NPM_CONFIG_FUND: "false"
@@ -94,10 +94,15 @@ jobs:
       - run: pnpm --filter !examples* -r --if-present build
 
       - name: Publish release
-        id: semantic
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: pnpm release
+
+      - name: Read published version
+        id: version
+        run: |
+          TAG=$(git describe --tags --abbrev=0)
+          echo "version=$TAG" >> "$GITHUB_OUTPUT"
 
   docker:
     name: Build and push Docker image
@@ -115,12 +120,6 @@ jobs:
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
-
-      - name: Extract version from release
-        id: version
-        run: |
-          VERSION="${{ needs.release.outputs.version }}"
-          echo "version=${VERSION#v}" >> "$GITHUB_OUTPUT"
 
       - name: Build and push
         uses: docker/build-push-action@v6
