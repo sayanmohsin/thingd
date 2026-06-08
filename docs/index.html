@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>thingd — A fast object-first data engine for applications and AI agents</title>
+  <meta name="description" content="thingd is a high-performance object-first data engine with durable queues, event streams, full-text search, and MCP-native access. Run embedded, standalone, or in the cloud.">
+  <meta property="og:title" content="thingd — Object-first data engine">
+  <meta property="og:description" content="A fast object-first data engine for applications and AI agents. MCP-native, with search, events, and durable queues.">
+  <meta property="og:url" content="https://sayanmohsin.github.io/thingd">
+  <meta name="theme-color" content="#0a0a0a">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #0a0a0a;
+      color: #e0e0e0;
+      line-height: 1.6;
+    }
+    .container { max-width: 800px; margin: 0 auto; padding: 2rem; }
+    header { text-align: center; padding: 4rem 0 2rem; }
+    h1 { font-size: 2.5rem; font-weight: 700; color: #fff; letter-spacing: -0.02em; }
+    .tagline { font-size: 1.1rem; color: #888; margin-top: 0.5rem; }
+    .badges { margin-top: 1.5rem; display: flex; gap: 0.5rem; justify-content: center; flex-wrap: wrap; }
+    .badges img { height: 20px; }
+    .hero-code {
+      background: #141414; border: 1px solid #222; border-radius: 8px;
+      padding: 1.25rem; margin: 2rem 0; font-family: 'JetBrains Mono', 'Fira Code', monospace;
+      font-size: 0.85rem; overflow-x: auto;
+    }
+    .hero-code .comment { color: #666; }
+    .hero-code .keyword { color: #7dd3fc; }
+    .hero-code .string { color: #a5d6a7; }
+    .hero-code .func { color: #f9a8d4; }
+    .features { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin: 2rem 0; }
+    .feature { background: #141414; border: 1px solid #222; border-radius: 8px; padding: 1.25rem; }
+    .feature h3 { font-size: 1rem; color: #fff; margin-bottom: 0.4rem; }
+    .feature p { font-size: 0.85rem; color: #888; }
+    .install { background: #141414; border: 1px solid #222; border-radius: 8px; padding: 1.5rem; margin: 2rem 0; }
+    .install h2 { font-size: 1.1rem; color: #fff; margin-bottom: 1rem; }
+    .install-tabs { display: flex; gap: 0.5rem; margin-bottom: 1rem; flex-wrap: wrap; }
+    .tab { padding: 0.4rem 1rem; background: #222; border-radius: 4px; font-size: 0.85rem; cursor: default; color: #aaa; }
+    .tab.active { background: #333; color: #fff; }
+    .install code { display: block; background: #0a0a0a; padding: 1rem; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 0.85rem; color: #a5d6a7; }
+    .links { text-align: center; padding: 2rem 0; }
+    .links a { color: #7dd3fc; text-decoration: none; margin: 0 0.75rem; font-size: 0.9rem; }
+    .links a:hover { text-decoration: underline; }
+    footer { text-align: center; padding: 2rem 0; color: #555; font-size: 0.8rem; }
+    @media (max-width: 600px) { .features { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>thingd</h1>
+      <p class="tagline">A fast object-first data engine for applications and AI agents.</p>
+      <div class="badges">
+        <a href="https://www.npmjs.com/package/thingd"><img src="https://badge.fury.io/js/thingd.svg" alt="npm SDK"></a>
+        <a href="https://www.npmjs.com/package/thingd-cli"><img src="https://badge.fury.io/js/thingd-cli.svg" alt="npm CLI"></a>
+        <a href="https://hub.docker.com/r/sayanmohsin/thingd"><img src="https://img.shields.io/docker/pulls/sayanmohsin/thingd" alt="Docker pulls"></a>
+        <a href="https://github.com/sayanmohsin/thingd"><img src="https://img.shields.io/github/stars/sayanmohsin/thingd?style=social" alt="GitHub stars"></a>
+      </div>
+    </header>
+
+    <div class="hero-code">
+      <span class="comment">// Install & use thingd</span><br>
+      <span class="keyword">npm install</span> thingd<br><br>
+      <span class="keyword">import</span> { ThingD } <span class="keyword">from</span> <span class="string">"thingd"</span>;<br>
+      <span class="keyword">const</span> db = <span class="keyword">await</span> <span class="func">ThingD.open</span>(<span class="string">":memory:"</span>);<br><br>
+      <span class="keyword">await</span> db.<span class="func">put</span>(<span class="string">"notes"</span>, { <span class="keyword">id</span>: <span class="string">"hello"</span>, <span class="keyword">text</span>: <span class="string">"Hello world"</span> });<br>
+      <span class="keyword">const</span> result = <span class="keyword">await</span> db.<span class="func">get</span>(<span class="string">"notes"</span>, <span class="string">"hello"</span>);<br>
+      <span class="func">console.log</span>(result.text); <span class="comment">// "Hello world"</span>
+    </div>
+
+    <div class="features">
+      <div class="feature">
+        <h3>Object store</h3>
+        <p>Store versioned JSON records in collections. No schema required.</p>
+      </div>
+      <div class="feature">
+        <h3>Durable queues</h3>
+        <p>At-least-once queues with leases, retries, delays, and dead-letter.</p>
+      </div>
+      <div class="feature">
+        <h3>Event streams</h3>
+        <p>Append-only timelines with auto-incrementing sequences.</p>
+      </div>
+      <div class="feature">
+        <h3>Full-text search</h3>
+        <p>SQLite FTS5 with stemming, metadata filters, and recency scoring.</p>
+      </div>
+      <div class="feature">
+        <h3>MCP-native</h3>
+        <p>12 built-in MCP tools for AI agents. No custom integrations needed.</p>
+      </div>
+      <div class="feature">
+        <h3>Multi-mode</h3>
+        <p>Run embedded, sidecar, or cluster — same API across all modes.</p>
+      </div>
+    </div>
+
+    <div class="install">
+      <h2>Get started</h2>
+      <div class="install-tabs">
+        <span class="tab active">npm</span>
+        <span class="tab">Docker</span>
+      </div>
+      <code># Install the SDK<br>npm install thingd<br><br># Or run the sidecar<br>docker pull sayanmohsin/thingd<br>docker run -p 8757:8757 sayanmohsin/thingd</code>
+    </div>
+
+    <div class="links">
+      <a href="https://github.com/sayanmohsin/thingd">GitHub</a>
+      <a href="https://www.npmjs.com/package/thingd">npm SDK</a>
+      <a href="https://www.npmjs.com/package/thingd-cli">npm CLI</a>
+      <a href="https://hub.docker.com/r/sayanmohsin/thingd">Docker Hub</a>
+      <a href="https://github.com/sayanmohsin/thingd/tree/main/docs">Docs</a>
+    </div>
+
+    <footer>
+      thingd is open source under the Apache-2.0 license.
+    </footer>
+  </div>
+</body>
+</html>
