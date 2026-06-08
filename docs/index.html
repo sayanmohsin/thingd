@@ -18,13 +18,15 @@
       --border: #1e2533;
       --text: #e6edf3;
       --muted: #7d8590;
-      --accent: #58a6ff;
-      --accent-glow: rgba(88, 166, 255, 0.15);
+      --accent: #ff6a00;
+      --accent-dim: #cc5500;
+      --accent-light: #ff9944;
+      --accent-glow: rgba(255, 106, 0, 0.15);
       --green: #3fb950;
       --pink: #f778ba;
-      --orange: #d29922;
-      --gradient-1: linear-gradient(135deg, #58a6ff, #3fb950);
-      --gradient-2: linear-gradient(135deg, #f778ba, #58a6ff);
+      --orange: #ff6a00;
+      --gradient-1: linear-gradient(135deg, #ff6a00, #ff9944);
+      --gradient-2: linear-gradient(135deg, #ff4500, #ff6a00);
     }
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
@@ -133,11 +135,12 @@
       min-height: 280px;
     }
     .terminal-body .prompt { color: var(--green); }
-    .terminal-body .dim { color: #484f58; }
-    .terminal-body .accent { color: var(--accent); }
-    .terminal-body .pink { color: var(--pink); }
-    .terminal-body .green { color: var(--green); }
-    .terminal-body .orange { color: var(--orange); }
+    .terminal-body .t-dim { color: #484f58; }
+    .terminal-body .t-green { color: #7ec699; }
+    .terminal-body .t-blue { color: #569cd6; }
+    .terminal-body .t-magenta { color: #c586c0; }
+    .terminal-body .t-bright { color: var(--text); font-weight: 500; }
+    .terminal-body .t-space { height: 0.5rem; }
     .cursor-blink {
       display: inline-block; width: 8px; height: 1em;
       background: var(--accent); vertical-align: text-bottom;
@@ -231,6 +234,7 @@
     .code-block .dim { color: #484f58; }
     .code-block .accent { color: var(--accent); }
     .code-block .string { color: var(--green); }
+    .code-block .pink { color: var(--pink); }
 
     /* ── Deploy modes ── */
     .deploy-grid {
@@ -327,24 +331,19 @@
         <span class="terminal-title">thingd — interactive demo</span>
       </div>
       <div class="terminal-body" id="terminal-body">
-        <span class="prompt">$</span> <span class="accent">npm install</span> thingd<br>
-        <span class="dim">+ thingd 0.18.3</span><br>
-        <span class="dim">added 1 package in 0.5s</span><br><br>
-        <span class="prompt">$</span> <span class="accent">cat</span> app.mjs<br>
-        <span class="dim">import { ThingD } from "thingd";</span><br>
-        <span class="dim">const db = await ThingD.open(":memory:");</span><br>
-        <span class="dim">await db.put("notes", { id: "hello", text: "Hello world" });</span><br>
-        <span class="dim">await db.events.append("notes", { type: "created" });</span><br>
-        <span class="dim">await db.queue("embed").push({ object: "notes/hello" });</span><br>
-        <span class="dim">const hits = await db.search("hello");</span><br>
-        <span class="dim">console.log(hits.length);</span><br><br>
-        <span class="prompt">$</span> <span class="accent">node</span> app.mjs<br>
-        <span class="string">1</span><br><br>
-        <span class="prompt">$</span> <span class="accent">thingd</span> search "hello" --pretty<br>
-        <span class="dim">[</span><br>
-        <span class="dim">  { collection: "notes", id: "hello", score: 0.85 }</span><br>
-        <span class="dim">]</span><br>
-        <span class="prompt">$</span> <span class="cursor-blink"></span>
+        <div><span class="prompt">$</span> <span class="t-green">npm install</span> thingd</div>
+        <div class="t-dim">+ thingd 0.18.3</div>
+        <div class="t-dim">added 1 package in 0.5s</div>
+        <div class="t-space"></div>
+        <div><span class="prompt">$</span> node</div>
+        <div><span class="t-bright">&gt;</span> <span class="t-blue">const</span> { ThingD } = <span class="t-blue">require</span>(<span class="t-green">"thingd"</span>);</div>
+        <div><span class="t-bright">&gt;</span> <span class="t-blue">const</span> db = <span class="t-blue">await</span> ThingD.<span class="t-magenta">open</span>(<span class="t-green">":memory:"</span>);</div>
+        <div class="t-dim">→ ThingD { store: InMemoryThingStore }</div>
+        <div><span class="t-bright">&gt;</span> <span class="t-blue">await</span> db.<span class="t-magenta">put</span>(<span class="t-green">"notes"</span>, { id: <span class="t-green">"hello"</span>, text: <span class="t-green">"Hello world"</span> });</div>
+        <div class="t-dim">→ { id: "hello", text: "Hello world", version: 1 }</div>
+        <div><span class="t-bright">&gt;</span> <span class="t-blue">await</span> db.<span class="t-magenta">search</span>(<span class="t-green">"hello"</span>);</div>
+        <div class="t-dim">→ [ { collection: "notes", id: "hello", score: 0.85 } ]</div>
+        <div><span class="t-bright">&gt;</span> <span class="cursor-blink"></span></div>
       </div>
     </div>
 
@@ -473,11 +472,11 @@
           if (verEl && npm.version) verEl.textContent = 'v' + npm.version;
           const termBody = document.getElementById('terminal-body');
           if (termBody && npm.version) {
-            termBody.innerHTML = termBody.innerHTML.replace(
-              'thingd 0.18.3', 'thingd ' + npm.version
-            ).replace(
-              '0.18.3', npm.version
-            );
+            for (const div of termBody.children) {
+              if (div.textContent.includes('0.18.3')) {
+                div.innerHTML = div.innerHTML.replace('0.18.3', npm.version);
+              }
+            }
           }
         }
         if (ghRes.ok) {
@@ -526,24 +525,30 @@
       }
       draw() {
         ctx.beginPath(); ctx.arc(this.x, this.y, this.r, 0, Math.PI * 2);
-        ctx.fillStyle = `rgba(88,166,255,${this.alpha})`;
+        ctx.fillStyle = `rgba(255,106,0,${this.alpha})`;
+
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
         ctx.fill();
       }
     }
 
-    const pCount = Math.min(80, Math.floor(canvas.width * canvas.height / 12000));
-    for (let i = 0; i < pCount; i++) particles.push(new Particle());
+    const particles = [];
+    for (let i = 0; i < 60; i++) particles.push(new Particle());
 
-    function drawLines() {
+    function animateParticles() {
+      ctx.clearRect(0, 0, cw, ch);
+      for (const p of particles) { p.update(); p.draw(); }
       for (let i = 0; i < particles.length; i++) {
         for (let j = i + 1; j < particles.length; j++) {
           const dx = particles[i].x - particles[j].x;
           const dy = particles[i].y - particles[j].y;
           const dist = Math.sqrt(dx * dx + dy * dy);
           if (dist < 120) {
-            ctx.beginPath(); ctx.moveTo(particles[i].x, particles[i].y);
+            ctx.beginPath();
+            ctx.moveTo(particles[i].x, particles[i].y);
             ctx.lineTo(particles[j].x, particles[j].y);
-            ctx.strokeStyle = `rgba(88,166,255,${0.06 * (1 - dist / 120)})`;
+            ctx.strokeStyle = `rgba(255,106,0,${0.06 * (1 - dist / 120)})`;
             ctx.stroke();
           }
         }
@@ -606,22 +611,17 @@
     // ─── TERMINAL TYPEWRITER ───
     (function typeTerminal() {
       const body = document.getElementById('terminal-body');
-      const html = body.innerHTML;
+      const divs = Array.from(body.children);
       body.innerHTML = '';
-      let pos = 0;
+      let i = 0;
       function type() {
-        if (pos >= html.length) {
-          body.innerHTML = html + '<span class="cursor-blink"></span>';
-          return;
-        }
-        const chunk = html.charAt(pos) === '&' ? html.indexOf(';', pos) + 1 : pos + 1;
-        const next = html.substring(0, chunk);
-        body.innerHTML = next + '<span class="cursor-blink"></span>';
-        pos = chunk;
-        const delay = html.charAt(pos - 1) === '\n' ? 80 : Math.random() * 40 + 15;
+        if (i >= divs.length) return;
+        body.appendChild(divs[i]);
+        i++;
+        const delay = divs[i - 1].classList.contains('t-space') ? 200 : 60 + Math.random() * 80;
         setTimeout(type, delay);
       }
-      setTimeout(type, 800);
+      setTimeout(type, 600);
     })();
   </script>
 </body>
