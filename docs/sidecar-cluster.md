@@ -306,9 +306,15 @@ spec:
 - event-log replication and follower catch-up
 - local versus strong read consistency
 
+Current helpers:
+
+- **leader fallback URL** (`THINGD_CLUSTER_LEADER_FALLBACK_URL`): when the primary
+  leader is unreachable, followers try this URL for both write forwarding and
+  replication polling. The active leader URL is reported in `/cluster/status`.
+
 Future helpers:
 
-- leader election
+- automatic leader election
 - idempotent forwarded writes
 - queue claim forwarding with failover semantics
 
@@ -354,8 +360,9 @@ Events and Replication:
 
 - [x] add peer metadata
 - [x] add static peer mode first
-- [ ] add Kubernetes service discovery metadata
+- [x] add Kubernetes service discovery metadata
 - [x] add follower MCP forwarding to configured leader
+- [x] add leader fallback URL for basic failover
 
 ### Sidecar Phase D - Replication
 

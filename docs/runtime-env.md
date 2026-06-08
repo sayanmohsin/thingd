@@ -69,6 +69,7 @@ THINGD_MCP_MAX_PAYLOAD_BYTES=524288
 THINGD_CLUSTER_MODE=single
 THINGD_CLUSTER_DISCOVERY=none
 THINGD_CLUSTER_LEADER_URL=
+THINGD_CLUSTER_LEADER_FALLBACK_URL=
 THINGD_CLUSTER_FORWARD_AUTH_TOKEN=
 THINGD_CLUSTER_PEERS=
 THINGD_ADVERTISE_URL=
@@ -93,8 +94,10 @@ static      read THINGD_CLUSTER_PEERS
 kubernetes  derive a service URL from THINGD_CLUSTER_SERVICE and namespace
 ```
 
-Current bridge behavior is intentionally conservative: followers forward MCP
-traffic to the leader. Follower local replica catch-up is not implemented yet.
+Current bridge behavior: followers forward MCP traffic to the leader. Follower
+local replica catch-up polls the leader every 500ms and applies replicated
+events to the local SQLite database. If `THINGD_CLUSTER_LEADER_FALLBACK_URL` is
+set, the follower falls back to that URL when the primary leader is unreachable.
 
 ## Runtime Endpoints
 

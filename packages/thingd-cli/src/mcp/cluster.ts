@@ -9,6 +9,7 @@ export type ThingdClusterOptions = {
   mode?: ThingdClusterMode;
   advertiseUrl?: string;
   leaderUrl?: string;
+  fallbackLeaderUrl?: string;
   peers?: string[];
   discovery?: ThingdClusterDiscovery;
   service?: string;
@@ -23,6 +24,8 @@ export type ResolvedThingdClusterOptions = {
   mode: ThingdClusterMode;
   advertiseUrl?: string;
   leaderUrl?: string;
+  fallbackLeaderUrl?: string;
+  activeLeaderUrl?: string;
   peers: string[];
   discovery: ThingdClusterDiscovery;
   service?: string;
@@ -38,6 +41,8 @@ export type ThingdClusterStatus = {
   writable: boolean;
   forwarding: boolean;
   leaderUrl?: string;
+  fallbackLeaderUrl?: string;
+  activeLeaderUrl?: string;
   advertiseUrl?: string;
   discovery: ThingdClusterDiscovery;
   peers: string[];
@@ -59,6 +64,7 @@ export function readClusterOptionsFromEnv(
     mode: parseClusterMode(env.THINGD_CLUSTER_MODE),
     advertiseUrl: env.THINGD_ADVERTISE_URL,
     leaderUrl: env.THINGD_CLUSTER_LEADER_URL,
+    fallbackLeaderUrl: env.THINGD_CLUSTER_LEADER_FALLBACK_URL,
     peers: parsePeers(env.THINGD_CLUSTER_PEERS),
     discovery: parseClusterDiscovery(env.THINGD_CLUSTER_DISCOVERY),
     service: env.THINGD_CLUSTER_SERVICE,
@@ -90,6 +96,8 @@ export function resolveClusterOptions(
     mode,
     advertiseUrl: options?.advertiseUrl,
     leaderUrl: options?.leaderUrl,
+    fallbackLeaderUrl: options?.fallbackLeaderUrl,
+    activeLeaderUrl: undefined,
     peers,
     discovery,
     service: options?.service,
@@ -171,6 +179,8 @@ export async function getClusterStatus(
     writable: cluster.mode !== "follower",
     forwarding: cluster.mode === "follower",
     leaderUrl: cluster.leaderUrl,
+    fallbackLeaderUrl: cluster.fallbackLeaderUrl,
+    activeLeaderUrl: cluster.activeLeaderUrl,
     advertiseUrl: cluster.advertiseUrl,
     discovery: cluster.discovery,
     peers: cluster.peers,
@@ -189,17 +199,38 @@ export async function forwardMcpRequestToLeader(
     return;
   }
 
-  const leaderUrl = cluster.leaderUrl ?? "";
-  const upstreamUrl = leaderMcpUrl(leaderUrl, mcpPath);
   const body = await readRequestBody(request);
-  const upstream = await fetch(upstreamUrl, {
-    method: "POST",
-    headers: forwardedHeaders(request, cluster.forwardAuthToken),
-    body: new Uint8Array(body),
-  });
+  const urls = cluster.fallbackLeaderUrl
+    ? [cluster.leaderUrl, cluster.fallbackLeaderUrl]
+    : [cluster.leaderUrl];
 
-  response.writeHead(upstream.status, responseHeaders(upstream.headers));
-  response.end(Buffer.from(await upstream.arrayBuffer()));
+  let lastError: Error | undefined;
+
+  for (const url of urls) {
+    try {
+      const upstreamUrl = leaderMcpUrl(url, mcpPath);
+      const upstream = await fetch(upstreamUrl, {
+        method: "POST",
+        headers: forwardedHeaders(request, cluster.forwardAuthToken),
+        body: new Uint8Array(body),
+        signal: AbortSignal.timeout(30_000),
+      });
+
+      cluster.activeLeaderUrl = url;
+
+      response.writeHead(upstream.status, responseHeaders(upstream.headers));
+      response.end(Buffer.from(await upstream.arrayBuffer()));
+      return;
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+      console.error(`Forward to leader ${url} failed:`, lastError.message);
+    }
+  }
+
+  if (lastError) {
+    console.error("All leader URLs exhausted for forward, last error:", lastError.message);
+  }
+  writeForwardError(response, 503, "cluster_leader_unavailable");
 }
 
 function parseClusterMode(value: string | undefined): ThingdClusterMode | undefined {

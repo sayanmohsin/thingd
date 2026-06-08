@@ -48,13 +48,25 @@ pnpm release:dry-run
 
 ## Required Secrets
 
-Add this repository secret before enabling npm publishing:
+Add these repository secrets before enabling publishing:
 
 ```txt
-NPM_TOKEN
+NPM_TOKEN               # npm publish (required)
+DOCKER_USERNAME          # Docker Hub username (required for Docker image)
+DOCKER_PASSWORD          # Docker Hub password or access token (required for Docker image)
 ```
 
-The package is configured with npm provenance enabled through `publishConfig.provenance`.
+The npm package is configured with npm provenance enabled through `publishConfig.provenance`.
+
+## Docker Image Publishing
+
+On every release, the workflow builds and pushes a Docker image to Docker Hub:
+
+- `sayanmohsin/thingd:<version>` — tagged with the exact SemVer (e.g., `v0.19.0`)
+- `sayanmohsin/thingd:latest` — always points to the latest release
+
+The Docker image includes the native SQLite driver pre-built for `linux-x64`.
+See [Dockerfile](../Dockerfile) and [deploy/docker-compose.yml](../deploy/docker-compose.yml) for the runtime shape.
 
 Release packaging intentionally avoids `workspace:*` dependency specs in `package.json` files. The repo uses pnpm for development, but `@semantic-release/npm` calls the npm CLI internally during publish, and npm rejects pnpm-only workspace protocol dependencies.
 

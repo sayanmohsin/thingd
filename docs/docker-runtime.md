@@ -138,6 +138,7 @@ The container accepts bridge/cluster env vars:
 ```txt
 THINGD_CLUSTER_MODE=single|leader|follower
 THINGD_CLUSTER_LEADER_URL=http://thingd-leader:8757
+THINGD_CLUSTER_LEADER_FALLBACK_URL=http://thingd-leader-2:8757
 THINGD_CLUSTER_FORWARD_AUTH_TOKEN=change-me
 THINGD_CLUSTER_DISCOVERY=none|static|kubernetes
 THINGD_CLUSTER_PEERS=http://thingd-0:8757,http://thingd-1:8757
@@ -149,8 +150,8 @@ Supported cluster modes:
 - `single`: Standalone runtime serving local database requests.
 - `leader`: Handles local reads and writes, records change events to the system stream `__thingd:system:replication`, and serves incremental replication logs.
 - `follower`: Enforces eventually consistent local reads and strict write forwarding:
-  - **Write Forwarding**: Automatically forwards all incoming MCP write requests to the active Leader.
-  - **Pull Replication**: Spawns an asynchronous background replication runner that polls `GET /v1/replication/events?after=:sequence` from the Leader every `500ms`, downloading new change events and applying object mutations locally to the follower SQLite file in the background. Sync status is persisted under `__thingd_meta`.
+  - **Write Forwarding**: Automatically forwards all incoming MCP write requests to the active Leader. If primary leader is unreachable and `THINGD_CLUSTER_LEADER_FALLBACK_URL` is set, the follower tries the fallback URL.
+  - **Pull Replication**: Spawns an asynchronous background replication runner that polls `GET /v1/replication/events?after=:sequence` from the Leader every `500ms`, downloading new change events and applying object mutations locally to the follower SQLite file in the background. Falls back to `THINGD_CLUSTER_LEADER_FALLBACK_URL` when primary is unreachable. Sync status is persisted under `__thingd_meta`.
 
 Replication lag and diagnostics are monitored dynamically via `/cluster/status`, which reports active peer sequence indexes and computed lag (events difference between leader and follower) for Kubernetes liveness/readiness probes.
 

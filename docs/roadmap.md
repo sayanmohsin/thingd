@@ -239,10 +239,10 @@ Phases 8–13 match the priority order in [ai-primitives.md](./ai-primitives.md)
 
 ### Deliverables
 
-- [ ] Follower local replica catch-up (or explicit “won’t do yet”)
+- [x] Follower local replica catch-up
+- [x] Integration tests for bridge forward + auth
 - [ ] Failover / leader election story (static config minimum)
 - [ ] Published Docker image + versioned tags
-- [ ] Integration tests for bridge forward + auth
 
 ### Doc / CLI checklist
 

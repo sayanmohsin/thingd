@@ -33,7 +33,6 @@ Not implemented yet:
 
 - hosted/cloud gateway
 - TLS termination
-- follower local replica catch-up
 
 ### Search behavior today
 

@@ -504,6 +504,11 @@ function createReplicatingDb(originalDb: ThingD, mode: string): ThingD {
   return proxy;
 }
 
+function* resolveLeaderUrls(cluster: ResolvedThingdClusterOptions): Generator<string> {
+  if (cluster.leaderUrl) yield cluster.leaderUrl;
+  if (cluster.fallbackLeaderUrl) yield cluster.fallbackLeaderUrl;
+}
+
 function startReplicationRunner(state: RuntimeState) {
   const leaderUrl = state.cluster.leaderUrl;
   if (!leaderUrl) return;
@@ -513,84 +518,101 @@ function startReplicationRunner(state: RuntimeState) {
   async function runSync() {
     if (state.replicationStopped) return;
 
-    try {
-      const status = await state.db.get("__thingd_meta", "replication_status");
-      const lastSeq =
-        status && typeof status.lastReplicatedSequence === "number"
-          ? status.lastReplicatedSequence
-          : 0;
+    const status = await state.db.get("__thingd_meta", "replication_status");
+    const lastSeq =
+      status && typeof status.lastReplicatedSequence === "number"
+        ? status.lastReplicatedSequence
+        : 0;
 
-      const url = new URL("/v1/replication/events", leaderUrl);
-      url.searchParams.set("after", String(lastSeq));
+    let fetched = false;
 
-      const headers: Record<string, string> = {
-        Accept: "application/json",
-      };
-      if (state.cluster.forwardAuthToken) {
-        headers.Authorization = `Bearer ${state.cluster.forwardAuthToken}`;
-      }
+    for (const url of resolveLeaderUrls(state.cluster)) {
+      if (state.replicationStopped) return;
+      try {
+        const fetchUrl = new URL("/v1/replication/events", url);
+        fetchUrl.searchParams.set("after", String(lastSeq));
 
-      const response = await fetch(url.toString(), { headers });
-      if (!response.ok) {
-        throw new Error(`Leader replication returned HTTP ${response.status}`);
-      }
-
-      const resData = (await response.json()) as {
-        success: boolean;
-        events: {
-          id: string;
-          type: string;
-          collection?: string;
-          object?: Record<string, unknown>;
-          stream?: string;
-          event?: Record<string, unknown>;
-        }[];
-      };
-      if (resData.success && Array.isArray(resData.events) && resData.events.length > 0) {
-        for (const ev of resData.events) {
-          if (state.replicationStopped) return;
-
-          const type = ev.type;
-
-          if (type === "replication.objects.put" && ev.collection) {
-            const { collection, object } = ev;
-            const cleanObj = { ...object } as Record<string, unknown>;
-            delete cleanObj.collection;
-            delete cleanObj.createdAt;
-            delete cleanObj.updatedAt;
-            delete cleanObj.version;
-            await state.db.put(collection, cleanObj as unknown as MemoryObject);
-          } else if (type === "replication.objects.delete" && ev.collection && ev.id) {
-            const { collection, id } = ev;
-            await state.db.delete(collection, id);
-          } else if (type === "replication.events.append" && ev.stream) {
-            const { stream, event } = ev;
-            const cleanEv = { ...event } as Record<string, unknown>;
-            delete cleanEv.id;
-            delete cleanEv.createdAt;
-            delete cleanEv.stream;
-            await state.db.events.append(stream, cleanEv as unknown as MemoryEvent);
-          }
-
-          const seq = Number.parseInt(ev.id, 10);
-          await state.db.put("__thingd_meta", {
-            id: "replication_status",
-            lastReplicatedSequence: seq,
-            updatedAt: new Date().toISOString(),
-          } as unknown as MemoryObject);
+        const headers: Record<string, string> = {
+          Accept: "application/json",
+        };
+        if (state.cluster.forwardAuthToken) {
+          headers.Authorization = `Bearer ${state.cluster.forwardAuthToken}`;
         }
+
+        const response = await fetch(fetchUrl.toString(), {
+          headers,
+          signal: AbortSignal.timeout(10_000),
+        });
+        if (!response.ok) {
+          throw new Error(`Leader replication returned HTTP ${response.status}`);
+        }
+
+        state.cluster.activeLeaderUrl = url;
+
+        const resData = (await response.json()) as {
+          success: boolean;
+          events: {
+            id: string;
+            type: string;
+            collection?: string;
+            object?: Record<string, unknown>;
+            stream?: string;
+            event?: Record<string, unknown>;
+          }[];
+        };
+        if (resData.success && Array.isArray(resData.events) && resData.events.length > 0) {
+          for (const ev of resData.events) {
+            if (state.replicationStopped) return;
+
+            const type = ev.type;
+
+            if (type === "replication.objects.put" && ev.collection) {
+              const { collection, object } = ev;
+              const cleanObj = { ...object } as Record<string, unknown>;
+              delete cleanObj.collection;
+              delete cleanObj.createdAt;
+              delete cleanObj.updatedAt;
+              delete cleanObj.version;
+              await state.db.put(collection, cleanObj as unknown as MemoryObject);
+            } else if (type === "replication.objects.delete" && ev.collection && ev.id) {
+              const { collection, id } = ev;
+              await state.db.delete(collection, id);
+            } else if (type === "replication.events.append" && ev.stream) {
+              const { stream, event } = ev;
+              const cleanEv = { ...event } as Record<string, unknown>;
+              delete cleanEv.id;
+              delete cleanEv.createdAt;
+              delete cleanEv.stream;
+              await state.db.events.append(stream, cleanEv as unknown as MemoryEvent);
+            }
+
+            const seq = Number.parseInt(ev.id, 10);
+            await state.db.put("__thingd_meta", {
+              id: "replication_status",
+              lastReplicatedSequence: seq,
+              updatedAt: new Date().toISOString(),
+            } as unknown as MemoryObject);
+          }
+        }
+
+        fetched = true;
+        break;
+      } catch (error) {
+        console.error(
+          `Replication from ${url} failed:`,
+          error instanceof Error ? error.message : String(error),
+        );
       }
-    } catch (error) {
-      console.error(
-        "Replication synchronization failure:",
-        error instanceof Error ? error.message : String(error),
-      );
-    } finally {
-      if (!state.replicationStopped) {
-        state.replicationTimer = setTimeout(() => {
-          void runSync();
-        }, pullInterval);
-      }
+    }
+
+    if (!fetched) {
+      console.error("All leader URLs exhausted for replication");
+    }
+
+    if (!state.replicationStopped) {
+      state.replicationTimer = setTimeout(() => {
+        void runSync();
+      }, pullInterval);
     }
   }
 

@@ -701,7 +701,7 @@ Canonical ordering, exit criteria, and per-phase doc checklists:
 **[docs/roadmap.md](./docs/roadmap.md)**. Quick restart:
 [docs/handoff.md](./docs/handoff.md).
 
-**Next:** Phase 8 **Sidecar hardening** (bridge forward, multi-pod discovery).
+**Next:** Phase 8 **Sidecar hardening** (leader failover, Docker release).
 
 ### v0.1 - local core
 
