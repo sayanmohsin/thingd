@@ -437,7 +437,7 @@
       <div class="stat"><div class="stat-num" data-count="12">0</div><div class="stat-label">MCP tools</div></div>
       <div class="stat"><div class="stat-num" data-count="4">0</div><div class="stat-label">deployment modes</div></div>
       <div class="stat"><div class="stat-num" data-count="18">0</div><div class="stat-label">npm releases</div></div>
-      <div class="stat"><div class="stat-num">Apache 2.0</div><div class="stat-label">license</div></div>
+      <div class="stat"><div class="stat-num" id="version-num">—</div><div class="stat-label">latest version</div></div>
     </div>
 
     <!-- ═══ FOOTER ═══ -->
@@ -454,6 +454,40 @@
   </div>
 
   <script>
+    // ─── FETCH LIVE DATA ───
+    (async function fetchLiveData() {
+      try {
+        const [npmRes, ghRes] = await Promise.all([
+          fetch('https://registry.npmjs.org/thingd/latest'),
+          fetch('https://api.github.com/repos/sayanmohsin/thingd/releases?per_page=1'),
+        ]);
+        if (npmRes.ok) {
+          const npm = await npmRes.json();
+          const verEl = document.getElementById('version-num');
+          if (verEl && npm.version) verEl.textContent = 'v' + npm.version;
+          const termBody = document.getElementById('terminal-body');
+          if (termBody && npm.version) {
+            termBody.innerHTML = termBody.innerHTML.replace(
+              'thingd 0.18.3', 'thingd ' + npm.version
+            );
+          }
+        }
+        if (ghRes.ok) {
+          const link = ghRes.headers.get('Link');
+          if (link) {
+            const match = link.match(/page=(\d+)>; rel="last"/);
+            if (match) {
+              const countEl = document.querySelector('.stat-num[data-count="18"]');
+              if (countEl) {
+                const total = parseInt(match[1]);
+                countEl.dataset.count = total;
+              }
+            }
+          }
+        }
+      } catch {}
+    })();
+
     // ─── PARTICLES ───
     const canvas = document.getElementById('particles-canvas');
     const ctx = canvas.getContext('2d');
