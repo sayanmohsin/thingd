@@ -4,6 +4,8 @@
 
 A fast object-first data engine for applications and AI agents.
 
+🌐 [sayanmohsin.github.io/thingd](https://sayanmohsin.github.io/thingd) — landing page
+
 thingd is a high-performance object-first data engine built for modern applications and AI agents. It combines persistent storage, in-memory performance, durable queues, event streams, full-text search, and MCP-native access into a single system that can run embedded, standalone, or in the cloud.
 
 thingd is a fast, object-first data engine designed for modern software and AI-native applications. It provides a simple way to store, search, process, and share data without stitching together multiple infrastructure components.
