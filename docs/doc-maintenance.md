@@ -19,6 +19,7 @@ Master build order: [roadmap.md](./roadmap.md).
 | **Cluster / Docker / K8s** | `docs/sidecar-cluster.md`, `docs/docker-runtime.md`, `deploy/`, root README sidecar section |
 | **Release / publish** | `docs/release.md`, `release.config.mjs`, root README Releases |
 | **Roadmap / phase** | `docs/roadmap.md` first, then `docs/handoff.md`, README Roadmap summary |
+| **Positioning / FAQ** | `docs/faq.md`, root `README.md` tagline and description |
 | **Agent integration** | `docs/agent-implementation-guide.md`, `docs/agent-patterns.md`, `docs/why-agents.md` |
 
 ## MCP tool naming
@@ -98,3 +99,4 @@ Use conventional commits so semantic-release works:
 | AI structures (future) | `docs/ai-primitives.md` |
 | Why agents care | `docs/why-agents.md` |
 | Patterns (scheduler, memory) | `docs/agent-patterns.md` |
+| Hard questions / FAQ | `docs/faq.md` |

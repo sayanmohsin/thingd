@@ -272,7 +272,7 @@ Each primitive phase must update: `ai-primitives.md`, `architecture.md`, README 
 
 ## Doc maintenance (every phase)
 
-Read [doc-maintenance.md](./doc-maintenance.md) before merging. Minimum on any user-facing change:
+Read [doc-maintenance.md](./doc-maintenance.md) before merging. When positioning, tradeoffs, or hard questions change, update [faq.md](./faq.md). Minimum on any user-facing change:
 
 ```bash
 pnpm check
