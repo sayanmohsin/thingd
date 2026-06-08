@@ -1,12 +1,48 @@
+# ── Rust build artifacts ──
 target/
+
+# ── Node.js dependencies ──
 node_modules/
+
+# ── Build outputs ──
 dist/
+
+# ── Package manager ──
 .pnpm-store/
+package-lock.json
+yarn.lock
+
+# ── macOS metadata ──
 .DS_Store
+
+# ── Editor and IDE ──
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# ── Logs ──
 *.log
+
+# ── Database files ──
 *.db
+*.db-shm
+*.db-wal
 *.sqlite
 *.sqlite3
+
+# ── npm package tarballs ──
 thingd-*.tgz
-package-lock.json
+
+# ── Scratch / temp files ──
+scratch/
 test*.mjs
+tmp/
+
+# ── TypeScript build info ──
+*.tsbuildinfo
+
+# ── Environment files ──
+.env
+.env.local
+.env.*.local

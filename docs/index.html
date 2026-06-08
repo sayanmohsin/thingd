@@ -29,13 +29,15 @@
       --gradient-2: linear-gradient(135deg, #ff4500, #ff6a00);
     }
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    html { overflow-x: hidden; }
+    html { overflow-x: hidden; width: 100%; }
     body {
       font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
       background: var(--bg);
       color: var(--text);
       line-height: 1.6;
       overflow-x: hidden;
+      width: 100%;
+      position: relative;
     }
     ::selection { background: var(--accent); color: #fff; }
 
