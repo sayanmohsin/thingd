@@ -60,10 +60,16 @@ The npm package is configured with npm provenance enabled through `publishConfig
 
 ## Docker Image Publishing
 
-On every release, the workflow builds and pushes a Docker image to Docker Hub:
+On every release, the workflow builds and pushes a Docker image to [Docker Hub](https://hub.docker.com/r/sayanmohsin/thingd):
 
 - `sayanmohsin/thingd:<version>` — tagged with the exact SemVer (e.g., `v0.19.0`)
 - `sayanmohsin/thingd:latest` — always points to the latest release
+
+Pull the image:
+
+```bash
+docker pull sayanmohsin/thingd
+```
 
 The Docker image includes the native SQLite driver pre-built for `linux-x64`.
 See [Dockerfile](../Dockerfile) and [deploy/docker-compose.yml](../deploy/docker-compose.yml) for the runtime shape.

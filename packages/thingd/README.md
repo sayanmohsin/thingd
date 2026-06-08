@@ -16,6 +16,13 @@ You can install the published SDK from npm:
 npm install thingd
 ```
 
+Or connect to a running sidecar via Docker:
+
+```bash
+docker pull sayanmohsin/thingd
+docker run -p 8757:8757 sayanmohsin/thingd
+```
+
 ## Example Usage
 
 ### 1. Connecting and Basic Operations

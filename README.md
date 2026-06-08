@@ -114,11 +114,20 @@ thingd
 
 ## Installation
 
-Install the Node.js SDK from npm:
+### npm (SDK)
 
 ```bash
 npm install thingd
 ```
+
+### Docker (sidecar runtime)
+
+```bash
+docker pull sayanmohsin/thingd
+docker run -p 8757:8757 sayanmohsin/thingd
+```
+
+See the [Docker Hub](https://hub.docker.com/r/sayanmohsin/thingd) page for all tags and [deploy/docker-compose.yml](./deploy/docker-compose.yml) for production configuration.
 
 ## Example API
 

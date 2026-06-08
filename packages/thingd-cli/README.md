@@ -8,6 +8,8 @@ This is the **thingd** CLI — command-line interface, Interactive TUI Dashboard
 
 ## Installation
 
+### npm (CLI)
+
 Install globally via npm to use the `thingd` command anywhere:
 
 ```bash
@@ -19,6 +21,15 @@ Or run it on the fly using `npx`:
 ```bash
 npx thingd-cli
 ```
+
+### Docker (sidecar runtime)
+
+```bash
+docker pull sayanmohsin/thingd
+docker run -p 8757:8757 sayanmohsin/thingd
+```
+
+See the [Docker Hub](https://hub.docker.com/r/sayanmohsin/thingd) page for all tags.
 
 ## Quick Start: Zero-Config MCP Setup
 
