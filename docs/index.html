@@ -10,7 +10,7 @@
   <meta property="og:url" content="https://sayanmohsin.github.io/thingd">
   <meta name="theme-color" content="#07090b">
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
   <style>
     :root {
       --bg: #07090b;
@@ -36,111 +36,117 @@
     }
     ::selection { background: var(--accent); color: #fff; }
 
-    /* Animated background grid */
-    .bg-grid {
+    /* ── Canvas (particles) ── */
+    #particles-canvas {
       position: fixed; inset: 0; z-index: 0;
-      background-image:
-        linear-gradient(rgba(88, 166, 255, 0.03) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(88, 166, 255, 0.03) 1px, transparent 1px);
-      background-size: 60px 60px;
-    }
-    .bg-glow {
-      position: fixed; inset: 0; z-index: 0;
-      background: radial-gradient(ellipse 600px 400px at 50% 0%, rgba(88, 166, 255, 0.06), transparent);
       pointer-events: none;
     }
 
     .container { max-width: 900px; margin: 0 auto; padding: 0 2rem; position: relative; z-index: 1; }
 
-    /* Hero */
-    header {
+    /* ── Sections ── */
+    section { padding: 5rem 0; }
+    .section-title {
+      font-size: 1.75rem; font-weight: 700;
+      margin-bottom: 0.5rem;
+      letter-spacing: -0.02em;
       text-align: center;
-      padding: 6rem 0 3rem;
     }
-    .logo {
-      display: inline-flex; align-items: center; gap: 0.5rem;
-      font-size: 3.5rem; font-weight: 800; letter-spacing: -0.04em;
+    .section-sub {
+      text-align: center; color: var(--muted);
+      font-size: 0.95rem; margin-bottom: 3rem;
+    }
+
+    /* ── Hero ── */
+    .hero { text-align: center; padding: 6rem 0 0; position: relative; }
+    .hero-logo {
+      font-size: 4rem; font-weight: 800; letter-spacing: -0.04em;
       background: var(--gradient-1);
       -webkit-background-clip: text; -webkit-text-fill-color: transparent;
       background-clip: text;
+      line-height: 1;
       margin-bottom: 1rem;
     }
-    .logo-sub {
-      font-size: 0.875rem; font-weight: 500; color: var(--muted);
-      letter-spacing: 0.3em; text-transform: uppercase;
+    .hero-label {
+      font-size: 0.8rem; font-weight: 500; color: var(--muted);
+      letter-spacing: 0.35em; text-transform: uppercase;
       margin-bottom: 1.5rem;
     }
-    .tagline {
-      font-size: 1.2rem; color: var(--muted); max-width: 560px; margin: 0 auto;
-    }
-    .badges {
-      margin-top: 2rem;
-      display: flex; gap: 0.5rem; justify-content: center; flex-wrap: wrap;
-    }
-    .badges a { transition: opacity 0.2s; }
-    .badges a:hover { opacity: 0.8; }
+    .hero p { font-size: 1.15rem; color: var(--muted); max-width: 560px; margin: 0 auto; }
+    .hero-badges { margin-top: 1.5rem; display: flex; gap: 0.5rem; justify-content: center; flex-wrap: wrap; }
+    .hero-badges a { transition: opacity .2s; }
+    .hero-badges a:hover { opacity: .75; }
 
-    /* CTA buttons */
-    .cta-row {
-      display: flex; gap: 1rem; justify-content: center; flex-wrap: wrap;
-      margin-top: 2.5rem;
+    .hero-cta {
+      display: flex; gap: 1rem; justify-content: center; flex-wrap: wrap; margin-top: 2rem;
     }
     .cta {
       display: inline-flex; align-items: center; gap: 0.5rem;
-      padding: 0.85rem 2rem; border-radius: 8px;
+      padding: 0.85rem 2rem; border-radius: 10px;
       font-size: 0.95rem; font-weight: 600; text-decoration: none;
-      transition: all 0.25s ease;
+      transition: all 0.3s cubic-bezier(.4,0,.2,1); position: relative; overflow: hidden;
     }
     .cta-primary {
       background: var(--accent); color: #fff;
       box-shadow: 0 0 24px var(--accent-glow);
     }
-    .cta-primary:hover {
-      transform: translateY(-2px);
-      box-shadow: 0 0 40px var(--accent-glow);
+    .cta-primary::after {
+      content: ''; position: absolute; inset: 0;
+      background: linear-gradient(135deg, rgba(255,255,255,0.12), transparent);
+      opacity: 0; transition: opacity .4s;
     }
+    .cta-primary:hover { transform: translateY(-3px); box-shadow: 0 0 48px var(--accent-glow); }
+    .cta-primary:hover::after { opacity: 1; }
     .cta-secondary {
       background: var(--surface); color: var(--text); border: 1px solid var(--border);
     }
-    .cta-secondary:hover {
-      border-color: var(--accent); transform: translateY(-2px);
-    }
+    .cta-secondary:hover { border-color: var(--accent); transform: translateY(-3px); }
 
-    /* Hero code block */
-    .hero-code {
-      background: var(--surface);
+    /* ── Animated terminal ── */
+    .terminal {
+      background: #05080c;
       border: 1px solid var(--border);
-      border-radius: 12px;
-      padding: 1.75rem;
-      margin: 3rem 0;
+      border-radius: 14px;
+      margin: 3rem 0 0;
+      overflow: hidden;
+      box-shadow: 0 12px 48px rgba(0,0,0,.5);
+    }
+    .terminal-header {
+      display: flex; align-items: center; gap: 0.5rem;
+      padding: 0.85rem 1.25rem;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+    }
+    .terminal-dot { width: 10px; height: 10px; border-radius: 50%; }
+    .terminal-dot.red { background: #ff5f57; }
+    .terminal-dot.yellow { background: #febc2e; }
+    .terminal-dot.green { background: #28c840; }
+    .terminal-title {
+      margin-left: auto; font-size: 0.75rem; color: var(--muted);
+      font-family: 'JetBrains Mono', monospace;
+    }
+    .terminal-body {
+      padding: 1.5rem;
       font-family: 'JetBrains Mono', monospace;
       font-size: 0.82rem;
-      line-height: 1.8;
-      overflow-x: auto;
-      box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+      line-height: 1.9;
+      min-height: 280px;
     }
-    .hero-code .comment { color: #484f58; }
-    .hero-code .keyword { color: var(--accent); }
-    .hero-code .string { color: var(--green); }
-    .hero-code .func { color: var(--pink); }
-    .hero-code .number { color: var(--orange); }
+    .terminal-body .prompt { color: var(--green); }
+    .terminal-body .dim { color: #484f58; }
+    .terminal-body .accent { color: var(--accent); }
+    .terminal-body .pink { color: var(--pink); }
+    .terminal-body .green { color: var(--green); }
+    .terminal-body .orange { color: var(--orange); }
+    .cursor-blink {
+      display: inline-block; width: 8px; height: 1em;
+      background: var(--accent); vertical-align: text-bottom;
+      animation: blink 0.8s step-end infinite;
+    }
+    @keyframes blink { 50% { opacity: 0; } }
 
-    /* Section headers */
-    .section-title {
-      text-align: center;
-      font-size: 1.75rem; font-weight: 700;
-      margin: 4rem 0 0.5rem;
-      letter-spacing: -0.02em;
-    }
-    .section-sub {
-      text-align: center;
-      color: var(--muted);
-      font-size: 0.95rem;
-      margin-bottom: 3rem;
-    }
-
-    /* Features grid */
-    .features {
+    /* ── Features ── */
+    .features-grid {
       display: grid;
       grid-template-columns: 1fr 1fr 1fr;
       gap: 1px;
@@ -149,34 +155,30 @@
       border-radius: 16px;
       overflow: hidden;
     }
-    .feature {
+    .feature-card {
       background: var(--surface);
       padding: 2rem;
-      transition: background 0.2s;
-      position: relative;
+      transition: all 0.3s ease;
+      opacity: 0; transform: translateY(24px);
     }
-    .feature:hover { background: #111821; }
-    .feature-icon {
-      font-size: 1.5rem; margin-bottom: 0.75rem;
+    .feature-card.visible { opacity: 1; transform: translateY(0); }
+    .feature-card:hover {
+      background: #111821;
     }
-    .feature h3 {
-      font-size: 1rem; font-weight: 600; margin-bottom: 0.4rem;
-    }
-    .feature p {
-      font-size: 0.85rem; color: var(--muted); line-height: 1.5;
-    }
+    .feature-card .icon { font-size: 1.5rem; margin-bottom: 0.75rem; }
+    .feature-card h3 { font-size: 1rem; font-weight: 600; margin-bottom: 0.4rem; }
+    .feature-card p { font-size: 0.85rem; color: var(--muted); line-height: 1.5; }
 
-    /* MCP tools list */
-    .mcp-tools {
+    /* ── MCP tools ── */
+    .mcp-card {
       background: var(--surface);
       border: 1px solid var(--border);
-      border-radius: 12px;
+      border-radius: 14px;
       padding: 2rem;
-      margin: 2rem 0;
+      opacity: 0; transform: translateY(24px);
     }
-    .mcp-tools h3 {
-      font-size: 1rem; font-weight: 600; margin-bottom: 1rem;
-    }
+    .mcp-card.visible { opacity: 1; transform: translateY(0); }
+    .mcp-card h3 { font-size: 1rem; font-weight: 600; margin-bottom: 1.25rem; }
     .mcp-grid {
       display: grid;
       grid-template-columns: 1fr 1fr;
@@ -184,71 +186,72 @@
     }
     .mcp-tool {
       display: flex; align-items: center; gap: 0.5rem;
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 0.8rem;
+      font-family: 'JetBrains Mono', monospace; font-size: 0.78rem;
       padding: 0.5rem 0.75rem;
-      background: rgba(255,255,255,0.03);
-      border-radius: 6px;
-      color: var(--muted);
+      background: rgba(255,255,255,0.02);
+      border-radius: 6px; color: var(--muted); transition: all .2s;
     }
+    .mcp-tool:hover { background: rgba(255,255,255,0.05); }
     .mcp-tool .name { color: var(--accent); }
-    .mcp-tool .sep { color: #30363d; }
     .mcp-tool .desc { color: var(--muted); }
 
-    /* Install section */
+    /* ── Tabs ── */
     .install-card {
       background: var(--surface);
       border: 1px solid var(--border);
-      border-radius: 16px;
+      border-radius: 14px;
       padding: 2.5rem;
-      margin: 3rem 0;
+      opacity: 0; transform: translateY(24px);
     }
-    .install-tabs {
+    .install-card.visible { opacity: 1; transform: translateY(0); }
+    .tabs {
       display: flex; gap: 0.25rem; margin-bottom: 1.5rem;
       background: rgba(255,255,255,0.03);
       border-radius: 8px; padding: 0.25rem;
       width: fit-content;
     }
-    .install-tab {
+    .tab {
       padding: 0.5rem 1.25rem; border-radius: 6px;
       font-size: 0.85rem; font-weight: 500; cursor: pointer;
       transition: all 0.2s; color: var(--muted); border: none; background: none;
+      font-family: inherit;
     }
-    .install-tab.active {
-      background: var(--accent); color: #fff;
-    }
-    .install-code {
-      background: #06090b;
-      border-radius: 8px;
+    .tab.active { background: var(--accent); color: #fff; }
+    .tab:not(.active):hover { color: var(--text); }
+    .code-block {
+      background: #05080c;
+      border-radius: 10px;
       padding: 1.5rem;
       font-family: 'JetBrains Mono', monospace;
       font-size: 0.84rem;
       line-height: 1.9;
       overflow-x: auto;
     }
-    .install-code .prompt { color: var(--green); }
-    .install-code .text { color: var(--text); }
-    .install-code .dim { color: #484f58; }
+    .code-block .prompt { color: var(--green); }
+    .code-block .dim { color: #484f58; }
+    .code-block .accent { color: var(--accent); }
+    .code-block .string { color: var(--green); }
 
-    /* Deployment modes */
-    .modes {
+    /* ── Deploy modes ── */
+    .deploy-grid {
       display: grid;
       grid-template-columns: 1fr 1fr 1fr;
       gap: 1rem;
-      margin: 2rem 0;
     }
-    .mode {
+    .deploy-card {
       background: var(--surface);
       border: 1px solid var(--border);
       border-radius: 12px;
       padding: 1.5rem;
       text-align: center;
+      opacity: 0; transform: translateY(24px);
     }
-    .mode h3 { font-size: 0.95rem; font-weight: 600; margin-bottom: 0.3rem; }
-    .mode p { font-size: 0.82rem; color: var(--muted); }
+    .deploy-card.visible { opacity: 1; transform: translateY(0); }
+    .deploy-card h3 { font-size: 0.95rem; font-weight: 600; margin-bottom: 0.3rem; }
+    .deploy-card p { font-size: 0.82rem; color: var(--muted); }
 
-    /* Stats / counter row */
-    .stats {
+    /* ── Stats ── */
+    .stats-row {
       display: flex; justify-content: center; gap: 3rem;
       padding: 3rem 0; flex-wrap: wrap;
     }
@@ -261,237 +264,319 @@
     }
     .stat-label { font-size: 0.8rem; color: var(--muted); margin-top: 0.2rem; }
 
-    /* Footer */
+    /* ── Footer ── */
     footer {
-      text-align: center;
-      padding: 4rem 0 3rem;
-      color: var(--muted);
-      font-size: 0.85rem;
+      text-align: center; padding: 4rem 0 3rem;
+      color: var(--muted); font-size: 0.85rem;
     }
     .footer-links {
-      display: flex; justify-content: center; gap: 1.5rem; flex-wrap: wrap;
-      margin-bottom: 1.5rem;
+      display: flex; justify-content: center; gap: 1.5rem; flex-wrap: wrap; margin-bottom: 1.5rem;
     }
-    .footer-links a {
-      color: var(--muted); text-decoration: none; font-size: 0.9rem;
-      transition: color 0.2s;
-    }
+    .footer-links a { color: var(--muted); text-decoration: none; font-size: 0.9rem; transition: color .2s; }
     .footer-links a:hover { color: var(--accent); }
 
+    /* ── Scrollbar ── */
+    ::-webkit-scrollbar { width: 8px; }
+    ::-webkit-scrollbar-track { background: var(--bg); }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: #333; }
+
     @media (max-width: 768px) {
-      header { padding: 4rem 0 2rem; }
-      .logo { font-size: 2.5rem; }
-      .features { grid-template-columns: 1fr; }
-      .modes { grid-template-columns: 1fr; }
+      .hero { padding: 3rem 0 0; }
+      .hero-logo { font-size: 2.8rem; }
+      .features-grid { grid-template-columns: 1fr; }
+      .deploy-grid { grid-template-columns: 1fr; }
       .mcp-grid { grid-template-columns: 1fr; }
-      .stats { gap: 2rem; }
+      .stats-row { gap: 2rem; }
+      section { padding: 3rem 0; }
     }
   </style>
 </head>
 <body>
-  <div class="bg-grid"></div>
-  <div class="bg-glow"></div>
+  <canvas id="particles-canvas"></canvas>
 
   <div class="container">
-    <header>
-      <div class="logo">thingd</div>
-      <div class="logo-sub">Object-first data engine</div>
-      <p class="tagline">
+
+    <!-- ═══ HERO ═══ -->
+    <section class="hero">
+      <div class="hero-label">Object-first data engine</div>
+      <div class="hero-logo">thingd</div>
+      <p>
         A fast object-first data engine for modern applications and AI agents.
         Persistent storage, durable queues, event streams, full-text search, and MCP-native access.
       </p>
-      <div class="badges">
+      <div class="hero-badges">
         <a href="https://www.npmjs.com/package/thingd"><img src="https://badge.fury.io/js/thingd.svg" alt="npm SDK"></a>
         <a href="https://www.npmjs.com/package/thingd-cli"><img src="https://badge.fury.io/js/thingd-cli.svg" alt="npm CLI"></a>
         <a href="https://hub.docker.com/r/sayanmohsin/thingd"><img src="https://img.shields.io/docker/pulls/sayanmohsin/thingd?logo=docker" alt="Docker pulls"></a>
-        <a href="https://github.com/sayanmohsin/thingd"><img src="https://img.shields.io/github/stars/sayanmohsin/thingd?style=social" alt="GitHub stars"></a>
+        <a href="https://github.com/sayanmohsin/thingd"><img src="https://img.shields.io/github/stars/sayanmohsin/thingd?style=social" alt="Stars"></a>
       </div>
-      <div class="cta-row">
+      <div class="hero-cta">
         <a class="cta cta-primary" href="https://github.com/sayanmohsin/thingd#installation">Get started →</a>
         <a class="cta cta-secondary" href="https://github.com/sayanmohsin/thingd">GitHub</a>
         <a class="cta cta-secondary" href="https://hub.docker.com/r/sayanmohsin/thingd">Docker</a>
       </div>
-    </header>
+    </section>
 
-    <!-- Code demo -->
-    <div class="hero-code">
-      <span class="comment">// Install</span><br>
-      <span class="prompt">$</span> <span class="keyword">npm install</span> thingd<br><br>
-      <span class="comment">// Store, search, and process</span><br>
-      <span class="keyword">import</span> { ThingD } <span class="keyword">from</span> <span class="string">"thingd"</span>;<br>
-      <span class="keyword">const</span> db = <span class="keyword">await</span> <span class="func">ThingD.open</span>(<span class="string">":memory:"</span>);<br><br>
-      <span class="comment">// Store an object</span><br>
-      <span class="keyword">await</span> db.<span class="func">put</span>(<span class="string">"notes"</span>, { <span class="keyword">id</span>: <span class="string">"hello"</span>, <span class="keyword">text</span>: <span class="string">"Hello world"</span> });<br><br>
-      <span class="comment">// Append an event</span><br>
-      <span class="keyword">await</span> db.events.<span class="func">append</span>(<span class="string">"notes"</span>, { <span class="keyword">type</span>: <span class="string">"created"</span> });<br><br>
-      <span class="comment">// Push a job</span><br>
-      <span class="keyword">await</span> db.<span class="func">queue</span>(<span class="string">"embed"</span>).<span class="func">push</span>({ <span class="keyword">object</span>: <span class="string">"notes/hello"</span> });<br><br>
-      <span class="comment">// Search</span><br>
-      <span class="keyword">const</span> hits = <span class="keyword">await</span> db.<span class="func">search</span>(<span class="string">"hello"</span>);<br>
-      <span class="func">console</span>.<span class="func">log</span>(hits.length); <span class="comment">// 1</span>
-    </div>
-
-    <!-- Features -->
-    <h2 class="section-title">Everything in one engine</h2>
-    <p class="section-sub">No more stitching together databases, queues, search engines, and agent tooling.</p>
-
-    <div class="features">
-      <div class="feature">
-        <div class="feature-icon">🗄️</div>
-        <h3>Object store</h3>
-        <p>Versioned JSON records in named collections. No schema required. Put, get, delete, list.</p>
+    <!-- ═══ ANIMATED TERMINAL ═══ -->
+    <div class="terminal" id="terminal">
+      <div class="terminal-header">
+        <span class="terminal-dot red"></span>
+        <span class="terminal-dot yellow"></span>
+        <span class="terminal-dot green"></span>
+        <span class="terminal-title">thingd — interactive demo</span>
       </div>
-      <div class="feature">
-        <div class="feature-icon">📋</div>
-        <h3>Durable queues</h3>
-        <p>At-least-once delivery with leases, retries, delays, idempotency keys, and dead-letter queues.</p>
-      </div>
-      <div class="feature">
-        <div class="feature-icon">📡</div>
-        <h3>Event streams</h3>
-        <p>Append-only timelines with auto-incrementing sequences. Built for audit trails and replication.</p>
-      </div>
-      <div class="feature">
-        <div class="feature-icon">🔍</div>
-        <h3>Full-text search</h3>
-        <p>SQLite FTS5 with Porter stemming, metadata filters, and recency-weighted ranking.</p>
-      </div>
-      <div class="feature">
-        <div class="feature-icon">🤖</div>
-        <h3>MCP-native</h3>
-        <p>12 built-in MCP tools. AI agents can read, write, search, and process jobs out of the box.</p>
-      </div>
-      <div class="feature">
-        <div class="feature-icon">⚡</div>
-        <h3>Multi-mode</h3>
-        <p>Embedded, sidecar, or cluster. In-memory or persistent. Same API everywhere.</p>
+      <div class="terminal-body" id="terminal-body">
+        <span class="prompt">$</span> <span class="accent">npm install</span> thingd<br>
+        <span class="dim">+ thingd 0.18.3</span><br>
+        <span class="dim">added 1 package in 0.5s</span><br><br>
+        <span class="prompt">$</span> node<br>
+        <span class="prompt">&gt;</span> <span class="accent">const</span> { ThingD } = <span class="accent">require</span>(<span class="green">"thingd"</span>);<br>
+        <span class="prompt">&gt;</span> <span class="accent">const</span> db = <span class="accent">await</span> ThingD.<span class="pink">open</span>(<span class="green">":memory:"</span>);<br>
+        <span class="dim">→ ThingD { store: InMemoryThingStore }</span><br>
+        <span class="prompt">&gt;</span> <span class="accent">await</span> db.<span class="pink">put</span>(<span class="green">"notes"</span>, { id: <span class="green">"hello"</span>, text: <span class="green">"Hello world"</span> });<br>
+        <span class="dim">→ { id: "hello", text: "Hello world", version: 1 }</span><br>
+        <span class="prompt">&gt;</span> <span class="accent">await</span> db.<span class="pink">search</span>(<span class="green">"hello"</span>);<br>
+        <span class="dim">→ [ { collection: "notes", id: "hello", score: 0.85 } ]</span><br>
+        <span class="prompt">&gt;</span> <span class="orange">_</span><span class="cursor-blink"></span>
       </div>
     </div>
 
-    <!-- MCP tools -->
-    <div class="mcp-tools">
-      <h3>Built-in MCP tools for AI agents</h3>
-      <div class="mcp-grid">
-        <div class="mcp-tool"><span class="name">thing_search</span><span class="sep"> · </span><span class="desc">search objects and events</span></div>
-        <div class="mcp-tool"><span class="name">thing_get</span><span class="sep"> · </span><span class="desc">get an object by ID</span></div>
-        <div class="mcp-tool"><span class="name">thing_put</span><span class="sep"> · </span><span class="desc">create or update an object</span></div>
-        <div class="mcp-tool"><span class="name">thing_delete</span><span class="sep"> · </span><span class="desc">delete an object</span></div>
-        <div class="mcp-tool"><span class="name">thing_events_append</span><span class="sep"> · </span><span class="desc">append to a stream</span></div>
-        <div class="mcp-tool"><span class="name">thing_events_list</span><span class="sep"> · </span><span class="desc">list stream events</span></div>
-        <div class="mcp-tool"><span class="name">thing_queue_push</span><span class="sep"> · </span><span class="desc">enqueue a job</span></div>
-        <div class="mcp-tool"><span class="name">thing_queue_claim</span><span class="sep"> · </span><span class="desc">claim a job</span></div>
-        <div class="mcp-tool"><span class="name">thing_queue_ack</span><span class="sep"> · </span><span class="desc">acknowledge success</span></div>
-        <div class="mcp-tool"><span class="name">thing_queue_nack</span><span class="sep"> · </span><span class="desc">retry or fail a job</span></div>
-        <div class="mcp-tool"><span class="name">thing_queue_list</span><span class="sep"> · </span><span class="desc">list queue jobs</span></div>
-        <div class="mcp-tool"><span class="name">thing_queue_dead</span><span class="sep"> · </span><span class="desc">list dead-letter jobs</span></div>
+    <!-- ═══ FEATURES ═══ -->
+    <section>
+      <h2 class="section-title">Everything in one engine</h2>
+      <p class="section-sub">No more stitching together databases, queues, search engines, and agent tooling.</p>
+      <div class="features-grid" id="features-grid">
+        <div class="feature-card"><div class="icon">🗄️</div><h3>Object store</h3><p>Versioned JSON records in named collections. No schema. Put, get, delete, list. Auto-versioning.</p></div>
+        <div class="feature-card"><div class="icon">📋</div><h3>Durable queues</h3><p>At-least-once with leases, retries, delays, idempotency keys, and dead-letter queue.</p></div>
+        <div class="feature-card"><div class="icon">📡</div><h3>Event streams</h3><p>Append-only timelines with auto-incrementing sequences. Built for audit and replication.</p></div>
+        <div class="feature-card"><div class="icon">🔍</div><h3>Full-text search</h3><p>SQLite FTS5 with Porter stemming, metadata filters, and recency-weighted BM25 ranking.</p></div>
+        <div class="feature-card"><div class="icon">🤖</div><h3>MCP-native</h3><p>12 built-in MCP tools. AI agents read, write, search, and process jobs without custom code.</p></div>
+        <div class="feature-card"><div class="icon">⚡</div><h3>Multi-mode</h3><p>Embedded, sidecar, or cluster. In-memory or persistent SQLite. Same API everywhere.</p></div>
       </div>
+    </section>
+
+    <!-- ═══ MCP TOOLS ═══ -->
+    <section>
+      <h2 class="section-title">Built-in MCP tools</h2>
+      <p class="section-sub">AI agents interact with thingd through 12 standardized tools — no custom integrations needed.</p>
+      <div class="mcp-card" id="mcp-card">
+        <div class="mcp-grid">
+          <div class="mcp-tool"><span class="name">thing_search</span><span class="desc"> · search objects and events</span></div>
+          <div class="mcp-tool"><span class="name">thing_get</span><span class="desc"> · get object by ID</span></div>
+          <div class="mcp-tool"><span class="name">thing_put</span><span class="desc"> · create or update</span></div>
+          <div class="mcp-tool"><span class="name">thing_delete</span><span class="desc"> · delete object</span></div>
+          <div class="mcp-tool"><span class="name">thing_events_append</span><span class="desc"> · append to stream</span></div>
+          <div class="mcp-tool"><span class="name">thing_events_list</span><span class="desc"> · list stream events</span></div>
+          <div class="mcp-tool"><span class="name">thing_queue_push</span><span class="desc"> · enqueue job</span></div>
+          <div class="mcp-tool"><span class="name">thing_queue_claim</span><span class="desc"> · claim job</span></div>
+          <div class="mcp-tool"><span class="name">thing_queue_ack</span><span class="desc"> · acknowledge success</span></div>
+          <div class="mcp-tool"><span class="name">thing_queue_nack</span><span class="desc"> · retry / fail</span></div>
+          <div class="mcp-tool"><span class="name">thing_queue_list</span><span class="desc"> · list queue jobs</span></div>
+          <div class="mcp-tool"><span class="name">thing_queue_dead</span><span class="desc"> · list dead-letter jobs</span></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══ INSTALL ═══ -->
+    <section>
+      <h2 class="section-title">Get started</h2>
+      <p class="section-sub">Choose your path — SDK, Docker sidecar, or CLI.</p>
+      <div class="install-card" id="install-card">
+        <div class="tabs" id="tabs">
+          <button class="tab active" data-tab="npm">npm</button>
+          <button class="tab" data-tab="docker">Docker</button>
+          <button class="tab" data-tab="cli">CLI</button>
+        </div>
+
+        <div class="code-block" id="code-npm">
+          <span class="prompt">$</span> npm install thingd<br><br>
+          <span class="dim">// app.mjs</span><br>
+          <span class="accent">import</span> { ThingD } <span class="accent">from</span> <span class="string">"thingd"</span>;<br>
+          <span class="accent">const</span> db = <span class="accent">await</span> ThingD.<span class="pink">open</span>(<span class="string">":memory:"</span>);<br>
+          <span class="accent">await</span> db.<span class="pink">put</span>(<span class="string">"notes"</span>, { id: <span class="string">"1"</span>, text: <span class="string">"hello"</span> });<br>
+          <span class="accent">const</span> obj = <span class="accent">await</span> db.<span class="pink">get</span>(<span class="string">"notes"</span>, <span class="string">"1"</span>);<br>
+          console.log(obj.text); <span class="dim">// "hello"</span>
+        </div>
+
+        <div class="code-block" id="code-docker" style="display:none">
+          <span class="prompt">$</span> docker pull sayanmohsin/thingd<br>
+          <span class="prompt">$</span> docker run -p 8757:8757 sayanmohsin/thingd<br><br>
+          <span class="dim">// → HTTP MCP server at http://localhost:8757/mcp</span><br><br>
+          <span class="dim">// With persistence:</span><br>
+          <span class="prompt">$</span> docker run -p 8757:8757 -v ./data:/data sayanmohsin/thingd<br><br>
+          <span class="dim">// With auth:</span><br>
+          <span class="prompt">$</span> docker run -p 8757:8757 -e THINGD_AUTH_TOKEN=secret sayanmohsin/thingd
+        </div>
+
+        <div class="code-block" id="code-cli" style="display:none">
+          <span class="prompt">$</span> npm install -g thingd-cli<br><br>
+          <span class="prompt">$</span> thingd<br>
+          <span class="dim">// → Interactive TUI Dashboard</span><br><br>
+          <span class="prompt">$</span> thingd mcp --driver native<br>
+          <span class="dim">// → MCP stdio server for Claude / Cursor</span><br><br>
+          <span class="prompt">$</span> thingd search &quot;hello world&quot; --limit 5<br>
+          <span class="dim">// → JSON output for scripting</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══ DEPLOY ═══ -->
+    <section>
+      <h2 class="section-title">Deploy your way</h2>
+      <p class="section-sub">Same engine. Same API. Three deployment profiles.</p>
+      <div class="deploy-grid">
+        <div class="deploy-card"><div style="font-size:2rem;margin-bottom:0.5rem">📦</div><h3>Embedded</h3><p>Native Rust binding in-process with your Node app. Zero infra.</p></div>
+        <div class="deploy-card"><div style="font-size:2rem;margin-bottom:0.5rem">🔄</div><h3>Sidecar</h3><p>Standalone MCP server for multi-process or multi-language apps.</p></div>
+        <div class="deploy-card"><div style="font-size:2rem;margin-bottom:0.5rem">🌐</div><h3>Cluster</h3><p>Leader/follower with write forwarding and read replicas. K8s ready.</p></div>
+      </div>
+    </section>
+
+    <!-- ═══ STATS ═══ -->
+    <div class="stats-row" id="stats-row">
+      <div class="stat"><div class="stat-num" data-count="12">0</div><div class="stat-label">MCP tools</div></div>
+      <div class="stat"><div class="stat-num" data-count="4">0</div><div class="stat-label">deployment modes</div></div>
+      <div class="stat"><div class="stat-num" data-count="18">0</div><div class="stat-label">npm releases</div></div>
+      <div class="stat"><div class="stat-num">Apache 2.0</div><div class="stat-label">license</div></div>
     </div>
 
-    <!-- Install -->
-    <div class="install-card">
-      <div class="install-tabs" id="tabs">
-        <button class="install-tab active" data-tab="npm">npm</button>
-        <button class="install-tab" data-tab="docker">Docker</button>
-        <button class="install-tab" data-tab="cli">CLI</button>
-      </div>
-      <div class="install-code" id="code-npm">
-        <span class="prompt">$</span> <span class="text">npm install thingd</span><br><br>
-        <span class="dim">// Then in your code:</span><br>
-        <span class="prompt">$</span> <span class="text">cat &lt;&lt;EOF &gt; app.mjs</span><br>
-        <span class="keyword">import</span> { ThingD } <span class="keyword">from</span> <span class="string">"thingd"</span>;<br>
-        <span class="keyword">const</span> db = <span class="keyword">await</span> <span class="func">ThingD.open</span>(<span class="string">":memory:"</span>);<br>
-        <span class="keyword">await</span> db.<span class="func">put</span>(<span class="string">"notes"</span>, { <span class="keyword">id</span>: <span class="string">"1"</span>, <span class="keyword">text</span>: <span class="string">"hello"</span> });<br>
-        <span class="keyword">const</span> obj = <span class="keyword">await</span> db.<span class="func">get</span>(<span class="string">"notes"</span>, <span class="string">"1"</span>);<br>
-        <span class="func">console.log</span>(obj.text);<br>
-        <span class="dim">EOF</span><br>
-        <span class="prompt">$</span> <span class="text">node app.mjs</span><br>
-        <span class="string">hello</span>
-      </div>
-      <div class="install-code" id="code-docker" style="display:none;">
-        <span class="prompt">$</span> <span class="text">docker pull sayanmohsin/thingd</span><br>
-        <span class="prompt">$</span> <span class="text">docker run -p 8757:8757 sayanmohsin/thingd</span><br><br>
-        <span class="dim">// Server running at http://localhost:8757/mcp</span><br><br>
-        <span class="dim">// With persistence:</span><br>
-        <span class="prompt">$</span> <span class="text">docker run -p 8757:8757 \</span><br>
-        <span class="text">  -v ./data:/data \</span><br>
-        <span class="text">  sayanmohsin/thingd</span><br><br>
-        <span class="dim">// With auth:</span><br>
-        <span class="prompt">$</span> <span class="text">docker run -p 8757:8757 \</span><br>
-        <span class="text">  -e THINGD_AUTH_TOKEN=my-secret \</span><br>
-        <span class="text">  sayanmohsin/thingd</span>
-      </div>
-      <div class="install-code" id="code-cli" style="display:none;">
-        <span class="prompt">$</span> <span class="text">npm install -g thingd-cli</span><br><br>
-        <span class="prompt">$</span> <span class="text">thingd</span><br>
-        <span class="dim">// Interactive TUI Dashboard</span><br><br>
-        <span class="prompt">$</span> <span class="text">thingd mcp --driver native</span><br>
-        <span class="dim">// MCP stdio server for Claude/Cursor</span><br><br>
-        <span class="prompt">$</span> <span class="text">thingd search "hello world"</span><br>
-        <span class="dim">// JSON output for scripting</span>
-      </div>
-    </div>
-
-    <!-- Deployment modes -->
-    <h2 class="section-title">Deploy your way</h2>
-    <p class="section-sub">Same API. Same engine. Different deployment profiles.</p>
-    <div class="modes">
-      <div class="mode">
-        <h3>📦 Embedded</h3>
-        <p>Native Rust binding in-process with your Node.js app. Zero infrastructure.</p>
-      </div>
-      <div class="mode">
-        <h3>🔄 Sidecar</h3>
-        <p>Standalone MCP server alongside your app. Multi-process or multi-language.</p>
-      </div>
-      <div class="mode">
-        <h3>🌐 Cluster</h3>
-        <p>Leader/follower with write forwarding and read replicas. Kubernetes ready.</p>
-      </div>
-    </div>
-
-    <!-- Stats -->
-    <div class="stats">
-      <div class="stat">
-        <div class="stat-num">12</div>
-        <div class="stat-label">MCP tools</div>
-      </div>
-      <div class="stat">
-        <div class="stat-num">4</div>
-        <div class="stat-label">deployment modes</div>
-      </div>
-      <div class="stat">
-        <div class="stat-num">Rust</div>
-        <div class="stat-label">core engine</div>
-      </div>
-      <div class="stat">
-        <div class="stat-num">Apache 2.0</div>
-        <div class="stat-label">license</div>
-      </div>
-    </div>
-
+    <!-- ═══ FOOTER ═══ -->
     <footer>
       <div class="footer-links">
         <a href="https://github.com/sayanmohsin/thingd">GitHub</a>
-        <a href="https://www.npmjs.com/package/thingd">npm SDK</a>
-        <a href="https://www.npmjs.com/package/thingd-cli">npm CLI</a>
+        <a href="https://www.npmjs.com/package/thingd">npm (SDK)</a>
+        <a href="https://www.npmjs.com/package/thingd-cli">npm (CLI)</a>
         <a href="https://hub.docker.com/r/sayanmohsin/thingd">Docker Hub</a>
-        <a href="https://github.com/sayanmohsin/thingd/tree/main/docs">Documentation</a>
+        <a href="https://github.com/sayanmohsin/thingd/tree/main/docs">Docs</a>
       </div>
       thingd is open source under the Apache-2.0 license.
     </footer>
   </div>
 
   <script>
+    // ─── PARTICLES ───
+    const canvas = document.getElementById('particles-canvas');
+    const ctx = canvas.getContext('2d');
+    let particles = [];
+    let mouse = { x: -9999, y: -9999 };
+
+    function resize() {
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
+    }
+    window.addEventListener('resize', resize);
+    resize();
+
+    class Particle {
+      constructor() { this.reset(); }
+      reset() {
+        this.x = Math.random() * canvas.width;
+        this.y = Math.random() * canvas.height;
+        this.vx = (Math.random() - 0.5) * 0.4;
+        this.vy = (Math.random() - 0.5) * 0.4;
+        this.r = Math.random() * 1.5 + 0.5;
+        this.alpha = Math.random() * 0.4 + 0.1;
+      }
+      update() {
+        this.x += this.vx; this.y += this.vy;
+        if (this.x < 0 || this.x > canvas.width) this.vx *= -1;
+        if (this.y < 0 || this.y > canvas.height) this.vy *= -1;
+      }
+      draw() {
+        ctx.beginPath(); ctx.arc(this.x, this.y, this.r, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(88,166,255,${this.alpha})`;
+        ctx.fill();
+      }
+    }
+
+    const pCount = Math.min(80, Math.floor(canvas.width * canvas.height / 12000));
+    for (let i = 0; i < pCount; i++) particles.push(new Particle());
+
+    function drawLines() {
+      for (let i = 0; i < particles.length; i++) {
+        for (let j = i + 1; j < particles.length; j++) {
+          const dx = particles[i].x - particles[j].x;
+          const dy = particles[i].y - particles[j].y;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          if (dist < 120) {
+            ctx.beginPath(); ctx.moveTo(particles[i].x, particles[i].y);
+            ctx.lineTo(particles[j].x, particles[j].y);
+            ctx.strokeStyle = `rgba(88,166,255,${0.06 * (1 - dist / 120)})`;
+            ctx.stroke();
+          }
+        }
+      }
+    }
+
+    function animate() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      particles.forEach(p => { p.update(); p.draw(); });
+      drawLines();
+      requestAnimationFrame(animate);
+    }
+    animate();
+
+    // ─── SCROLL REVEAL ───
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach(e => {
+        if (e.isIntersecting) {
+          e.target.classList.add('visible');
+        }
+      });
+    }, { threshold: 0.15 });
+
+    document.querySelectorAll('.feature-card, .mcp-card, .install-card, .deploy-card').forEach(el => {
+      observer.observe(el);
+    });
+
+    // ─── ANIMATED COUNTERS ───
+    let countersAnimated = false;
+    const counterObserver = new IntersectionObserver((entries) => {
+      entries.forEach(e => {
+        if (e.isIntersecting && !countersAnimated) {
+          countersAnimated = true;
+          document.querySelectorAll('.stat-num[data-count]').forEach(el => {
+            const target = parseInt(el.dataset.count);
+            let current = 0;
+            const step = Math.ceil(target / 30);
+            const interval = setInterval(() => {
+              current += step;
+              if (current >= target) { current = target; clearInterval(interval); }
+              el.textContent = current;
+            }, 40);
+          });
+        }
+      });
+    }, { threshold: 0.5 });
+    const statsRow = document.getElementById('stats-row');
+    if (statsRow) counterObserver.observe(statsRow);
+
+    // ─── TABS ───
     document.getElementById('tabs').addEventListener('click', (e) => {
-      const btn = e.target.closest('.install-tab');
+      const btn = e.target.closest('.tab');
       if (!btn) return;
-
-      document.querySelectorAll('.install-tab').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
       btn.classList.add('active');
-
-      document.querySelectorAll('.install-code').forEach(c => c.style.display = 'none');
+      document.querySelectorAll('.code-block').forEach(c => c.style.display = 'none');
       document.getElementById('code-' + btn.dataset.tab).style.display = 'block';
     });
+
+    // ─── TERMINAL TYPEWRITER ───
+    (function typeTerminal() {
+      const body = document.getElementById('terminal-body');
+      const html = body.innerHTML;
+      body.innerHTML = '';
+      let pos = 0;
+      function type() {
+        if (pos >= html.length) return;
+        const next = html.indexOf('>', pos);
+        const chunkEnd = next !== -1 ? next + 1 : html.length;
+        body.innerHTML = html.substring(0, chunkEnd) + '<span class="cursor-blink"></span>';
+        pos = chunkEnd;
+        setTimeout(type, 40 + Math.random() * 60);
+      }
+      setTimeout(type, 600);
+    })();
   </script>
 </body>
 </html>
