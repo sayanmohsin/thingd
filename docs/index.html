@@ -204,7 +204,7 @@
       padding: 0.35rem 0.5rem;
       background: rgba(255,255,255,0.015);
       border-radius: 4px; color: var(--muted); transition: all .15s;
-      min-width: 0;
+      min-width: 0; flex-wrap: nowrap;
     }
     .mcp-tool:hover { background: rgba(255,255,255,0.04); }
     .mcp-tool .name { color: var(--accent); white-space: nowrap; }
@@ -412,46 +412,46 @@
         <div class="mcp-group">
           <div class="mcp-group-label">Search &amp; Objects</div>
           <div class="mcp-grid">
-            <div class="mcp-tool"><span class="name">thing_search</span><span class="desc">search objects and events</span></div>
-            <div class="mcp-tool"><span class="name">thing_get</span><span class="desc">get object by ID</span></div>
-            <div class="mcp-tool"><span class="name">thing_put</span><span class="desc">create or update</span></div>
-            <div class="mcp-tool"><span class="name">thing_delete</span><span class="desc">delete object</span></div>
-            <div class="mcp-tool"><span class="name">thing_objects_list</span><span class="desc">list all objects</span></div>
+            <div class="mcp-tool"><span class="name">thing_search</span><span class="desc">· search objects and events</span></div>
+            <div class="mcp-tool"><span class="name">thing_get</span><span class="desc">· get object by ID</span></div>
+            <div class="mcp-tool"><span class="name">thing_put</span><span class="desc">· create or update</span></div>
+            <div class="mcp-tool"><span class="name">thing_delete</span><span class="desc">· delete object</span></div>
+            <div class="mcp-tool"><span class="name">thing_objects_list</span><span class="desc">· list all objects</span></div>
           </div>
         </div>
         <div class="mcp-group">
           <div class="mcp-group-label">Events</div>
           <div class="mcp-grid">
-            <div class="mcp-tool"><span class="name">thing_events_append</span><span class="desc">append to stream</span></div>
-            <div class="mcp-tool"><span class="name">thing_events_list</span><span class="desc">list stream events</span></div>
+            <div class="mcp-tool"><span class="name">thing_events_append</span><span class="desc">· append to stream</span></div>
+            <div class="mcp-tool"><span class="name">thing_events_list</span><span class="desc">· list stream events</span></div>
           </div>
         </div>
         <div class="mcp-group">
           <div class="mcp-group-label">Queues</div>
           <div class="mcp-grid">
-            <div class="mcp-tool"><span class="name">thing_queue_push</span><span class="desc">enqueue job</span></div>
-            <div class="mcp-tool"><span class="name">thing_queue_claim</span><span class="desc">claim job</span></div>
-            <div class="mcp-tool"><span class="name">thing_queue_ack</span><span class="desc">acknowledge success</span></div>
-            <div class="mcp-tool"><span class="name">thing_queue_nack</span><span class="desc">retry / fail</span></div>
-            <div class="mcp-tool"><span class="name">thing_queue_list</span><span class="desc">list queue jobs</span></div>
-            <div class="mcp-tool"><span class="name">thing_queue_dead</span><span class="desc">list dead-letter jobs</span></div>
+            <div class="mcp-tool"><span class="name">thing_queue_push</span><span class="desc">· enqueue job</span></div>
+            <div class="mcp-tool"><span class="name">thing_queue_claim</span><span class="desc">· claim job</span></div>
+            <div class="mcp-tool"><span class="name">thing_queue_ack</span><span class="desc">· acknowledge success</span></div>
+            <div class="mcp-tool"><span class="name">thing_queue_nack</span><span class="desc">· retry / fail</span></div>
+            <div class="mcp-tool"><span class="name">thing_queue_list</span><span class="desc">· list queue jobs</span></div>
+            <div class="mcp-tool"><span class="name">thing_queue_dead</span><span class="desc">· list dead-letter jobs</span></div>
           </div>
         </div>
         <div class="mcp-group">
           <div class="mcp-group-label">Metrics</div>
           <div class="mcp-grid">
-            <div class="mcp-tool"><span class="name">thing_count_objects</span><span class="desc">count objects</span></div>
-            <div class="mcp-tool"><span class="name">thing_count_events</span><span class="desc">count events</span></div>
-            <div class="mcp-tool"><span class="name">thing_count_active_jobs</span><span class="desc">count active jobs</span></div>
-            <div class="mcp-tool"><span class="name">thing_count_dead_jobs</span><span class="desc">count dead-letter jobs</span></div>
+            <div class="mcp-tool"><span class="name">thing_count_objects</span><span class="desc">· count objects</span></div>
+            <div class="mcp-tool"><span class="name">thing_count_events</span><span class="desc">· count events</span></div>
+            <div class="mcp-tool"><span class="name">thing_count_active_jobs</span><span class="desc">· count active jobs</span></div>
+            <div class="mcp-tool"><span class="name">thing_count_dead_jobs</span><span class="desc">· count dead-letter jobs</span></div>
           </div>
         </div>
         <div class="mcp-group">
           <div class="mcp-group-label">System</div>
           <div class="mcp-grid">
-            <div class="mcp-tool"><span class="name">thing_list_collections</span><span class="desc">list collections</span></div>
-            <div class="mcp-tool"><span class="name">thing_list_streams</span><span class="desc">list event streams</span></div>
-            <div class="mcp-tool"><span class="name">thing_list_queues</span><span class="desc">list queues</span></div>
+            <div class="mcp-tool"><span class="name">thing_list_collections</span><span class="desc">· list collections</span></div>
+            <div class="mcp-tool"><span class="name">thing_list_streams</span><span class="desc">· list event streams</span></div>
+            <div class="mcp-tool"><span class="name">thing_list_queues</span><span class="desc">· list queues</span></div>
           </div>
         </div>
       </div>
