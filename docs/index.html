@@ -29,6 +29,7 @@
       --gradient-2: linear-gradient(135deg, #ff4500, #ff6a00);
     }
     * { margin: 0; padding: 0; box-sizing: border-box; }
+    html { overflow-x: hidden; }
     body {
       font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
       background: var(--bg);
@@ -78,6 +79,7 @@
     .hero-badges { margin-top: 1.5rem; display: flex; gap: 0.5rem; justify-content: center; flex-wrap: wrap; }
     .hero-badges a { transition: opacity .2s; }
     .hero-badges a:hover { opacity: .75; }
+    .hero-badges img { max-width: 100%; height: auto; }
 
     .hero-cta {
       display: flex; gap: 1rem; justify-content: center; flex-wrap: wrap; margin-top: 2rem;
@@ -535,14 +537,6 @@
           const npm = await npmRes.json();
           const verEl = document.getElementById('version-num');
           if (verEl && npm.version) verEl.textContent = 'v' + npm.version;
-          const termBody = document.getElementById('terminal-body');
-          if (termBody && npm.version) {
-            for (const div of termBody.children) {
-              if (div.textContent.includes('0.18.3')) {
-                div.innerHTML = div.innerHTML.replace('0.18.3', npm.version);
-              }
-            }
-          }
         }
         if (ghRes.ok) {
           const link = ghRes.headers.get('Link');
@@ -564,7 +558,6 @@
     const canvas = document.getElementById('particles-canvas');
     const ctx = canvas.getContext('2d');
     let particles = [];
-    let mouse = { x: -9999, y: -9999 };
 
     function resize() {
       canvas.width = window.innerWidth;
@@ -596,7 +589,6 @@
       }
     }
 
-    const particles = [];
     for (let i = 0; i < 60; i++) particles.push(new Particle());
 
     function drawLines() {
@@ -673,6 +665,18 @@
     (function typeTerminal() {
       const body = document.getElementById('terminal-body');
       const divs = Array.from(body.children);
+
+      // Replace version in stored divs before starting
+      const verEl = document.getElementById('version-num');
+      const version = verEl && verEl.textContent !== '—' ? verEl.textContent.replace(/^v/, '') : null;
+      if (version) {
+        for (const div of divs) {
+          if (div.textContent.includes('0.18.3')) {
+            div.innerHTML = div.innerHTML.replace('0.18.3', version);
+          }
+        }
+      }
+
       body.innerHTML = '';
       let i = 0;
       function type() {
