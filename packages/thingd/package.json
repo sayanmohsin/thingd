@@ -1,7 +1,7 @@
 {
   "name": "thingd",
   "version": "0.0.0-development",
-  "description": "Object-shaped local memory for modern apps.",
+  "description": "A fast object-first data engine for applications and AI agents.",
   "type": "module",
   "author": "Sayan Mohsin",
   "license": "Apache-2.0",

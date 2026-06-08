@@ -2,9 +2,9 @@
 
 [![npm version (SDK)](https://badge.fury.io/js/thingd.svg)](https://www.npmjs.com/package/thingd)
 
-Object-shaped local memory for modern apps. SQLite-simple, MCP-native, with search, events, and durable queues.
+A fast object-first data engine for applications and AI agents.
 
-This is the Node.js SDK for `thingd`. It exposes the intended object/event/queue abstractions with an in-memory store by default. 
+This is the **thingd** Node.js SDK — a high-performance object-first data engine that combines persistent storage, durable queues, event streams, full-text search, and MCP-native access. This package exposes the object/event/queue/search abstractions with an in-memory store by default, with optional native SQLite persistence and remote sidecar connectivity.
 
 > Looking for the admin dashboard and CLI? Check out the [thingd-cli](https://www.npmjs.com/package/thingd-cli) package!
 

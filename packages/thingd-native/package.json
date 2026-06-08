@@ -1,7 +1,7 @@
 {
   "name": "thingd-native",
   "version": "0.0.0-development",
-  "description": "Private native Node.js binding for thingd.",
+  "description": "Native Node.js binding for thingd — a fast object-first data engine for applications and AI agents.",
   "type": "module",
   "publishConfig": {
     "access": "public",

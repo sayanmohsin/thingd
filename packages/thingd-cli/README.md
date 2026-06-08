@@ -2,9 +2,9 @@
 
 [![npm version](https://badge.fury.io/js/thingd-cli.svg)](https://www.npmjs.com/package/thingd-cli)
 
-Command-line interface, Interactive TUI Dashboard, and Model Context Protocol (MCP) server for [thingd](https://www.npmjs.com/package/thingd).
+A fast object-first data engine for applications and AI agents.
 
-This package provides the unified `thingd` binary, which serves as a persistent stdio/HTTP MCP server for editors (Cursor, Claude Desktop), an interactive terminal UI dashboard for database operations, and a scriptable JSON utility to inspect and manage local or remote databases.
+This is the **thingd** CLI — command-line interface, Interactive TUI Dashboard, and MCP server for [thingd](https://www.npmjs.com/package/thingd). It provides the unified `thingd` binary, serving as a persistent stdio/HTTP MCP server for editors (Cursor, Claude Desktop), an interactive terminal UI dashboard for database operations, and a scriptable JSON utility to inspect and manage local or remote thingd databases.
 
 ## Installation
 

@@ -2,22 +2,21 @@
 
 [![npm version (SDK)](https://badge.fury.io/js/thingd.svg)](https://www.npmjs.com/package/thingd) [![npm version (CLI)](https://badge.fury.io/js/thingd-cli.svg)](https://www.npmjs.com/package/thingd-cli)
 
-Object-shaped local memory for modern apps. SQLite-simple, MCP-native, with search, events, and durable queues.
+A fast object-first data engine for applications and AI agents.
 
-`thingd` is an experimental Rust-powered local data engine for applications. It is designed for developers who like the simplicity of SQLite, but want a higher-level object API, programmatic memory, built-in workflow primitives, and first-class MCP access.
+thingd is a high-performance object-first data engine built for modern applications and AI agents. It combines persistent storage, in-memory performance, durable queues, event streams, full-text search, and MCP-native access into a single system that can run embedded, standalone, or in the cloud.
 
-The short version:
+thingd is a fast, object-first data engine designed for modern software and AI-native applications. It provides a simple way to store, search, process, and share data without stitching together multiple infrastructure components.
 
-```txt
-SQLite-like local deployment
-+ Mongo-like object shape
-+ searchable events and memory
-+ full-text and vector-ready search
-+ durable queues for workers and background jobs
-+ graph links, leases, workflows, and semantic cache later
-+ MCP tools for safe programmatic access
-+ optional sidecar/cluster bridge mode
-```
+At its core, thingd stores versioned JSON objects organized into collections, making it easy to work with application data without complex schemas or heavy abstraction layers. Around that foundation, thingd includes durable queues, append-only event streams, full-text search, and AI-native tooling as built-in capabilities rather than external services.
+
+Applications can run thingd entirely in memory for maximum speed, persist data locally for long-term storage, or connect to managed cloud deployments as they become available. The same APIs work across all deployment modes, allowing applications to move from development to production without architectural changes.
+
+thingd is also designed for AI-native workflows. Through built-in MCP support, agents can search records, retrieve data, create objects, process jobs, and interact with application state using standardized tools instead of custom integrations. This makes thingd a shared memory layer that works equally well for application code and AI systems.
+
+For larger deployments, thingd supports leader/follower architectures that provide a single write authority while scaling reads across replicas. The result is a system that remains simple to deploy locally while growing into production-scale environments when needed.
+
+Instead of combining a database, queue system, search engine, event store, and agent integration layer, thingd brings them together in a single object-first platform built for speed, simplicity, and AI-native development.
 
 ## Status
 
