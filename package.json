@@ -6,7 +6,7 @@
   "license": "Apache-2.0",
   "packageManager": "pnpm@11.5.2",
   "scripts": {
-    "postinstall": "lefthook install",
+    "postinstall": "lefthook install 2>/dev/null || true",
     "build": "pnpm -r --if-present build",
     "bench:node": "pnpm build && node packages/thingd/bench/node-bench.mjs",
     "bench:rust": "cargo run --release -p thingd-core --example storage_bench --features sqlite",
