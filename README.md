@@ -652,7 +652,8 @@ pnpm release:dry-run
 
 ## Development
 
-Development planning and phase tracking is maintained in the private **thingd-cloud** repo.
+Development planning and phase tracking is maintained in the private
+**thingd-cloud** repo.
 
 Start with the local Node/package gate:
 

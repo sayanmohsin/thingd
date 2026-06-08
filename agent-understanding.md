@@ -47,7 +47,7 @@ In sidecar mode, `thingd-cli` runs as an MCP server (stdio or HTTP), and the SDK
 
 ## What is "vision"?
 
-"Vision" is **not** about computer vision. It is the **product vision and design philosophy** document for thingd, maintained in the private **thingd-cloud** repo. It defines:
+"Vision" is **not** about computer vision. It is the **product vision and design philosophy** document for thingd, maintained in the private **thingd-cloud** repo (at `docs/vision.md`). It defines:
 
 ### First Principle
 > Keep deployment feel close to SQLite, but expose primitives closer to how modern AI-native apps work.
@@ -64,4 +64,4 @@ In sidecar mode, `thingd-cli` runs as an MCP server (stdio or HTTP), and the SDK
 - Not pretending local files support multi-primary writes
 - Not building a huge distributed DB before local experience is excellent
 
-Vision.md is treated as a **canonical north star** — referenced from README, roadmap, coding standards, and doc-maintenance, and must be updated whenever MCP tool names or major design decisions change.
+The vision doc is the design north star for planning — it is maintained in `thingd-cloud/docs/vision.md` and references from there.
