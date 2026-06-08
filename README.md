@@ -610,6 +610,7 @@ Project conventions live in checked-in files so this private repo stays easy to 
 - [rustfmt.toml](./rustfmt.toml) controls Rust formatting.
 - [Cargo.toml](./Cargo.toml) defines workspace Rust and Clippy lints.
 - [docs/roadmap.md](./docs/roadmap.md) is the canonical build order and phase exit criteria.
+- [docs/faq.md](./docs/faq.md) answers hard questions about consistency, durability, performance, and production readiness.
 - [docs/doc-maintenance.md](./docs/doc-maintenance.md) lists which docs to update when code changes.
 - [docs/why-agents.md](./docs/why-agents.md) explains the agent leverage story.
 - [docs/agent-patterns.md](./docs/agent-patterns.md) documents memory, scheduler, and queue patterns.
