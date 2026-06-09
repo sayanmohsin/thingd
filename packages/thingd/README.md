@@ -1,6 +1,7 @@
 # thingd
 
-[![npm version (SDK)](https://badge.fury.io/js/thingd.svg)](https://www.npmjs.com/package/thingd)
+[![npm downloads (SDK)](https://img.shields.io/npm/dm/thingd?label=downloads&logo=npm&color=ff6a00)](https://www.npmjs.com/package/thingd)
+[![npm version (SDK)](https://img.shields.io/npm/v/thingd?label=version&logo=npm&color=ff6a00)](https://www.npmjs.com/package/thingd)
 
 A fast object-first data engine for applications and AI agents.
 

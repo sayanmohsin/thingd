@@ -1,6 +1,7 @@
 # thingd-cli
 
-[![npm version](https://badge.fury.io/js/thingd-cli.svg)](https://www.npmjs.com/package/thingd-cli)
+[![npm downloads (CLI)](https://img.shields.io/npm/dm/thingd-cli?label=downloads&logo=npm&color=ff6a00)](https://www.npmjs.com/package/thingd-cli)
+[![npm version (CLI)](https://img.shields.io/npm/v/thingd-cli?label=version&logo=npm&color=ff6a00)](https://www.npmjs.com/package/thingd-cli)
 
 A fast object-first data engine for applications and AI agents.
 
