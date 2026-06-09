@@ -1,6 +1,9 @@
 # thingd
 
-[![npm version (SDK)](https://badge.fury.io/js/thingd.svg)](https://www.npmjs.com/package/thingd) [![npm version (CLI)](https://badge.fury.io/js/thingd-cli.svg)](https://www.npmjs.com/package/thingd-cli)
+[![npm downloads (SDK)](https://img.shields.io/npm/dm/thingd?label=SDK&logo=npm&color=ff6a00)](https://www.npmjs.com/package/thingd)
+[![npm downloads (CLI)](https://img.shields.io/npm/dm/thingd-cli?label=CLI&logo=npm&color=ff6a00)](https://www.npmjs.com/package/thingd-cli)
+[![Docker pulls](https://img.shields.io/docker/pulls/sayanmohsin/thingd?label=Docker&logo=docker&color=ff6a00)](https://hub.docker.com/r/sayanmohsin/thingd)
+[![GitHub stars](https://img.shields.io/github/stars/sayanmohsin/thingd?label=Stars&logo=github&color=ff6a00)](https://github.com/sayanmohsin/thingd)
 
 A fast object-first data engine for applications and AI agents.
 

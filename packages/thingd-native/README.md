@@ -1,5 +1,8 @@
 # thingd-native
 
+[![npm downloads (native)](https://img.shields.io/npm/dm/thingd-native?label=downloads&logo=npm&color=ff6a00)](https://www.npmjs.com/package/thingd-native)
+[![npm version (native)](https://img.shields.io/npm/v/thingd-native?label=version&logo=npm&color=ff6a00)](https://www.npmjs.com/package/thingd-native)
+
 Native Node.js binding for `thingd` — a fast object-first data engine for applications and AI agents.
 
 This package provides the native SQLite persistence layer for the thingd SDK. It is currently private and opt-in, loaded only when `driver: "native"` is requested.
