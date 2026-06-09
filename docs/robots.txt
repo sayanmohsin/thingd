@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://sayanmohsin.github.io/thingd/sitemap.xml
