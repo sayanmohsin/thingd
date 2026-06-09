@@ -31,7 +31,7 @@ const DEFAULT_AUDIT_ACTOR = "mcp-client";
 const DEFAULT_AUDIT_SOURCE = "thingd-mcp";
 
 export function resolveThingdMcpAuditOptions(
-  options: ThingdMcpAuditOptions | false | undefined,
+  options: ThingdMcpAuditOptions | false | undefined
 ): ResolvedThingdMcpAuditOptions {
   if (options === false || options?.enabled === false) {
     return {
@@ -53,7 +53,7 @@ export function resolveThingdMcpAuditOptions(
 export async function appendMcpAuditEvent(
   db: ThingD,
   options: ResolvedThingdMcpAuditOptions,
-  event: ThingdMcpAuditEventOptions,
+  event: ThingdMcpAuditEventOptions
 ): Promise<void> {
   if (!options.enabled) {
     return;

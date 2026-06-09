@@ -97,7 +97,7 @@ export class CloudThingStore implements ThingStore {
   pushJob(
     queue: string,
     payload: QueueJobPayload,
-    options: QueueJobOptions = {},
+    options: QueueJobOptions = {}
   ): Promise<QueueJob> {
     return this.callTool("thing_queue_push", {
       queue,
@@ -192,7 +192,7 @@ export class CloudThingStore implements ThingStore {
 
     if (result.isError) {
       const text = result.content.find(
-        (part): part is { type: "text"; text: string } => part.type === "text",
+        (part): part is { type: "text"; text: string } => part.type === "text"
       )?.text;
       throw new Error(text ?? `thingd cloud tool "${name}" returned an error`);
     }
@@ -217,7 +217,7 @@ function resolveMcpUrl(value: string): string {
 function parseJsonToolResult<T>(result: CallToolResult): T {
   const text = result.content.find(
     (part): part is { type: "text"; text: string } =>
-      part.type === "text" && typeof part.text === "string",
+      part.type === "text" && typeof part.text === "string"
   )?.text;
 
   if (!text) {

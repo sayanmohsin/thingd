@@ -116,7 +116,7 @@ export class InMemoryThingStore implements ThingStore {
   async pushJob(
     queue: string,
     payload: QueueJobPayload,
-    options: QueueJobOptions = {},
+    options: QueueJobOptions = {}
   ): Promise<QueueJob> {
     return this.withLock(() => {
       const jobs = this.getQueue(queue);
@@ -150,7 +150,7 @@ export class InMemoryThingStore implements ThingStore {
       const job = this.queues
         .get(queue)
         ?.find(
-          (candidate) => candidate.status === "ready" && candidate.availableAt <= now.toISOString(),
+          (candidate) => candidate.status === "ready" && candidate.availableAt <= now.toISOString()
         );
 
       if (!job) {
@@ -161,7 +161,7 @@ export class InMemoryThingStore implements ThingStore {
       job.attempts += 1;
       job.leasedAt = now.toISOString();
       job.leaseExpiresAt = new Date(
-        now.getTime() + (options.leaseMs ?? DEFAULT_LEASE_MS),
+        now.getTime() + (options.leaseMs ?? DEFAULT_LEASE_MS)
       ).toISOString();
 
       return this.cloneJob(job);
@@ -194,7 +194,7 @@ export class InMemoryThingStore implements ThingStore {
   async nackJob(
     queue: string,
     jobId: string,
-    options: QueueNackOptions = {},
+    options: QueueNackOptions = {}
   ): Promise<QueueJobResult> {
     return this.withLock(() => {
       const job = this.findJob(queue, jobId);

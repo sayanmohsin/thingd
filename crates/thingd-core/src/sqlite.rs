@@ -1126,7 +1126,7 @@ fn row_to_queue_job(row: &rusqlite::Row<'_>) -> rusqlite::Result<QueueJob> {
                     rusqlite::types::Type::Text,
                     Box::new(std::fmt::Error),
                 ))
-            }
+            },
         },
         available_at_ms: row.get(6)?,
         leased_at_ms: row.get(7)?,
@@ -1215,12 +1215,12 @@ fn collect_strings(value: &serde_json::Value, out: &mut String) {
                 out.push(' ');
             }
             out.push_str(s);
-        }
+        },
         serde_json::Value::Array(arr) => {
             for val in arr {
                 collect_strings(val, out);
             }
-        }
+        },
         serde_json::Value::Object(obj) => {
             for (key, val) in obj {
                 if !out.is_empty() {
@@ -1229,20 +1229,20 @@ fn collect_strings(value: &serde_json::Value, out: &mut String) {
                 out.push_str(key);
                 collect_strings(val, out);
             }
-        }
+        },
         serde_json::Value::Number(num) => {
             if !out.is_empty() {
                 out.push(' ');
             }
             out.push_str(&num.to_string());
-        }
+        },
         serde_json::Value::Bool(b) => {
             if !out.is_empty() {
                 out.push(' ');
             }
             out.push_str(&b.to_string());
-        }
-        serde_json::Value::Null => {}
+        },
+        serde_json::Value::Null => {},
     }
 }
 

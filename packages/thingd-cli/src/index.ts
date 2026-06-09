@@ -53,7 +53,7 @@ export type CliContext = {
 function writeLog(
   target: WritableLike,
   data: { label: string; value: string }[],
-  header?: string,
+  header?: string
 ): void {
   const W = 60;
   if (header) {
@@ -69,7 +69,7 @@ function writeLog(
 function writeLogBullets(
   target: WritableLike,
   items: { icon?: string; text: string; indent?: number }[],
-  header?: string,
+  header?: string
 ): void {
   const W = 60;
   if (header) {
@@ -156,7 +156,7 @@ const BOOLEAN_FLAGS = new Set([
 
 export async function runCli(
   args = process.argv.slice(2),
-  options: RunCliOptions = {},
+  options: RunCliOptions = {}
 ): Promise<number> {
   // Auto-detect native binary for global/local dev execution
   if (!process.env.THINGD_NATIVE_PATH) {
@@ -176,7 +176,7 @@ export async function runCli(
           "thingd-native",
           "prebuilds",
           `${platform}-${arch}`,
-          "thingd_native.node",
+          "thingd_native.node"
         ),
         // workspace sibling (local dev)
         join(cliDir, "..", "thingd-native", "dist", "thingd_native.node"),
@@ -186,7 +186,7 @@ export async function runCli(
           "thingd-native",
           "prebuilds",
           `${platform}-${arch}`,
-          "thingd_native.node",
+          "thingd_native.node"
         ),
       ];
       for (const candidate of candidates) {
@@ -230,7 +230,7 @@ export async function runCli(
       {
         error: error instanceof Error ? error.message : String(error),
       },
-      context.pretty,
+      context.pretty
     );
     return 1;
   }
@@ -362,12 +362,12 @@ async function runBench(context: CliContext): Promise<void> {
       execSync("cargo --version", { stdio: "ignore" });
     } catch {
       throw new Error(
-        "Rust toolchain (cargo) is not installed or not in the PATH. Cannot run Rust benchmarks.",
+        "Rust toolchain (cargo) is not installed or not in the PATH. Cannot run Rust benchmarks."
       );
     }
 
     context.stderr.write(
-      `\n${pc.bold("Running Rust storage benchmark")} (Count: ${pc.cyan(count)})...\n\n`,
+      `\n${pc.bold("Running Rust storage benchmark")} (Count: ${pc.cyan(count)})...\n\n`
     );
 
     const { spawn } = await import("node:child_process");
@@ -388,7 +388,7 @@ async function runBench(context: CliContext): Promise<void> {
       {
         stdio: "inherit",
         cwd: resolve(resolveCliPath(), "../../../.."),
-      },
+      }
     );
 
     return new Promise((resolvePromise, rejectPromise) => {
@@ -419,7 +419,7 @@ async function runStatus(context: CliContext): Promise<void> {
           { label: "Driver", value: pc.cyan(connection.driver ?? "memory") },
           { label: "Path", value: pc.dim(connection.path) },
         ],
-        "thingd  status",
+        "thingd  status"
       );
       return;
     }
@@ -430,7 +430,7 @@ async function runStatus(context: CliContext): Promise<void> {
         driver: connection.driver ?? "memory",
         path: connection.path,
       },
-      context.pretty,
+      context.pretty
     );
     return;
   }
@@ -484,7 +484,7 @@ async function runStatus(context: CliContext): Promise<void> {
       lastReplicatedSequence,
       replicationLag,
     },
-    context.pretty,
+    context.pretty
   );
 }
 
@@ -493,7 +493,7 @@ async function runTools(context: CliContext): Promise<void> {
 
   if (!connection.cloud) {
     throw new Error(
-      "tools requires --url or THINGD_URL because tools are exposed by the MCP runtime",
+      "tools requires --url or THINGD_URL because tools are exposed by the MCP runtime"
     );
   }
 
@@ -511,7 +511,7 @@ async function runTools(context: CliContext): Promise<void> {
             },
           }
         : undefined,
-    },
+    }
   );
 
   try {
@@ -525,7 +525,7 @@ async function runTools(context: CliContext): Promise<void> {
           description: tool.description,
         })),
       },
-      context.pretty,
+      context.pretty
     );
   } finally {
     await client.close();
@@ -561,7 +561,7 @@ async function runSearch(context: CliContext): Promise<void> {
       writeLogBullets(
         context.stdout,
         bullets.map((t) => ({ text: t })),
-        `thingd  search  ${query}`,
+        `thingd  search  ${query}`
       );
       return;
     }
@@ -585,7 +585,7 @@ async function runObjects(context: CliContext): Promise<void> {
         writeLogBullets(
           context.stdout,
           bullets.map((t) => ({ text: t })),
-          `thingd  objects  list  ${collection}`,
+          `thingd  objects  list  ${collection}`
         );
       } else {
         writeJson(context.stdout, objects, false);
@@ -625,7 +625,7 @@ async function runEvents(context: CliContext): Promise<void> {
         writeLogBullets(
           context.stdout,
           streams.map((s) => ({ text: pc.green(s), icon: pc.green("●") })),
-          "thingd  events  streams",
+          "thingd  events  streams"
         );
       } else {
         writeJson(context.stdout, streams, false);
@@ -646,7 +646,7 @@ async function runEvents(context: CliContext): Promise<void> {
         writeLogBullets(
           context.stdout,
           bullets.map((t) => ({ text: t, icon: pc.green("●") })),
-          stream ? `thingd  events  list  ${stream}` : "thingd  events  list",
+          stream ? `thingd  events  list  ${stream}` : "thingd  events  list"
         );
       } else {
         writeJson(context.stdout, events, false);
@@ -675,7 +675,7 @@ async function runCollections(context: CliContext): Promise<void> {
         writeLogBullets(
           context.stdout,
           collections.map((c) => ({ text: pc.cyan(c) })),
-          "thingd  collections  list",
+          "thingd  collections  list"
         );
       } else {
         writeJson(context.stdout, collections, false);
@@ -695,7 +695,7 @@ async function runStreams(context: CliContext): Promise<void> {
         writeLogBullets(
           context.stdout,
           streams.map((s) => ({ text: pc.green(s), icon: pc.green("●") })),
-          "thingd  streams  list",
+          "thingd  streams  list"
         );
       } else {
         writeJson(context.stdout, streams, false);
@@ -723,7 +723,7 @@ async function runMetrics(context: CliContext): Promise<void> {
           { label: "Active Jobs", value: pc.yellow(String(activeJobs)) },
           { label: "Dead Jobs", value: pc.red(String(deadJobs)) },
         ],
-        "thingd  metrics",
+        "thingd  metrics"
       );
       return;
     }
@@ -735,7 +735,7 @@ async function runMetrics(context: CliContext): Promise<void> {
         activeJobs,
         deadJobs,
       },
-      context.pretty,
+      context.pretty
     );
   });
 }
@@ -750,7 +750,7 @@ async function runQueues(context: CliContext): Promise<void> {
         writeLogBullets(
           context.stdout,
           queues.map((q) => ({ text: pc.magenta(q), icon: pc.magenta("◇") })),
-          "thingd  queues  list-all",
+          "thingd  queues  list-all"
         );
       } else {
         writeJson(context.stdout, queues, false);
@@ -779,7 +779,7 @@ async function runQueues(context: CliContext): Promise<void> {
             { label: "Dead", value: pc.red(String(totalDead)) },
             { label: "Total Active", value: String(totalActive) },
           ],
-          "thingd  queues  stats",
+          "thingd  queues  stats"
         );
         return;
       }
@@ -793,7 +793,7 @@ async function runQueues(context: CliContext): Promise<void> {
           leased: leasedJobs.length,
           dead: totalDead,
         },
-        false,
+        false
       );
       return;
     }
@@ -821,7 +821,7 @@ async function runQueues(context: CliContext): Promise<void> {
       writeJson(
         context.stdout,
         await queue.ack(requiredToken(context.parsed, 3, "job id")),
-        context.pretty,
+        context.pretty
       );
       return;
     }
@@ -834,7 +834,7 @@ async function runQueues(context: CliContext): Promise<void> {
       writeJson(
         context.stdout,
         await queue.nack(requiredToken(context.parsed, 3, "job id"), compactOptions(options)),
-        context.pretty,
+        context.pretty
       );
       return;
     }
@@ -849,7 +849,7 @@ async function runQueues(context: CliContext): Promise<void> {
         writeLogBullets(
           context.stdout,
           bullets.map((t) => ({ text: t, icon: pc.cyan("●") })),
-          `thingd  queues  list  ${queueName}`,
+          `thingd  queues  list  ${queueName}`
         );
       } else {
         writeJson(context.stdout, jobs, false);
@@ -867,7 +867,7 @@ async function runQueues(context: CliContext): Promise<void> {
         writeLogBullets(
           context.stdout,
           bullets.map((t) => ({ text: t, icon: pc.red("○") })),
-          `thingd  queues  dead  ${queueName}`,
+          `thingd  queues  dead  ${queueName}`
         );
       } else {
         writeJson(context.stdout, jobs, false);
@@ -881,7 +881,7 @@ async function runQueues(context: CliContext): Promise<void> {
 
 export async function withDb(
   context: CliContext,
-  callback: (db: ThingD) => Promise<void>,
+  callback: (db: ThingD) => Promise<void>
 ): Promise<void> {
   const connection = resolveConnection(context);
   const db = await ThingD.open({
@@ -1068,7 +1068,7 @@ function parseJsonRecord(value: string): Record<string, unknown> {
 
 function compactOptions<T extends Record<string, unknown>>(options: T): T {
   return Object.fromEntries(
-    Object.entries(options).filter(([, value]) => value !== undefined),
+    Object.entries(options).filter(([, value]) => value !== undefined)
   ) as T;
 }
 
@@ -1153,7 +1153,7 @@ async function runDashboard(context: CliContext): Promise<void> {
     `\n${pc.bold(pc.blue("thingd Inspector Dashboard"))}\n` +
       `Starting local REST server on ${pc.cyan(`http://localhost:${port}`)}...\n` +
       `Database path: ${pc.green(connection.path)}\n` +
-      `Storage engine: ${pc.cyan(connection.driver || "memory")}\n\n`,
+      `Storage engine: ${pc.cyan(connection.driver || "memory")}\n\n`
   );
 
   const { startDashboardServer } = await import("./dashboard/server.js");
@@ -1161,7 +1161,7 @@ async function runDashboard(context: CliContext): Promise<void> {
 
   context.stderr.write(
     `${pc.green("✔ Dashboard successfully loaded.")}\n` +
-      `Opening browser... (Press ${pc.yellow("Ctrl+C")} to stop the server)\n\n`,
+      `Opening browser... (Press ${pc.yellow("Ctrl+C")} to stop the server)\n\n`
   );
 
   await openBrowser(`http://localhost:${port}`);

@@ -18,7 +18,7 @@ export function createThingdMcpServer(db: ThingD, options: ThingdMcpServerOption
     {
       instructions:
         "Use thingd tools to search, read, write, and queue work in an object-shaped local memory store. Prefer searching before writing duplicate memory.",
-    },
+    }
   );
 
   registerThingdTools(server, db, {
@@ -55,13 +55,13 @@ export function createThingdMcpServer(db: ThingD, options: ThingdMcpServerOption
                 uri: `thingd://collections/${name}`,
               })),
               null,
-              2,
+              2
             ),
             mimeType: "application/json",
           },
         ],
       };
-    },
+    }
   );
 
   return server;

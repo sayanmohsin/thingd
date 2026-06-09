@@ -83,7 +83,7 @@ export async function runInstall(context: CliContext): Promise<void> {
 
     // 3. Driver
     const answerDriver = await askQuestion(
-      `Driver [native / memory] (default ${pc.cyan(driverDefault)}): `,
+      `Driver [native / memory] (default ${pc.cyan(driverDefault)}): `
     );
     const chosenDriver = answerDriver.trim().toLowerCase();
     if (chosenDriver === "native" || chosenDriver === "memory") {
@@ -120,7 +120,7 @@ export async function runInstall(context: CliContext): Promise<void> {
     context.stderr.write(`    ${pc.green("✓")} Database path:  ${pc.cyan(dbPath)}\n`);
     context.stderr.write(`    ${pc.green("✓")} Driver:         ${pc.cyan(driver)}\n`);
     context.stderr.write(
-      `    ${hasNative ? pc.green("✓") : pc.yellow("⚠")} Native Addon:  ${bindingStatus}\n`,
+      `    ${hasNative ? pc.green("✓") : pc.yellow("⚠")} Native Addon:  ${bindingStatus}\n`
     );
     if (globalBin) {
       context.stderr.write(`    ${pc.green("✓")} Command:        ${pc.cyan(globalBin)}\n\n`);
@@ -160,7 +160,7 @@ export async function runInstall(context: CliContext): Promise<void> {
   if (showCursor) {
     context.stderr.write(`  ${pc.bold("Cursor:")}\n`);
     context.stderr.write(
-      `    Paste this into Cursor Settings → Features → MCP → Add New MCP Server:\n\n`,
+      `    Paste this into Cursor Settings → Features → MCP → Add New MCP Server:\n\n`
     );
 
     const fullConfig: McpServersBlock = {
@@ -184,7 +184,7 @@ export async function runInstall(context: CliContext): Promise<void> {
 
   if (choice === "1") {
     context.stderr.write(
-      `\n  Restart Claude Desktop or Antigravity to activate. Cursor activates immediately.\n\n`,
+      `\n  Restart Claude Desktop or Antigravity to activate. Cursor activates immediately.\n\n`
     );
   } else if (choice === "2") {
     context.stderr.write(`\n  Restart Claude Desktop to activate.\n\n`);
@@ -270,7 +270,7 @@ function generateMcpConfig(
   nodePath: string,
   cliPath: string,
   dbPath: string,
-  driver: string,
+  driver: string
 ): McpServerConfig {
   return {
     command: nodePath,
@@ -292,7 +292,7 @@ function updateClaudeDesktopConfig(config: McpServerConfig): ClaudeUpdateResult 
     "Library",
     "Application Support",
     "Claude",
-    "claude_desktop_config.json",
+    "claude_desktop_config.json"
   );
 
   if (!existsSync(configPath)) {

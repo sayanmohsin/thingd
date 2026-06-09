@@ -25,14 +25,25 @@
     "indentStyle": "space",
     "indentWidth": 2,
     "lineWidth": 100,
-    "lineEnding": "lf"
+    "lineEnding": "lf",
+    "formatWithErrors": false
   },
   "linter": {
     "enabled": true,
     "rules": {
       "recommended": true,
+      "correctness": {
+        "noUnusedImports": "error",
+        "noUnusedVariables": "error",
+        "noUnusedFunctionParameters": "warn"
+      },
       "style": {
-        "noCommonJs": "error"
+        "noCommonJs": "error",
+        "noNonNullAssertion": "warn",
+        "useBlockStatements": "error"
+      },
+      "suspicious": {
+        "noDoubleEquals": "error"
       }
     }
   },
@@ -51,7 +62,12 @@
     "formatter": {
       "quoteStyle": "double",
       "semicolons": "always",
-      "trailingCommas": "all"
+      "trailingCommas": "es5",
+      "arrowParentheses": "always",
+      "bracketSameLine": false,
+      "bracketSpacing": true,
+      "jsxQuoteStyle": "double",
+      "attributePosition": "auto"
     }
   },
   "json": {

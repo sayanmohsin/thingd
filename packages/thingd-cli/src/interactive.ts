@@ -18,10 +18,14 @@ function highlightJson(val: unknown): string {
       if (/^"/.test(match)) {
         return /:$/.test(match) ? pc.cyan(match) : pc.green(match);
       }
-      if (/true|false/.test(match)) return pc.magenta(match);
-      if (/null/.test(match)) return pc.dim(match);
+      if (/true|false/.test(match)) {
+        return pc.magenta(match);
+      }
+      if (/null/.test(match)) {
+        return pc.dim(match);
+      }
       return pc.yellow(match);
-    },
+    }
   );
 }
 
@@ -122,7 +126,7 @@ let formState: FormState | null = null;
 function openForm(
   title: string,
   fields: (Partial<FormField> & { id: string; label: string })[],
-  onSubmit: (vals: Record<string, string>) => Promise<void>,
+  onSubmit: (vals: Record<string, string>) => Promise<void>
 ) {
   formState = {
     active: true,
@@ -143,10 +147,14 @@ function openForm(
       loadedItemId = ""; // Force reload
       draw();
       const n = buildTree()[cursorIndex];
-      if (n) scheduleLoad(n);
+      if (n) {
+        scheduleLoad(n);
+      }
     },
     onSubmit: async (vals) => {
-      if (!formState) return;
+      if (!formState) {
+        return;
+      }
       formState.isSubmitting = true;
       formState.error = undefined;
       draw();
@@ -158,7 +166,9 @@ function openForm(
         await fetchResources();
         draw();
         const n = buildTree()[cursorIndex];
-        if (n) scheduleLoad(n);
+        if (n) {
+          scheduleLoad(n);
+        }
       } catch (err: unknown) {
         if (formState) {
           formState.error =
@@ -181,7 +191,9 @@ function drawSparkline(data: number[], baselineMax = 0, width = SPARK_WIDTH): st
   const dataChars = ["\u2581", "▂", "▃", "▄", "▅", "▆", "▇", "█"];
   const track = "\u2581"; // Lower 1/8 block as baseline
 
-  if (data.length === 0) return track.repeat(width);
+  if (data.length === 0) {
+    return track.repeat(width);
+  }
 
   const recent = data.slice(-width);
   const padLen = width - recent.length;
@@ -197,7 +209,9 @@ function drawSparkline(data: number[], baselineMax = 0, width = SPARK_WIDTH): st
 
   result += recent
     .map((v) => {
-      if (v === 0) return track;
+      if (v === 0) {
+        return track;
+      }
       const ratio = v / max;
       const idx = Math.max(0, Math.min(dataChars.length - 1, Math.floor(ratio * dataChars.length)));
 
@@ -210,9 +224,13 @@ function drawSparkline(data: number[], baselineMax = 0, width = SPARK_WIDTH): st
 
 function formatUptime(ms: number): string {
   const s = Math.floor(ms / 1000);
-  if (s < 60) return `${s}s`;
+  if (s < 60) {
+    return `${s}s`;
+  }
   const m = Math.floor(s / 60);
-  if (m < 60) return `${m}m ${s % 60}s`;
+  if (m < 60) {
+    return `${m}m ${s % 60}s`;
+  }
   const h = Math.floor(m / 60);
   return `${h}h ${m % 60}m`;
 }
@@ -226,8 +244,12 @@ async function fetchResourcesFallback() {
     const defaultCols = new Set<string>(["decisions", "load-test"]);
     const defaultStrs = new Set<string>(["project:thingd", "load-events", "activity-log"]);
 
-    for (const c of nativeCollections) defaultCols.add(c);
-    for (const s of nativeStreams) defaultStrs.add(s);
+    for (const c of nativeCollections) {
+      defaultCols.add(c);
+    }
+    for (const s of nativeStreams) {
+      defaultStrs.add(s);
+    }
 
     collections = Array.from(defaultCols).sort();
     streams = Array.from(defaultStrs).sort();
@@ -318,42 +340,54 @@ async function fetchResources(): Promise<void> {
     objectsHistory = new Array(60).fill(totalObjects);
   } else {
     objectsHistory.push(totalObjects);
-    if (objectsHistory.length > 60) objectsHistory.shift();
+    if (objectsHistory.length > 60) {
+      objectsHistory.shift();
+    }
   }
 
   if (eventsHistory.length === 0) {
     eventsHistory = new Array(60).fill(totalEventsCount);
   } else {
     eventsHistory.push(totalEventsCount);
-    if (eventsHistory.length > 60) eventsHistory.shift();
+    if (eventsHistory.length > 60) {
+      eventsHistory.shift();
+    }
   }
 
   if (activeJobsHistory.length === 0) {
     activeJobsHistory = new Array(60).fill(totalActiveJobsCount);
   } else {
     activeJobsHistory.push(totalActiveJobsCount);
-    if (activeJobsHistory.length > 60) activeJobsHistory.shift();
+    if (activeJobsHistory.length > 60) {
+      activeJobsHistory.shift();
+    }
   }
 
   if (deadJobsHistory.length === 0) {
     deadJobsHistory = new Array(60).fill(totalDeadJobsCount);
   } else {
     deadJobsHistory.push(totalDeadJobsCount);
-    if (deadJobsHistory.length > 60) deadJobsHistory.shift();
+    if (deadJobsHistory.length > 60) {
+      deadJobsHistory.shift();
+    }
   }
 
   if (objectWriteRateHistory.length === 0) {
     objectWriteRateHistory = new Array(60).fill(objectWriteRate);
   } else {
     objectWriteRateHistory.push(objectWriteRate);
-    if (objectWriteRateHistory.length > 60) objectWriteRateHistory.shift();
+    if (objectWriteRateHistory.length > 60) {
+      objectWriteRateHistory.shift();
+    }
   }
 
   if (eventAppendRateHistory.length === 0) {
     eventAppendRateHistory = new Array(60).fill(eventAppendRate);
   } else {
     eventAppendRateHistory.push(eventAppendRate);
-    if (eventAppendRateHistory.length > 60) eventAppendRateHistory.shift();
+    if (eventAppendRateHistory.length > 60) {
+      eventAppendRateHistory.shift();
+    }
   }
 
   // Database Size (only if native)
@@ -368,7 +402,9 @@ async function fetchResources(): Promise<void> {
     dbSizeHistory = new Array(60).fill(sizeKb);
   } else {
     dbSizeHistory.push(sizeKb);
-    if (dbSizeHistory.length > 60) dbSizeHistory.shift();
+    if (dbSizeHistory.length > 60) {
+      dbSizeHistory.shift();
+    }
   }
 }
 
@@ -571,8 +607,12 @@ function scheduleLoad(node: TreeNode) {
     }
     return;
   }
-  if (loadTimer) clearTimeout(loadTimer);
-  if (loadedItemId === node.id) return;
+  if (loadTimer) {
+    clearTimeout(loadTimer);
+  }
+  if (loadedItemId === node.id) {
+    return;
+  }
 
   loadedItemId = node.id;
   viewerLines = [pc.dim("Loading...")];
@@ -669,9 +709,13 @@ async function loadContent(node: TreeNode): Promise<void> {
       const dbSizeStr = driver === "native" ? `${sizeKb} KB` : "--";
 
       let driverName = "Unknown";
-      if (driver === "memory") driverName = "In-Memory";
-      else if (driver === "native") driverName = "SQLite";
-      else if (driver === "cloud") driverName = "Cloud";
+      if (driver === "memory") {
+        driverName = "In-Memory";
+      } else if (driver === "native") {
+        driverName = "SQLite";
+      } else if (driver === "cloud") {
+        driverName = "Cloud";
+      }
 
       // ── Metrics Layout (opencode style: clean groups, no horizontal rules)
       content += ` ${pc.bold("Capacity & Storage")}\n`;
@@ -735,7 +779,9 @@ function draw() {
   } else if (cursorIndex >= tree.length) {
     cursorIndex = tree.length - 1;
   }
-  if (cursorIndex < 0) cursorIndex = 0;
+  if (cursorIndex < 0) {
+    cursorIndex = 0;
+  }
 
   // Scroll sidebar
   if (cursorIndex >= scrollOffset + bodyH) {
@@ -763,7 +809,9 @@ function draw() {
     viewerLines = [` ${pc.cyan(formState.title)}`, ""];
     for (let i = 0; i < formState.fields.length; i++) {
       const f = formState.fields[i];
-      if (!f) continue;
+      if (!f) {
+        continue;
+      }
       const isSel = i === formState.activeIndex;
       let displayLabel = f.label;
       if (f.options && f.allowCustom && f.value && !f.options.includes(f.value)) {
@@ -772,7 +820,9 @@ function draw() {
       viewerLines.push(`${isSel ? pc.cyan("▸") : " "} ${pc.bold(displayLabel)}`);
 
       let displayVal = f.value;
-      if (f.isSecret) displayVal = "*".repeat(displayVal.length);
+      if (f.isSecret) {
+        displayVal = "*".repeat(displayVal.length);
+      }
       if (displayVal === "" && f.placeholder) {
         displayVal = pc.dim(f.placeholder);
       }
@@ -867,14 +917,18 @@ function truncateToWidth(text: string, targetW: number): string {
   let result = "";
   while (i < chars.length && w < targetW) {
     const ch = chars[i];
-    if (ch === undefined) break;
+    if (ch === undefined) {
+      break;
+    }
     if (ch === "\u001B") {
       // Consume ANSI sequence
       let seq = ch;
       i++;
       while (i < chars.length) {
         const next = chars[i];
-        if (next === undefined || /[a-zA-Z]/.test(next)) break;
+        if (next === undefined || /[a-zA-Z]/.test(next)) {
+          break;
+        }
         seq += next;
         i++;
       }
@@ -886,9 +940,13 @@ function truncateToWidth(text: string, targetW: number): string {
       continue;
     }
     const cp = ch.codePointAt(0);
-    if (cp === undefined) break;
+    if (cp === undefined) {
+      break;
+    }
     const cw = cp > 0xffff ? 2 : 1;
-    if (w + cw > targetW) break;
+    if (w + cw > targetW) {
+      break;
+    }
     result += ch;
     w += cw;
     i++;
@@ -899,15 +957,21 @@ function truncateToWidth(text: string, targetW: number): string {
 /** Simple pad with visible width awareness. */
 function padToWidth(text: string, width: number): string {
   const vw = visibleWidth(text);
-  if (vw >= width) return text;
+  if (vw >= width) {
+    return text;
+  }
   return text + " ".repeat(width - vw);
 }
 
 // ── Utils ────────────────────────────────────────────────────────────
 
 async function launchEditor(f: FormField) {
-  if (process.stdin.isTTY) process.stdin.setRawMode(false);
-  if (keypressHandler) process.stdin.removeListener("keypress", keypressHandler);
+  if (process.stdin.isTTY) {
+    process.stdin.setRawMode(false);
+  }
+  if (keypressHandler) {
+    process.stdin.removeListener("keypress", keypressHandler);
+  }
   console.clear();
 
   const tmpFile = path.join(os.tmpdir(), `thingd-edit-${Date.now()}.json`);
@@ -939,14 +1003,20 @@ async function launchEditor(f: FormField) {
     f.value = newContent.trim();
   } catch (_e) {}
 
-  if (process.stdin.isTTY) process.stdin.setRawMode(true);
-  if (keypressHandler) process.stdin.on("keypress", keypressHandler);
+  if (process.stdin.isTTY) {
+    process.stdin.setRawMode(true);
+  }
+  if (keypressHandler) {
+    process.stdin.on("keypress", keypressHandler);
+  }
   draw();
 }
 
 function parsePayload(str: string): Record<string, unknown> {
   str = str.trim();
-  if (!str) return {};
+  if (!str) {
+    return {};
+  }
   if (str.startsWith("{") || str.startsWith("[")) {
     return JSON.parse(str);
   }
@@ -966,9 +1036,13 @@ function parsePayload(str: string): Record<string, unknown> {
     if (v.startsWith('"') && v.endsWith('"')) {
       v = v.substring(1, v.length - 1);
     } else {
-      if (v === "true") v = true;
-      else if (v === "false") v = false;
-      else if (!Number.isNaN(Number(v))) v = Number(v);
+      if (v === "true") {
+        v = true;
+      } else if (v === "false") {
+        v = false;
+      } else if (!Number.isNaN(Number(v))) {
+        v = Number(v);
+      }
     }
     obj[k] = v;
   }
@@ -1021,7 +1095,9 @@ async function handleCreate(selected: TreeNode | undefined) {
     async (vals) => {
       const kind = (vals.kind || "").toLowerCase();
       const target = (vals.target || "").trim();
-      if (!target) throw new Error("Target is required.");
+      if (!target) {
+        throw new Error("Target is required.");
+      }
 
       if (kind === "object") {
         let id = vals.objId?.trim();
@@ -1037,24 +1113,29 @@ async function handleCreate(selected: TreeNode | undefined) {
         expandedSet.add("cat:collections");
         expandedSet.add(`col:${target}`);
       } else if (kind === "event") {
-        if (!vals.payload?.trim())
+        if (!vals.payload?.trim()) {
           throw new Error("Event Type is required (in Data field for events).");
+        }
         await db.events.append(target, { type: vals.payload.trim() });
         expandedSet.add("cat:streams");
       } else if (kind === "queue") {
-        if (!vals.payload?.trim()) throw new Error("Payload is required.");
+        if (!vals.payload?.trim()) {
+          throw new Error("Payload is required.");
+        }
         const data = parsePayload(vals.payload);
         await db.queue(target).push(data);
         expandedSet.add("cat:queues");
       } else {
         throw new Error("Kind must be 'object', 'event', or 'queue'.");
       }
-    },
+    }
   );
 }
 
 async function handleEdit(selected: TreeNode | undefined) {
-  if (!selected) return;
+  if (!selected) {
+    return;
+  }
 
   if (selected.type === "object" && selected.ref) {
     const ref = selected.ref as { collection: string; id: string };
@@ -1070,7 +1151,7 @@ async function handleEdit(selected: TreeNode | undefined) {
       async (vals) => {
         const data = parsePayload(vals.payload || "");
         await db.put(ref.collection, { id: ref.id, ...data });
-      },
+      }
     );
   } else if (selected.type === "queue" && selected.ref) {
     const ref = selected.ref as { name: string };
@@ -1101,19 +1182,21 @@ async function handleEdit(selected: TreeNode | undefined) {
         } else {
           throw new Error("Action must be 'claim' or 'push'.");
         }
-      },
+      }
     );
   } else {
     openForm(
       "Edit Not Supported",
       [{ id: "msg", label: "Error", value: "Editing is only available for Objects and Queues." }],
-      async () => {},
+      async () => {}
     );
   }
 }
 
 async function handleDelete(selected: TreeNode | undefined) {
-  if (!selected) return;
+  if (!selected) {
+    return;
+  }
 
   if (selected.type === "object" && selected.ref) {
     const ref = selected.ref as { collection: string; id: string };
@@ -1121,9 +1204,11 @@ async function handleDelete(selected: TreeNode | undefined) {
       `Delete Object: ${ref.id}`,
       [{ id: "confirm", label: 'Type "yes" to confirm deletion', placeholder: "yes" }],
       async (vals) => {
-        if ((vals.confirm || "").toLowerCase() !== "yes") throw new Error("Canceled");
+        if ((vals.confirm || "").toLowerCase() !== "yes") {
+          throw new Error("Canceled");
+        }
         await db.delete(ref.collection, ref.id);
-      },
+      }
     );
   } else if (selected.type === "queue" && selected.ref) {
     const ref = selected.ref as { name: string };
@@ -1136,7 +1221,9 @@ async function handleDelete(selected: TreeNode | undefined) {
       async (vals) => {
         const jobId = (vals.jobId || "").trim();
         const action = vals.action || "";
-        if (!jobId) throw new Error("Job ID required.");
+        if (!jobId) {
+          throw new Error("Job ID required.");
+        }
         if (action === "ack") {
           await db.queue(ref.name).ack(jobId);
         } else if (action === "nack") {
@@ -1144,13 +1231,13 @@ async function handleDelete(selected: TreeNode | undefined) {
         } else {
           throw new Error("Action must be 'ack' or 'nack'.");
         }
-      },
+      }
     );
   } else {
     openForm(
       "Delete Not Supported",
       [{ id: "msg", label: "Error", value: "Deletion is only available for Objects and Queues." }],
-      async () => {},
+      async () => {}
     );
   }
 }
@@ -1164,12 +1251,16 @@ async function handleSearch() {
     ],
     async (vals) => {
       const query = (vals.query || "").trim();
-      if (!query) throw new Error("Search query required.");
+      if (!query) {
+        throw new Error("Search query required.");
+      }
       const limitStr = vals.limit || "";
       const options: MemorySearchOptions = {};
       if (limitStr) {
         const limit = parseInt(limitStr, 10);
-        if (!Number.isNaN(limit)) options.limit = limit;
+        if (!Number.isNaN(limit)) {
+          options.limit = limit;
+        }
       }
       const results = await db.search(query, options);
 
@@ -1193,7 +1284,7 @@ async function handleSearch() {
         }),
       ];
       loadedItemId = "search_results";
-    },
+    }
   );
 }
 
@@ -1211,13 +1302,19 @@ async function handleInfo() {
         ? `http://${dbPath.slice("thingd://".length)}`
         : dbPath;
       const urlObj = new URL(baseUrl);
-      if (urlObj.pathname === "/mcp") urlObj.pathname = "/";
+      if (urlObj.pathname === "/mcp") {
+        urlObj.pathname = "/";
+      }
       const fetchJson = async (p: string) => {
         const u = new URL(p, urlObj.toString());
         const headers: Record<string, string> = {};
-        if (authToken) headers.Authorization = `Bearer ${authToken}`;
+        if (authToken) {
+          headers.Authorization = `Bearer ${authToken}`;
+        }
         const res = await fetch(u, { headers });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        if (!res.ok) {
+          throw new Error(`HTTP ${res.status}`);
+        }
         return res.json();
       };
 
@@ -1229,7 +1326,7 @@ async function handleInfo() {
       lines.push(
         ...JSON.stringify(health, null, 2)
           .split("\n")
-          .map((l) => ` ${pc.dim(l)}`),
+          .map((l) => ` ${pc.dim(l)}`)
       );
 
       lines.push("");
@@ -1237,7 +1334,7 @@ async function handleInfo() {
       lines.push(
         ...JSON.stringify(cluster, null, 2)
           .split("\n")
-          .map((l) => ` ${pc.dim(l)}`),
+          .map((l) => ` ${pc.dim(l)}`)
       );
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err);
@@ -1260,7 +1357,9 @@ function setupKeypress() {
   process.stdin.resume();
 
   keypressHandler = async (str, key) => {
-    if (!key) return;
+    if (!key) {
+      return;
+    }
 
     // Quit
     if ((key.ctrl && key.name === "c") || key.name === "q") {
@@ -1283,11 +1382,15 @@ function setupKeypress() {
       } else if (key.name === "escape") {
         formState.onCancel();
       } else if (key.name === "up" || (key.name === "tab" && key.shift)) {
-        if (formState.activeIndex > 0) formState.activeIndex--;
+        if (formState.activeIndex > 0) {
+          formState.activeIndex--;
+        }
         formState.error = undefined;
         draw();
       } else if (key.name === "down" || key.name === "tab") {
-        if (formState.activeIndex < formState.fields.length - 1) formState.activeIndex++;
+        if (formState.activeIndex < formState.fields.length - 1) {
+          formState.activeIndex++;
+        }
         formState.error = undefined;
         draw();
       } else if (key.name === "return") {
@@ -1296,7 +1399,9 @@ function setupKeypress() {
           draw();
         } else {
           const vals: Record<string, string> = {};
-          for (const f of formState.fields) vals[f.id] = f.value;
+          for (const f of formState.fields) {
+            vals[f.id] = f.value;
+          }
           formState.onSubmit(vals);
         }
       } else if (key.name === "left" || key.name === "right") {
@@ -1304,8 +1409,12 @@ function setupKeypress() {
         if (f?.options && f.options.length > 0) {
           const currentIndex = f.options.indexOf(f.value);
           let nextIndex = key.name === "right" ? currentIndex + 1 : currentIndex - 1;
-          if (nextIndex < 0) nextIndex = f.options.length - 1;
-          if (nextIndex >= f.options.length) nextIndex = 0;
+          if (nextIndex < 0) {
+            nextIndex = f.options.length - 1;
+          }
+          if (nextIndex >= f.options.length) {
+            nextIndex = 0;
+          }
           f.value = f.options[nextIndex] ?? "";
           formState.error = undefined;
           draw();
@@ -1340,20 +1449,26 @@ function setupKeypress() {
         cursorIndex--;
         draw();
         const n = tree[cursorIndex];
-        if (n) scheduleLoad(n);
+        if (n) {
+          scheduleLoad(n);
+        }
       }
     } else if (key.name === "down" || str === "j") {
       if (cursorIndex < tree.length - 1) {
         cursorIndex++;
         draw();
         const n = tree[cursorIndex];
-        if (n) scheduleLoad(n);
+        if (n) {
+          scheduleLoad(n);
+        }
       }
     } else if (!connected) {
       // Driver selection mode — only Enter works
       if (key.name === "return") {
         const node = tree[cursorIndex];
-        if (node) await handleConnect(node);
+        if (node) {
+          await handleConnect(node);
+        }
       }
     } else {
       // Connected mode — full set of shortcuts
@@ -1362,7 +1477,9 @@ function setupKeypress() {
         if (node?.expandable) {
           if (!expandedSet.has(node.id)) {
             expandedSet.add(node.id);
-            if (node.type === "collection") await fetchResources();
+            if (node.type === "collection") {
+              await fetchResources();
+            }
             draw();
           } else {
             const newTree = buildTree();
@@ -1370,7 +1487,9 @@ function setupKeypress() {
               cursorIndex++;
               draw();
               const n = newTree[cursorIndex];
-              if (n) scheduleLoad(n);
+              if (n) {
+                scheduleLoad(n);
+              }
             }
           }
         }
@@ -1386,7 +1505,9 @@ function setupKeypress() {
               cursorIndex = parentIdx;
               draw();
               const n = tree[cursorIndex];
-              if (n) scheduleLoad(n);
+              if (n) {
+                scheduleLoad(n);
+              }
             }
           }
         }
@@ -1397,7 +1518,9 @@ function setupKeypress() {
             expandedSet.delete(node.id);
           } else {
             expandedSet.add(node.id);
-            if (node.type === "collection") await fetchResources();
+            if (node.type === "collection") {
+              await fetchResources();
+            }
           }
           draw();
         }
@@ -1406,7 +1529,9 @@ function setupKeypress() {
         await fetchResources();
         draw();
         const n = tree[cursorIndex];
-        if (n) scheduleLoad(n);
+        if (n) {
+          scheduleLoad(n);
+        }
       } else if (str === "s" || str === "S") {
         await handleSwitch();
       } else if (str === "c" || str === "C") {
@@ -1433,7 +1558,9 @@ function setupKeypress() {
 }
 
 function cleanup() {
-  if (pollTimer) clearInterval(pollTimer);
+  if (pollTimer) {
+    clearInterval(pollTimer);
+  }
   if (process.stdin.isTTY) {
     process.stdin.setRawMode(false);
   }
@@ -1450,7 +1577,9 @@ function cleanup() {
 }
 
 async function handleConnect(node: TreeNode) {
-  if (node.type !== "driver" || !node.ref) return;
+  if (node.type !== "driver" || !node.ref) {
+    return;
+  }
 
   const selectedDriver = node.ref.driver as ThingDDriver;
 
@@ -1504,8 +1633,10 @@ async function handleConnect(node: TreeNode) {
         draw();
         const tree = buildTree();
         const first = tree[cursorIndex];
-        if (first) scheduleLoad(first);
-      },
+        if (first) {
+          scheduleLoad(first);
+        }
+      }
     );
   } else {
     // Memory — connect directly without suspending
@@ -1528,7 +1659,9 @@ async function handleConnect(node: TreeNode) {
       draw();
       const tree = buildTree();
       const first = tree[cursorIndex];
-      if (first) scheduleLoad(first);
+      if (first) {
+        scheduleLoad(first);
+      }
     } catch (error) {
       const errMsg = error instanceof Error ? error.message : String(error);
       viewerLines = [pc.red(`Failed to connect: ${errMsg}`)];
@@ -1538,7 +1671,9 @@ async function handleConnect(node: TreeNode) {
 }
 
 async function handleSwitch() {
-  if (!connected) return;
+  if (!connected) {
+    return;
+  }
 
   // Close current connection
   try {
@@ -1563,7 +1698,9 @@ async function handleSwitch() {
   draw();
   const tree = buildTree();
   const first = tree[cursorIndex];
-  if (first) scheduleLoad(first);
+  if (first) {
+    scheduleLoad(first);
+  }
 }
 
 // ── Entry Point ──────────────────────────────────────────────────────
@@ -1582,7 +1719,9 @@ export async function runInteractiveCli(): Promise<void> {
   draw();
   const tree = buildTree();
   const first = tree[cursorIndex];
-  if (first) scheduleLoad(first);
+  if (first) {
+    scheduleLoad(first);
+  }
 
   setupKeypress();
 

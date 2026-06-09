@@ -38,7 +38,9 @@ function redactText(text: string): string {
 }
 
 function redactValue(val: unknown, redactKeys: string[]): unknown {
-  if (val === null || val === undefined) return val;
+  if (val === null || val === undefined) {
+    return val;
+  }
 
   if (Array.isArray(val)) {
     return val.map((item) => redactValue(item, redactKeys));

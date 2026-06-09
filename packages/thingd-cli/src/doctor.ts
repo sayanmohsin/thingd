@@ -16,7 +16,7 @@ export async function runDoctor(context: CliContext): Promise<void> {
   } else {
     healthy = false;
     context.stderr.write(
-      `  ${pc.red("×")} Node version:   ${pc.yellow(nodeVersion)} (Requires >= v20.x)\n`,
+      `  ${pc.red("×")} Node version:   ${pc.yellow(nodeVersion)} (Requires >= v20.x)\n`
     );
   }
 
@@ -34,23 +34,23 @@ export async function runDoctor(context: CliContext): Promise<void> {
           : pc.cyan("Loaded local development build");
 
         context.stderr.write(
-          `  ${pc.green("✓")} Native Addon:    ${buildType} (${pc.dim(loadedPath)})\n`,
+          `  ${pc.green("✓")} Native Addon:    ${buildType} (${pc.dim(loadedPath)})\n`
         );
       } else {
         healthy = false;
         context.stderr.write(
-          `  ${pc.red("×")} Native Addon:    ${pc.yellow('Not found. Run "pnpm --filter thingd-native build" or configure THINGD_NATIVE_PATH.')}\n`,
+          `  ${pc.red("×")} Native Addon:    ${pc.yellow('Not found. Run "pnpm --filter thingd-native build" or configure THINGD_NATIVE_PATH.')}\n`
         );
       }
     } catch (error) {
       healthy = false;
       context.stderr.write(
-        `  ${pc.red("×")} Native Addon:    ${pc.yellow(`Failed to load native addon: ${error instanceof Error ? error.message : String(error)}`)}\n`,
+        `  ${pc.red("×")} Native Addon:    ${pc.yellow(`Failed to load native addon: ${error instanceof Error ? error.message : String(error)}`)}\n`
       );
     }
   } else {
     context.stderr.write(
-      `  ${pc.dim("○")} Native Addon:    Skipped (Using driver: "${connection.driver ?? "memory"}")\n`,
+      `  ${pc.dim("○")} Native Addon:    Skipped (Using driver: "${connection.driver ?? "memory"}")\n`
     );
   }
 
@@ -61,13 +61,13 @@ export async function runDoctor(context: CliContext): Promise<void> {
 
     if (!connection.authToken && !isLocal) {
       context.stderr.write(
-        `  ${pc.yellow("⚠")} Auth Token:     ${pc.yellow("Missing THINGD_AUTH_TOKEN for remote server (might fail)")}\n`,
+        `  ${pc.yellow("⚠")} Auth Token:     ${pc.yellow("Missing THINGD_AUTH_TOKEN for remote server (might fail)")}\n`
       );
     } else if (connection.authToken) {
       context.stderr.write(`  ${pc.green("✓")} Auth Token:     ${pc.cyan("Configured")}\n`);
     } else {
       context.stderr.write(
-        `  ${pc.green("✓")} Auth Token:     ${pc.dim("Not required for local sidecar")}\n`,
+        `  ${pc.green("✓")} Auth Token:     ${pc.dim("Not required for local sidecar")}\n`
       );
     }
 
@@ -82,7 +82,7 @@ export async function runDoctor(context: CliContext): Promise<void> {
       }
 
       context.stderr.write(
-        `  ${pc.dim("○")} Connectivity:   Checking reachability to ${pc.cyan(targetUrl.toString())}...\n`,
+        `  ${pc.dim("○")} Connectivity:   Checking reachability to ${pc.cyan(targetUrl.toString())}...\n`
       );
 
       const controller = new AbortController();
@@ -102,30 +102,30 @@ export async function runDoctor(context: CliContext): Promise<void> {
 
         if (response.ok) {
           context.stderr.write(
-            `  ${pc.green("✓")} Connectivity:   ${pc.cyan("Connected successfully!")} (${pc.dim(`HTTP ${response.status}`)})\n`,
+            `  ${pc.green("✓")} Connectivity:   ${pc.cyan("Connected successfully!")} (${pc.dim(`HTTP ${response.status}`)})\n`
           );
         } else {
           healthy = false;
           context.stderr.write(
-            `  ${pc.red("×")} Connectivity:   ${pc.yellow(`Server responded with non-2xx status`)} (${pc.dim(`HTTP ${response.status}`)})\n`,
+            `  ${pc.red("×")} Connectivity:   ${pc.yellow(`Server responded with non-2xx status`)} (${pc.dim(`HTTP ${response.status}`)})\n`
           );
         }
       } catch (fetchError) {
         clearTimeout(timeoutId);
         healthy = false;
         context.stderr.write(
-          `  ${pc.red("×")} Connectivity:   ${pc.yellow(`Failed to connect. Connection refused or timed out.`)} (${pc.dim(fetchError instanceof Error ? fetchError.message : String(fetchError))})\n`,
+          `  ${pc.red("×")} Connectivity:   ${pc.yellow(`Failed to connect. Connection refused or timed out.`)} (${pc.dim(fetchError instanceof Error ? fetchError.message : String(fetchError))})\n`
         );
       }
     } catch (urlError) {
       healthy = false;
       context.stderr.write(
-        `  ${pc.red("×")} Connectivity:   ${pc.yellow(`Invalid URL structure: ${urlError instanceof Error ? urlError.message : String(urlError)}`)}\n`,
+        `  ${pc.red("×")} Connectivity:   ${pc.yellow(`Invalid URL structure: ${urlError instanceof Error ? urlError.message : String(urlError)}`)}\n`
       );
     }
   } else {
     context.stderr.write(
-      `  ${pc.green("✓")} Connectivity:   ${pc.cyan("Local SQLite Store")} (${pc.dim(connection.path)})\n`,
+      `  ${pc.green("✓")} Connectivity:   ${pc.cyan("Local SQLite Store")} (${pc.dim(connection.path)})\n`
     );
   }
 
@@ -135,7 +135,7 @@ export async function runDoctor(context: CliContext): Promise<void> {
     context.stderr.write(`  ${pc.bold(pc.green("Diagnosis: Everything looks healthy!"))}\n\n`);
   } else {
     context.stderr.write(
-      `  ${pc.bold(pc.yellow("Diagnosis: Some items require attention (see errors above)."))}\n\n`,
+      `  ${pc.bold(pc.yellow("Diagnosis: Some items require attention (see errors above)."))}\n\n`
     );
   }
 }

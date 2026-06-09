@@ -26,7 +26,7 @@ export type RegisterThingdToolsOptions = {
 export function registerThingdTools(
   server: McpServer,
   db: ThingD,
-  options: RegisterThingdToolsOptions = {},
+  options: RegisterThingdToolsOptions = {}
 ): void {
   const audit = resolveThingdMcpAuditOptions(options.audit);
   const allowlist = options.hardening?.collectionAllowlist;
@@ -36,7 +36,7 @@ export function registerThingdTools(
   function assertCollectionAllowed(collection: string): void {
     if (allowlist && !allowlist.has(collection)) {
       throw new Error(
-        `Collection "${collection}" is not permitted by this thingd MCP server. Allowed: ${[...allowlist].join(", ")}.`,
+        `Collection "${collection}" is not permitted by this thingd MCP server. Allowed: ${[...allowlist].join(", ")}.`
       );
     }
   }
@@ -45,7 +45,7 @@ export function registerThingdTools(
   function assertWriteAllowed(): void {
     if (readOnly) {
       throw new Error(
-        "This thingd MCP server is configured in read-only mode. Write operations are not permitted.",
+        "This thingd MCP server is configured in read-only mode. Write operations are not permitted."
       );
     }
   }
@@ -70,10 +70,12 @@ export function registerThingdTools(
     },
     async ({ query, collections, limit, filter }) => {
       if (collections) {
-        for (const c of collections) assertCollectionAllowed(c);
+        for (const c of collections) {
+          assertCollectionAllowed(c);
+        }
       }
       return jsonResult(await db.search(query, { collections, limit, filter }));
-    },
+    }
   );
 
   server.registerTool(
@@ -95,7 +97,7 @@ export function registerThingdTools(
     async ({ collection, id }) => {
       assertCollectionAllowed(collection);
       return jsonResult(await db.get(collection, id));
-    },
+    }
   );
 
   server.registerTool(
@@ -134,7 +136,7 @@ export function registerThingdTools(
       });
 
       return jsonResult(stored);
-    },
+    }
   );
 
   server.registerTool(
@@ -169,7 +171,7 @@ export function registerThingdTools(
       });
 
       return jsonResult(result);
-    },
+    }
   );
 
   server.registerTool(
@@ -207,7 +209,7 @@ export function registerThingdTools(
       });
 
       return jsonResult(stored);
-    },
+    }
   );
 
   server.registerTool(
@@ -225,7 +227,7 @@ export function registerThingdTools(
         openWorldHint: false,
       },
     },
-    async ({ stream }) => jsonResult(await db.events.list(stream)),
+    async ({ stream }) => jsonResult(await db.events.list(stream))
   );
 
   server.registerTool(
@@ -270,7 +272,7 @@ export function registerThingdTools(
       });
 
       return jsonResult(job);
-    },
+    }
   );
 
   server.registerTool(
@@ -311,7 +313,7 @@ export function registerThingdTools(
       }
 
       return jsonResult(job);
-    },
+    }
   );
 
   server.registerTool(
@@ -350,7 +352,7 @@ export function registerThingdTools(
       }
 
       return jsonResult(result);
-    },
+    }
   );
 
   server.registerTool(
@@ -391,7 +393,7 @@ export function registerThingdTools(
       }
 
       return jsonResult(result);
-    },
+    }
   );
 
   server.registerTool(
@@ -409,7 +411,7 @@ export function registerThingdTools(
         openWorldHint: false,
       },
     },
-    async ({ queue }) => jsonResult(await db.queue(queue).list()),
+    async ({ queue }) => jsonResult(await db.queue(queue).list())
   );
 
   server.registerTool(
@@ -427,7 +429,7 @@ export function registerThingdTools(
         openWorldHint: false,
       },
     },
-    async ({ queue }) => jsonResult(await db.queue(queue).dead()),
+    async ({ queue }) => jsonResult(await db.queue(queue).dead())
   );
 
   server.registerTool(
@@ -448,7 +450,7 @@ export function registerThingdTools(
     async ({ collection }) => {
       assertCollectionAllowed(collection);
       return jsonResult(await db.listObjects(collection));
-    },
+    }
   );
 
   server.registerTool(
@@ -464,7 +466,7 @@ export function registerThingdTools(
         openWorldHint: false,
       },
     },
-    async () => jsonResult(await db.countObjects()),
+    async () => jsonResult(await db.countObjects())
   );
 
   server.registerTool(
@@ -480,7 +482,7 @@ export function registerThingdTools(
         openWorldHint: false,
       },
     },
-    async () => jsonResult(await db.countEvents()),
+    async () => jsonResult(await db.countEvents())
   );
 
   server.registerTool(
@@ -496,7 +498,7 @@ export function registerThingdTools(
         openWorldHint: false,
       },
     },
-    async () => jsonResult(await db.countActiveJobs()),
+    async () => jsonResult(await db.countActiveJobs())
   );
 
   server.registerTool(
@@ -512,7 +514,7 @@ export function registerThingdTools(
         openWorldHint: false,
       },
     },
-    async () => jsonResult(await db.countDeadJobs()),
+    async () => jsonResult(await db.countDeadJobs())
   );
 
   server.registerTool(
@@ -528,7 +530,7 @@ export function registerThingdTools(
         openWorldHint: false,
       },
     },
-    async () => jsonResult(await db.listCollections()),
+    async () => jsonResult(await db.listCollections())
   );
 
   server.registerTool(
@@ -544,7 +546,7 @@ export function registerThingdTools(
         openWorldHint: false,
       },
     },
-    async () => jsonResult(await db.listStreams()),
+    async () => jsonResult(await db.listStreams())
   );
 
   server.registerTool(
@@ -560,13 +562,13 @@ export function registerThingdTools(
         openWorldHint: false,
       },
     },
-    async () => jsonResult(await db.listQueues()),
+    async () => jsonResult(await db.listQueues())
   );
 }
 
 function auditMetadata(
   actor: string | undefined,
-  source: string | undefined,
+  source: string | undefined
 ): ThingdMcpAuditMetadata {
   return {
     actor,

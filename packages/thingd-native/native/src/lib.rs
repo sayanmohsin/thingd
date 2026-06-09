@@ -138,7 +138,7 @@ impl NativeThingStore {
             None => NativeQueueJobResult::failed("not_found"),
             Some(QueueJobStatus::Completed | QueueJobStatus::Dead) => {
                 NativeQueueJobResult::failed("terminal")
-            }
+            },
             Some(QueueJobStatus::Ready) => NativeQueueJobResult::failed("not_leased"),
             Some(QueueJobStatus::Leased) => {
                 let job = store
@@ -146,7 +146,7 @@ impl NativeThingStore {
                     .map_err(napi_error)?
                     .ok_or_else(|| Error::from_reason("leased job disappeared during ack"))?;
                 NativeQueueJobResult::ok(job_record(job))
-            }
+            },
         };
 
         to_json(&result)
@@ -165,7 +165,7 @@ impl NativeThingStore {
             None => NativeQueueJobResult::failed("not_found"),
             Some(QueueJobStatus::Completed | QueueJobStatus::Dead) => {
                 NativeQueueJobResult::failed("terminal")
-            }
+            },
             Some(QueueJobStatus::Ready) => NativeQueueJobResult::failed("not_leased"),
             Some(QueueJobStatus::Leased) => {
                 let job = store
@@ -180,7 +180,7 @@ impl NativeThingStore {
                     .map_err(napi_error)?
                     .ok_or_else(|| Error::from_reason("leased job disappeared during nack"))?;
                 NativeQueueJobResult::ok(job_record(job))
-            }
+            },
         };
 
         to_json(&result)

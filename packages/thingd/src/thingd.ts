@@ -33,7 +33,7 @@ export type ThingDOpenConfig = ThingDOpenOptions & {
 export class ThingD {
   static async open(
     pathOrConfig?: string | ThingDOpenConfig,
-    options: ThingDOpenOptions = {},
+    options: ThingDOpenOptions = {}
   ): Promise<ThingD> {
     const resolvedOptions = resolveOpenOptions(pathOrConfig, options);
 
@@ -42,7 +42,7 @@ export class ThingD {
 
   private constructor(
     readonly path: string,
-    private readonly store: ThingStore,
+    private readonly store: ThingStore
   ) {}
 
   put(collection: string, object: MemoryObject): Promise<StoredMemoryObject> {
@@ -122,7 +122,7 @@ type ResolvedThingDOpenOptions = ThingDOpenOptions & {
 
 function resolveOpenOptions(
   pathOrConfig: string | ThingDOpenConfig | undefined,
-  options: ThingDOpenOptions,
+  options: ThingDOpenOptions
 ): ResolvedThingDOpenOptions {
   const config =
     typeof pathOrConfig === "string"
@@ -171,7 +171,7 @@ async function openStore(path: string, options: ResolvedThingDOpenOptions): Prom
   if (options.driver === "native") {
     if (!hasNative) {
       throw new Error(
-        `The native thingd driver is not available. Run "pnpm --filter thingd-native build" before using driver: "native".`,
+        `The native thingd driver is not available. Run "pnpm --filter thingd-native build" before using driver: "native".`
       );
     }
     return NativeThingStore.open(path);
@@ -184,7 +184,7 @@ async function openStore(path: string, options: ResolvedThingDOpenOptions): Prom
     }
 
     console.warn(
-      `Warning: The native thingd driver is not available. Falling back to the temporary in-memory store. Data will not persist. Run "pnpm --filter thingd-native build" or install "thingd-native" to enable native persistence.`,
+      `Warning: The native thingd driver is not available. Falling back to the temporary in-memory store. Data will not persist. Run "pnpm --filter thingd-native build" or install "thingd-native" to enable native persistence.`
     );
   }
 

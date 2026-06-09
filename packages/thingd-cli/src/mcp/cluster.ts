@@ -58,7 +58,7 @@ export type ThingdClusterStatus = {
 const DEFAULT_CLUSTER_PORT = 8757;
 
 export function readClusterOptionsFromEnv(
-  env: Record<string, string | undefined>,
+  env: Record<string, string | undefined>
 ): ThingdClusterOptions {
   return {
     mode: parseClusterMode(env.THINGD_CLUSTER_MODE),
@@ -75,7 +75,7 @@ export function readClusterOptionsFromEnv(
 }
 
 export function resolveClusterOptions(
-  options: ThingdClusterOptions | undefined,
+  options: ThingdClusterOptions | undefined
 ): ResolvedThingdClusterOptions {
   const mode = options?.mode ?? "single";
   const discovery = options?.discovery ?? (options?.peers?.length ? "static" : "none");
@@ -111,7 +111,7 @@ export function resolveClusterOptions(
 
 export async function getClusterStatus(
   cluster: ResolvedThingdClusterOptions,
-  db: ThingD,
+  db: ThingD
 ): Promise<ThingdClusterStatus> {
   let replication: ThingdClusterStatus["replication"] = "not-implemented";
 
@@ -192,7 +192,7 @@ export async function forwardMcpRequestToLeader(
   cluster: ResolvedThingdClusterOptions,
   mcpPath: string,
   request: IncomingMessage,
-  response: ServerResponse,
+  response: ServerResponse
 ): Promise<void> {
   if (!cluster.leaderUrl) {
     writeForwardError(response, 503, "cluster_leader_unavailable");
@@ -375,6 +375,6 @@ function writeForwardError(response: ServerResponse, statusCode: number, error: 
         message: error,
       },
       id: null,
-    }),
+    })
   );
 }

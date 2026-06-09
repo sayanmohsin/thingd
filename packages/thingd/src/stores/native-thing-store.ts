@@ -29,7 +29,7 @@ type NativeThingStoreBinding = {
     id: string,
     body: string,
     maxAttempts: number,
-    delayMs: number,
+    delayMs: number
   ): string;
   claimJobJson(queue: string, leaseMs: number): string | null;
   ackJobJson(queue: string, id: string): string;
@@ -142,7 +142,7 @@ export class NativeThingStore implements ThingStore {
 
   async put(collection: string, object: MemoryObject): Promise<StoredMemoryObject> {
     const record = parseJson<NativeObjectRecord>(
-      this.binding.putObjectJson(collection, object.id, JSON.stringify(object)),
+      this.binding.putObjectJson(collection, object.id, JSON.stringify(object))
     );
 
     return objectFromNative(record);
@@ -163,13 +163,13 @@ export class NativeThingStore implements ThingStore {
   async listObjects(collection: string): Promise<StoredMemoryObject[]> {
     const collectionsJson = JSON.stringify([collection]);
     return parseJson<NativeObjectRecord[]>(this.binding.listObjectsJson(collectionsJson)).map(
-      objectFromNative,
+      objectFromNative
     );
   }
 
   async appendEvent(stream: string, event: MemoryEvent): Promise<StoredMemoryEvent> {
     const record = parseJson<NativeEventRecord>(
-      this.binding.appendEventJson(stream, JSON.stringify(event)),
+      this.binding.appendEventJson(stream, JSON.stringify(event))
     );
 
     return eventFromNative(record);
@@ -182,7 +182,7 @@ export class NativeThingStore implements ThingStore {
   async pushJob(
     queue: string,
     payload: QueueJobPayload,
-    options: QueueJobOptions = {},
+    options: QueueJobOptions = {}
   ): Promise<QueueJob> {
     const record = parseJson<NativeQueueJobRecord>(
       this.binding.pushJobJson(
@@ -190,8 +190,8 @@ export class NativeThingStore implements ThingStore {
         options.idempotencyKey ?? randomUUID(),
         JSON.stringify(payload),
         options.maxAttempts ?? 3,
-        options.delayMs ?? 0,
-      ),
+        options.delayMs ?? 0
+      )
     );
 
     return jobFromNative(record);
@@ -210,12 +210,12 @@ export class NativeThingStore implements ThingStore {
   async nackJob(
     queue: string,
     jobId: string,
-    options: QueueNackOptions = {},
+    options: QueueNackOptions = {}
   ): Promise<QueueJobResult> {
     const result = resultFromNative(
       parseJson<NativeQueueJobResult>(
-        this.binding.nackJobJson(queue, jobId, options.delayMs ?? 0, options.error),
-      ),
+        this.binding.nackJobJson(queue, jobId, options.delayMs ?? 0, options.error)
+      )
     );
 
     return result;
@@ -227,7 +227,7 @@ export class NativeThingStore implements ThingStore {
 
   async listDeadJobs(queue: string): Promise<QueueJob[]> {
     return parseJson<NativeQueueJobRecord[]>(this.binding.listDeadJobsJson(queue)).map(
-      jobFromNative,
+      jobFromNative
     );
   }
 
@@ -236,7 +236,7 @@ export class NativeThingStore implements ThingStore {
     const filterJson = options.filter ? JSON.stringify(options.filter) : undefined;
 
     const hits = parseJson<NativeSearchHit[]>(
-      this.binding.searchJson(query, collectionsJson, options.limit, filterJson),
+      this.binding.searchJson(query, collectionsJson, options.limit, filterJson)
     );
 
     return hits.map((hit) => {
@@ -320,7 +320,7 @@ async function loadNativeModule(): Promise<NativeThingStoreModule> {
       };
     } catch (error) {
       throw new Error(
-        `Failed to load native store from THINGD_NATIVE_PATH="${customPath}": ${error instanceof Error ? error.message : String(error)}`,
+        `Failed to load native store from THINGD_NATIVE_PATH="${customPath}": ${error instanceof Error ? error.message : String(error)}`
       );
     }
   }
@@ -350,7 +350,7 @@ async function loadNativeModule(): Promise<NativeThingStoreModule> {
           __dirname,
           "../../../../thingd-native/prebuilds",
           `${platform}-${arch}`,
-          "thingd_native.node",
+          "thingd_native.node"
         ),
         // global install: sibling to thingd-cli in node_modules
         join(__dirname, "../../../../../../thingd-native/dist/thingd_native.node"),
@@ -358,7 +358,7 @@ async function loadNativeModule(): Promise<NativeThingStoreModule> {
           __dirname,
           "../../../../../../thingd-native/prebuilds",
           `${platform}-${arch}`,
-          "thingd_native.node",
+          "thingd_native.node"
         ),
       ];
 
@@ -383,7 +383,7 @@ async function loadNativeModule(): Promise<NativeThingStoreModule> {
     }
 
     throw new Error(
-      `The native thingd driver is not available. Run "pnpm --filter thingd-native build" before using driver: "native". ${formatUnknownError(importError)}`,
+      `The native thingd driver is not available. Run "pnpm --filter thingd-native build" before using driver: "native". ${formatUnknownError(importError)}`
     );
   }
 }

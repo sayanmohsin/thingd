@@ -52,7 +52,7 @@ type RuntimeState = {
 };
 
 export async function startThingdHttpServer(
-  options: ThingdHttpServerOptions,
+  options: ThingdHttpServerOptions
 ): Promise<RunningThingdHttpServer> {
   const host = options.host ?? "127.0.0.1";
   const port = options.port ?? 8757;
@@ -109,7 +109,7 @@ export async function startThingdHttpServer(
 async function handleRequest(
   state: RuntimeState,
   request: IncomingMessage,
-  response: ServerResponse,
+  response: ServerResponse
 ): Promise<void> {
   try {
     setCommonHeaders(response);
@@ -219,7 +219,7 @@ async function handleRequest(
 async function handleHealth(
   state: RuntimeState,
   request: IncomingMessage,
-  response: ServerResponse,
+  response: ServerResponse
 ): Promise<void> {
   if (request.method !== "GET" && request.method !== "HEAD") {
     response.setHeader("Allow", "GET, HEAD, OPTIONS");
@@ -240,14 +240,14 @@ async function handleHealth(
       mcpPath: state.mcpPath,
       cluster: status,
     },
-    request.method === "HEAD",
+    request.method === "HEAD"
   );
 }
 
 async function handleClusterStatus(
   state: RuntimeState,
   request: IncomingMessage,
-  response: ServerResponse,
+  response: ServerResponse
 ): Promise<void> {
   if (request.method !== "GET" && request.method !== "HEAD") {
     response.setHeader("Allow", "GET, HEAD, OPTIONS");
@@ -264,7 +264,7 @@ async function handleClusterStatus(
 function handleClusterPeers(
   state: RuntimeState,
   request: IncomingMessage,
-  response: ServerResponse,
+  response: ServerResponse
 ): void {
   if (request.method !== "GET" && request.method !== "HEAD") {
     response.setHeader("Allow", "GET, HEAD, OPTIONS");
@@ -281,14 +281,14 @@ function handleClusterPeers(
       peers: state.cluster.peers,
       discovery: state.cluster.discovery,
     },
-    request.method === "HEAD",
+    request.method === "HEAD"
   );
 }
 
 async function handleMcpRequest(
   state: RuntimeState,
   request: IncomingMessage,
-  response: ServerResponse,
+  response: ServerResponse
 ): Promise<void> {
   const server = createThingdMcpServer(state.db, {
     audit: state.audit,
@@ -323,7 +323,7 @@ function setCommonHeaders(response: ServerResponse): void {
   response.setHeader("Access-Control-Allow-Origin", "*");
   response.setHeader(
     "Access-Control-Allow-Headers",
-    "Authorization, Content-Type, MCP-Protocol-Version",
+    "Authorization, Content-Type, MCP-Protocol-Version"
   );
   response.setHeader("Access-Control-Allow-Methods", "POST, GET, HEAD, OPTIONS");
 }
@@ -332,7 +332,7 @@ function writeJson(
   response: ServerResponse,
   statusCode: number,
   body: unknown,
-  headersOnly = false,
+  headersOnly = false
 ): void {
   response.writeHead(statusCode, {
     "Content-Type": "application/json",
@@ -379,7 +379,9 @@ function close(server: Server): Promise<void> {
 /** Parse Content-Length header. Returns null if absent or invalid. */
 function parseContentLength(request: IncomingMessage): number | null {
   const header = request.headers["content-length"];
-  if (!header) return null;
+  if (!header) {
+    return null;
+  }
   const n = Number.parseInt(header, 10);
   return Number.isInteger(n) && n >= 0 ? n : null;
 }
@@ -393,7 +395,7 @@ function parseContentLength(request: IncomingMessage): number | null {
 function wrapRequestWithSizeLimit(
   request: IncomingMessage,
   response: ServerResponse,
-  maxBytes: number,
+  maxBytes: number
 ): IncomingMessage {
   const pass = new PassThrough();
   let total = 0;
@@ -406,7 +408,9 @@ function wrapRequestWithSizeLimit(
   });
 
   request.on("data", (chunk: Buffer) => {
-    if (aborted) return;
+    if (aborted) {
+      return;
+    }
     total += chunk.length;
     if (total > maxBytes) {
       aborted = true;
@@ -428,10 +432,14 @@ function wrapRequestWithSizeLimit(
   });
 
   request.on("end", () => {
-    if (!aborted) pass.end();
+    if (!aborted) {
+      pass.end();
+    }
   });
   request.on("error", (err) => {
-    if (!aborted) pass.destroy(err);
+    if (!aborted) {
+      pass.destroy(err);
+    }
   });
 
   return pass as unknown as IncomingMessage;
@@ -505,18 +513,26 @@ function createReplicatingDb(originalDb: ThingD, mode: string): ThingD {
 }
 
 function* resolveLeaderUrls(cluster: ResolvedThingdClusterOptions): Generator<string> {
-  if (cluster.leaderUrl) yield cluster.leaderUrl;
-  if (cluster.fallbackLeaderUrl) yield cluster.fallbackLeaderUrl;
+  if (cluster.leaderUrl) {
+    yield cluster.leaderUrl;
+  }
+  if (cluster.fallbackLeaderUrl) {
+    yield cluster.fallbackLeaderUrl;
+  }
 }
 
 function startReplicationRunner(state: RuntimeState) {
   const leaderUrl = state.cluster.leaderUrl;
-  if (!leaderUrl) return;
+  if (!leaderUrl) {
+    return;
+  }
 
   const pullInterval = 500;
 
   async function runSync() {
-    if (state.replicationStopped) return;
+    if (state.replicationStopped) {
+      return;
+    }
 
     const status = await state.db.get("__thingd_meta", "replication_status");
     const lastSeq =
@@ -527,7 +543,9 @@ function startReplicationRunner(state: RuntimeState) {
     let fetched = false;
 
     for (const url of resolveLeaderUrls(state.cluster)) {
-      if (state.replicationStopped) return;
+      if (state.replicationStopped) {
+        return;
+      }
       try {
         const fetchUrl = new URL("/v1/replication/events", url);
         fetchUrl.searchParams.set("after", String(lastSeq));
@@ -562,7 +580,9 @@ function startReplicationRunner(state: RuntimeState) {
         };
         if (resData.success && Array.isArray(resData.events) && resData.events.length > 0) {
           for (const ev of resData.events) {
-            if (state.replicationStopped) return;
+            if (state.replicationStopped) {
+              return;
+            }
 
             const type = ev.type;
 
@@ -600,7 +620,7 @@ function startReplicationRunner(state: RuntimeState) {
       } catch (error) {
         console.error(
           `Replication from ${url} failed:`,
-          error instanceof Error ? error.message : String(error),
+          error instanceof Error ? error.message : String(error)
         );
       }
     }
@@ -632,7 +652,7 @@ function stopReplicationRunner(state: RuntimeState) {
 async function handleReplicationEvents(
   state: RuntimeState,
   request: IncomingMessage,
-  response: ServerResponse,
+  response: ServerResponse
 ): Promise<void> {
   if (request.method !== "GET" && request.method !== "HEAD") {
     response.setHeader("Allow", "GET, HEAD, OPTIONS");
@@ -658,7 +678,7 @@ async function handleReplicationEvents(
         success: true,
         events: filteredEvents,
       },
-      request.method === "HEAD",
+      request.method === "HEAD"
     );
   } catch (error) {
     writeJson(response, 500, {

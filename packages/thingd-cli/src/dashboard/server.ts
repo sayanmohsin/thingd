@@ -59,7 +59,7 @@ function isCloudPath(path: string): boolean {
 
 export async function startDashboardServer(
   connectionOptions: ConnectionOptions,
-  port: number,
+  port: number
 ): Promise<{ server: import("node:http").Server; close: () => Promise<void> }> {
   // 1. Maintain dynamic active database options
   let activeOptions = { ...connectionOptions };
@@ -163,7 +163,7 @@ export async function startDashboardServer(
               path: activeOptions.path,
               metrics: { objects, events, activeJobs, deadJobs, dbSize },
               authRequired: !!activeOptions.authToken,
-            }),
+            })
           );
           return;
         }
@@ -297,7 +297,7 @@ export async function startDashboardServer(
               ready,
               leased,
               dead: deadJobs.length,
-            }),
+            })
           );
           return;
         }

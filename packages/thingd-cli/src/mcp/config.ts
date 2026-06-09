@@ -62,7 +62,7 @@ export function parseBooleanFlag(value: string | undefined, name: string): boole
 }
 
 export function readMcpAuditOptionsFromEnv(
-  env: Record<string, string | undefined>,
+  env: Record<string, string | undefined>
 ): ThingdMcpAuditOptions | false {
   const enabled =
     env.THINGD_MCP_AUDIT === undefined
@@ -99,7 +99,7 @@ export function ensureHttpRuntimeIsSafe(options: HttpRuntimeSafetyOptions): void
   }
 
   throw new Error(
-    "THINGD_AUTH_TOKEN is required when the HTTP MCP runtime binds to a non-loopback host. Set THINGD_AUTH_TOKEN or THINGD_ALLOW_UNAUTHENTICATED=true for local-only experiments.",
+    "THINGD_AUTH_TOKEN is required when the HTTP MCP runtime binds to a non-loopback host. Set THINGD_AUTH_TOKEN or THINGD_ALLOW_UNAUTHENTICATED=true for local-only experiments."
   );
 }
 
@@ -151,7 +151,7 @@ export function parsePayloadSizeLimit(value: string | undefined, defaultBytes = 
  * Read all Phase-6 MCP hardening options from the environment.
  */
 export function readMcpHardeningOptionsFromEnv(
-  env: Record<string, string | undefined>,
+  env: Record<string, string | undefined>
 ): ThingdMcpHardeningOptions {
   return {
     collectionAllowlist: parseCollectionAllowlist(env.THINGD_MCP_COLLECTIONS),
