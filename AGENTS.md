@@ -26,16 +26,16 @@ thingd-cloud (private)
 - `cli-reference.md`, `agent-implementation-guide.md`
 - Landing page: `docs/index.html`
 
-### thingd-cloud — planning docs
+### thingd-cloud — planning docs (see that repo's AGENTS.md for the full list)
 - `roadmap.md` — full phase plan with checkboxes
 - `handoff.md` — contributor restart guide
-- `ai-primitives.md` — future primitive plans (graph links, hybrid search, etc.)
+- `ai-primitives.md` — future AI-native primitive plans
 - `persistence-and-native-bindings.md` — storage implementation plans
 - `sidecar-cluster.md` — cluster bridge plans
 - `coding-standards.md` — contributor workflow rules
 - `doc-maintenance.md` — doc hygiene checklist
 - `vision.md` — product vision and design philosophy
-- `cli.md` — CLI phase planning (original, before extraction)
+- `cli.md` — CLI phase planning
 
 ## Cross-repo rules
 
@@ -48,3 +48,148 @@ thingd-cloud (private)
 - Never duplicate planning status between repos — `thingd-cloud` is the
   single source of truth for roadmap/phase tracking.
 - Never commit secrets, API keys, or production credentials to either repo.
+
+---
+
+## Project status — early-to-mid stage prototype (0.x track)
+
+### Shipped
+
+| Area | Details |
+|------|---------|
+| Rust engine | `thingd-core` — memory + SQLite adapters, FTS5 search, queue lifecycle (lease/ack/nack/dead-letter/delayed/retry), schema migrations v1-v3, ~38 tests |
+| Node.js SDK | `thingd` — three drivers: memory (default in-memory TS store), native (napi-rs Rust SQLite), remote/cloud (Streamable HTTP MCP) |
+| CLI | `thingd-cli` — TUI dashboard, 30+ subcommands (search, objects, events, queues, export/import/snapshot, doctor, bench, install for Cursor/Claude Desktop) |
+| MCP server | 16 tools, stdio + Streamable HTTP, audit events to `__thingd:mcp:audit` stream, collection allowlists, read-only mode |
+| Docker | Multi-stage (Node 24 + Rust), compose + K8s for leader/follower cluster |
+| Logo/branding | `{thing:d}` monospace SVG, truecolor ANSI CLI logo (orange #e05316 + cyan #00c4d4) |
+| SEO | JSON-LD structured data, Twitter Cards, canonical URL, robots.txt, sitemap.xml |
+| CI/tooling | semantic-release, biome, lefthook (lint+build on pre-push) |
+
+### Published npm packages
+- `thingd` — public SDK
+- `thingd-cli` — public CLI
+- `thingd-native` — private (no prebuilts), requires local Rust build
+
+All three publish in lockstep. Old 1.x/2.x versions are deprecated on npm.
+
+---
+
+## Tech stack
+
+| Tool | Version (see config files for exact pinned versions) |
+|------|---------|
+| Node.js | >= 24.0.0 (check `package.json` `engines`) |
+| pnpm | See `package.json` `packageManager` |
+| Rust | edition 2024 (see `rustfmt.toml`) |
+| Biome | See `biome.json` devDependencies |
+| TypeScript | See root `package.json` devDependencies |
+| semantic-release | See root `package.json` devDependencies |
+| Lefthook | See root `package.json` devDependencies |
+
+---
+
+## Key config
+
+### Biome (`biome.json`)
+- `recommended: true` + `useBlockStatements: "error"` (all if/for/while must have braces)
+- `noUnusedImports`, `noUnusedVariables`: `"error"`
+- `noUnusedFunctionParameters`: `"warn"`
+- `noCommonJs`: `"error"` (no CJS allowed)
+- `noDoubleEquals`: `"error"`
+- `noNonNullAssertion`: `"warn"`
+- Trailing commas: `"es5"` (objects, arrays — NOT function params/type decls)
+- Semicolons: always, quotes: double, line width: 100
+- Ignores: `target`, `node_modules`, `dist`, `packages/thingd-cli/src/dashboard/public/assets`
+
+### Rustfmt (`rustfmt.toml`)
+- Edition 2024, max_width 100, stable-only options
+- `match_block_trailing_comma = true`, `remove_nested_parens = true`
+- Use field init shorthand, use try shorthand
+
+### Lefthook (`lefthook.yml`)
+- Pre-push hook runs: `pnpm check` (biome) + `pnpm build` (parallel)
+
+---
+
+## Build & test
+
+```bash
+pnpm build                    # build all packages
+pnpm check                    # biome check
+pnpm check:write              # biome auto-fix
+pnpm test                     # all tests (node + cli + package + rust)
+pnpm test:node                # thingd SDK tests
+pnpm test:cli                 # thingd-cli tests
+pnpm test:rust                # cargo test --workspace
+pnpm test:local               # check → build → node+cli+package tests
+pnpm bench:rust               # cargo bench (in-memory + sqlite)
+cargo clippy --workspace --all-targets --all-features -- -D warnings
+```
+
+---
+
+## Publishing process
+
+Releases are done via `semantic-release` (GitHub Actions workflow in
+`.github/workflows/release.yml`). The workflow:
+1. Builds native addon on matrix (macOS, ubuntu, windows)
+2. Runs `pnpm release` which triggers semantic-release
+3. Semantic-release uses `release.config.mjs`:
+   - `tagFormat: "v${version}"`, branch: `main`
+   - Analyzes commits via conventionalcommits
+   - Publishes all 3 packages to npm via `@semantic-release/exec`
+   - Creates GitHub release
+
+Pre-release manual publish (fallback):
+- Anchor version via git tag (e.g., `v0.20.0`), update all 3 package.jsons
+- Run: `pnpm --filter thingd publish --access public --no-git-checks`
+- Deprecate old versions on npm if needed
+
+Semantic-release bumps all 3 packages in sync via `prepareCmd`.
+
+---
+
+## Logo & branding
+
+### SVG logo
+`docs/logo.svg` — `{thing:d}` monospace, orange braces `#e05316`, cyan letters
+`#00c4d4`. Also used as favicon (`docs/favicon.svg`).
+
+### CLI logo
+`packages/thingd-cli/src/logo.ts` — `logoText()` / `logoLine()` with truecolor
+ANSI sequences for terminal display (same colors). Shown in `--help`, TUI
+startup, and TUI header.
+
+---
+
+## Code conventions
+
+- **TypeScript** — ESM only (`"type": "module"`), no CJS (`noCommonJs: error`)
+- **Formatting** — double quotes, semicolons always, trailing commas es5
+- **Braces** — all if/for/while must use `{}` (even single-line bodies)
+- **Imports** — no unused imports (error)
+- **Rust** — edition 2024, `cargo fmt` must pass
+- **Commits** — conventionalcommits format (`fix:`, `feat:`, `refactor:`, etc.)
+  for semantic-release to detect version bumps
+- **Commit automation** — do NOT commit unless explicitly asked
+
+---
+
+## Release process notes
+
+- All versions stay below 1.0 (0.x series) indefinitely during early stage
+- Bad tags/releases from 1.x/2.x have been deleted from remote and local,
+  and the corresponding npm versions deprecated
+- GitHub release titles must match the semver tag (delete bad releases on GitHub
+  and recreate them if needed)
+
+---
+
+## Next steps
+
+1. GitHub Pages will auto-update with new logo, SEO tags, sitemap, robots.txt
+   on next deploy
+2. (Optional) Post Reddit r/node draft from `docs/reddit-drafts.md`
+
+Roadmap and feature planning are tracked in the private `thingd-cloud` repo.

@@ -259,7 +259,7 @@ const db = await ThingD.open();
 `ThingD.open()` appends `/mcp` automatically when `THINGD_URL` points at the
 runtime root.
 
-## ChatGPT And Remote MCP Direction
+## ChatGPT And Remote MCP Access
 
 The Streamable HTTP server is remote-capable, but ChatGPT-style cloud usage
 needs a public HTTPS URL. `localhost` inside your laptop or Docker host is not

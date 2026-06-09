@@ -7,11 +7,6 @@ Rust core
   object store
   event log
   queue engine
-  graph links
-  locks and leases
-  workflow DAG
-  semantic cache
-  tool-call ledger
   search indexes
   storage adapters
 
@@ -34,7 +29,7 @@ Server/sidecar
   localhost app bridge
   Kubernetes peer discovery
   leader write forwarding
-  future event replication
+  event replication
 ```
 
 The public Node SDK should remain the app-facing contract. Native bindings should sit underneath that SDK rather than creating a separate API surface.
@@ -49,12 +44,6 @@ The durable engine should be append-friendly and rebuildable:
 objects
 events
 queue_jobs
-links
-leases
-workflow_runs
-cache_entries
-tool_calls
-snapshots
 indexes
 ```
 
@@ -89,15 +78,7 @@ ready -> leased -> dead-letter
 
 The first multi-pod coordination story is a single primary writer with many consumers. Exactly-once delivery is not promised; idempotency keys and dedupe keys should be part of the API.
 
-## Multi-pod Direction
-
-The practical path is:
-
-1. single-node embedded mode
-2. sidecar/server mode with one primary writer
-3. local read replicas
-4. tenant or queue partitioning
-5. consensus only if real demand proves it is worth the complexity
+## Multi-pod Architecture
 
 Sidecar cluster mode runs as a runtime layer above SQLite, not a
 multi-primary SQLite design. Each app talks to a local `thingd` sidecar. The
@@ -107,17 +88,7 @@ current bridge scaffold exposes peer metadata and can run as `single`,
 For the runtime API, environment, and Kubernetes deployment, see
 [docker-runtime.md](./docker-runtime.md) and [mcp-server.md](./mcp-server.md).
 
-## AI-Native Primitive Direction
-
-`thingd` should prioritize workflow primitives that help agents understand,
-retrieve, coordinate, and audit work: graph links, hybrid
-search, locks/leases/semaphores, workflow DAGs, semantic cache, tool-call
-ledger, and compaction snapshots.
-
-Development planning and phase tracking is maintained in the private
-**thingd-cloud** repo.
-
-## MCP Server Direction
+## MCP Server
 
 `packages/thingd-cli` wraps the public SDK as MCP tools. It provides stdio for
 local MCP clients and Streamable HTTP for remote-capable runtimes via the integrated `mcp` and `mcp-http` subcommands. Write tools
@@ -128,18 +99,17 @@ For current tools and local usage, read [mcp-server.md](./mcp-server.md) and
 [docker-runtime.md](./docker-runtime.md). Runtime env vars are centralized in
 [runtime-env.md](./runtime-env.md).
 
-## CLI Direction
+## CLI
 
 The unified `packages/thingd-cli` package houses both the MCP server entrypoints and the full-featured `thingd` admin/operator CLI. The CLI uses the public SDK for
 local and remote access and can inspect objects, events, queues, dead jobs, MCP
-tools, and runtime status. The next CLI phase should add operator polish before
-any inspector UI is built.
+tools, and runtime status.
 
 For commands and runtime options, read [cli-reference.md](./cli-reference.md).
 
-## Native Binding Direction
+## Native Binding
 
-The expected embedded path is:
+The embedded path is:
 
 ```txt
 thingd

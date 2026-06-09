@@ -224,10 +224,6 @@ Your MCP endpoint: `https://example.com/mcp`
 
 ChatGPT can now call all 12 thingd tools in any conversation.
 
-### Option C: thingd-cloud (future)
-
-A hosted gateway with automatic TLS and multi-tenant routing is planned.
-
 ---
 
 ## Agent rules (optional but powerful)

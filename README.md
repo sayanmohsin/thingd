@@ -334,20 +334,7 @@ const hits = await db.search("customers who upgraded after a failed deployment",
 });
 ```
 
-**Current behavior:** Search is powered by a high-performance database-native SQLite **FTS5** virtual table with Porter word stemming, custom metadata key-value filters, and dynamic recency-weighted ranking. Vector search is planned for a future release once this foundation is fully integrated.
-
-## Advanced primitives
-
-Beyond objects, events, and queues, `thingd` should grow workflow primitives
-that are valuable for modern applications:
-
-- graph links for source tracing and explainable retrieval
-- hybrid search across text, metadata, graph links, recency, and vectors
-- locks, leases, and semaphores for worker and pod coordination
-- workflow DAGs for document ingestion, indexing, and processing pipelines
-- semantic cache for expensive model/tool outputs
-- tool-call ledger for replay, audit, latency, and cost
-- compaction snapshots for long-running memory
+**Current behavior:** Search is powered by a high-performance database-native SQLite **FTS5** virtual table with Porter word stemming, custom metadata key-value filters, and dynamic recency-weighted ranking.
 
 ## MCP-native access
 

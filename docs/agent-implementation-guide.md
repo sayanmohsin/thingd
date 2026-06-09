@@ -218,7 +218,7 @@ export class WorkflowService {
 }
 ```
 
-The current `examples/nestjs-basic` app uses a local adapter shape. Future work should move it onto the exported SDK once the example is ready to demonstrate the package directly.
+The current `examples/nestjs-basic` app uses a local adapter shape.
 
 ## MCP Integration Shape
 
@@ -246,7 +246,7 @@ audit events to `__thingd:mcp:audit` by default. Tool callers can pass optional
 `actor` and `source` fields, and runtimes can set defaults with
 `THINGD_MCP_ACTOR` and `THINGD_MCP_SOURCE`.
 
-## Rust And Native Binding Direction
+## Rust And Native Binding Architecture
 
 The public API should stay in `thingd`. Native support should be an implementation detail underneath it.
 
@@ -288,7 +288,7 @@ For agent value and patterns, read [why-agents.md](./why-agents.md) and
 - Do not add a separate app-facing API to `thingd-native`; keep the public API in `thingd`.
 - Do not claim exactly-once queue delivery. The queue is at-least-once.
 - Do not hide distributed-system tradeoffs. Multi-pod writes need server/sidecar or primary-writer mode.
-- Do not add multi-primary cluster behavior. Planned cluster mode is leader-writer with forwarding and event replication.
+- Do not add multi-primary cluster behavior. Cluster mode uses leader-writer with forwarding and event replication.
 - Do not add generic textbook structures as public features unless they map to an AI-native workflow primitive.
 - Keep sidecar environment variables and Kubernetes examples aligned with the private **thingd-cloud** repo.
 - Keep package publish behavior in `release.config.mjs` and `docs/release.md` aligned.
