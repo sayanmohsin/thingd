@@ -329,13 +329,51 @@
     ::-webkit-scrollbar-thumb:hover { background: #333; }
 
     @media (max-width: 768px) {
-      .hero { padding: 3rem 0 0; }
-      .hero-logo { font-size: 2.8rem; }
-      .features-grid { grid-template-columns: 1fr; }
+      :root { /* smaller gaps and radii on mobile */ }
+      .container { padding: 0 1.25rem; }
+      .hero { padding: 2.5rem 0 0; }
+      .hero-logo { font-size: 2.4rem; }
+      .hero p { font-size: 1rem; }
+      .features-grid { grid-template-columns: 1fr; border-radius: 12px; }
       .deploy-grid { grid-template-columns: 1fr; }
       .mcp-grid { grid-template-columns: 1fr; }
-      .stats-row { gap: 2rem; }
-      section { padding: 3rem 0; }
+      .mcp-tool { font-size: 0.7rem; padding: 0.3rem 0.4rem; }
+      .mcp-tool .desc { font-size: 0.65rem; }
+      .stats-row { gap: 1.5rem; padding: 2rem 0; }
+      .stat-num { font-size: 1.6rem; }
+      section { padding: 2.5rem 0; }
+      .section-title { font-size: 1.4rem; }
+      .section-sub { font-size: 0.88rem; margin-bottom: 2rem; }
+      .terminal-body { font-size: 0.72rem; padding: 1rem; min-height: 220px; }
+      .install-card { padding: 1.5rem; }
+      .code-block { font-size: 0.76rem; padding: 1rem; }
+      .agent-card { padding: 1rem 1.25rem; }
+      .agent-card .agent-row { flex-wrap: wrap; gap: 0.3rem; padding: 0.5rem 0; }
+      .agent-card .agent-name { min-width: 0; font-size: 0.82rem; }
+      .agent-card .agent-mode { font-size: 0.72rem; }
+      .agent-card .agent-desc { font-size: 0.76rem; margin-left: 0; text-align: left; width: 100%; }
+      .tabs { width: 100%; overflow-x: auto; flex-wrap: nowrap; }
+      .tab { padding: 0.4rem 0.9rem; font-size: 0.8rem; white-space: nowrap; flex-shrink: 0; }
+      .hero-cta { flex-direction: column; align-items: center; }
+      .cta { padding: 0.75rem 1.5rem; font-size: 0.9rem; width: 100%; max-width: 300px; justify-content: center; }
+      .hero-badges { gap: 0.35rem; }
+      .footer-links { gap: 0.75rem; }
+    }
+    @media (max-width: 480px) {
+      .container { padding: 0 1rem; }
+      .hero-logo { font-size: 2rem; }
+      .hero p { font-size: 0.92rem; }
+      .terminal-body { font-size: 0.65rem; padding: 0.75rem; min-height: 200px; }
+      .terminal-header { padding: 0.6rem 0.9rem; }
+      .terminal-dot { width: 8px; height: 8px; }
+      .section-title { font-size: 1.25rem; }
+      .mcp-card { padding: 1.25rem; }
+      .mcp-tool .desc { display: none; }
+      .stat-num { font-size: 1.3rem; }
+      .stat { flex: 1 1 45%; }
+      .code-block { font-size: 0.7rem; padding: 0.75rem; }
+      .feature-card { padding: 1.25rem; }
+      .feature-card p { font-size: 0.82rem; }
     }
   </style>
 </head>
@@ -658,7 +696,8 @@
       }
     }
 
-    for (let i = 0; i < 60; i++) particles.push(new Particle());
+    const particleCount = window.innerWidth < 480 ? 20 : window.innerWidth < 768 ? 35 : 60;
+    for (let i = 0; i < particleCount; i++) particles.push(new Particle());
 
     function drawLines() {
       for (let i = 0; i < particles.length; i++) {
