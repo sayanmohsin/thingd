@@ -555,10 +555,7 @@ impl EventLog for SqliteThingStore {
             sql.push_str(&format!(" LIMIT {limit}"));
         }
 
-        let mut statement = self
-            .connection
-            .prepare(&sql)
-            .map_err(ThingdError::from)?;
+        let mut statement = self.connection.prepare(&sql).map_err(ThingdError::from)?;
 
         let param_refs: Vec<&dyn rusqlite::types::ToSql> =
             param_values.iter().map(|p| p.as_ref()).collect();

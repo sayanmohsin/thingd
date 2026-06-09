@@ -470,7 +470,13 @@ mod tests {
             .unwrap();
 
         assert_eq!(event.sequence, 1);
-        assert_eq!(engine.list_events(Some("project:thingd"), ListEventsOptions::default()).unwrap().len(), 1);
+        assert_eq!(
+            engine
+                .list_events(Some("project:thingd"), ListEventsOptions::default())
+                .unwrap()
+                .len(),
+            1
+        );
     }
 
     #[test]
