@@ -12,7 +12,7 @@ export class NativeThingStore {
     id: string,
     body: string,
     maxAttempts: number,
-    delayMs: number,
+    delayMs: number
   ): string;
   claimJobJson(queue: string, leaseMs: number): string | null;
   ackJobJson(queue: string, id: string): string;

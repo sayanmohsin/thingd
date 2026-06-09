@@ -23,7 +23,7 @@ async function main() {
   });
   log(
     "1. Database Open",
-    "Opened persistent thingd instance using automatic native driver promotion.",
+    "Opened persistent thingd instance using automatic native driver promotion."
   );
 
   // 2. Put memory records
@@ -59,7 +59,7 @@ async function main() {
       id: r.id,
       score: r.score,
       text: (r.value as Record<string, unknown>).text,
-    })),
+    }))
   );
 
   // 4. Perform Search with custom Metadata Filters
@@ -77,7 +77,7 @@ async function main() {
       score: r.score,
       status: (r.value as Record<string, unknown>).status,
       text: (r.value as Record<string, unknown>).text,
-    })),
+    }))
   );
 
   // 5. Close database safely

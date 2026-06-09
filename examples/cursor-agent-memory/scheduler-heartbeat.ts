@@ -45,14 +45,14 @@ async function main() {
       id: scheduleId,
       runAt,
       recurringIntervalMs: intervalMs,
-    },
+    }
   );
 
   // 2. Scheduler Heartbeat Routine
   // This simulates an external clock or cron trigger querying due schedules and pushing jobs to the queue.
   log(
     "2. Run Scheduler Heartbeat",
-    "Heartbeat query: checking for enabled, due schedules (runAt <= now)...",
+    "Heartbeat query: checking for enabled, due schedules (runAt <= now)..."
   );
 
   // Query schedules (in a real app, you would query schedules that match the criteria)
@@ -70,13 +70,13 @@ async function main() {
       },
       {
         idempotencyKey,
-      },
+      }
     );
 
     log(
       "2a. Push Task to Queue",
       `Schedule is due! Enqueued a new scheduler job with idempotencyKey "${idempotencyKey}":`,
-      job,
+      job
     );
 
     // Update the schedule's next run time
@@ -99,14 +99,14 @@ async function main() {
     log(
       "3a. Task Claimed",
       `Successfully claimed job "${claimedJob.id}". Concurrency lock is active for 15s.`,
-      claimedJob,
+      claimedJob
     );
 
     // Simulate task execution
     const taskPayload = claimedJob.payload;
     console.log(
       `\n⏳ [Executing Action] Running "${taskPayload.action}" with payload:`,
-      taskPayload.payload,
+      taskPayload.payload
     );
     await new Promise((resolve) => setTimeout(resolve, 1000)); // simulate 1s work
 
@@ -115,7 +115,7 @@ async function main() {
     log(
       "3b. Task Acknowledged",
       "Job completed and acknowledged successfully. Task cleared from queue.",
-      acked,
+      acked
     );
   }
 

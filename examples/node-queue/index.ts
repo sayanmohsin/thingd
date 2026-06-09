@@ -29,7 +29,9 @@ async function main() {
   log("3. Process Jobs", "Claiming and processing jobs one by one...");
   while (true) {
     const job = await queue.claim({ leaseMs: 5000 });
-    if (!job) break;
+    if (!job) {
+      break;
+    }
     log("Processing", `Claimed job: ${job.id}`, job.payload);
     await queue.ack(job.id);
     log("Acknowledged", `Job ${job.id} completed successfully!`);
