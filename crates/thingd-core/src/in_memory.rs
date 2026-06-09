@@ -109,7 +109,10 @@ impl EventLog for MemoryEngine {
             .collect::<Vec<_>>();
 
         Ok(match options.limit {
-            Some(limit) => events.into_iter().take(limit as usize).collect(),
+            Some(limit) => events
+                .into_iter()
+                .take(usize::try_from(limit).unwrap_or(usize::MAX))
+                .collect(),
             None => events,
         })
     }

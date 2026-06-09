@@ -2,6 +2,7 @@
 //!
 //! This adapter implements durable object, event, and queue storage.
 
+use std::fmt::Write as _;
 use std::path::Path;
 
 use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
@@ -539,26 +540,26 @@ impl EventLog for SqliteThingStore {
 
         if let Some(stream) = stream {
             let idx = param_values.len() + 1;
-            sql.push_str(&format!(" AND stream = ?{idx}"));
+            write!(sql, " AND stream = ?{idx}").unwrap();
             param_values.push(Box::new(stream.to_string()));
         }
 
         if let Some(from_sequence) = options.from_sequence {
             let idx = param_values.len() + 1;
-            sql.push_str(&format!(" AND sequence > ?{idx}"));
-            param_values.push(Box::new(from_sequence as i64));
+            write!(sql, " AND sequence > ?{idx}").unwrap();
+            param_values.push(Box::new(from_sequence.cast_signed()));
         }
 
         sql.push_str(" ORDER BY sequence");
 
         if let Some(limit) = options.limit {
-            sql.push_str(&format!(" LIMIT {limit}"));
+            write!(sql, " LIMIT {limit}").unwrap();
         }
 
         let mut statement = self.connection.prepare(&sql).map_err(ThingdError::from)?;
 
         let param_refs: Vec<&dyn rusqlite::types::ToSql> =
-            param_values.iter().map(|p| p.as_ref()).collect();
+            param_values.iter().map(AsRef::as_ref).collect();
 
         let rows = statement
             .query_map(param_refs.as_slice(), row_to_event)
