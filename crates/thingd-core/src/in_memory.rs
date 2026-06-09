@@ -2,6 +2,7 @@
 
 use std::collections::{BTreeMap, VecDeque};
 
+use crate::model::ListEventsOptions;
 use crate::{
     now_iso_string, u64_to_i64, unix_timestamp_millis, EventLog, MemoryEvent, MemoryObject,
     ObjectKey, ObjectStore, QueueClaimOptions, QueueJob, QueueJobStatus, QueueNackOptions,
@@ -94,15 +95,23 @@ impl EventLog for MemoryEngine {
         Ok(event)
     }
 
-    fn list_events(&self, stream: Option<&str>) -> ThingdResult<Vec<MemoryEvent>> {
+    fn list_events(
+        &self,
+        stream: Option<&str>,
+        options: ListEventsOptions,
+    ) -> ThingdResult<Vec<MemoryEvent>> {
         let events = self
             .events
             .iter()
             .filter(|event| stream.is_none_or(|target| event.stream == target))
+            .filter(|event| options.from_sequence.is_none_or(|seq| event.sequence > seq))
             .cloned()
-            .collect();
+            .collect::<Vec<_>>();
 
-        Ok(events)
+        Ok(match options.limit {
+            Some(limit) => events.into_iter().take(limit as usize).collect(),
+            None => events,
+        })
     }
 
     fn count_events(&self) -> ThingdResult<u64> {
@@ -461,7 +470,7 @@ mod tests {
             .unwrap();
 
         assert_eq!(event.sequence, 1);
-        assert_eq!(engine.list_events(Some("project:thingd")).unwrap().len(), 1);
+        assert_eq!(engine.list_events(Some("project:thingd"), ListEventsOptions::default()).unwrap().len(), 1);
     }
 
     #[test]

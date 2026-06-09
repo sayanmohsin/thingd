@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type {
+  ListEventsOptions,
   MemoryEvent,
   MemoryObject,
   MemorySearchOptions,
@@ -48,6 +49,7 @@ class Mutex {
 export class InMemoryThingStore implements ThingStore {
   private readonly collections = new Map<string, Map<string, StoredMemoryObject>>();
   private readonly events: StoredMemoryEvent[] = [];
+  private nextEventSequence = 0;
   private readonly queues = new Map<string, QueueJob[]>();
   private readonly mutex = new Mutex();
 
@@ -95,10 +97,12 @@ export class InMemoryThingStore implements ThingStore {
 
   async appendEvent(stream: string, event: MemoryEvent): Promise<StoredMemoryEvent> {
     return this.withLock(() => {
+      this.nextEventSequence += 1;
       const record: StoredMemoryEvent = {
         ...event,
         id: randomUUID(),
         stream,
+        sequence: this.nextEventSequence,
         createdAt: new Date().toISOString(),
       };
       this.events.push(record);
@@ -106,11 +110,18 @@ export class InMemoryThingStore implements ThingStore {
     });
   }
 
-  async listEvents(stream?: string): Promise<StoredMemoryEvent[]> {
-    if (!stream) {
-      return [...this.events];
+  async listEvents(stream?: string, options?: ListEventsOptions): Promise<StoredMemoryEvent[]> {
+    let events = this.events;
+    if (stream) {
+      events = events.filter((event) => event.stream === stream);
     }
-    return this.events.filter((event) => event.stream === stream);
+    if (options?.fromSequence) {
+      events = events.filter((event) => event.sequence > (options.fromSequence as number));
+    }
+    if (options?.limit) {
+      events = events.slice(0, options.limit);
+    }
+    return [...events];
   }
 
   async pushJob(

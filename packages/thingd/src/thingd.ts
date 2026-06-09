@@ -2,6 +2,7 @@ import { CloudThingStore } from "./stores/cloud-thing-store.js";
 import { InMemoryThingStore } from "./stores/in-memory-thing-store.js";
 import { NativeThingStore } from "./stores/native-thing-store.js";
 import type {
+  ListEventsOptions,
   MemoryEvent,
   MemoryObject,
   MemoryQueue,
@@ -68,7 +69,8 @@ export class ThingD {
   readonly events = {
     append: (stream: string, event: MemoryEvent): Promise<StoredMemoryEvent> =>
       this.store.appendEvent(stream, event),
-    list: (stream?: string): Promise<StoredMemoryEvent[]> => this.store.listEvents(stream),
+    list: (stream?: string, options?: ListEventsOptions): Promise<StoredMemoryEvent[]> =>
+      this.store.listEvents(stream, options),
   };
 
   queue(name: string): MemoryQueue {

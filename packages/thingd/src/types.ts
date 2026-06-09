@@ -19,6 +19,7 @@ export type MemoryEvent = {
 export type StoredMemoryEvent = MemoryEvent & {
   id: string;
   stream: string;
+  sequence: number;
   createdAt: string;
 };
 
@@ -102,13 +103,18 @@ export type MemoryQueue = {
   dead(): Promise<QueueJob[]>;
 };
 
+export type ListEventsOptions = {
+  fromSequence?: number;
+  limit?: number;
+};
+
 export interface ThingStore {
   put(collection: string, object: MemoryObject): Promise<StoredMemoryObject>;
   get(collection: string, id: string): Promise<StoredMemoryObject | null>;
   delete(collection: string, id: string): Promise<ThingDeleteResult>;
   listObjects?(collection: string): Promise<StoredMemoryObject[]>;
   appendEvent(stream: string, event: MemoryEvent): Promise<StoredMemoryEvent>;
-  listEvents(stream?: string): Promise<StoredMemoryEvent[]>;
+  listEvents(stream?: string, options?: ListEventsOptions): Promise<StoredMemoryEvent[]>;
   pushJob(queue: string, payload: QueueJobPayload, options?: QueueJobOptions): Promise<QueueJob>;
   claimJob(queue: string, options?: QueueClaimOptions): Promise<QueueJob | null>;
   ackJob(queue: string, jobId: string): Promise<QueueJobResult>;

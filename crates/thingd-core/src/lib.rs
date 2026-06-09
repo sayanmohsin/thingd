@@ -20,8 +20,8 @@ mod store;
 pub use error::{ThingdError, ThingdResult};
 pub use in_memory::MemoryEngine;
 pub use model::{
-    MemoryEvent, MemoryObject, ObjectKey, QueueClaimOptions, QueueJob, QueueJobStatus,
-    QueueNackOptions, SearchHit, SearchOptions, DEFAULT_QUEUE_LEASE_MS,
+    ListEventsOptions, MemoryEvent, MemoryObject, ObjectKey, QueueClaimOptions, QueueJob,
+    QueueJobStatus, QueueNackOptions, SearchHit, SearchOptions, DEFAULT_QUEUE_LEASE_MS,
 };
 #[cfg(feature = "sqlite")]
 pub use sqlite::{SqliteThingStore, SQLITE_SCHEMA_VERSION};

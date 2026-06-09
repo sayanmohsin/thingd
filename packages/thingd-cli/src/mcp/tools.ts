@@ -216,9 +216,11 @@ export function registerThingdTools(
     "thing_events_list",
     {
       title: "List Events",
-      description: "List thingd events, optionally filtered by stream.",
+      description: "List thingd events, optionally filtered by stream, with pagination.",
       inputSchema: {
         stream: z.string().min(1).optional(),
+        fromSequence: z.number().int().positive().optional(),
+        limit: z.number().int().positive().optional(),
       },
       annotations: {
         readOnlyHint: true,
@@ -227,7 +229,8 @@ export function registerThingdTools(
         openWorldHint: false,
       },
     },
-    async ({ stream }) => jsonResult(await db.events.list(stream))
+    async ({ stream, fromSequence, limit }) =>
+      jsonResult(await db.events.list(stream, { fromSequence, limit }))
   );
 
   server.registerTool(

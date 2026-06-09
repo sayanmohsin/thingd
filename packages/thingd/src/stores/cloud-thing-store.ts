@@ -2,6 +2,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import type {
+  ListEventsOptions,
   MemoryEvent,
   MemoryObject,
   MemorySearchOptions,
@@ -88,10 +89,18 @@ export class CloudThingStore implements ThingStore {
     });
   }
 
-  listEvents(stream?: string): Promise<StoredMemoryEvent[]> {
-    return this.callTool("thing_events_list", {
-      stream,
-    });
+  listEvents(stream?: string, options?: ListEventsOptions): Promise<StoredMemoryEvent[]> {
+    const params: Record<string, unknown> = {};
+    if (stream) {
+      params.stream = stream;
+    }
+    if (options?.fromSequence) {
+      params.fromSequence = options.fromSequence;
+    }
+    if (options?.limit) {
+      params.limit = options.limit;
+    }
+    return this.callTool("thing_events_list", params);
   }
 
   pushJob(

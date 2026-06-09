@@ -9,8 +9,8 @@ use chrono as _;
 use rusqlite as _;
 use serde_json as _;
 use thingd_core::{
-    EventLog, MemoryEngine, MemoryEvent, MemoryObject, ObjectStore, QueueJob, QueueStore,
-    SqliteThingStore,
+    EventLog, ListEventsOptions, MemoryEngine, MemoryEvent, MemoryObject, ObjectStore, QueueJob,
+    QueueStore, SqliteThingStore,
 };
 
 const DEFAULT_ITERATIONS: usize = 5_000;
@@ -70,7 +70,7 @@ where
     report(name, "event_append", iterations, elapsed);
 
     let started = Instant::now();
-    let events = store.list_events(Some(STREAM))?;
+    let events = store.list_events(Some(STREAM), ListEventsOptions::default())?;
     let elapsed = started.elapsed();
     black_box(events.len());
     report(name, "event_list", events.len(), elapsed);

@@ -5,8 +5,9 @@ use napi_derive::napi;
 use serde::Serialize;
 use serde_json::Value;
 use thingd_core::{
-    EventLog, MemoryEvent, MemoryObject, ObjectStore, QueueClaimOptions, QueueJob, QueueJobStatus,
-    QueueNackOptions, QueueStore, SearchOptions, Searcher, SqliteThingStore,
+    EventLog, ListEventsOptions, MemoryEvent, MemoryObject, ObjectStore, QueueClaimOptions,
+    QueueJob, QueueJobStatus, QueueNackOptions, QueueStore, SearchOptions, Searcher,
+    SqliteThingStore,
 };
 
 #[napi]
@@ -86,10 +87,21 @@ impl NativeThingStore {
     }
 
     #[napi(js_name = "listEventsJson")]
-    pub fn list_events_json(&self, stream: Option<String>) -> Result<String> {
+    pub fn list_events_json(
+        &self,
+        stream: Option<String>,
+        from_sequence: Option<i64>,
+        limit: Option<i64>,
+    ) -> Result<String> {
         let store = self.lock_store()?;
         let events = store
-            .list_events(stream.as_deref())
+            .list_events(
+                stream.as_deref(),
+                ListEventsOptions {
+                    from_sequence: from_sequence.map(|v| v as u64),
+                    limit: limit.map(|v| v as u64),
+                },
+            )
             .map_err(napi_error)?
             .into_iter()
             .map(event_record)

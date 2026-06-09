@@ -172,6 +172,15 @@ impl QueueJob {
     }
 }
 
+/// Options for listing events.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct ListEventsOptions {
+    /// Only return events with sequence greater than this value.
+    pub from_sequence: Option<u64>,
+    /// Maximum number of events to return.
+    pub limit: Option<u64>,
+}
+
 /// Options used when claiming a queue job.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct QueueClaimOptions {

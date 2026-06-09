@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { createRequire } from "node:module";
 import type {
+  ListEventsOptions,
   MemoryEvent,
   MemoryObject,
   MemorySearchOptions,
@@ -23,7 +24,7 @@ type NativeThingStoreBinding = {
   listObjectsJson(collectionsJson?: string): string;
   deleteObject(collection: string, id: string): boolean;
   appendEventJson(stream: string, body: string): string;
-  listEventsJson(stream?: string): string;
+  listEventsJson(stream?: string, fromSequence?: number, limit?: number): string;
   pushJobJson(
     queue: string,
     id: string,
@@ -175,8 +176,10 @@ export class NativeThingStore implements ThingStore {
     return eventFromNative(record);
   }
 
-  async listEvents(stream?: string): Promise<StoredMemoryEvent[]> {
-    return parseJson<NativeEventRecord[]>(this.binding.listEventsJson(stream)).map(eventFromNative);
+  async listEvents(stream?: string, options?: ListEventsOptions): Promise<StoredMemoryEvent[]> {
+    return parseJson<NativeEventRecord[]>(
+      this.binding.listEventsJson(stream, options?.fromSequence, options?.limit)
+    ).map(eventFromNative);
   }
 
   async pushJob(
@@ -408,6 +411,7 @@ function eventFromNative(record: NativeEventRecord): StoredMemoryEvent {
     ...value,
     type: value.type ?? record.eventType,
     id: String(record.sequence),
+    sequence: record.sequence,
     stream: record.stream,
     createdAt: record.createdAt ?? new Date().toISOString(),
   };

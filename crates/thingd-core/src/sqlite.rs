@@ -6,6 +6,7 @@ use std::path::Path;
 
 use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
 
+use crate::model::ListEventsOptions;
 use crate::{
     u64_to_i64, unix_timestamp_millis, EventLog, MemoryEvent, MemoryObject, ObjectKey, ObjectStore,
     QueueClaimOptions, QueueJob, QueueJobStatus, QueueNackOptions, QueueStore, ThingdError,
@@ -524,35 +525,50 @@ impl EventLog for SqliteThingStore {
         Ok(event)
     }
 
-    fn list_events(&self, stream: Option<&str>) -> ThingdResult<Vec<MemoryEvent>> {
+    fn list_events(
+        &self,
+        stream: Option<&str>,
+        options: ListEventsOptions,
+    ) -> ThingdResult<Vec<MemoryEvent>> {
         let mut events = Vec::new();
 
+        let mut sql = String::from(
+            "SELECT stream, event_type, body, sequence, created_at FROM events WHERE 1=1",
+        );
+        let mut param_values: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+
         if let Some(stream) = stream {
-            let mut statement = self
-                .connection
-                .prepare(
-                    "SELECT stream, event_type, body, sequence, created_at FROM events WHERE stream = ?1 ORDER BY sequence",
-                )
-                .map_err(ThingdError::from)?;
-            let rows = statement
-                .query_map(params![stream], row_to_event)
-                .map_err(ThingdError::from)?;
+            let idx = param_values.len() + 1;
+            sql.push_str(&format!(" AND stream = ?{idx}"));
+            param_values.push(Box::new(stream.to_string()));
+        }
 
-            for row in rows {
-                events.push(row.map_err(ThingdError::from)?);
-            }
-        } else {
-            let mut statement = self
-                .connection
-                .prepare("SELECT stream, event_type, body, sequence, created_at FROM events ORDER BY sequence")
-                .map_err(ThingdError::from)?;
-            let rows = statement
-                .query_map([], row_to_event)
-                .map_err(ThingdError::from)?;
+        if let Some(from_sequence) = options.from_sequence {
+            let idx = param_values.len() + 1;
+            sql.push_str(&format!(" AND sequence > ?{idx}"));
+            param_values.push(Box::new(from_sequence as i64));
+        }
 
-            for row in rows {
-                events.push(row.map_err(ThingdError::from)?);
-            }
+        sql.push_str(" ORDER BY sequence");
+
+        if let Some(limit) = options.limit {
+            sql.push_str(&format!(" LIMIT {limit}"));
+        }
+
+        let mut statement = self
+            .connection
+            .prepare(&sql)
+            .map_err(ThingdError::from)?;
+
+        let param_refs: Vec<&dyn rusqlite::types::ToSql> =
+            param_values.iter().map(|p| p.as_ref()).collect();
+
+        let rows = statement
+            .query_map(param_refs.as_slice(), row_to_event)
+            .map_err(ThingdError::from)?;
+
+        for row in rows {
+            events.push(row.map_err(ThingdError::from)?);
         }
 
         Ok(events)
@@ -1385,7 +1401,9 @@ mod tests {
         }
 
         let store = SqliteThingStore::open(file.path()).unwrap();
-        let events = store.list_events(Some("project:thingd")).unwrap();
+        let events = store
+            .list_events(Some("project:thingd"), ListEventsOptions::default())
+            .unwrap();
 
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].event_type, "decision.made");

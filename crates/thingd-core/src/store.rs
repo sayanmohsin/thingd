@@ -1,5 +1,6 @@
 //! Storage traits implemented by thingd storage adapters.
 
+use crate::model::ListEventsOptions;
 use crate::{
     MemoryEvent, MemoryObject, QueueClaimOptions, QueueJob, QueueNackOptions, ThingdResult,
 };
@@ -58,12 +59,16 @@ pub trait EventLog {
     /// Returns an error when the backing store cannot append the event.
     fn append_event(&mut self, event: MemoryEvent) -> ThingdResult<MemoryEvent>;
 
-    /// List events, optionally filtered by stream.
+    /// List events, optionally filtered by stream, with pagination.
     ///
     /// # Errors
     ///
     /// Returns an error when the backing store cannot read events.
-    fn list_events(&self, stream: Option<&str>) -> ThingdResult<Vec<MemoryEvent>>;
+    fn list_events(
+        &self,
+        stream: Option<&str>,
+        options: ListEventsOptions,
+    ) -> ThingdResult<Vec<MemoryEvent>>;
 
     /// Count total events across all streams.
     ///
