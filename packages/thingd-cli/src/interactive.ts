@@ -6,6 +6,7 @@ import * as path from "node:path";
 import readline from "node:readline";
 import pc from "picocolors";
 import { type MemorySearchOptions, ThingD, type ThingDDriver } from "thingd";
+import { logoText } from "./logo.js";
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
@@ -555,7 +556,7 @@ function scheduleLoad(node: TreeNode) {
     if (node.type === "driver" && node.ref) {
       const d = node.ref.driver as string;
       const info = [
-        ` ${pc.bold(pc.cyan("◈"))} ${pc.bold("thingd")} ${pc.dim("— local data engine")}`,
+        ` ${logoText()} ${pc.dim("— local data engine")}`,
         "",
         ` ${pc.bold(d === "memory" ? "Memory Driver" : d === "native" ? "Native Driver" : "Cloud Driver")}`,
         "",
@@ -1574,7 +1575,7 @@ export async function runInteractiveCli(): Promise<void> {
 
   // Show the driver selection screen
   viewerLines = [
-    ` ${pc.bold(pc.cyan("◈"))} ${pc.bold("thingd")} ${pc.dim("— local data engine")}`,
+    ` ${logoText()} ${pc.dim("— local data engine")}`,
     "",
     pc.dim("  Select an environment to connect."),
   ];

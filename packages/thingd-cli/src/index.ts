@@ -2,6 +2,7 @@
 
 import { realpathSync } from "node:fs";
 import { resolve } from "node:path";
+import { setTimeout as sleep } from "node:timers/promises";
 import { pathToFileURL } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
@@ -17,6 +18,7 @@ import {
   type ThingDDriver,
 } from "thingd";
 import { runInteractiveCli } from "./interactive.js";
+import { logoLine } from "./logo.js";
 import { runMcp } from "./mcp.js";
 import { defaultThingdDbPath, ensureThingdDir } from "./paths.js";
 
@@ -89,9 +91,7 @@ export type ConnectionOptions = {
   cloud: boolean;
 };
 
-const HELP_TEXT = `thingd
-
-Admin and operator CLI for thingd.
+const HELP_TEXT = `${logoLine()}Admin and operator CLI for thingd.
 
 Usage:
   thingd status [--url <url>]
@@ -216,6 +216,8 @@ export async function runCli(
     }
 
     if (parsed.tokens.length === 0) {
+      process.stdout.write(logoLine());
+      await sleep(300);
       await runInteractiveCli();
       return 0;
     }
