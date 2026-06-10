@@ -31,6 +31,9 @@ yarn.lock
 *.db-wal
 *.sqlite
 *.sqlite3
+# also catch truncated SQLite filenames (e.g. "da" + "da-shm"/"da-wal")
+*-shm
+*-wal
 
 # ── npm package tarballs ──
 thingd-*.tgz
