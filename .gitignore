@@ -18,6 +18,7 @@ yarn.lock
 # ── Editor and IDE ──
 .idea/
 .vscode/
+.kilo/
 *.swp
 *.swo
 
