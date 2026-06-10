@@ -1,37 +1,9 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 50" width="100%" height="100%" style="background: transparent; font-family: ui-monospace, 'Cascadia Code', 'Source Code Pro', Menlo, Consolas, monospace;">
-  <defs>
-    <filter id="matte-orange-red" x="-25%" y="-25%" width="150%" height="150%">
-      <feGaussianBlur stdDeviation="0.75" result="blur"/>
-      <feComponentTransfer in="blur" result="dimBlur">
-        <feFuncA type="linear" slope="0.6"/>
-      </feComponentTransfer>
-      <feMerge>
-        <feMergeNode in="dimBlur"/>
-        <feMergeNode in="SourceGraphic"/>
-      </feMerge>
-    </filter>
-    
-    <filter id="matte-cyan" x="-25%" y="-25%" width="150%" height="150%">
-      <feGaussianBlur stdDeviation="0.75" result="blur"/>
-      <feComponentTransfer in="blur" result="dimBlur">
-        <feFuncA type="linear" slope="0.6"/>
-      </feComponentTransfer>
-      <feMerge>
-        <feMergeNode in="dimBlur"/>
-        <feMergeNode in="SourceGraphic"/>
-      </feMerge>
-    </filter>
-  </defs>
-
-  <g transform="translate(15, 31)" font-size="22" font-weight="500">
-    <text x="0" fill="#e05316" filter="url(#matte-orange-red)">{</text>
-    
-    <text x="13.2" fill="#00c4d4" filter="url(#matte-cyan)">t</text>
-    
-    <text x="26.4" fill="#e05316" filter="url(#matte-orange-red)">:</text>
-    
-    <text x="39.6" fill="#e05316" filter="url(#matte-orange-red)">d</text>
-    
-    <text x="52.8" fill="#e05316" filter="url(#matte-orange-red)">}</text>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">
+  <g transform="translate(1, 32)" font-family="system-ui, sans-serif" font-size="20" font-weight="700">
+    <text x="0" fill="#e05316">{</text>
+    <text x="10" fill="#00c4d4">t</text>
+    <text x="20" fill="#e05316">:</text>
+    <text x="28" fill="#e05316">d</text>
+    <text x="38" fill="#e05316">}</text>
   </g>
 </svg>
