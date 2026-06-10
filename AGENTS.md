@@ -186,6 +186,17 @@ startup, and TUI header.
 
 ---
 
+## Repository skills
+
+Skills are reusable agent instructions for common workflows. Load one with
+`/skill <name>` in the conversation.
+
+- **`upgrade-deps-and-benchmark`** (`.opencode/skills/upgrade-deps-and-benchmark.md`)
+  — Audit all pnpm + Rust deps, bump to latest, run benchmarks, report
+  performance change. Run this every few weeks or before a release.
+
+---
+
 ## Next steps
 
 1. GitHub Pages will auto-update with new logo, SEO tags, sitemap, robots.txt
