@@ -9,3 +9,4 @@ allowBuilds:
 
 minimumReleaseAgeExclude:
   - '@types/node@25.9.1'
+  - semantic-release@25.0.5
