@@ -4,6 +4,7 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { type MemoryEvent, type MemoryObject, ThingD } from "thingd";
 import type { ThingdMcpAuditOptions } from "./audit.js";
 import {
+  findNextLeaderCandidate,
   forwardMcpRequestToLeader,
   getClusterStatus,
   type ResolvedThingdClusterOptions,
@@ -40,6 +41,8 @@ export type RunningThingdHttpServer = {
 
 type RuntimeState = {
   db: ThingD;
+  /** The underlying database instance (not wrapped in replicating proxy). */
+  originalDb: ThingD;
   authToken?: string;
   mcpPath: string;
   healthPath: string;
@@ -49,6 +52,7 @@ type RuntimeState = {
   hardening?: ThingdMcpHardeningOptions;
   replicationTimer?: NodeJS.Timeout;
   replicationStopped?: boolean;
+  consecutiveReplicationFailures: number;
 };
 
 export async function startThingdHttpServer(
@@ -71,6 +75,7 @@ export async function startThingdHttpServer(
 
   const state: RuntimeState = {
     db,
+    originalDb,
     authToken: options.authToken,
     mcpPath: options.mcpPath ?? "/mcp",
     healthPath: options.healthPath ?? "/healthz",
@@ -78,6 +83,7 @@ export async function startThingdHttpServer(
     audit: options.audit,
     cluster,
     hardening: options.hardening,
+    consecutiveReplicationFailures: 0,
   };
   const server = createServer((request, response) => {
     void handleRequest(state, request, response);
@@ -625,8 +631,28 @@ function startReplicationRunner(state: RuntimeState) {
       }
     }
 
+    if (state.replicationStopped) {
+      return;
+    }
+
     if (!fetched) {
-      console.error("All leader URLs exhausted for replication");
+      state.consecutiveReplicationFailures++;
+      if (
+        state.cluster.leaderElection &&
+        state.consecutiveReplicationFailures >= state.cluster.electionMaxFailures
+      ) {
+        state.consecutiveReplicationFailures = 0;
+        const promoted = attemptFollowerFailover(state);
+        if (promoted) {
+          // This node is now leader. Stop the replication runner.
+          return;
+        }
+        // leaderUrl was updated by failover; retry immediately.
+      } else {
+        console.error("All leader URLs exhausted for replication");
+      }
+    } else {
+      state.consecutiveReplicationFailures = 0;
     }
 
     if (!state.replicationStopped) {
@@ -647,6 +673,43 @@ function stopReplicationRunner(state: RuntimeState) {
     clearTimeout(state.replicationTimer);
     state.replicationTimer = undefined;
   }
+}
+
+/**
+ * Attempt a static-config leader failover from this follower.
+ * Returns true if this node promoted itself to leader.
+ */
+function attemptFollowerFailover(state: RuntimeState): boolean {
+  if (state.replicationStopped) {
+    return false;
+  }
+
+  const candidate = findNextLeaderCandidate(state.cluster);
+  if (!candidate) {
+    console.error("Leader failover: no candidate found in peer list");
+    return false;
+  }
+
+  if (candidate.isSelf) {
+    // Promote this node to leader.
+    console.error(`Leader failover: promoting self (${candidate.url}) to leader`);
+    state.db = createReplicatingDb(state.originalDb, "leader");
+    state.cluster.mode = "leader";
+    state.cluster.leaderUrl = candidate.url;
+    state.cluster.activeLeaderUrl = candidate.url;
+    state.cluster.fallbackLeaderUrl = undefined;
+    stopReplicationRunner(state);
+    state.consecutiveReplicationFailures = 0;
+    return true;
+  }
+
+  // Redirect to the next candidate leader.
+  console.error(`Leader failover: redirecting to ${candidate.url}`);
+  state.cluster.leaderUrl = candidate.url;
+  state.cluster.activeLeaderUrl = undefined;
+  state.cluster.fallbackLeaderUrl = undefined;
+  state.consecutiveReplicationFailures = 0;
+  return false;
 }
 
 async function handleReplicationEvents(

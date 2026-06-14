@@ -7,6 +7,13 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 import { ThingD } from "thingd";
 import { startThingdHttpServer } from "../dist/mcp/index.js";
 
+/** Pick an ephemeral port that should be free-ish for testing. */
+let _nextPort = 18_757;
+
+function nextPort() {
+  return _nextPort++;
+}
+
 function getDbPath(id) {
   return resolve(`test-cluster-follower-${id}.db`);
 }
@@ -33,6 +40,18 @@ async function callJsonTool(client, name, args) {
   assert.equal(typeof text, "string");
 
   return JSON.parse(text);
+}
+
+/**
+ * Start a server and return { runtime, port, url } with a fixed port.
+ */
+async function startFixed(httpOptions) {
+  const runtime = await startThingdHttpServer({
+    ...httpOptions,
+    port: httpOptions.port ?? nextPort(),
+    host: httpOptions.host ?? "127.0.0.1",
+  });
+  return runtime;
 }
 
 test("cluster replication sync replicates leader writes to follower", async () => {
@@ -225,5 +244,164 @@ test("cluster status returns replication details and computed lag", async () => 
   await client.close();
   await follower.close();
   await leader.close();
+  cleanupDb(dbPath);
+});
+
+// ── Phase 8: Leader failover ─────────────────────────────────────────────────
+
+test("leader failover promotes next peer when leader is unreachable", async () => {
+  const dbPath = getDbPath("fo-1");
+  cleanupDb(dbPath);
+
+  const port1 = nextPort();
+  const port2 = nextPort();
+  const url1 = `http://127.0.0.1:${port1}`;
+  const url2 = `http://127.0.0.1:${port2}`;
+
+  const leader = await startThingdHttpServer({
+    path: ":memory:",
+    driver: "native",
+    port: port1,
+    cluster: {
+      mode: "leader",
+      advertiseUrl: url1,
+      peers: [url1, url2],
+      discovery: "static",
+    },
+  });
+
+  const follower = await startThingdHttpServer({
+    path: dbPath,
+    driver: "native",
+    port: port2,
+    cluster: {
+      mode: "follower",
+      advertiseUrl: url2,
+      peers: [url1, url2],
+      discovery: "static",
+      leaderElection: true,
+      electionMaxFailures: 2,
+    },
+  });
+
+  // Write an object via leader and wait for replication.
+  const client = new Client({
+    name: "failover-test-client",
+    version: "0.1.0",
+  });
+  const transport = new StreamableHTTPClientTransport(new URL(leader.mcpUrl));
+  await client.connect(transport);
+
+  await callJsonTool(client, "thing_put", {
+    collection: "items",
+    object: { id: "pre-failover", text: "before" },
+  });
+
+  // Wait for replication to sync.
+  await new Promise((r) => setTimeout(r, 2000));
+
+  // Kill the leader.
+  await leader.close();
+  await client.close();
+
+  // Wait for failover to trigger (2 failures × 500ms + buffer).
+  await new Promise((r) => setTimeout(r, 3000));
+
+  // Follower should now be leader.
+  const statusRes = await fetch(`${follower.url}/cluster/status`);
+  const status = await statusRes.json();
+
+  assert.equal(statusRes.status, 200);
+  assert.equal(status.mode, "leader", "Follower should have promoted to leader");
+  assert.equal(status.writable, true, "Promoted leader should be writable");
+  assert.equal(status.forwarding, false, "Promoted leader should not forward");
+  assert.equal(
+    status.replication.status,
+    "active",
+    "Promoted leader should have active replication status"
+  );
+
+  // Follower should serve MCP writes directly after promotion.
+  const client2 = new Client({
+    name: "failover-test-client2",
+    version: "0.1.0",
+  });
+  const transport2 = new StreamableHTTPClientTransport(new URL(follower.mcpUrl));
+  await client2.connect(transport2);
+
+  const put = await callJsonTool(client2, "thing_put", {
+    collection: "items",
+    object: { id: "post-failover", text: "after" },
+  });
+  assert.equal(put.id, "post-failover");
+
+  // Verify the write was persisted to the follower's local db.
+  const get = await callJsonTool(client2, "thing_get", {
+    collection: "items",
+    id: "post-failover",
+  });
+  assert.equal(get.text, "after");
+
+  await client2.close();
+  await follower.close();
+  cleanupDb(dbPath);
+});
+
+test("leader failover does not trigger without leaderElection enabled", async () => {
+  const dbPath = getDbPath("fo-2");
+  cleanupDb(dbPath);
+
+  const port1 = nextPort();
+  const port2 = nextPort();
+  const url1 = `http://127.0.0.1:${port1}`;
+
+  const leader = await startThingdHttpServer({
+    path: ":memory:",
+    driver: "native",
+    port: port1,
+    cluster: { mode: "leader" },
+  });
+
+  const follower = await startThingdHttpServer({
+    path: dbPath,
+    driver: "native",
+    port: port2,
+    cluster: {
+      mode: "follower",
+      leaderUrl: url1,
+    },
+  });
+
+  // Sync some data.
+  const client = new Client({
+    name: "no-election-client",
+    version: "0.1.0",
+  });
+  const transport = new StreamableHTTPClientTransport(new URL(leader.mcpUrl));
+  await client.connect(transport);
+
+  await callJsonTool(client, "thing_put", {
+    collection: "items",
+    object: { id: "no-election-obj", text: "sync" },
+  });
+
+  await new Promise((r) => setTimeout(r, 2000));
+
+  // Kill the leader.
+  await leader.close();
+  await client.close();
+
+  // Wait long enough for failures to accumulate.
+  await new Promise((r) => setTimeout(r, 3000));
+
+  // Follower should still be follower (no election enabled).
+  const statusRes = await fetch(`${follower.url}/cluster/status`);
+  const status = await statusRes.json();
+
+  assert.equal(status.mode, "follower", "Follower should remain in follower mode");
+  assert.equal(status.writable, false);
+  assert.equal(status.forwarding, true);
+
+  await follower.close();
   cleanupDb(dbPath);
 });

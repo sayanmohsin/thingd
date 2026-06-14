@@ -1,6 +1,6 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { ThingD } from "thingd";
-import { parsePort } from "./config.js";
+import { parseBooleanFlag, parsePort } from "./config.js";
 
 export type ThingdClusterMode = "single" | "leader" | "follower";
 export type ThingdClusterDiscovery = "none" | "static" | "kubernetes";
@@ -18,6 +18,10 @@ export type ThingdClusterOptions = {
   forwardAuthToken?: string;
   statusPath?: string;
   peersPath?: string;
+  /** Enable automatic leader failover. Default: false. */
+  leaderElection?: boolean;
+  /** Consecutive replication failures before triggering election. Default: 3. */
+  electionMaxFailures?: number;
 };
 
 export type ResolvedThingdClusterOptions = {
@@ -34,6 +38,8 @@ export type ResolvedThingdClusterOptions = {
   forwardAuthToken?: string;
   statusPath: string;
   peersPath: string;
+  leaderElection: boolean;
+  electionMaxFailures: number;
 };
 
 export type ThingdClusterStatus = {
@@ -46,6 +52,8 @@ export type ThingdClusterStatus = {
   advertiseUrl?: string;
   discovery: ThingdClusterDiscovery;
   peers: string[];
+  leaderElection: boolean;
+  electionMaxFailures: number;
   replication:
     | {
         lastReplicatedSequence: number;
@@ -71,6 +79,11 @@ export function readClusterOptionsFromEnv(
     namespace: env.THINGD_CLUSTER_NAMESPACE,
     port: parsePort(env.THINGD_CLUSTER_PORT, DEFAULT_CLUSTER_PORT),
     forwardAuthToken: env.THINGD_CLUSTER_FORWARD_AUTH_TOKEN ?? env.THINGD_AUTH_TOKEN,
+    leaderElection: parseBooleanFlag(
+      env.THINGD_CLUSTER_LEADER_ELECTION,
+      "THINGD_CLUSTER_LEADER_ELECTION"
+    ),
+    electionMaxFailures: parsePositiveInt(env.THINGD_CLUSTER_LEADER_ELECTION_MAX_FAILURES, 3),
   };
 }
 
@@ -87,6 +100,14 @@ export function resolveClusterOptions(
     namespace: options?.namespace,
     port,
   });
+
+  const leaderElection = options?.leaderElection ?? false;
+  const electionMaxFailures = options?.electionMaxFailures ?? 3;
+
+  // When leader election is enabled, derive leaderUrl from peer list if not explicitly set.
+  if (mode === "follower" && !options?.leaderUrl && leaderElection && peers.length > 0) {
+    options = { ...options, leaderUrl: peers[0] };
+  }
 
   if (mode === "follower" && !options?.leaderUrl) {
     throw new Error("THINGD_CLUSTER_LEADER_URL is required when THINGD_CLUSTER_MODE=follower");
@@ -106,6 +127,8 @@ export function resolveClusterOptions(
     forwardAuthToken: options?.forwardAuthToken,
     statusPath: options?.statusPath ?? "/cluster/status",
     peersPath: options?.peersPath ?? "/cluster/peers",
+    leaderElection,
+    electionMaxFailures,
   };
 }
 
@@ -184,6 +207,8 @@ export async function getClusterStatus(
     advertiseUrl: cluster.advertiseUrl,
     discovery: cluster.discovery,
     peers: cluster.peers,
+    leaderElection: cluster.leaderElection,
+    electionMaxFailures: cluster.electionMaxFailures,
     replication,
   };
 }
@@ -231,6 +256,67 @@ export async function forwardMcpRequestToLeader(
     console.error("All leader URLs exhausted for forward, last error:", lastError.message);
   }
   writeForwardError(response, 503, "cluster_leader_unavailable");
+}
+
+export function findNextLeaderCandidate(
+  cluster: ResolvedThingdClusterOptions
+): { url: string; isSelf: boolean } | undefined {
+  const { advertiseUrl, peers } = cluster;
+  const currentLeaderUrl = cluster.activeLeaderUrl ?? cluster.leaderUrl;
+  if (!currentLeaderUrl || peers.length === 0) {
+    return undefined;
+  }
+
+  const leaderIndex = findPeerIndex(peers, currentLeaderUrl);
+  if (leaderIndex === -1) {
+    return undefined;
+  }
+
+  // Scan from the next peer after the current leader.
+  for (let i = leaderIndex + 1; i < peers.length; i++) {
+    const candidate = peers[i];
+    if (candidate) {
+      const isSelf = typeof advertiseUrl === "string" && sameOrigin(advertiseUrl, candidate);
+      return { url: candidate, isSelf };
+    }
+  }
+
+  // Wrap around — all peers after leader's index exhausted, try from the beginning.
+  for (let i = 0; i < leaderIndex; i++) {
+    const candidate = peers[i];
+    if (candidate) {
+      const isSelf = typeof advertiseUrl === "string" && sameOrigin(advertiseUrl, candidate);
+      return { url: candidate, isSelf };
+    }
+  }
+
+  return undefined;
+}
+
+function findPeerIndex(peers: string[], targetUrl: string): number {
+  return peers.findIndex((peer) => sameOrigin(peer, targetUrl));
+}
+
+/** Compare two URLs by origin (scheme + host + port). */
+function sameOrigin(a: string, b: string): boolean {
+  try {
+    return new URL(a).origin === new URL(b).origin;
+  } catch {
+    return a === b;
+  }
+}
+
+function parsePositiveInt(value: string | undefined, fallback: number): number {
+  if (!value) {
+    return fallback;
+  }
+
+  const n = Number.parseInt(value, 10);
+  if (!Number.isInteger(n) || n <= 0) {
+    throw new Error(`Invalid positive integer: ${value}`);
+  }
+
+  return n;
 }
 
 function parseClusterMode(value: string | undefined): ThingdClusterMode | undefined {
