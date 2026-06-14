@@ -60,6 +60,20 @@ await db.events.append("project:thingd", {
 const events = await db.events.list("project:thingd");
 ```
 
+`events.list()` returns an array of `StoredMemoryEvent` objects:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | `string` | Unique event ID (UUID in memory, sequence string in native) |
+| `stream` | `string` | Stream the event belongs to |
+| `sequence` | `number` | Monotonic sequence number per store |
+| `type` | `string` | Event type discriminator |
+| `text` | `string \| undefined` | Human-readable description |
+| `createdAt` | `string` | ISO-8601 timestamp |
+| `[key: string]` | `unknown` | Any additional fields passed to `append` |
+
+The return shape is consistent across all drivers (memory, native, cloud).
+
 ### 3. Durable Queues
 
 `thingd` includes queue primitives because apps constantly need background work (chunking, embeddings, summarization, etc).
