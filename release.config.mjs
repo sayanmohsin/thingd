@@ -21,18 +21,28 @@ const config = {
       },
     ],
     [
-      "@semantic-release/npm",
+      "@semantic-release/changelog",
       {
-        npmPublish: false,
-        pkgRoot: "packages/thingd",
+        changelogFile: "CHANGELOG.md",
       },
     ],
     [
       "@semantic-release/exec",
       {
-        prepareCmd: "npm --no-git-tag-version --prefix packages/thingd-cli version ${nextRelease.version} && npm --no-git-tag-version --prefix packages/thingd-native version ${nextRelease.version}",
+        prepareCmd: "npm --no-git-tag-version --prefix packages/thingd version ${nextRelease.version} && npm --no-git-tag-version --prefix packages/thingd-cli version ${nextRelease.version} && npm --no-git-tag-version --prefix packages/thingd-native version ${nextRelease.version}",
         publishCmd: "pnpm --filter thingd publish --access public --no-git-checks && pnpm --filter thingd-cli publish --access public --no-git-checks && pnpm --filter thingd-native publish --access public --no-git-checks"
       }
+    ],
+    [
+      "@semantic-release/git",
+      {
+        assets: [
+          "CHANGELOG.md",
+          "packages/thingd/package.json",
+          "packages/thingd-cli/package.json",
+          "packages/thingd-native/package.json",
+        ],
+      },
     ],
     "@semantic-release/github",
   ],
