@@ -74,9 +74,9 @@ docker pull sayanmohsin/thingd
 The Docker image includes the native SQLite driver pre-built for `linux-x64`.
 See [Dockerfile](../Dockerfile) and [deploy/docker-compose.yml](../deploy/docker-compose.yml) for the runtime shape.
 
-Release packaging intentionally avoids `workspace:*` dependency specs in `package.json` files. The repo uses pnpm for development, but `@semantic-release/npm` calls the npm CLI internally during publish, and npm rejects pnpm-only workspace protocol dependencies.
+Release packaging intentionally avoids `workspace:*` dependency specs in `package.json` files. The repo uses pnpm for development, but `@semantic-release/exec` calls the npm CLI internally during version bumps, and npm rejects pnpm-only workspace protocol dependencies.
 
-The release workflow pins Node.js 22 so semantic-release runs with npm 10. npm 10 supports provenance and avoids npm 11 workspace crashes observed during `npm version` inside pnpm monorepos.
+The release workflow pins Node.js 24 so semantic-release runs with a modern npm. Each release automatically publishes all three npm packages, updates `CHANGELOG.md` in the repo from conventional commits, creates a GitHub Release with release notes, and pushes version bump commits back to `main`.
 
 ## First npm Publish From CI
 
@@ -115,7 +115,7 @@ Before opening the repository, protect `main` in GitHub:
 - require linear history if desired
 - allow the release workflow to create tags and GitHub releases
 
-The release workflow does not push version commits back to `main`; semantic-release computes the next version, creates a Git tag/GitHub release, and publishes the npm package.
+The release workflow pushes version bump commits (including `CHANGELOG.md` and updated `package.json` files) back to `main` via `@semantic-release/git`. It also creates a Git tag and GitHub Release.
 
 ---
 

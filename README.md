@@ -31,12 +31,12 @@ The repository currently contains:
 - package smoke testing without publishing
 - stdio and Streamable HTTP MCP server package with object, event, search, and queue tools
 - Docker runtime scaffold for the HTTP MCP server
-- bridge-mode env vars with leader/follower MCP forwarding
+- bridge-mode env vars with leader/follower MCP forwarding and automatic leader failover
 - SQLite schema version tracking and migration guardrails
 - MCP audit events for write tools
 - architecture, release, persistence, and integration docs
 
-It is not production-ready yet. The default public Node.js SDK path still uses the TypeScript in-memory store for API exploration and local integration tests. The Rust core has SQLite-backed object, event, and queue persistence behind the `sqlite` feature, and the repo now has an opt-in private native driver for local testing. Node apps can also use the remote driver to talk to a `thingd` sidecar through `THINGD_URL`. Native prebuilds, production packaging, and deployment hardening are still next.
+It is not production-ready yet. The default public Node.js SDK path still uses the TypeScript in-memory store for API exploration and local integration tests. The Rust core has SQLite-backed object, event, and queue persistence behind the `sqlite` feature, and the repo now has an opt-in private native driver for local testing. Node apps can also use the remote driver to talk to a `thingd` sidecar through `THINGD_URL`. Production packaging and deployment hardening are still next.
 
 | Entry point | Default driver | Default path |
 | --- | --- | --- |
@@ -347,6 +347,7 @@ thing_search
 thing_get
 thing_put
 thing_delete
+thing_objects_list
 thing_events_append
 thing_events_list
 thing_queue_push
@@ -420,10 +421,13 @@ Bridge mode is env-driven:
 THINGD_CLUSTER_MODE=single|leader|follower
 THINGD_CLUSTER_LEADER_URL=http://thingd-leader:8757
 THINGD_CLUSTER_FORWARD_AUTH_TOKEN=change-me
+THINGD_CLUSTER_DISCOVERY=none|static|kubernetes
 THINGD_CLUSTER_PEERS=http://thingd-0:8757,http://thingd-1:8757
+THINGD_CLUSTER_LEADER_ELECTION=false
+THINGD_CLUSTER_LEADER_ELECTION_MAX_FAILURES=3
 ```
 
-Followers automatically forward MCP write traffic to the configured leader and run a background pull catch-up replication thread to keep their local read replicas in sync.
+Followers automatically forward MCP write traffic to the configured leader and run a background pull catch-up replication thread to keep their local read replicas in sync. With `THINGD_CLUSTER_LEADER_ELECTION=true`, followers auto-promote the next peer in the ordered peer list to leader when the current leader becomes unreachable for `THINGD_CLUSTER_LEADER_ELECTION_MAX_FAILURES` consecutive replication cycles.
 
 The MCP layer should continue to enforce:
 
@@ -612,7 +616,7 @@ pnpm test:rust
 
 ## Releases
 
-`thingd` uses semantic-release on `main` for automatic npm versioning and publishing.
+`thingd` uses semantic-release on `main` for automatic npm versioning, changelog generation, and publishing.
 
 Conventional commits map to SemVer like this:
 
@@ -620,7 +624,14 @@ Conventional commits map to SemVer like this:
 - `feat:` creates a minor release
 - `BREAKING CHANGE:` or `!` creates a major release
 
-The npm package is published from [packages/thingd](./packages/thingd). Publishing is skipped until the repository has an `NPM_TOKEN` secret configured.
+Each release automatically:
+
+- publishes all three npm packages (`thingd`, `thingd-cli`, `thingd-native`)
+- updates `CHANGELOG.md` in the repo from conventional commits
+- creates a GitHub Release with release notes
+- pushes version bump commits back to `main`
+
+Publishing is skipped until the repository has an `NPM_TOKEN` secret configured.
 
 Before enabling publish, run:
 

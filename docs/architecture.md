@@ -84,6 +84,10 @@ Sidecar cluster mode runs as a runtime layer above SQLite, not a
 multi-primary SQLite design. Each app talks to a local `thingd` sidecar. The
 current bridge scaffold exposes peer metadata and can run as `single`,
 `leader`, or `follower`. Followers forward MCP traffic to the configured leader.
+With `THINGD_CLUSTER_LEADER_ELECTION=true`, followers auto-promote the next
+peer in the ordered peer list to leader when the current leader becomes
+unreachable, enabling automatic failover in static deployments (e.g.,
+Kubernetes StatefulSets with ordered pod names).
 
 For the runtime API, environment, and Kubernetes deployment, see
 [docker-runtime.md](./docker-runtime.md) and [mcp-server.md](./mcp-server.md).
