@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type {
   ListEventsOptions,
+  ListObjectsOptions,
   MemoryEvent,
   MemoryObject,
   MemorySearchOptions,
@@ -80,8 +81,8 @@ export class InMemoryThingStore implements ThingStore {
     });
   }
 
-  async get(collection: string, id: string): Promise<StoredMemoryObject | null> {
-    return this.collections.get(collection)?.get(id) ?? null;
+  async get<T = StoredMemoryObject>(collection: string, id: string): Promise<T | null> {
+    return (this.collections.get(collection)?.get(id) as T | null) ?? null;
   }
 
   async delete(collection: string, id: string): Promise<ThingDeleteResult> {
@@ -90,9 +91,24 @@ export class InMemoryThingStore implements ThingStore {
     }));
   }
 
-  async listObjects(collection: string): Promise<StoredMemoryObject[]> {
+  async listObjects<T = StoredMemoryObject>(collection: string, options?: ListObjectsOptions): Promise<T[]> {
     const records = this.collections.get(collection);
-    return records ? Array.from(records.values()) : [];
+    if (!records) {
+      return [];
+    }
+    let results = Array.from(records.values()) as T[];
+    if (options?.filter) {
+      results = results.filter((obj) =>
+        Object.entries(options.filter!).every(([key, value]) => (obj as Record<string, unknown>)[key] === value)
+      );
+    }
+    if (options?.offset) {
+      results = results.slice(options.offset);
+    }
+    if (options?.limit) {
+      results = results.slice(0, options.limit);
+    }
+    return results;
   }
 
   async appendEvent(stream: string, event: MemoryEvent): Promise<StoredMemoryEvent> {
@@ -110,13 +126,13 @@ export class InMemoryThingStore implements ThingStore {
     });
   }
 
-  async listEvents(stream?: string, options?: ListEventsOptions): Promise<StoredMemoryEvent[]> {
-    let events = this.events;
+  async listEvents<T = StoredMemoryEvent>(stream?: string, options?: ListEventsOptions): Promise<T[]> {
+    let events = this.events as T[];
     if (stream) {
-      events = events.filter((event) => event.stream === stream);
+      events = events.filter((event) => (event as unknown as StoredMemoryEvent).stream === stream);
     }
     if (options?.fromSequence) {
-      events = events.filter((event) => event.sequence > (options.fromSequence as number));
+      events = events.filter((event) => (event as unknown as StoredMemoryEvent).sequence > options.fromSequence!);
     }
     if (options?.limit) {
       events = events.slice(0, options.limit);

@@ -3,6 +3,7 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import type {
   ListEventsOptions,
+  ListObjectsOptions,
   MemoryEvent,
   MemoryObject,
   MemorySearchOptions,
@@ -62,7 +63,7 @@ export class CloudThingStore implements ThingStore {
     });
   }
 
-  get(collection: string, id: string): Promise<StoredMemoryObject | null> {
+  get<T = StoredMemoryObject>(collection: string, id: string): Promise<T | null> {
     return this.callTool("thing_get", {
       collection,
       id,
@@ -76,10 +77,18 @@ export class CloudThingStore implements ThingStore {
     });
   }
 
-  listObjects(collection: string): Promise<StoredMemoryObject[]> {
-    return this.callTool("thing_objects_list", {
-      collection,
-    });
+  listObjects<T = StoredMemoryObject>(collection: string, options?: ListObjectsOptions): Promise<T[]> {
+    const params: Record<string, unknown> = { collection };
+    if (options?.filter) {
+      params.filter = options.filter;
+    }
+    if (options?.limit) {
+      params.limit = options.limit;
+    }
+    if (options?.offset) {
+      params.offset = options.offset;
+    }
+    return this.callTool("thing_objects_list", params);
   }
 
   appendEvent(stream: string, event: MemoryEvent): Promise<StoredMemoryEvent> {
@@ -89,7 +98,7 @@ export class CloudThingStore implements ThingStore {
     });
   }
 
-  listEvents(stream?: string, options?: ListEventsOptions): Promise<StoredMemoryEvent[]> {
+  listEvents<T = StoredMemoryEvent>(stream?: string, options?: ListEventsOptions): Promise<T[]> {
     const params: Record<string, unknown> = {};
     if (stream) {
       params.stream = stream;

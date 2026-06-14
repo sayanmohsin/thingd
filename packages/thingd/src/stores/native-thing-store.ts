@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { createRequire } from "node:module";
 import type {
   ListEventsOptions,
+  ListObjectsOptions,
   MemoryEvent,
   MemoryObject,
   MemorySearchOptions,
@@ -149,10 +150,10 @@ export class NativeThingStore implements ThingStore {
     return objectFromNative(record);
   }
 
-  async get(collection: string, id: string): Promise<StoredMemoryObject | null> {
+  async get<T = StoredMemoryObject>(collection: string, id: string): Promise<T | null> {
     const record = this.binding.getObjectJson(collection, id);
 
-    return record ? objectFromNative(parseJson<NativeObjectRecord>(record)) : null;
+    return record ? (objectFromNative(parseJson<NativeObjectRecord>(record)) as T) : null;
   }
 
   async delete(collection: string, id: string): Promise<ThingDeleteResult> {
@@ -161,11 +162,23 @@ export class NativeThingStore implements ThingStore {
     };
   }
 
-  async listObjects(collection: string): Promise<StoredMemoryObject[]> {
+  async listObjects<T = StoredMemoryObject>(collection: string, options?: ListObjectsOptions): Promise<T[]> {
     const collectionsJson = JSON.stringify([collection]);
-    return parseJson<NativeObjectRecord[]>(this.binding.listObjectsJson(collectionsJson)).map(
+    let results = parseJson<NativeObjectRecord[]>(this.binding.listObjectsJson(collectionsJson)).map(
       objectFromNative
-    );
+    ) as T[];
+    if (options?.filter) {
+      results = results.filter((obj) =>
+        Object.entries(options.filter!).every(([key, value]) => (obj as Record<string, unknown>)[key] === value)
+      );
+    }
+    if (options?.offset) {
+      results = results.slice(options.offset);
+    }
+    if (options?.limit) {
+      results = results.slice(0, options.limit);
+    }
+    return results;
   }
 
   async appendEvent(stream: string, event: MemoryEvent): Promise<StoredMemoryEvent> {
@@ -176,10 +189,10 @@ export class NativeThingStore implements ThingStore {
     return eventFromNative(record);
   }
 
-  async listEvents(stream?: string, options?: ListEventsOptions): Promise<StoredMemoryEvent[]> {
+  async listEvents<T = StoredMemoryEvent>(stream?: string, options?: ListEventsOptions): Promise<T[]> {
     return parseJson<NativeEventRecord[]>(
       this.binding.listEventsJson(stream, options?.fromSequence, options?.limit)
-    ).map(eventFromNative);
+    ).map(eventFromNative) as T[];
   }
 
   async pushJob(

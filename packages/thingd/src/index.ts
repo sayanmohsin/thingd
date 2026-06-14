@@ -5,6 +5,8 @@ export { NativeThingStore } from "./stores/native-thing-store.js";
 export type { ThingDDriver, ThingDOpenConfig, ThingDOpenOptions } from "./thingd.js";
 export { ThingD } from "./thingd.js";
 export type {
+  ListEventsOptions,
+  ListObjectsOptions,
   MemoryEvent,
   MemoryObject,
   MemoryQueue,

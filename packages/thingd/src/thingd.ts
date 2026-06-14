@@ -3,6 +3,7 @@ import { InMemoryThingStore } from "./stores/in-memory-thing-store.js";
 import { NativeThingStore } from "./stores/native-thing-store.js";
 import type {
   ListEventsOptions,
+  ListObjectsOptions,
   MemoryEvent,
   MemoryObject,
   MemoryQueue,
@@ -50,7 +51,7 @@ export class ThingD {
     return this.store.put(collection, object);
   }
 
-  get(collection: string, id: string): Promise<StoredMemoryObject | null> {
+  get<T = StoredMemoryObject>(collection: string, id: string): Promise<T | null> {
     return this.store.get(collection, id);
   }
 
@@ -58,8 +59,8 @@ export class ThingD {
     return this.store.delete(collection, id);
   }
 
-  listObjects(collection: string): Promise<StoredMemoryObject[]> {
-    return this.store.listObjects?.(collection) ?? Promise.resolve([]);
+  listObjects<T = StoredMemoryObject>(collection: string, options?: ListObjectsOptions): Promise<T[]> {
+    return this.store.listObjects?.<T>(collection, options) ?? Promise.resolve([]);
   }
 
   search(query: string, options: MemorySearchOptions = {}): Promise<MemorySearchResult[]> {
@@ -69,8 +70,8 @@ export class ThingD {
   readonly events = {
     append: (stream: string, event: MemoryEvent): Promise<StoredMemoryEvent> =>
       this.store.appendEvent(stream, event),
-    list: (stream?: string, options?: ListEventsOptions): Promise<StoredMemoryEvent[]> =>
-      this.store.listEvents(stream, options),
+    list: <T = StoredMemoryEvent>(stream?: string, options?: ListEventsOptions): Promise<T[]> =>
+      this.store.listEvents<T>(stream, options),
   };
 
   queue(name: string): MemoryQueue {

@@ -108,13 +108,19 @@ export type ListEventsOptions = {
   limit?: number;
 };
 
+export type ListObjectsOptions = {
+  limit?: number;
+  offset?: number;
+  filter?: Record<string, unknown>;
+};
+
 export interface ThingStore {
   put(collection: string, object: MemoryObject): Promise<StoredMemoryObject>;
-  get(collection: string, id: string): Promise<StoredMemoryObject | null>;
+  get<T = StoredMemoryObject>(collection: string, id: string): Promise<T | null>;
   delete(collection: string, id: string): Promise<ThingDeleteResult>;
-  listObjects?(collection: string): Promise<StoredMemoryObject[]>;
+  listObjects<T = StoredMemoryObject>(collection: string, options?: ListObjectsOptions): Promise<T[]>;
   appendEvent(stream: string, event: MemoryEvent): Promise<StoredMemoryEvent>;
-  listEvents(stream?: string, options?: ListEventsOptions): Promise<StoredMemoryEvent[]>;
+  listEvents<T = StoredMemoryEvent>(stream?: string, options?: ListEventsOptions): Promise<T[]>;
   pushJob(queue: string, payload: QueueJobPayload, options?: QueueJobOptions): Promise<QueueJob>;
   claimJob(queue: string, options?: QueueClaimOptions): Promise<QueueJob | null>;
   ackJob(queue: string, jobId: string): Promise<QueueJobResult>;
