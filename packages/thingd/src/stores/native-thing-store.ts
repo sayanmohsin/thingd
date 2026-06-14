@@ -162,14 +162,20 @@ export class NativeThingStore implements ThingStore {
     };
   }
 
-  async listObjects<T = StoredMemoryObject>(collection: string, options?: ListObjectsOptions): Promise<T[]> {
+  async listObjects<T = StoredMemoryObject>(
+    collection: string,
+    options?: ListObjectsOptions
+  ): Promise<T[]> {
     const collectionsJson = JSON.stringify([collection]);
-    let results = parseJson<NativeObjectRecord[]>(this.binding.listObjectsJson(collectionsJson)).map(
-      objectFromNative
-    ) as T[];
-    if (options?.filter) {
+    let results = parseJson<NativeObjectRecord[]>(
+      this.binding.listObjectsJson(collectionsJson)
+    ).map(objectFromNative) as T[];
+    const filter = options?.filter;
+    if (filter) {
       results = results.filter((obj) =>
-        Object.entries(options.filter!).every(([key, value]) => (obj as Record<string, unknown>)[key] === value)
+        Object.entries(filter).every(
+          ([key, value]) => (obj as Record<string, unknown>)[key] === value
+        )
       );
     }
     if (options?.offset) {
@@ -189,7 +195,10 @@ export class NativeThingStore implements ThingStore {
     return eventFromNative(record);
   }
 
-  async listEvents<T = StoredMemoryEvent>(stream?: string, options?: ListEventsOptions): Promise<T[]> {
+  async listEvents<T = StoredMemoryEvent>(
+    stream?: string,
+    options?: ListEventsOptions
+  ): Promise<T[]> {
     return parseJson<NativeEventRecord[]>(
       this.binding.listEventsJson(stream, options?.fromSequence, options?.limit)
     ).map(eventFromNative) as T[];

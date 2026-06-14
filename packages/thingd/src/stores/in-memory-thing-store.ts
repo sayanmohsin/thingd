@@ -91,15 +91,21 @@ export class InMemoryThingStore implements ThingStore {
     }));
   }
 
-  async listObjects<T = StoredMemoryObject>(collection: string, options?: ListObjectsOptions): Promise<T[]> {
+  async listObjects<T = StoredMemoryObject>(
+    collection: string,
+    options?: ListObjectsOptions
+  ): Promise<T[]> {
     const records = this.collections.get(collection);
     if (!records) {
       return [];
     }
     let results = Array.from(records.values()) as T[];
-    if (options?.filter) {
+    const filter = options?.filter;
+    if (filter) {
       results = results.filter((obj) =>
-        Object.entries(options.filter!).every(([key, value]) => (obj as Record<string, unknown>)[key] === value)
+        Object.entries(filter).every(
+          ([key, value]) => (obj as Record<string, unknown>)[key] === value
+        )
       );
     }
     if (options?.offset) {
@@ -126,13 +132,17 @@ export class InMemoryThingStore implements ThingStore {
     });
   }
 
-  async listEvents<T = StoredMemoryEvent>(stream?: string, options?: ListEventsOptions): Promise<T[]> {
+  async listEvents<T = StoredMemoryEvent>(
+    stream?: string,
+    options?: ListEventsOptions
+  ): Promise<T[]> {
     let events = this.events as T[];
     if (stream) {
       events = events.filter((event) => (event as unknown as StoredMemoryEvent).stream === stream);
     }
-    if (options?.fromSequence) {
-      events = events.filter((event) => (event as unknown as StoredMemoryEvent).sequence > options.fromSequence!);
+    const fromSeq = options?.fromSequence;
+    if (fromSeq) {
+      events = events.filter((event) => (event as unknown as StoredMemoryEvent).sequence > fromSeq);
     }
     if (options?.limit) {
       events = events.slice(0, options.limit);

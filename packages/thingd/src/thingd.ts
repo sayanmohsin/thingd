@@ -60,7 +60,10 @@ export class ThingD implements ThingDConnection {
     return this.store.delete(collection, id);
   }
 
-  listObjects<T = StoredMemoryObject>(collection: string, options?: ListObjectsOptions): Promise<T[]> {
+  listObjects<T = StoredMemoryObject>(
+    collection: string,
+    options?: ListObjectsOptions
+  ): Promise<T[]> {
     return this.store.listObjects?.<T>(collection, options) ?? Promise.resolve([]);
   }
 

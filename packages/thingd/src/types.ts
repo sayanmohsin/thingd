@@ -127,7 +127,10 @@ export interface ThingDConnection {
   put(collection: string, object: MemoryObject): Promise<StoredMemoryObject>;
   get<T = StoredMemoryObject>(collection: string, id: string): Promise<T | null>;
   delete(collection: string, id: string): Promise<ThingDeleteResult>;
-  listObjects<T = StoredMemoryObject>(collection: string, options?: ListObjectsOptions): Promise<T[]>;
+  listObjects<T = StoredMemoryObject>(
+    collection: string,
+    options?: ListObjectsOptions
+  ): Promise<T[]>;
   search(query: string, options?: MemorySearchOptions): Promise<MemorySearchResult[]>;
   readonly events: {
     append(stream: string, event: MemoryEvent): Promise<StoredMemoryEvent>;
@@ -148,7 +151,10 @@ export interface ThingStore {
   put(collection: string, object: MemoryObject): Promise<StoredMemoryObject>;
   get<T = StoredMemoryObject>(collection: string, id: string): Promise<T | null>;
   delete(collection: string, id: string): Promise<ThingDeleteResult>;
-  listObjects<T = StoredMemoryObject>(collection: string, options?: ListObjectsOptions): Promise<T[]>;
+  listObjects<T = StoredMemoryObject>(
+    collection: string,
+    options?: ListObjectsOptions
+  ): Promise<T[]>;
   appendEvent(stream: string, event: MemoryEvent): Promise<StoredMemoryEvent>;
   listEvents<T = StoredMemoryEvent>(stream?: string, options?: ListEventsOptions): Promise<T[]>;
   pushJob(queue: string, payload: QueueJobPayload, options?: QueueJobOptions): Promise<QueueJob>;

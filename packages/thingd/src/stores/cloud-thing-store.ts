@@ -77,7 +77,10 @@ export class CloudThingStore implements ThingStore {
     });
   }
 
-  listObjects<T = StoredMemoryObject>(collection: string, options?: ListObjectsOptions): Promise<T[]> {
+  listObjects<T = StoredMemoryObject>(
+    collection: string,
+    options?: ListObjectsOptions
+  ): Promise<T[]> {
     const params: Record<string, unknown> = { collection };
     if (options?.filter) {
       params.filter = options.filter;
