@@ -354,6 +354,43 @@ function runThingDBehaviorSuite(label, openDb) {
     assert.equal(noMatch.length, 0);
   });
 
+  test(`${label}: listObjects with filter, limit, and offset`, async () => {
+    const db = await openDb();
+
+    await db.put("widgets", { id: "a", color: "red", size: 1 });
+    await db.put("widgets", { id: "b", color: "blue", size: 2 });
+    await db.put("widgets", { id: "c", color: "red", size: 3 });
+    await db.put("widgets", { id: "d", color: "green", size: 4 });
+    await db.put("widgets", { id: "e", color: "red", size: 5 });
+
+    // No options — returns all
+    const all = await db.listObjects("widgets");
+    assert.equal(all.length, 5);
+
+    // Filter by color
+    const reds = await db.listObjects("widgets", { filter: { color: "red" } });
+    assert.equal(reds.length, 3);
+    assert.ok(reds.every((o) => o.color === "red"));
+
+    // Limit
+    const limited = await db.listObjects("widgets", { limit: 2 });
+    assert.equal(limited.length, 2);
+
+    // Offset
+    const offset = await db.listObjects("widgets", { offset: 3 });
+    assert.equal(offset.length, 2);
+
+    // Filter + limit
+    const filtered = await db.listObjects("widgets", { filter: { color: "red" }, limit: 1 });
+    assert.equal(filtered.length, 1);
+
+    // Empty collection
+    const empty = await db.listObjects("nonexistent");
+    assert.deepEqual(empty, []);
+
+    await db.close();
+  });
+
   test(`${label}: returns errors for invalid ack/nack operations`, async () => {
     const db = await openDb();
     const q = db.queue("test");
