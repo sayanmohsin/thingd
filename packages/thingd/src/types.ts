@@ -114,6 +114,36 @@ export type ListObjectsOptions = {
   filter?: Record<string, unknown>;
 };
 
+/**
+ * Typed interface for a thingd database connection returned by `ThingD.open()`.
+ * Consumers can use this for type-safe dependency injection instead of `any`:
+ *
+ * ```ts
+ * import type { ThingDConnection } from "thingd";
+ * private readonly db: ThingDConnection;
+ * ```
+ */
+export interface ThingDConnection {
+  put(collection: string, object: MemoryObject): Promise<StoredMemoryObject>;
+  get<T = StoredMemoryObject>(collection: string, id: string): Promise<T | null>;
+  delete(collection: string, id: string): Promise<ThingDeleteResult>;
+  listObjects<T = StoredMemoryObject>(collection: string, options?: ListObjectsOptions): Promise<T[]>;
+  search(query: string, options?: MemorySearchOptions): Promise<MemorySearchResult[]>;
+  readonly events: {
+    append(stream: string, event: MemoryEvent): Promise<StoredMemoryEvent>;
+    list<T = StoredMemoryEvent>(stream?: string, options?: ListEventsOptions): Promise<T[]>;
+  };
+  queue(name: string): MemoryQueue;
+  close(): Promise<void>;
+  countObjects(): Promise<number>;
+  countEvents(): Promise<number>;
+  countActiveJobs(): Promise<number>;
+  countDeadJobs(): Promise<number>;
+  listCollections(): Promise<string[]>;
+  listStreams(): Promise<string[]>;
+  listQueues(): Promise<string[]>;
+}
+
 export interface ThingStore {
   put(collection: string, object: MemoryObject): Promise<StoredMemoryObject>;
   get<T = StoredMemoryObject>(collection: string, id: string): Promise<T | null>;

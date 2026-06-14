@@ -21,6 +21,7 @@ export type {
   QueueNackOptions,
   StoredMemoryEvent,
   StoredMemoryObject,
+  ThingDConnection,
   ThingDeleteResult,
   ThingStore,
 } from "./types.js";

@@ -15,6 +15,7 @@ import type {
   QueueNackOptions,
   StoredMemoryEvent,
   StoredMemoryObject,
+  ThingDConnection,
   ThingDeleteResult,
   ThingStore,
 } from "./types.js";
@@ -32,7 +33,7 @@ export type ThingDOpenConfig = ThingDOpenOptions & {
   url?: string;
 };
 
-export class ThingD {
+export class ThingD implements ThingDConnection {
   static async open(
     pathOrConfig?: string | ThingDOpenConfig,
     options: ThingDOpenOptions = {}
