@@ -109,7 +109,15 @@ Async. Followers poll on a timer. There is no synchronous replication, no write-
 
 ### What happens during leader failover?
 
-Currently, nothing automatic. thingd does not have automatic leader election. A manual process is required: promote a follower by reconfiguring env vars and updating DNS/service discovery.
+With `THINGD_CLUSTER_LEADER_ELECTION=true` and `THINGD_CLUSTER_PEERS` configured,
+followers auto-promote the next peer in the peer list when the current leader is
+unreachable for `THINGD_CLUSTER_LEADER_ELECTION_MAX_FAILURES` consecutive
+replication cycles (default: 3, each cycle is 500ms). The promoted peer begins
+serving MCP writes and replication events directly. Other peers automatically
+redirect their `leaderUrl` to the new leader.
+
+Without leader election, nothing automatic. A manual process is required:
+promote a follower by reconfiguring env vars and updating DNS/service discovery.
 
 ### Can followers serve stale reads?
 

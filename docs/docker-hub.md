@@ -79,6 +79,8 @@ docker run -p 8757:8757 \
 | `THINGD_CLUSTER_SERVICE` | — | Kubernetes service name for DNS discovery |
 | `THINGD_CLUSTER_NAMESPACE` | `default` | Kubernetes namespace |
 | `THINGD_CLUSTER_PORT` | `8757` | Port for Kubernetes service discovery |
+| `THINGD_CLUSTER_LEADER_ELECTION` | `false` | Enable automatic leader failover via static peer list |
+| `THINGD_CLUSTER_LEADER_ELECTION_MAX_FAILURES` | `3` | Consecutive replication failures before triggering election |
 | `THINGD_ADVERTISE_URL` | — | Self-advertised URL reported in cluster status |
 
 ## Docker Compose

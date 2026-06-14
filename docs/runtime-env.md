@@ -72,6 +72,8 @@ THINGD_CLUSTER_LEADER_URL=
 THINGD_CLUSTER_LEADER_FALLBACK_URL=
 THINGD_CLUSTER_FORWARD_AUTH_TOKEN=
 THINGD_CLUSTER_PEERS=
+THINGD_CLUSTER_LEADER_ELECTION=false
+THINGD_CLUSTER_LEADER_ELECTION_MAX_FAILURES=3
 THINGD_ADVERTISE_URL=
 THINGD_CLUSTER_SERVICE=
 THINGD_CLUSTER_NAMESPACE=default
@@ -98,6 +100,24 @@ Current bridge behavior: followers forward MCP traffic to the leader. Follower
 local replica catch-up polls the leader every 500ms and applies replicated
 events to the local SQLite database. If `THINGD_CLUSTER_LEADER_FALLBACK_URL` is
 set, the follower falls back to that URL when the primary leader is unreachable.
+
+### Leader Election (static config)
+
+When `THINGD_CLUSTER_LEADER_ELECTION=true`, followers with a configured
+`THINGD_CLUSTER_PEERS` list can automatically promote the next peer in the list
+to leader when the current leader becomes unreachable.
+
+- The peer list order defines succession priority (first entry = primary leader).
+- When the leader is unreachable for `THINGD_CLUSTER_LEADER_ELECTION_MAX_FAILURES`
+  consecutive replication cycles (each cycle is 500ms), the next peer in the list
+  auto-promotes to leader.
+- The promoted peer starts serving MCP writes directly and replication events
+  for other followers.
+- Other peers automatically redirect their `leaderUrl` to the new leader.
+- **No split-brain prevention** — do not use with concurrent writes from
+  multiple nodes attempting to become leader simultaneously. This is a
+  single-leader failover for static deployments (Kubernetes StatefulSet with
+  ordered pod names, Docker Compose with fixed service order).
 
 ## Runtime Endpoints
 
