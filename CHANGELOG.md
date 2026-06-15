@@ -1,3 +1,9 @@
+## [0.23.0](https://github.com/sayanmohsin/thingd/compare/v0.22.0...v0.23.0) (2026-06-15)
+
+### Features
+
+* add searchObjects() convenience method ([e7bab4e](https://github.com/sayanmohsin/thingd/commit/e7bab4e0fe1d465261608f278f6c62555175e345)), closes [#7](https://github.com/sayanmohsin/thingd/issues/7)
+
 ## [0.22.0](https://github.com/sayanmohsin/thingd/compare/v0.21.3...v0.22.0) (2026-06-14)
 
 ### Features
