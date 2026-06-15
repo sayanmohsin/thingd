@@ -354,6 +354,25 @@ function runThingDBehaviorSuite(label, openDb) {
     assert.equal(noMatch.length, 0);
   });
 
+  test(`${label}: searchObjects returns flat object results`, async () => {
+    const db = await openDb();
+
+    await db.put("docs", { id: "a", text: "hello world" });
+    await db.put("docs", { id: "b", text: "hello there" });
+    await db.events.append("log", { type: "test", text: "hello event" });
+
+    const objects = await db.searchObjects("hello", { collections: ["docs"] });
+    assert.equal(objects.length, 2);
+    assert.ok(objects.every((o) => o.kind === undefined), "should not have kind wrapper");
+    assert.ok(objects.every((o) => typeof o.id === "string"));
+    assert.ok(objects.every((o) => o.collection === "docs"));
+
+    const noResults = await db.searchObjects("nonexistent");
+    assert.deepEqual(noResults, []);
+
+    await db.close();
+  });
+
   test(`${label}: listObjects with filter, limit, and offset`, async () => {
     const db = await openDb();
 

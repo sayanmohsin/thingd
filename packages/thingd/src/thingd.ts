@@ -71,6 +71,16 @@ export class ThingD implements ThingDConnection {
     return this.store.search(query, options);
   }
 
+  async searchObjects<T = StoredMemoryObject>(
+    query: string,
+    options: MemorySearchOptions = {}
+  ): Promise<T[]> {
+    const results = await this.search(query, options);
+    return results
+      .filter((r): r is Extract<MemorySearchResult, { kind: "object" }> => r.kind === "object")
+      .map((r) => r.value as T);
+  }
+
   readonly events = {
     append: (stream: string, event: MemoryEvent): Promise<StoredMemoryEvent> =>
       this.store.appendEvent(stream, event),

@@ -132,6 +132,7 @@ export interface ThingDConnection {
     options?: ListObjectsOptions
   ): Promise<T[]>;
   search(query: string, options?: MemorySearchOptions): Promise<MemorySearchResult[]>;
+  searchObjects<T = StoredMemoryObject>(query: string, options?: MemorySearchOptions): Promise<T[]>;
   readonly events: {
     append(stream: string, event: MemoryEvent): Promise<StoredMemoryEvent>;
     list<T = StoredMemoryEvent>(stream?: string, options?: ListEventsOptions): Promise<T[]>;
