@@ -12,6 +12,8 @@ docker run -p 8757:8757 sayanmohsin/thingd
 
 This starts an HTTP MCP server at `http://localhost:8757/mcp`.
 
+Multi-arch images are available for `linux/amd64` and `linux/arm64`.
+
 ## Persist data
 
 ```bash
@@ -98,6 +100,22 @@ services:
 ```
 
 See the [deploy/docker-compose.yml](https://github.com/sayanmohsin/thingd/blob/main/deploy/docker-compose.yml) for a full leader/follower example.
+
+### Leader election
+
+Enable automatic failover for static deployments:
+
+```bash
+docker run -p 8757:8757 \
+  -e THINGD_CLUSTER_MODE=follower \
+  -e THINGD_CLUSTER_LEADER_URL=http://leader:8757 \
+  -e THINGD_CLUSTER_LEADER_ELECTION=true \
+  -e THINGD_CLUSTER_PEERS=http://leader:8757,http://follower:8757 \
+  -e THINGD_ADVERTISE_URL=http://follower:8757 \
+  sayanmohsin/thingd
+```
+
+See [sidecar-cluster.md](https://github.com/sayanmohsin/thingd/blob/main/docs/sidecar-cluster.md) for full cluster documentation.
 
 ## Kubernetes
 

@@ -14,19 +14,20 @@ Local build:
 docker build -t thingd:local .
 ```
 
-### Multi-Arch Production Build
+## Multi-Arch Builds
 
-To build and publish highly optimized multi-arch images (supporting both `amd64` and `arm64` CPU architectures) to GitHub Packages (`ghcr.io/sayanmohsin/thingd`):
+The release workflow builds multi-arch images for `linux/amd64` and `linux/arm64`:
 
 ```bash
-# Authenticate with GHCR
-echo $GITHUB_TOKEN | docker login ghcr.io -u sayanmohsin --password-stdin
+docker pull sayanmohsin/thingd:latest   # auto-selects your arch
+```
 
-# Build and push via Docker Buildx
+Local multi-arch build:
+
+```bash
 docker buildx build \
   --platform linux/amd64,linux/arm64 \
-  -t ghcr.io/sayanmohsin/thingd:latest \
-  -t ghcr.io/sayanmohsin/thingd:v0.1.0 \
+  -t sayanmohsin/thingd:latest \
   --push .
 ```
 
@@ -179,12 +180,29 @@ runtime. Override with `THINGD_DOCKER_PORT`.
 - [deploy/proxy/Caddyfile](../deploy/proxy/Caddyfile) shows a TLS reverse proxy
   shape.
 
+## Failover
+
+With leader election enabled, followers automatically detect leader failure and
+promote the next peer in the ordered peer list:
+
+```bash
+THINGD_CLUSTER_LEADER_ELECTION=true
+THINGD_CLUSTER_LEADER_ELECTION_MAX_FAILURES=3
+THINGD_CLUSTER_PEERS=http://thingd-0:8757,http://thingd-1:8757,http://thingd-2:8757
+THINGD_ADVERTISE_URL=http://thingd-1:8757
+```
+
+The election is static-config based — no Raft or distributed consensus. Best
+suited for StatefulSets or environments with ordered, predictable pod names.
+
+For full details, see [sidecar-cluster.md](./sidecar-cluster.md).
+
 ## Current Limitations
 
 - no TLS termination inside the container
 - no OAuth
 - no multi-tenant routing
-- no production prebuild matrix
+- static-config leader election only (no consensus)
 
 Put TLS, domains, and public exposure behind a proper reverse proxy or hosted
-gateway.
+gateway. For cluster details, see [sidecar-cluster.md](./sidecar-cluster.md).
