@@ -80,7 +80,7 @@ jobs:
         if: matrix.run_package_test == 'false'
 
   node-build-test-pr:
-    name: Node build+test (ubuntu)
+    name: Node build+test (linux-x64)
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     needs: [rust]
