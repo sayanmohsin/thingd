@@ -14,7 +14,8 @@ thingd (public)
 thingd-cloud (private)
   - hosted SaaS backend (auth, billing, tenants, dashboards)
   - managed MCP gateway
-  - ALL planning/roadmap docs for thingd engine development
+  - engine planning docs (docs/thingd/)
+  - cloud-specific planning docs (docs/)
 ```
 
 ## What lives where
@@ -27,22 +28,22 @@ thingd-cloud (private)
 - Landing page: `docs/index.html`
 
 ### thingd-cloud — planning docs (see that repo's AGENTS.md for the full list)
-- `roadmap.md` — full phase plan with checkboxes
-- `handoff.md` — contributor restart guide
-- `ai-primitives.md` — future AI-native primitive plans
-- `persistence-and-native-bindings.md` — storage implementation plans
-- `sidecar-cluster.md` — cluster bridge plans
-- `coding-standards.md` — contributor workflow rules
-- `doc-maintenance.md` — doc hygiene checklist
-- `vision.md` — product vision and design philosophy
-- `cli.md` — CLI phase planning
+- `docs/thingd/roadmap.md` — full phase plan with checkboxes
+- `docs/thingd/handoff.md` — contributor restart guide
+- `docs/thingd/ai-primitives.md` — future AI-native primitive plans
+- `docs/thingd/persistence-and-native-bindings.md` — storage implementation plans
+- `docs/thingd/sidecar-cluster.md` — cluster bridge plans
+- `docs/thingd/coding-standards.md` — contributor workflow rules
+- `docs/thingd/doc-maintenance.md` — doc hygiene checklist
+- `docs/thingd/vision.md` — product vision and design philosophy
+- `docs/thingd/cli.md` — CLI phase planning
 
 ## Cross-repo rules
 
-- **Planning changes** → update in `thingd-cloud/docs/` only.
+- **Planning changes** → update in `thingd-cloud/docs/thingd/` only.
 - **Public doc changes** → update in `thingd/docs/` only.
 - When a planning phase is completed, update checkboxes in
-  `thingd-cloud/docs/roadmap.md` and update the public docs in `thingd/docs/`.
+  `thingd-cloud/docs/thingd/roadmap.md` and update the public docs in `thingd/docs/`.
 - If a feature spans both repos (e.g. MCP gateway), document the public SDK
   surface in `thingd` and the cloud-specific integration in `thingd-cloud`.
 - Never duplicate planning status between repos — `thingd-cloud` is the
