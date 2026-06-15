@@ -59,7 +59,6 @@ jobs:
             arch: x64
             run_package_test: "false"
     runs-on: ${{ matrix.os }}
-    needs: [rust]
     steps:
       - uses: actions/checkout@v6
       - uses: pnpm/action-setup@v6
@@ -67,11 +66,9 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
       - run: pnpm install --frozen-lockfile
       - run: pnpm check
-      - run: pnpm --filter !examples* -r --if-present build
+      - run: pnpm --filter thingd --filter thingd-cli build
       - run: pnpm test:node
       - run: pnpm test:cli
       - run: pnpm test:package
@@ -91,11 +88,9 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
       - run: pnpm install --frozen-lockfile
       - run: pnpm check
-      - run: pnpm --filter !examples* -r --if-present build
+      - run: pnpm --filter thingd --filter thingd-cli build
       - run: pnpm test:node
       - run: pnpm test:cli
       - run: pnpm test:package

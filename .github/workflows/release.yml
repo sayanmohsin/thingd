@@ -89,7 +89,7 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      - run: pnpm --filter !examples* -r --if-present build
+      - run: pnpm --filter thingd --filter thingd-cli build
 
       - name: Publish release
         env:
