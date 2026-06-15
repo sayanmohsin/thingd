@@ -45,18 +45,26 @@ jobs:
           - os: ubuntu-latest
             platform: linux
             arch: x64
+            build_native: "true"
+            run_cli_test: "true"
             run_package_test: "true"
           - os: macos-14
             platform: darwin
             arch: arm64
+            build_native: "false"
+            run_cli_test: "false"
             run_package_test: "true"
           - os: macos-15
             platform: darwin
             arch: x64
+            build_native: "false"
+            run_cli_test: "false"
             run_package_test: "true"
           - os: windows-2025
             platform: win32
             arch: x64
+            build_native: "false"
+            run_cli_test: "false"
             run_package_test: "false"
     runs-on: ${{ matrix.os }}
     steps:
@@ -66,15 +74,21 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
+      - uses: dtolnay/rust-toolchain@stable
+        if: matrix.build_native == 'true'
+      - uses: Swatinem/rust-cache@v2
+        if: matrix.build_native == 'true'
       - run: pnpm install --frozen-lockfile
       - run: pnpm check
+      - run: pnpm --filter thingd --filter thingd-cli --filter thingd-native build
+        if: matrix.build_native == 'true'
       - run: pnpm --filter thingd --filter thingd-cli build
+        if: matrix.build_native == 'false'
       - run: pnpm test:node
       - run: pnpm test:cli
+        if: matrix.run_cli_test == 'true'
       - run: pnpm test:package
         if: matrix.run_package_test == 'true'
-      - run: echo "Skipping pnpm test:package on Windows (cmd.exe spawn issue)"
-        if: matrix.run_package_test == 'false'
 
   node-build-test-pr:
     name: Node build+test (linux-x64)
@@ -88,9 +102,11 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
       - run: pnpm install --frozen-lockfile
       - run: pnpm check
-      - run: pnpm --filter thingd --filter thingd-cli build
+      - run: pnpm --filter thingd --filter thingd-cli --filter thingd-native build
       - run: pnpm test:node
       - run: pnpm test:cli
       - run: pnpm test:package
