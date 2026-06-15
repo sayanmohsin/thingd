@@ -36,19 +36,27 @@ jobs:
       - run: cargo test --workspace --all-targets --all-features
 
   node-build-test:
-    name: Node build+test (${{ matrix.os }})
+    name: Node build+test (${{ matrix.platform }}-${{ matrix.arch }})
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     strategy:
       fail-fast: false
       matrix:
         include:
           - os: ubuntu-latest
+            platform: linux
+            arch: x64
             run_package_test: "true"
           - os: macos-14
+            platform: darwin
+            arch: arm64
             run_package_test: "true"
           - os: macos-15
+            platform: darwin
+            arch: x64
             run_package_test: "true"
           - os: windows-2025
+            platform: win32
+            arch: x64
             run_package_test: "false"
     runs-on: ${{ matrix.os }}
     needs: [rust]
