@@ -26,6 +26,8 @@ export type ThingDOpenOptions = {
   driver?: ThingDDriver;
   store?: ThingStore;
   authToken?: string;
+  /** Alias for authToken. If both are set, authToken takes precedence. */
+  apiKey?: string;
 };
 
 export type ThingDOpenConfig = ThingDOpenOptions & {
@@ -155,7 +157,12 @@ function resolveOpenOptions(
     ...options,
     path,
     driver,
-    authToken: options.authToken ?? config.authToken ?? process.env.THINGD_AUTH_TOKEN,
+    authToken:
+      options.authToken ??
+      config.authToken ??
+      config.apiKey ??
+      options.apiKey ??
+      process.env.THINGD_AUTH_TOKEN,
   };
 }
 
