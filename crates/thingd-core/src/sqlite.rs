@@ -1466,11 +1466,11 @@ impl crate::store::LinkStore for SqliteThingStore {
             ),
         };
 
-        let type_filter = options
-            .link_type
-            .as_deref()
-            .map(|t| format!(" AND type = '{t}'"))
-            .unwrap_or_default();
+        // Build SQL with parameterized type filter to prevent SQL injection
+        let (type_filter_sql, type_param) = match options.link_type {
+            Some(ref t) => (" AND type = ?2".to_string(), Some(t.clone())),
+            None => (String::new(), None),
+        };
 
         let limit_clause = options
             .limit
@@ -1478,13 +1478,21 @@ impl crate::store::LinkStore for SqliteThingStore {
             .unwrap_or_default();
 
         let sql = format!(
-            "SELECT id, from_ref, type, to_ref, weight, metadata_json, created_at FROM links {where_clause}{type_filter}{limit_clause}"
+            "SELECT id, from_ref, type, to_ref, weight, metadata_json, created_at FROM links {where_clause}{type_filter_sql}{limit_clause}"
         );
 
         let mut statement = self.connection.prepare(&sql).map_err(ThingdError::from)?;
-        let rows = statement
-            .query_map(params![param_value], row_to_link)
-            .map_err(ThingdError::from)?;
+
+        // Use parameterized queries for both reference and type
+        let rows = if let Some(ref type_val) = type_param {
+            statement
+                .query_map(params![param_value, type_val], row_to_link)
+                .map_err(ThingdError::from)?
+        } else {
+            statement
+                .query_map(params![param_value], row_to_link)
+                .map_err(ThingdError::from)?
+        };
 
         let mut links = Vec::new();
         for row in rows {
