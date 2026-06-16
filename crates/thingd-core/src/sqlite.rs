@@ -406,12 +406,12 @@ impl ObjectStore for SqliteThingStore {
 
     fn put_objects_batch(
         &mut self,
-        mut objects: Vec<MemoryObject>,
+        objects: Vec<MemoryObject>,
     ) -> ThingdResult<Vec<MemoryObject>> {
         let transaction = self.connection.transaction().map_err(ThingdError::from)?;
 
         let mut results = Vec::with_capacity(objects.len());
-        for object in &mut objects {
+        for mut object in objects {
             let version = transaction
                 .query_row(
                     "SELECT version FROM objects WHERE collection = ?1 AND id = ?2",
@@ -473,7 +473,7 @@ impl ObjectStore for SqliteThingStore {
                 )
                 .map_err(ThingdError::from)?;
 
-            results.push(object.clone());
+            results.push(object);
         }
 
         transaction.commit().map_err(ThingdError::from)?;
