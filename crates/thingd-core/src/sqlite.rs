@@ -374,6 +374,88 @@ impl ObjectStore for SqliteThingStore {
         Ok(object)
     }
 
+    fn put_objects_batch(
+        &mut self,
+        mut objects: Vec<MemoryObject>,
+    ) -> ThingdResult<Vec<MemoryObject>> {
+        let transaction = self.connection.transaction().map_err(ThingdError::from)?;
+
+        let mut results = Vec::with_capacity(objects.len());
+        for object in &mut objects {
+            let version = transaction
+                .query_row(
+                    "SELECT version FROM objects WHERE collection = ?1 AND id = ?2",
+                    params![&object.key.collection, &object.key.id],
+                    |row| row.get::<_, i64>(0),
+                )
+                .optional()
+                .map_err(ThingdError::from)?
+                .map_or(Ok::<u64, ThingdError>(1), |existing| {
+                    u64::try_from(existing)
+                        .map(|existing| existing + 1)
+                        .map_err(|error| ThingdError::Storage(error.to_string()))
+                })?;
+
+            object.version = version;
+            let stored_version = i64::try_from(object.version)
+                .map_err(|error| ThingdError::Storage(error.to_string()))?;
+
+            transaction
+                .execute(
+                    r"
+                    INSERT INTO objects (collection, id, body, version, created_at, updated_at)
+                    VALUES (?1, ?2, ?3, ?4, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+                    ON CONFLICT(collection, id) DO UPDATE SET
+                        body = excluded.body,
+                        version = excluded.version,
+                        updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+                    ",
+                    params![
+                        &object.key.collection,
+                        &object.key.id,
+                        &object.body,
+                        stored_version
+                    ],
+                )
+                .map_err(ThingdError::from)?;
+
+            let timestamps = transaction
+                .query_row(
+                    "SELECT created_at, updated_at FROM objects WHERE collection = ?1 AND id = ?2",
+                    params![&object.key.collection, &object.key.id],
+                    |row| {
+                        Ok((
+                            row.get::<_, String>(0).unwrap_or_default(),
+                            row.get::<_, String>(1).unwrap_or_default(),
+                        ))
+                    },
+                )
+                .map_err(ThingdError::from)?;
+            object.created_at = timestamps.0;
+            object.updated_at = timestamps.1;
+
+            let text = extract_text_from_json(&object.body);
+            transaction
+                .execute(
+                    "DELETE FROM search_index WHERE collection = ?1 AND id = ?2 AND kind = 'object'",
+                    params![&object.key.collection, &object.key.id],
+                )
+                .map_err(ThingdError::from)?;
+            transaction
+                .execute(
+                    "INSERT INTO search_index (collection, id, kind, text) VALUES (?1, ?2, 'object', ?3)",
+                    params![&object.key.collection, &object.key.id, text],
+                )
+                .map_err(ThingdError::from)?;
+
+            results.push(object.clone());
+        }
+
+        transaction.commit().map_err(ThingdError::from)?;
+
+        Ok(results)
+    }
+
     fn get_object(&self, collection: &str, id: &str) -> ThingdResult<Option<MemoryObject>> {
         self.connection
             .query_row(
@@ -524,6 +606,55 @@ impl EventLog for SqliteThingStore {
         transaction.commit().map_err(ThingdError::from)?;
 
         Ok(event)
+    }
+
+    fn append_events_batch(
+        &mut self,
+        events: Vec<MemoryEvent>,
+    ) -> ThingdResult<Vec<MemoryEvent>> {
+        let transaction = self.connection.transaction().map_err(ThingdError::from)?;
+
+        let mut results = Vec::with_capacity(events.len());
+        for event in events {
+            transaction
+                .execute(
+                    r"
+                    INSERT INTO events (stream, event_type, body, created_at)
+                    VALUES (?1, ?2, ?3, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+                    ",
+                    params![&event.stream, &event.event_type, &event.body],
+                )
+                .map_err(ThingdError::from)?;
+
+            let sequence = transaction.last_insert_rowid();
+            let mut result = event;
+            result.sequence =
+                u64::try_from(sequence).map_err(|error| ThingdError::Storage(error.to_string()))?;
+
+            let created_at: String = transaction
+                .query_row(
+                    "SELECT created_at FROM events WHERE sequence = ?1",
+                    params![sequence],
+                    |row| row.get(0),
+                )
+                .map_err(ThingdError::from)?;
+            result.created_at = created_at;
+
+            let text = extract_text_from_json(&result.body);
+            let seq_str = sequence.to_string();
+            transaction
+                .execute(
+                    "INSERT INTO search_index (collection, id, kind, text) VALUES (?1, ?2, 'event', ?3)",
+                    params![&result.stream, seq_str, text],
+                )
+                .map_err(ThingdError::from)?;
+
+            results.push(result);
+        }
+
+        transaction.commit().map_err(ThingdError::from)?;
+
+        Ok(results)
     }
 
     fn list_events(
@@ -680,6 +811,96 @@ impl QueueStore for SqliteThingStore {
         Ok(QueueJob { created_at, ..job })
     }
 
+    fn push_jobs_batch(
+        &mut self,
+        jobs: Vec<QueueJob>,
+    ) -> ThingdResult<Vec<QueueJob>> {
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(ThingdError::from)?;
+
+        let mut results = Vec::with_capacity(jobs.len());
+        for job in jobs {
+            if let Some(existing) = transaction
+                .query_row(
+                    &queue_job_select_sql("WHERE queue = ?1 AND id = ?2"),
+                    params![&job.queue, &job.id],
+                    row_to_queue_job,
+                )
+                .optional()
+                .map_err(ThingdError::from)?
+            {
+                results.push(existing);
+                continue;
+            }
+
+            transaction
+                .execute(
+                    r"
+                    INSERT INTO queue_jobs (
+                        queue,
+                        id,
+                        body,
+                        attempts,
+                        max_attempts,
+                        status,
+                        available_at_ms,
+                        leased_at_ms,
+                        lease_expires_at_ms,
+                        completed_at_ms,
+                        dead_at_ms,
+                        created_at,
+                        updated_at
+                    )
+                    VALUES (
+                        ?1,
+                        ?2,
+                        ?3,
+                        ?4,
+                        ?5,
+                        ?6,
+                        ?7,
+                        ?8,
+                        ?9,
+                        ?10,
+                        ?11,
+                        strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
+                        strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+                    )
+                    ",
+                    params![
+                        &job.queue,
+                        &job.id,
+                        &job.body,
+                        u32_to_i64(job.attempts),
+                        u32_to_i64(job.max_attempts),
+                        status_to_str(job.status),
+                        job.available_at_ms,
+                        job.leased_at_ms,
+                        job.lease_expires_at_ms,
+                        job.completed_at_ms,
+                        job.dead_at_ms
+                    ],
+                )
+                .map_err(ThingdError::from)?;
+
+            let created_at: String = transaction
+                .query_row(
+                    "SELECT created_at FROM queue_jobs WHERE queue = ?1 AND id = ?2",
+                    params![&job.queue, &job.id],
+                    |row| row.get(0),
+                )
+                .map_err(ThingdError::from)?;
+
+            results.push(QueueJob { created_at, ..job });
+        }
+
+        transaction.commit().map_err(ThingdError::from)?;
+
+        Ok(results)
+    }
+
     fn claim_job_with_options(
         &mut self,
         queue: &str,
@@ -775,6 +996,86 @@ impl QueueStore for SqliteThingStore {
                 WHERE queue = ?1 AND id = ?2
                 ",
                 params![queue, id, status_to_str(job.status), job.completed_at_ms],
+            )
+            .map_err(ThingdError::from)?;
+
+        transaction.commit().map_err(ThingdError::from)?;
+        Ok(Some(job))
+    }
+
+    fn claim_and_ack(
+        &mut self,
+        queue: &str,
+        options: QueueClaimOptions,
+    ) -> ThingdResult<Option<QueueJob>> {
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(ThingdError::from)?;
+
+        release_expired_leases(&transaction, queue)?;
+        let now = unix_timestamp_millis();
+        let Some(mut job) = transaction
+            .query_row(
+                &queue_job_select_sql(
+                    "WHERE queue = ?1 AND status = 'ready' AND available_at_ms <= ?2 ORDER BY created_at LIMIT 1",
+                ),
+                params![queue, now],
+                row_to_queue_job,
+            )
+            .optional()
+            .map_err(ThingdError::from)?
+        else {
+            transaction.commit().map_err(ThingdError::from)?;
+            return Ok(None);
+        };
+
+        // Claim the job
+        job.status = QueueJobStatus::Leased;
+        job.attempts += 1;
+        job.leased_at_ms = Some(now);
+        job.lease_expires_at_ms = Some(now.saturating_add(u64_to_i64(options.lease_ms)));
+
+        transaction
+            .execute(
+                r"
+                UPDATE queue_jobs
+                SET attempts = ?3,
+                    status = ?4,
+                    leased_at_ms = ?5,
+                    lease_expires_at_ms = ?6,
+                    updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+                WHERE queue = ?1 AND id = ?2
+                ",
+                params![
+                    &job.queue,
+                    &job.id,
+                    u32_to_i64(job.attempts),
+                    status_to_str(job.status),
+                    job.leased_at_ms,
+                    job.lease_expires_at_ms
+                ],
+            )
+            .map_err(ThingdError::from)?;
+
+        // Immediately ack the job
+        job.status = QueueJobStatus::Completed;
+        job.completed_at_ms = Some(unix_timestamp_millis());
+        transaction
+            .execute(
+                r"
+                UPDATE queue_jobs
+                SET status = ?3,
+                    completed_at_ms = ?4,
+                    updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+                WHERE queue = ?1 AND id = ?2
+                ",
+                params![
+                    &job.queue,
+                    &job.id,
+                    status_to_str(job.status),
+                    job.completed_at_ms
+                ],
             )
             .map_err(ThingdError::from)?;
 

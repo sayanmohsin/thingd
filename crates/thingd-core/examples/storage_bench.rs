@@ -6,11 +6,12 @@ use std::hint::black_box;
 use std::time::{Duration, Instant};
 
 use chrono as _;
+#[cfg(feature = "connectors")]
 use csv as _;
 use rusqlite as _;
 use serde_json as _;
 use thingd_core::{
-    EventLog, ListEventsOptions, MemoryEngine, MemoryEvent, MemoryObject, ObjectStore, QueueJob,
+    EventLog, ListEventsOptions, MemoryEngine, MemoryEvent, MemoryObject, ObjectStore, QueueClaimOptions, QueueJob,
     QueueStore, SqliteThingStore,
 };
 
@@ -64,11 +65,17 @@ where
     let elapsed = time_object_puts(&mut store, iterations)?;
     report(name, "object_put", iterations, elapsed);
 
+    let elapsed = time_object_put_batch(&mut store, iterations)?;
+    report(name, "object_batch", iterations, elapsed);
+
     let elapsed = time_object_gets(&store, iterations)?;
     report(name, "object_get", iterations, elapsed);
 
     let elapsed = time_event_appends(&mut store, iterations)?;
     report(name, "event_append", iterations, elapsed);
+
+    let elapsed = time_event_append_batch(&mut store, iterations)?;
+    report(name, "event_batch", iterations, elapsed);
 
     let started = Instant::now();
     let events = store.list_events(Some(STREAM), ListEventsOptions::default())?;
@@ -79,8 +86,14 @@ where
     let elapsed = time_queue_pushes(&mut store, iterations)?;
     report(name, "queue_push", iterations, elapsed);
 
+    let elapsed = time_queue_push_batch(&mut store, iterations)?;
+    report(name, "queue_batch", iterations, elapsed);
+
     let elapsed = time_queue_claims_and_acks(&mut store, iterations)?;
     report(name, "queue_claim_ack", iterations, elapsed);
+
+    let elapsed = time_queue_claim_and_ack(&mut store, iterations)?;
+    report(name, "queue_claim_ack2", iterations, elapsed);
 
     println!();
     Ok(())
@@ -98,6 +111,20 @@ where
         black_box(stored.version);
     }
 
+    Ok(started.elapsed())
+}
+
+fn time_object_put_batch<S>(store: &mut S, iterations: usize) -> Result<Duration, Box<dyn Error>>
+where
+    S: ObjectStore,
+{
+    let objects: Vec<MemoryObject> = (0..iterations)
+        .map(|index| MemoryObject::new(COLLECTION, format!("batch-{index}"), OBJECT_BODY))
+        .collect();
+
+    let started = Instant::now();
+    let results = store.put_objects_batch(objects)?;
+    black_box(results.len());
     Ok(started.elapsed())
 }
 
@@ -131,6 +158,26 @@ where
     Ok(started.elapsed())
 }
 
+fn time_event_append_batch<S>(store: &mut S, iterations: usize) -> Result<Duration, Box<dyn Error>>
+where
+    S: EventLog,
+{
+    let events: Vec<MemoryEvent> = (0..iterations)
+        .map(|index| {
+            MemoryEvent::new(
+                STREAM,
+                "benchmark.event",
+                format!("{EVENT_BODY}:batch-{index}"),
+            )
+        })
+        .collect();
+
+    let started = Instant::now();
+    let results = store.append_events_batch(events)?;
+    black_box(results.len());
+    Ok(started.elapsed())
+}
+
 fn time_queue_pushes<S>(store: &mut S, iterations: usize) -> Result<Duration, Box<dyn Error>>
 where
     S: QueueStore,
@@ -143,6 +190,27 @@ where
         black_box(stored.status);
     }
 
+    Ok(started.elapsed())
+}
+
+fn time_queue_push_batch<S>(store: &mut S, iterations: usize) -> Result<Duration, Box<dyn Error>>
+where
+    S: QueueStore,
+{
+    let jobs: Vec<QueueJob> = (0..iterations)
+        .map(|index| {
+            QueueJob::new(
+                QUEUE,
+                format!("batch-{index}"),
+                format!("payload-{index}"),
+                3,
+            )
+        })
+        .collect();
+
+    let started = Instant::now();
+    let results = store.push_jobs_batch(jobs)?;
+    black_box(results.len());
     Ok(started.elapsed())
 }
 
@@ -160,6 +228,23 @@ where
             let acked = store.ack_job(QUEUE, &job.id)?;
             black_box(acked);
         }
+    }
+
+    Ok(started.elapsed())
+}
+
+fn time_queue_claim_and_ack<S>(
+    store: &mut S,
+    iterations: usize,
+) -> Result<Duration, Box<dyn Error>>
+where
+    S: QueueStore,
+{
+    let started = Instant::now();
+
+    for _ in 0..iterations {
+        let result = store.claim_and_ack(QUEUE, QueueClaimOptions::default())?;
+        black_box(result);
     }
 
     Ok(started.elapsed())

@@ -14,6 +14,25 @@ pub trait ObjectStore {
     /// Returns an error when the backing store cannot persist the object.
     fn put_object(&mut self, object: MemoryObject) -> ThingdResult<MemoryObject>;
 
+    /// Insert or replace multiple objects in a single transaction.
+    ///
+    /// This is significantly faster than calling `put_object` in a loop
+    /// because it avoids per-object transaction overhead.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the backing store cannot persist any object.
+    fn put_objects_batch(
+        &mut self,
+        objects: Vec<MemoryObject>,
+    ) -> ThingdResult<Vec<MemoryObject>> {
+        let mut results = Vec::with_capacity(objects.len());
+        for object in objects {
+            results.push(self.put_object(object)?);
+        }
+        Ok(results)
+    }
+
     /// Read an object by collection and id.
     ///
     /// # Errors
@@ -59,6 +78,24 @@ pub trait EventLog {
     /// Returns an error when the backing store cannot append the event.
     fn append_event(&mut self, event: MemoryEvent) -> ThingdResult<MemoryEvent>;
 
+    /// Append multiple events to a stream in a single transaction.
+    ///
+    /// This is significantly faster than calling `append_event` in a loop.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the backing store cannot append any event.
+    fn append_events_batch(
+        &mut self,
+        events: Vec<MemoryEvent>,
+    ) -> ThingdResult<Vec<MemoryEvent>> {
+        let mut results = Vec::with_capacity(events.len());
+        for event in events {
+            results.push(self.append_event(event)?);
+        }
+        Ok(results)
+    }
+
     /// List events, optionally filtered by stream, with pagination.
     ///
     /// # Errors
@@ -94,6 +131,24 @@ pub trait QueueStore {
     /// Returns an error when the backing store cannot persist the job.
     fn push_job(&mut self, job: QueueJob) -> ThingdResult<QueueJob>;
 
+    /// Push multiple jobs onto a queue in a single transaction.
+    ///
+    /// This is significantly faster than calling `push_job` in a loop.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the backing store cannot persist any job.
+    fn push_jobs_batch(
+        &mut self,
+        jobs: Vec<QueueJob>,
+    ) -> ThingdResult<Vec<QueueJob>> {
+        let mut results = Vec::with_capacity(jobs.len());
+        for job in jobs {
+            results.push(self.push_job(job)?);
+        }
+        Ok(results)
+    }
+
     /// Claim the next ready job from a queue.
     ///
     /// # Errors
@@ -120,6 +175,26 @@ pub trait QueueStore {
     ///
     /// Returns an error when the backing store cannot update the job.
     fn ack_job(&mut self, queue: &str, id: &str) -> ThingdResult<Option<QueueJob>>;
+
+    /// Claim and immediately ack a job in a single transaction.
+    ///
+    /// This is faster than calling `claim_job` + `ack_job` separately
+    /// because it avoids per-operation transaction overhead.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the backing store cannot claim or ack the job.
+    fn claim_and_ack(
+        &mut self,
+        queue: &str,
+        options: QueueClaimOptions,
+    ) -> ThingdResult<Option<QueueJob>> {
+        if let Some(job) = self.claim_job_with_options(queue, options)? {
+            self.ack_job(queue, &job.id)
+        } else {
+            Ok(None)
+        }
+    }
 
     /// Reject a leased job for retry or dead-letter routing.
     ///

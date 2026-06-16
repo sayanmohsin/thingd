@@ -128,17 +128,61 @@ export async function runImport(context: CliContext): Promise<void> {
     .map((l) => l.trim())
     .filter(Boolean);
 
+  // Detect file type
+  const isCsv = inPath.endsWith(".csv");
+
   await withDb(context, async (db) => {
     let count = 0;
-    for (const line of lines) {
-      const parsedObj = JSON.parse(line) as Record<string, unknown>;
-      if (!parsedObj.id || typeof parsedObj.id !== "string") {
-        throw new Error("Imported object must contain a string 'id' field.");
+
+    if (isCsv) {
+      // Parse CSV
+      const headers = lines[0]?.split(",").map((h) => h.trim()) ?? [];
+      for (let i = 1; i < lines.length; i++) {
+        const values = lines[i]?.split(",") ?? [];
+        const obj: Record<string, unknown> = {};
+        for (let j = 0; j < headers.length; j++) {
+          const key = headers[j];
+          if (!key) {
+            continue;
+          }
+          const val = values[j]?.trim() ?? "";
+          // Try to infer types
+          if (val === "" || val === "null") {
+            obj[key] = null;
+          } else if (val === "true") {
+            obj[key] = true;
+          } else if (val === "false") {
+            obj[key] = false;
+          } else if (!Number.isNaN(Number(val))) {
+            obj[key] = Number(val);
+          } else {
+            obj[key] = val;
+          }
+        }
+        // Add row index as ID if not present
+        if (!obj.id) {
+          obj.id = `row-${i}`;
+        }
+        await db.put(collection, obj as unknown as MemoryObject);
+        count += 1;
       }
-      await db.put(collection, parsedObj as unknown as MemoryObject);
-      count += 1;
+    } else {
+      // Parse JSONL
+      for (const line of lines) {
+        const parsedObj = JSON.parse(line) as Record<string, unknown>;
+        if (!parsedObj.id || typeof parsedObj.id !== "string") {
+          throw new Error("Imported object must contain a string 'id' field.");
+        }
+        await db.put(collection, parsedObj as unknown as MemoryObject);
+        count += 1;
+      }
     }
-    writeJson(context.stdout, { success: true, count, collection }, context.pretty);
+
+    writeJson(
+      context.stdout,
+      { success: true, count, collection, format: isCsv ? "csv" : "jsonl" },
+      context.pretty
+    );
   });
 }
 
