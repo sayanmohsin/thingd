@@ -54,7 +54,8 @@ export function registerThingdTools(
     "thing_search",
     {
       title: "Search Memory",
-      description: "Search thingd objects and events by text.",
+      description:
+        "Search thingd objects and events by full-text query. Returns matching items ranked by relevance using SQLite FTS5 with Porter word stemming. Use this to find previously stored memories, notes, or events by keyword or phrase. Accepts a query string and optional filter by collection names, metadata key-value pairs, and a result limit. Returns an array of matching objects with relevance scores.",
       inputSchema: {
         query: z.string().min(1),
         collections: z.array(z.string().min(1)).optional(),
@@ -82,7 +83,8 @@ export function registerThingdTools(
     "thing_get",
     {
       title: "Get Object",
-      description: "Read one thingd object by collection and id.",
+      description:
+        "Read one thingd object by collection name and id. Returns the full object if found, or null if not found. Use this to retrieve a specific stored record when you know its exact collection and id. Returns a single object or null.",
       inputSchema: {
         collection: z.string().min(1),
         id: z.string().min(1),
@@ -104,7 +106,8 @@ export function registerThingdTools(
     "thing_put",
     {
       title: "Put Object",
-      description: "Create or replace one object-shaped memory record.",
+      description:
+        "Create or replace one object-shaped memory record in a collection. The object must have an 'id' field. If an object with the same id already exists in the collection, it is replaced. Use this to store memories, notes, tasks, or any structured data. Returns the stored object with collection, version, and timestamps.",
       inputSchema: {
         collection: z.string().min(1),
         object: memoryObjectSchema,
@@ -143,7 +146,8 @@ export function registerThingdTools(
     "thing_delete",
     {
       title: "Delete Object",
-      description: "Delete one thingd object by collection and id.",
+      description:
+        "Delete one thingd object by collection name and id. Permanently removes the object from the store. Returns a result indicating whether the deletion was successful. Use this to remove outdated or incorrect records.",
       inputSchema: {
         collection: z.string().min(1),
         id: z.string().min(1),
@@ -178,7 +182,8 @@ export function registerThingdTools(
     "thing_events_append",
     {
       title: "Append Event",
-      description: "Append an event to a thingd stream.",
+      description:
+        "Append an event to a named event stream. Events are append-only, ordered records with a 'type' field and arbitrary payload. Use this to record occurrences, state changes, or audit entries. Each event gets an auto-incremented sequence id. Returns the stored event with id, stream, and timestamp.",
       inputSchema: {
         stream: z.string().min(1),
         event: memoryEventSchema,
@@ -216,7 +221,8 @@ export function registerThingdTools(
     "thing_events_list",
     {
       title: "List Events",
-      description: "List thingd events, optionally filtered by stream, with pagination.",
+      description:
+        "List events from a thingd stream, optionally filtered by stream name, starting from a specific sequence number, with a configurable limit. Use this to review recent activity, replay events, or audit changes. Returns an array of events ordered by sequence.",
       inputSchema: {
         stream: z.string().min(1).optional(),
         fromSequence: z.number().int().positive().optional(),
@@ -237,7 +243,8 @@ export function registerThingdTools(
     "thing_queue_push",
     {
       title: "Push Queue Job",
-      description: "Push a durable job onto a thingd queue.",
+      description:
+        "Push a durable job onto a named queue. Jobs have a JSON payload and can include an idempotency key, max retry attempts, and a delay before the job becomes ready. Use this to schedule background work like processing, notifications, or data pipelines. Returns the created job with id, queue, and status.",
       inputSchema: {
         queue: z.string().min(1),
         payload: objectPayloadSchema,
@@ -282,7 +289,8 @@ export function registerThingdTools(
     "thing_queue_claim",
     {
       title: "Claim Queue Job",
-      description: "Claim the next ready job from a thingd queue.",
+      description:
+        "Claim the next ready job from a queue. The job is leased for a configurable duration (default 30s). If not acked or nacked before the lease expires, it returns to the ready state. Returns the claimed job with payload, or null if no jobs are ready. Use this to process queue work in a worker loop.",
       inputSchema: {
         queue: z.string().min(1),
         leaseMs: z.number().int().optional(),
@@ -323,7 +331,8 @@ export function registerThingdTools(
     "thing_queue_ack",
     {
       title: "Acknowledge Queue Job",
-      description: "Mark one leased queue job as completed.",
+      description:
+        "Mark one leased queue job as completed. This removes the job from the queue permanently. Call this after successfully processing a claimed job. Returns a result with ok status and the final job status.",
       inputSchema: {
         queue: z.string().min(1),
         id: z.string().min(1),
@@ -362,7 +371,8 @@ export function registerThingdTools(
     "thing_queue_nack",
     {
       title: "Reject Queue Job",
-      description: "Reject a leased queue job for retry or dead-letter routing.",
+      description:
+        "Reject a leased queue job for retry or dead-letter routing. If the job has remaining attempts, it goes back to ready (optionally after a delay). If attempts are exhausted, it moves to the dead-letter list. Optionally attach an error message. Returns a result with ok status and the updated job status.",
       inputSchema: {
         queue: z.string().min(1),
         id: z.string().min(1),
@@ -403,7 +413,8 @@ export function registerThingdTools(
     "thing_queue_list",
     {
       title: "List Queue Jobs",
-      description: "List jobs in a thingd queue.",
+      description:
+        "List all jobs in a queue across all states (ready, leased, dead-letter). Use this to inspect queue contents, monitor backlog, or debug stuck jobs. Returns an array of job objects with id, payload, status, attempts, and timestamps.",
       inputSchema: {
         queue: z.string().min(1),
       },
@@ -421,7 +432,8 @@ export function registerThingdTools(
     "thing_queue_dead",
     {
       title: "List Dead Queue Jobs",
-      description: "List dead-letter jobs in a thingd queue.",
+      description:
+        "List dead-letter jobs in a queue. These are jobs that exhausted all retry attempts. Use this to inspect failed work, diagnose errors, or decide whether to retry or discard. Returns an array of dead-letter job objects.",
       inputSchema: {
         queue: z.string().min(1),
       },
@@ -439,7 +451,8 @@ export function registerThingdTools(
     "thing_objects_list",
     {
       title: "List Objects",
-      description: "List all thingd objects in a collection.",
+      description:
+        "List all objects in a collection. Returns every stored record in the named collection. Use this to enumerate stored data when you need to browse or audit a full collection. Returns an array of objects.",
       inputSchema: {
         collection: z.string().min(1),
       },
@@ -460,7 +473,8 @@ export function registerThingdTools(
     "thing_count_objects",
     {
       title: "Count Objects",
-      description: "Count all objects across all collections.",
+      description:
+        "Count all objects stored across all collections. Returns a single number representing the total object count. Use this for quick inventory checks or monitoring storage usage.",
       inputSchema: {},
       annotations: {
         readOnlyHint: true,
@@ -476,7 +490,8 @@ export function registerThingdTools(
     "thing_count_events",
     {
       title: "Count Events",
-      description: "Count all events across all streams.",
+      description:
+        "Count all events across all streams. Returns a single number representing the total event count. Use this to monitor event volume or check stream activity.",
       inputSchema: {},
       annotations: {
         readOnlyHint: true,
@@ -492,7 +507,8 @@ export function registerThingdTools(
     "thing_count_active_jobs",
     {
       title: "Count Active Jobs",
-      description: "Count all active (non-dead) queue jobs.",
+      description:
+        "Count all active (non-dead) queue jobs across all queues. Includes ready, leased, and delayed jobs. Use this to monitor queue depth and worker load.",
       inputSchema: {},
       annotations: {
         readOnlyHint: true,
@@ -508,7 +524,8 @@ export function registerThingdTools(
     "thing_count_dead_jobs",
     {
       title: "Count Dead Jobs",
-      description: "Count all dead-letter queue jobs.",
+      description:
+        "Count all dead-letter queue jobs across all queues. These are jobs that failed all retry attempts. Use this to monitor failure rates and decide when to investigate or discard.",
       inputSchema: {},
       annotations: {
         readOnlyHint: true,
@@ -524,7 +541,8 @@ export function registerThingdTools(
     "thing_list_collections",
     {
       title: "List Collections",
-      description: "List all object collection names.",
+      description:
+        "List all object collection names in the store. Returns an array of collection name strings. Use this to discover what data is stored before searching or querying.",
       inputSchema: {},
       annotations: {
         readOnlyHint: true,
@@ -540,7 +558,8 @@ export function registerThingdTools(
     "thing_list_streams",
     {
       title: "List Streams",
-      description: "List all event stream names.",
+      description:
+        "List all event stream names in the store. Returns an array of stream name strings. Use this to discover available event streams before listing or appending events.",
       inputSchema: {},
       annotations: {
         readOnlyHint: true,
@@ -556,7 +575,8 @@ export function registerThingdTools(
     "thing_list_queues",
     {
       title: "List Queues",
-      description: "List all queue names.",
+      description:
+        "List all queue names in the store. Returns an array of queue name strings. Use this to discover available queues before pushing or claiming jobs.",
       inputSchema: {},
       annotations: {
         readOnlyHint: true,
