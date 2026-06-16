@@ -97,37 +97,64 @@ Expected shape:
 
 ## Latest Local Baseline
 
-Run date: 2026-06-07
+Run date: 2026-06-15
 
 Environment:
 
 - Rust: `rustc 1.96.0`
 - Node: `v24.x`
-- Iterations: `5000`
+- Iterations: `1000`
 - Build: release
 
 ### Rust
 
 | Store | Operation | Elapsed | Ops/sec |
 | --- | --- | ---: | ---: |
-| `in-memory` | object put | `5.76ms` | `868,809` |
-| `in-memory` | object get | `2.62ms` | `1,906,941` |
-| `in-memory` | event append | `2.33ms` | `2,143,163` |
-| `in-memory` | event list | `542µs` | `9,225,092` |
-| `in-memory` | queue push | `32.68ms` | `152,984` |
-| `in-memory` | queue claim+ack | `56.17ms` | `89,010` |
-| `sqlite-memory` | object put | `1.94s` | `2,573` |
-| `sqlite-memory` | object get | `15.30ms` | `326,733` |
-| `sqlite-memory` | event append | `105.04ms` | `47,601` |
-| `sqlite-memory` | event list | `1.31ms` | `3,831,417` |
-| `sqlite-memory` | queue push | `74.04ms` | `67,535` |
-| `sqlite-memory` | queue claim+ack | `154.83ms` | `32,293` |
-| `sqlite-file` | object put | `2.20s` | `2,277` |
-| `sqlite-file` | object get | `21.03ms` | `237,812` |
-| `sqlite-file` | event append | `355.80ms` | `14,053` |
-| `sqlite-file` | event list | `1.30ms` | `3,837,298` |
-| `sqlite-file` | queue push | `195.66ms` | `25,554` |
-| `sqlite-file` | queue claim+ack | `338.15ms` | `14,786` |
+| `in-memory` | object put | `818µs` | `1,222,493` |
+| `in-memory` | object batch | `597µs` | `1,675,041` |
+| `in-memory` | object get | `420µs` | `2,380,952` |
+| `in-memory` | event append | `357µs` | `2,801,120` |
+| `in-memory` | event batch | `178µs` | `5,617,977` |
+| `in-memory` | event list | `158µs` | `12,658,227` |
+| `in-memory` | queue push | `2.55ms` | `392,310` |
+| `in-memory` | queue batch | `1.88ms` | `533,049` |
+| `in-memory` | queue claim+ack | `7.83ms` | `127,681` |
+| `in-memory` | queue claim+ack (optimized) | `4.93ms` | `202,675` |
+| `sqlite-memory` | object put | `106ms` | `9,410` |
+| `sqlite-memory` | object batch | `239ms` | `4,181` |
+| `sqlite-memory` | object get | `3.12ms` | `320,204` |
+| `sqlite-memory` | event append | `20.88ms` | `47,904` |
+| `sqlite-memory` | event batch | `7.37ms` | `135,703` |
+| `sqlite-memory` | event list | `542µs` | `3,690,036` |
+| `sqlite-memory` | queue push | `14.58ms` | `68,591` |
+| `sqlite-memory` | queue batch | `12.45ms` | `80,327` |
+| `sqlite-memory` | queue claim+ack | `30.89ms` | `32,373` |
+| `sqlite-memory` | queue claim+ack (optimized) | `24.03ms` | `41,614` |
+| `sqlite-file` | object put | `151ms` | `6,595` |
+| `sqlite-file` | object batch | `242ms` | `4,122` |
+| `sqlite-file` | object get | `4.32ms` | `231,588` |
+| `sqlite-file` | event append | `81.09ms` | `12,332` |
+| `sqlite-file` | event batch | `9.01ms` | `110,987` |
+| `sqlite-file` | event list | `573µs` | `3,490,401` |
+| `sqlite-file` | queue push | `42.73ms` | `23,404` |
+| `sqlite-file` | queue batch | `13.59ms` | `73,605` |
+| `sqlite-file` | queue claim+ack | `75.12ms` | `13,311` |
+| `sqlite-file` | queue claim+ack (optimized) | `47.04ms` | `21,257` |
+
+### Batch API Improvements (sqlite-file)
+
+| Operation | Before | After | Speedup |
+| --- | --- | ---: | ---: |
+| event append | 12,332 ops/s | 110,987 ops/s | **9x** |
+| queue push | 23,404 ops/s | 73,605 ops/s | **3x** |
+| queue claim+ack | 13,311 ops/s | 21,257 ops/s | **1.6x** |
+
+Batch APIs (`put_objects_batch`, `append_events_batch`, `push_jobs_batch`) wrap
+multiple operations in a single SQLite transaction, eliminating per-operation
+commit overhead. Use these for imports, migrations, and bulk data loading.
+
+The optimized `claim_and_ack` method combines claim + ack into a single
+transaction, reducing round-trips for queue processing workloads.
 
 ### Node.js (1000 iterations)
 
