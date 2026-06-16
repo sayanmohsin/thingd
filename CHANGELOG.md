@@ -1,3 +1,13 @@
+## [0.24.0](https://github.com/sayanmohsin/thingd/compare/v0.23.0...v0.24.0) (2026-06-16)
+
+### Features
+
+* **sdk:** add apiKey as alias for authToken in ThingDOpenOptions ([#10](https://github.com/sayanmohsin/thingd/issues/10)) ([32ce660](https://github.com/sayanmohsin/thingd/commit/32ce660679c0e68ee8b417a45233da6d2ae6c633))
+
+### Bug Fixes
+
+* **mcp:** expand tool descriptions for better LLM tool use ([#8](https://github.com/sayanmohsin/thingd/issues/8)) ([bec0ef0](https://github.com/sayanmohsin/thingd/commit/bec0ef06c3e530fc26e909aa990629dabef5d590))
+
 ## [0.23.0](https://github.com/sayanmohsin/thingd/compare/v0.22.0...v0.23.0) (2026-06-15)
 
 ### Features
