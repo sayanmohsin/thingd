@@ -110,44 +110,44 @@ Environment:
 
 | Store | Operation | Elapsed | Ops/sec |
 | --- | --- | ---: | ---: |
-| `in-memory` | object put | `818µs` | `1,222,493` |
-| `in-memory` | object batch | `597µs` | `1,675,041` |
-| `in-memory` | object get | `420µs` | `2,380,952` |
-| `in-memory` | event append | `357µs` | `2,801,120` |
-| `in-memory` | event batch | `178µs` | `5,617,977` |
-| `in-memory` | event list | `158µs` | `12,658,227` |
-| `in-memory` | queue push | `2.55ms` | `392,310` |
-| `in-memory` | queue batch | `1.88ms` | `533,049` |
-| `in-memory` | queue claim+ack | `7.83ms` | `127,681` |
-| `in-memory` | queue claim+ack (optimized) | `4.93ms` | `202,675` |
-| `sqlite-memory` | object put | `106ms` | `9,410` |
-| `sqlite-memory` | object batch | `239ms` | `4,181` |
-| `sqlite-memory` | object get | `3.12ms` | `320,204` |
-| `sqlite-memory` | event append | `20.88ms` | `47,904` |
-| `sqlite-memory` | event batch | `7.37ms` | `135,703` |
-| `sqlite-memory` | event list | `542µs` | `3,690,036` |
-| `sqlite-memory` | queue push | `14.58ms` | `68,591` |
-| `sqlite-memory` | queue batch | `12.45ms` | `80,327` |
-| `sqlite-memory` | queue claim+ack | `30.89ms` | `32,373` |
-| `sqlite-memory` | queue claim+ack (optimized) | `24.03ms` | `41,614` |
-| `sqlite-file` | object put | `151ms` | `6,595` |
-| `sqlite-file` | object batch | `242ms` | `4,122` |
-| `sqlite-file` | object get | `4.32ms` | `231,588` |
-| `sqlite-file` | event append | `81.09ms` | `12,332` |
-| `sqlite-file` | event batch | `9.01ms` | `110,987` |
-| `sqlite-file` | event list | `573µs` | `3,490,401` |
-| `sqlite-file` | queue push | `42.73ms` | `23,404` |
-| `sqlite-file` | queue batch | `13.59ms` | `73,605` |
-| `sqlite-file` | queue claim+ack | `75.12ms` | `13,311` |
-| `sqlite-file` | queue claim+ack (optimized) | `47.04ms` | `21,257` |
+| `in-memory` | object put | `885µs` | `1,131,221` |
+| `in-memory` | object batch | `1.24ms` | `808,407` |
+| `in-memory` | object get | `511µs` | `1,960,784` |
+| `in-memory` | event append | `423µs` | `2,369,668` |
+| `in-memory` | event batch | `206µs` | `4,878,048` |
+| `in-memory` | event list | `183µs` | `10,989,010` |
+| `in-memory` | queue push | `1.59ms` | `630,517` |
+| `in-memory` | queue batch | `1.77ms` | `564,334` |
+| `in-memory` | queue claim+ack | `6.75ms` | `148,257` |
+| `in-memory` | queue claim+ack (optimized) | `7.04ms` | `142,085` |
+| `sqlite-memory` | object put | `109ms` | `9,189` |
+| `sqlite-memory` | object batch | `265ms` | `3,771` |
+| `sqlite-memory` | object get | `3.12ms` | `321,027` |
+| `sqlite-memory` | event append | `20.90ms` | `47,853` |
+| `sqlite-memory` | event batch | `7.68ms` | `130,208` |
+| `sqlite-memory` | event list | `544µs` | `3,676,470` |
+| `sqlite-memory` | queue push | `16.65ms` | `60,063` |
+| `sqlite-memory` | queue batch | `15.05ms` | `66,458` |
+| `sqlite-memory` | queue claim+ack | `32.36ms` | `30,901` |
+| `sqlite-memory` | queue claim+ack (optimized) | `24.41ms` | `40,968` |
+| `sqlite-file` | object put | `158ms` | `6,345` |
+| `sqlite-file` | object batch | `245ms` | `4,083` |
+| `sqlite-file` | object get | `4.29ms` | `233,045` |
+| `sqlite-file` | event append | `81.09ms` | `12,331` |
+| `sqlite-file` | event batch | `8.10ms` | `123,502` |
+| `sqlite-file` | event list | `512µs` | `3,913,894` |
+| `sqlite-file` | queue push | `47.69ms` | `20,966` |
+| `sqlite-file` | queue batch | `14.10ms` | `70,927` |
+| `sqlite-file` | queue claim+ack | `80.57ms` | `12,412` |
+| `sqlite-file` | queue claim+ack (optimized) | `52.46ms` | `19,061` |
 
 ### Batch API Improvements (sqlite-file)
 
 | Operation | Before | After | Speedup |
 | --- | --- | ---: | ---: |
-| event append | 12,332 ops/s | 110,987 ops/s | **9x** |
-| queue push | 23,404 ops/s | 73,605 ops/s | **3x** |
-| queue claim+ack | 13,311 ops/s | 21,257 ops/s | **1.6x** |
+| event append | 12,332 ops/s | 123,502 ops/s | **10x** |
+| queue push | 21,989 ops/s | 70,927 ops/s | **3.2x** |
+| queue claim+ack | 12,895 ops/s | 19,061 ops/s | **1.5x** |
 
 Batch APIs (`put_objects_batch`, `append_events_batch`, `push_jobs_batch`) wrap
 multiple operations in a single SQLite transaction, eliminating per-operation
@@ -155,6 +155,14 @@ commit overhead. Use these for imports, migrations, and bulk data loading.
 
 The optimized `claim_and_ack` method combines claim + ack into a single
 transaction, reducing round-trips for queue processing workloads.
+
+### Performance Optimizations Applied
+
+1. **RETURNING clause** — Eliminated timestamp read-back round-trip for `put_object` and `push_job` operations
+2. **Object clone removal** — `put_objects_batch` now consumes objects directly instead of cloning
+3. **Deferred FTS updates** — Batch operations collect FTS updates and execute after all INSERTs
+4. **Parameterized queries** — Fixed SQL injection vulnerability in `get_neighbors` type filter
+5. **N-API batch APIs** — Added `putObjectsBatchJson`, `appendEventsBatchJson`, `pushJobsBatchJson` to native binding
 
 ### Node.js (1000 iterations)
 
