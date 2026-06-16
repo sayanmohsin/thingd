@@ -410,6 +410,8 @@ impl ObjectStore for SqliteThingStore {
     ) -> ThingdResult<Vec<MemoryObject>> {
         let transaction = self.connection.transaction().map_err(ThingdError::from)?;
 
+        // Collect object keys for bulk FTS update at the end
+        let mut fts_updates: Vec<(String, String, String)> = Vec::with_capacity(objects.len());
         let mut results = Vec::with_capacity(objects.len());
         for mut object in objects {
             let version = transaction
@@ -459,21 +461,31 @@ impl ObjectStore for SqliteThingStore {
             object.created_at = timestamps.0;
             object.updated_at = timestamps.1;
 
+            // Collect FTS updates for bulk processing
             let text = extract_text_from_json(&object.body);
+            fts_updates.push((
+                object.key.collection.clone(),
+                object.key.id.clone(),
+                text,
+            ));
+
+            results.push(object);
+        }
+
+        // Bulk FTS index update: delete all affected entries, then insert new ones
+        for (collection, id, text) in &fts_updates {
             transaction
                 .execute(
                     "DELETE FROM search_index WHERE collection = ?1 AND id = ?2 AND kind = 'object'",
-                    params![&object.key.collection, &object.key.id],
+                    params![collection, id],
                 )
                 .map_err(ThingdError::from)?;
             transaction
                 .execute(
                     "INSERT INTO search_index (collection, id, kind, text) VALUES (?1, ?2, 'object', ?3)",
-                    params![&object.key.collection, &object.key.id, text],
+                    params![collection, id, text],
                 )
                 .map_err(ThingdError::from)?;
-
-            results.push(object);
         }
 
         transaction.commit().map_err(ThingdError::from)?;
