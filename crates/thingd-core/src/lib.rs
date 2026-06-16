@@ -24,12 +24,13 @@ pub use error::{ThingdError, ThingdResult};
 pub use connector::{Column, ColumnType, Connector, ConnectorConfig, FileConnector, Schema, SyncStrategy};
 pub use in_memory::MemoryEngine;
 pub use model::{
-    ListEventsOptions, MemoryEvent, MemoryObject, ObjectKey, QueueClaimOptions, QueueJob,
-    QueueJobStatus, QueueNackOptions, SearchHit, SearchOptions, DEFAULT_QUEUE_LEASE_MS,
+    Link, LinkDirection, LinkQueryOptions, ListEventsOptions, MemoryEvent, MemoryObject, ObjectKey,
+    QueueClaimOptions, QueueJob, QueueJobStatus, QueueNackOptions, SearchHit, SearchOptions,
+    DEFAULT_QUEUE_LEASE_MS,
 };
 #[cfg(feature = "sqlite")]
 pub use sqlite::{SqliteThingStore, SQLITE_SCHEMA_VERSION};
-pub use store::{EventLog, ObjectStore, QueueStore, Searcher, ThingStore};
+pub use store::{EventLog, LinkStore, ObjectStore, QueueStore, Searcher, ThingStore};
 
 pub(crate) fn unix_timestamp_millis() -> i64 {
     let Ok(duration) = SystemTime::now().duration_since(UNIX_EPOCH) else {

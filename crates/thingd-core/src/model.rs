@@ -268,3 +268,76 @@ pub struct SearchHit {
     /// Event type (only populated for events).
     pub event_type: Option<String>,
 }
+
+/// A graph link connecting two references.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Link {
+    /// Unique link identifier.
+    pub id: String,
+    /// Source reference (e.g. "collection/id" or "stream/sequence").
+    pub from_ref: String,
+    /// Relationship type (e.g. "supports", "`depends_on`", "`chunk_of`").
+    pub link_type: String,
+    /// Target reference.
+    pub to_ref: String,
+    /// Optional weight for ranking (0.0 to 1.0).
+    pub weight: Option<f64>,
+    /// Optional metadata as JSON string.
+    pub metadata_json: String,
+    /// ISO 8601 creation timestamp.
+    pub created_at: String,
+}
+
+impl Link {
+    /// Create a new graph link.
+    pub fn new(
+        from_ref: impl Into<String>,
+        link_type: impl Into<String>,
+        to_ref: impl Into<String>,
+    ) -> Self {
+        Self {
+            id: String::new(),
+            from_ref: from_ref.into(),
+            link_type: link_type.into(),
+            to_ref: to_ref.into(),
+            weight: None,
+            metadata_json: "{}".to_string(),
+            created_at: String::new(),
+        }
+    }
+
+    /// Set the link weight.
+    #[must_use]
+    pub const fn with_weight(mut self, weight: f64) -> Self {
+        self.weight = Some(weight);
+        self
+    }
+
+    /// Set the metadata JSON.
+    #[must_use]
+    pub fn with_metadata(mut self, metadata: impl Into<String>) -> Self {
+        self.metadata_json = metadata.into();
+        self
+    }
+}
+
+/// Options for querying graph links.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct LinkQueryOptions {
+    /// Filter by relationship type.
+    pub link_type: Option<String>,
+    /// Maximum number of results.
+    pub limit: Option<usize>,
+}
+
+/// Direction for neighbor queries.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum LinkDirection {
+    /// Only outgoing links (`from_ref` matches).
+    Outgoing,
+    /// Only incoming links (`to_ref` matches).
+    Incoming,
+    /// Both directions.
+    #[default]
+    Both,
+}

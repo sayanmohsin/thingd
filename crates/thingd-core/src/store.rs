@@ -267,7 +267,50 @@ pub trait Searcher {
     ) -> ThingdResult<Vec<crate::SearchHit>>;
 }
 
-/// Full storage interface expected from thingd engine adapters.
-pub trait ThingStore: EventLog + ObjectStore + QueueStore + Searcher {}
+/// Graph link operations.
+pub trait LinkStore {
+    /// Create a new graph link.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the link cannot be persisted.
+    fn create_link(&mut self, link: crate::Link) -> ThingdResult<crate::Link>;
 
-impl<T> ThingStore for T where T: EventLog + ObjectStore + QueueStore + Searcher {}
+    /// Delete a graph link by id.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the link cannot be deleted.
+    fn delete_link(&mut self, id: &str) -> ThingdResult<bool>;
+
+    /// Get a graph link by id.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the link cannot be read.
+    fn get_link(&self, id: &str) -> ThingdResult<Option<crate::Link>>;
+
+    /// Get neighbors of a reference (outgoing, incoming, or both).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when neighbors cannot be queried.
+    fn get_neighbors(
+        &self,
+        reference: &str,
+        direction: crate::LinkDirection,
+        options: crate::LinkQueryOptions,
+    ) -> ThingdResult<Vec<crate::Link>>;
+
+    /// Count total links.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when count fails.
+    fn count_links(&self) -> ThingdResult<u64>;
+}
+
+/// Full storage interface expected from thingd engine adapters.
+pub trait ThingStore: EventLog + ObjectStore + QueueStore + Searcher + LinkStore {}
+
+impl<T> ThingStore for T where T: EventLog + ObjectStore + QueueStore + Searcher + LinkStore {}

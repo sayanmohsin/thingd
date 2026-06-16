@@ -4,9 +4,10 @@ use std::collections::{BTreeMap, VecDeque};
 
 use crate::model::ListEventsOptions;
 use crate::{
-    now_iso_string, u64_to_i64, unix_timestamp_millis, EventLog, MemoryEvent, MemoryObject,
-    ObjectKey, ObjectStore, QueueClaimOptions, QueueJob, QueueJobStatus, QueueNackOptions,
-    QueueStore, ThingdError, ThingdResult,
+    now_iso_string, u64_to_i64, unix_timestamp_millis, EventLog, Link, LinkDirection,
+    LinkQueryOptions, LinkStore, MemoryEvent, MemoryObject, ObjectKey, ObjectStore,
+    QueueClaimOptions, QueueJob, QueueJobStatus, QueueNackOptions, QueueStore, ThingdError,
+    ThingdResult,
 };
 
 /// In-memory engine used to prove the storage boundary.
@@ -15,6 +16,7 @@ pub struct MemoryEngine {
     objects: BTreeMap<ObjectKey, MemoryObject>,
     events: Vec<MemoryEvent>,
     queues: BTreeMap<String, VecDeque<QueueJob>>,
+    links: Vec<Link>,
     next_event_sequence: u64,
 }
 
@@ -393,6 +395,62 @@ impl crate::store::Searcher for MemoryEngine {
         }
 
         Ok(hits)
+    }
+}
+
+impl LinkStore for MemoryEngine {
+    fn create_link(&mut self, mut link: Link) -> ThingdResult<Link> {
+        let id = format!("link-{}", self.links.len() + 1);
+        link.id = id;
+        if link.created_at.is_empty() {
+            link.created_at = now_iso_string();
+        }
+        self.links.push(link.clone());
+        Ok(link)
+    }
+
+    fn delete_link(&mut self, id: &str) -> ThingdResult<bool> {
+        let len_before = self.links.len();
+        self.links.retain(|l| l.id != id);
+        Ok(self.links.len() < len_before)
+    }
+
+    fn get_link(&self, id: &str) -> ThingdResult<Option<Link>> {
+        Ok(self.links.iter().find(|l| l.id == id).cloned())
+    }
+
+    fn get_neighbors(
+        &self,
+        reference: &str,
+        direction: LinkDirection,
+        options: LinkQueryOptions,
+    ) -> ThingdResult<Vec<Link>> {
+        let neighbors: Vec<Link> = self
+            .links
+            .iter()
+            .filter(|link| {
+                let matches_direction = match direction {
+                    LinkDirection::Outgoing => link.from_ref == reference,
+                    LinkDirection::Incoming => link.to_ref == reference,
+                    LinkDirection::Both => link.from_ref == reference || link.to_ref == reference,
+                };
+                let matches_type = options
+                    .link_type
+                    .as_deref()
+                    .is_none_or(|t| link.link_type == t);
+                matches_direction && matches_type
+            })
+            .cloned()
+            .collect();
+
+        Ok(match options.limit {
+            Some(limit) => neighbors.into_iter().take(limit).collect(),
+            None => neighbors,
+        })
+    }
+
+    fn count_links(&self) -> ThingdResult<u64> {
+        Ok(self.links.len() as u64)
     }
 }
 

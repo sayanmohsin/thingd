@@ -15,7 +15,7 @@ use crate::{
 };
 
 /// Current `SQLite` schema version.
-pub const SQLITE_SCHEMA_VERSION: u32 = 3;
+pub const SQLITE_SCHEMA_VERSION: u32 = 4;
 
 /// `SQLite`-backed memory store.
 pub struct SqliteThingStore {
@@ -106,6 +106,12 @@ impl SqliteThingStore {
 
         if current_version < 3 {
             self.apply_schema_v3()?;
+        }
+
+        let current_version = self.schema_version()?;
+
+        if current_version < 4 {
+            self.apply_schema_v4()?;
         }
 
         if current_version > SQLITE_SCHEMA_VERSION {
@@ -238,6 +244,36 @@ impl SqliteThingStore {
             .execute(
                 "INSERT OR IGNORE INTO thingd_schema_migrations (version, name, applied_at)
                  VALUES (3, 'queue_jobs_last_error', strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))",
+                [],
+            )
+            .map_err(ThingdError::from)?;
+        Ok(())
+    }
+
+    fn apply_schema_v4(&self) -> ThingdResult<()> {
+        self.connection
+            .execute_batch(
+                r"
+                CREATE TABLE IF NOT EXISTS links (
+                    id TEXT PRIMARY KEY,
+                    from_ref TEXT NOT NULL,
+                    type TEXT NOT NULL,
+                    to_ref TEXT NOT NULL,
+                    weight REAL,
+                    metadata_json TEXT NOT NULL DEFAULT '{}',
+                    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_links_from_ref ON links (from_ref);
+                CREATE INDEX IF NOT EXISTS idx_links_to_ref ON links (to_ref);
+                CREATE INDEX IF NOT EXISTS idx_links_type ON links (type);
+                ",
+            )
+            .map_err(ThingdError::from)?;
+        self.connection
+            .execute(
+                "INSERT OR IGNORE INTO thingd_schema_migrations (version, name, applied_at)
+                 VALUES (4, 'graph_links', strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))",
                 [],
             )
             .map_err(ThingdError::from)?;
@@ -1363,6 +1399,129 @@ impl crate::store::Searcher for SqliteThingStore {
 
         Ok(hits)
     }
+}
+
+impl crate::store::LinkStore for SqliteThingStore {
+    fn create_link(&mut self, link: crate::Link) -> ThingdResult<crate::Link> {
+        let id = uuid::Uuid::new_v4().to_string();
+        self.connection
+            .execute(
+                r"
+                INSERT INTO links (id, from_ref, type, to_ref, weight, metadata_json, created_at)
+                VALUES (?1, ?2, ?3, ?4, ?5, ?6, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+                ",
+                params![
+                    id,
+                    link.from_ref,
+                    link.link_type,
+                    link.to_ref,
+                    link.weight,
+                    link.metadata_json
+                ],
+            )
+            .map_err(ThingdError::from)?;
+
+        let created_at: String = self
+            .connection
+            .query_row(
+                "SELECT created_at FROM links WHERE id = ?1",
+                params![id],
+                |row| row.get(0),
+            )
+            .map_err(ThingdError::from)?;
+
+        Ok(crate::Link {
+            id,
+            from_ref: link.from_ref,
+            link_type: link.link_type,
+            to_ref: link.to_ref,
+            weight: link.weight,
+            metadata_json: link.metadata_json,
+            created_at,
+        })
+    }
+
+    fn delete_link(&mut self, id: &str) -> ThingdResult<bool> {
+        let changed = self
+            .connection
+            .execute("DELETE FROM links WHERE id = ?1", params![id])
+            .map_err(ThingdError::from)?;
+        Ok(changed > 0)
+    }
+
+    fn get_link(&self, id: &str) -> ThingdResult<Option<crate::Link>> {
+        self.connection
+            .query_row(
+                "SELECT id, from_ref, type, to_ref, weight, metadata_json, created_at FROM links WHERE id = ?1",
+                params![id],
+                row_to_link,
+            )
+            .optional()
+            .map_err(ThingdError::from)
+    }
+
+    fn get_neighbors(
+        &self,
+        reference: &str,
+        direction: crate::LinkDirection,
+        options: crate::LinkQueryOptions,
+    ) -> ThingdResult<Vec<crate::Link>> {
+        let (where_clause, param_value): (&str, String) = match direction {
+            crate::LinkDirection::Outgoing => ("WHERE from_ref = ?1", reference.to_string()),
+            crate::LinkDirection::Incoming => ("WHERE to_ref = ?1", reference.to_string()),
+            crate::LinkDirection::Both => (
+                "WHERE (from_ref = ?1 OR to_ref = ?1)",
+                reference.to_string(),
+            ),
+        };
+
+        let type_filter = options
+            .link_type
+            .as_deref()
+            .map(|t| format!(" AND type = '{t}'"))
+            .unwrap_or_default();
+
+        let limit_clause = options
+            .limit
+            .map(|l| format!(" LIMIT {l}"))
+            .unwrap_or_default();
+
+        let sql = format!(
+            "SELECT id, from_ref, type, to_ref, weight, metadata_json, created_at FROM links {where_clause}{type_filter}{limit_clause}"
+        );
+
+        let mut statement = self.connection.prepare(&sql).map_err(ThingdError::from)?;
+        let rows = statement
+            .query_map(params![param_value], row_to_link)
+            .map_err(ThingdError::from)?;
+
+        let mut links = Vec::new();
+        for row in rows {
+            links.push(row.map_err(ThingdError::from)?);
+        }
+
+        Ok(links)
+    }
+
+    fn count_links(&self) -> ThingdResult<u64> {
+        let count: i64 = self
+            .connection
+            .query_row("SELECT COUNT(*) FROM links", [], |row| row.get(0))
+            .map_err(ThingdError::from)?;
+        Ok(u64::try_from(count).unwrap_or(0))
+    }
+}
+
+fn row_to_link(row: &rusqlite::Row<'_>) -> rusqlite::Result<crate::Link> {
+    Ok(crate::Link {
+        id: row.get(0)?,
+        from_ref: row.get(1)?,
+        link_type: row.get(2)?,
+        to_ref: row.get(3)?,
+        weight: row.get(4)?,
+        metadata_json: row.get(5)?,
+        created_at: row.get(6)?,
+    })
 }
 
 fn row_to_object(row: &rusqlite::Row<'_>) -> rusqlite::Result<MemoryObject> {
