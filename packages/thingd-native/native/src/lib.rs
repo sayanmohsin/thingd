@@ -2,13 +2,39 @@ use std::sync::{Arc, Mutex, MutexGuard};
 
 use napi::bindgen_prelude::{Error, Result};
 use napi_derive::napi;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use thingd_core::{
     EventLog, ListEventsOptions, MemoryEvent, MemoryObject, ObjectStore, QueueClaimOptions,
     QueueJob, QueueJobStatus, QueueNackOptions, QueueStore, SearchOptions, Searcher,
     SqliteThingStore,
 };
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct BatchObjectInput {
+    collection: String,
+    id: String,
+    body: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct BatchEventInput {
+    stream: String,
+    event_type: String,
+    body: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct BatchJobInput {
+    queue: String,
+    id: String,
+    body: String,
+    max_attempts: u32,
+    delay_ms: i64,
+}
 
 #[napi]
 #[derive(Clone)]
@@ -229,6 +255,54 @@ impl NativeThingStore {
         let store = self.lock_store()?;
         let queues = store.list_queues().map_err(napi_error)?;
         to_json(&queues)
+    }
+
+    #[napi(js_name = "putObjectsBatchJson")]
+    pub fn put_objects_batch_json(&self, objects_json: String) -> Result<String> {
+        let objects: Vec<BatchObjectInput> = serde_json::from_str(&objects_json).map_err(napi_error)?;
+        let memory_objects: Vec<MemoryObject> = objects
+            .into_iter()
+            .map(|o| MemoryObject::new(o.collection, o.id, o.body))
+            .collect();
+
+        let mut store = self.lock_store()?;
+        let results = store.put_objects_batch(memory_objects).map_err(napi_error)?;
+        let records: Vec<NativeObjectRecord> = results.into_iter().map(object_record).collect();
+        to_json(&records)
+    }
+
+    #[napi(js_name = "appendEventsBatchJson")]
+    pub fn append_events_batch_json(&self, events_json: String) -> Result<String> {
+        let events: Vec<BatchEventInput> = serde_json::from_str(&events_json).map_err(napi_error)?;
+        let memory_events: Vec<MemoryEvent> = events
+            .into_iter()
+            .map(|e| MemoryEvent::new(e.stream, e.event_type, e.body))
+            .collect();
+
+        let mut store = self.lock_store()?;
+        let results = store.append_events_batch(memory_events).map_err(napi_error)?;
+        let records: Vec<NativeEventRecord> = results.into_iter().map(event_record).collect();
+        to_json(&records)
+    }
+
+    #[napi(js_name = "pushJobsBatchJson")]
+    pub fn push_jobs_batch_json(&self, jobs_json: String) -> Result<String> {
+        let jobs: Vec<BatchJobInput> = serde_json::from_str(&jobs_json).map_err(napi_error)?;
+        let queue_jobs: Vec<QueueJob> = jobs
+            .into_iter()
+            .map(|j| {
+                let mut job = QueueJob::new(j.queue, j.id, j.body, j.max_attempts);
+                if j.delay_ms > 0 {
+                    job = job.delay_by_ms(j.delay_ms as u64);
+                }
+                job
+            })
+            .collect();
+
+        let mut store = self.lock_store()?;
+        let results = store.push_jobs_batch(queue_jobs).map_err(napi_error)?;
+        let records: Vec<NativeQueueJobRecord> = results.into_iter().map(job_record).collect();
+        to_json(&records)
     }
 
     #[napi(js_name = "searchJson")]

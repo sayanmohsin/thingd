@@ -46,6 +46,9 @@ type NativeThingStoreBinding = {
   listStreamsJson(): Promise<string>;
   listQueuesJson(): Promise<string>;
   searchJson(query: string, collectionsJson?: string, limit?: number, filterJson?: string): string;
+  putObjectsBatchJson(objectsJson: string): string;
+  appendEventsBatchJson(eventsJson: string): string;
+  pushJobsBatchJson(jobsJson: string): string;
 };
 
 type NativeThingStoreConstructor = {
@@ -302,6 +305,30 @@ export class NativeThingStore implements ThingStore {
         };
       }
     });
+  }
+
+  async putObjectsBatch(
+    objects: Array<{ collection: string; id: string; body: string }>
+  ): Promise<StoredMemoryObject[]> {
+    return parseJson<NativeObjectRecord[]>(
+      this.binding.putObjectsBatchJson(JSON.stringify(objects))
+    ).map(objectFromNative);
+  }
+
+  async appendEventsBatch(
+    events: Array<{ stream: string; eventType: string; body: string }>
+  ): Promise<StoredMemoryEvent[]> {
+    return parseJson<NativeEventRecord[]>(
+      this.binding.appendEventsBatchJson(JSON.stringify(events))
+    ).map(eventFromNative);
+  }
+
+  async pushJobsBatch(
+    jobs: Array<{ queue: string; id: string; body: string; maxAttempts: number; delayMs: number }>
+  ): Promise<QueueJob[]> {
+    return parseJson<NativeQueueJobRecord[]>(
+      this.binding.pushJobsBatchJson(JSON.stringify(jobs))
+    ).map(jobFromNative);
   }
 
   async countObjects(): Promise<number> {
