@@ -356,8 +356,9 @@ impl ObjectStore for SqliteThingStore {
         let stored_version = i64::try_from(object.version)
             .map_err(|error| ThingdError::Storage(error.to_string()))?;
 
-        transaction
-            .execute(
+        // Use RETURNING to get timestamps in a single round-trip
+        let timestamps = transaction
+            .query_row(
                 r"
                 INSERT INTO objects (collection, id, body, version, created_at, updated_at)
                 VALUES (?1, ?2, ?3, ?4, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
@@ -365,6 +366,7 @@ impl ObjectStore for SqliteThingStore {
                     body = excluded.body,
                     version = excluded.version,
                     updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+                RETURNING created_at, updated_at
                 ",
                 params![
                     &object.key.collection,
@@ -372,18 +374,10 @@ impl ObjectStore for SqliteThingStore {
                     &object.body,
                     stored_version
                 ],
-            )
-            .map_err(ThingdError::from)?;
-
-        // Read back timestamps from the database
-        let timestamps = transaction
-            .query_row(
-                "SELECT created_at, updated_at FROM objects WHERE collection = ?1 AND id = ?2",
-                params![&object.key.collection, &object.key.id],
                 |row| {
                     Ok((
-                        row.get::<_, String>(0).unwrap_or_default(),
-                        row.get::<_, String>(1).unwrap_or_default(),
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
                     ))
                 },
             )
@@ -436,8 +430,9 @@ impl ObjectStore for SqliteThingStore {
             let stored_version = i64::try_from(object.version)
                 .map_err(|error| ThingdError::Storage(error.to_string()))?;
 
-            transaction
-                .execute(
+            // Use RETURNING to get timestamps in a single round-trip
+            let timestamps = transaction
+                .query_row(
                     r"
                     INSERT INTO objects (collection, id, body, version, created_at, updated_at)
                     VALUES (?1, ?2, ?3, ?4, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
@@ -445,6 +440,7 @@ impl ObjectStore for SqliteThingStore {
                         body = excluded.body,
                         version = excluded.version,
                         updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+                    RETURNING created_at, updated_at
                     ",
                     params![
                         &object.key.collection,
@@ -452,17 +448,10 @@ impl ObjectStore for SqliteThingStore {
                         &object.body,
                         stored_version
                     ],
-                )
-                .map_err(ThingdError::from)?;
-
-            let timestamps = transaction
-                .query_row(
-                    "SELECT created_at, updated_at FROM objects WHERE collection = ?1 AND id = ?2",
-                    params![&object.key.collection, &object.key.id],
                     |row| {
                         Ok((
-                            row.get::<_, String>(0).unwrap_or_default(),
-                            row.get::<_, String>(1).unwrap_or_default(),
+                            row.get::<_, String>(0)?,
+                            row.get::<_, String>(1)?,
                         ))
                     },
                 )
@@ -784,8 +773,9 @@ impl QueueStore for SqliteThingStore {
             return Ok(existing);
         }
 
-        transaction
-            .execute(
+        // Use RETURNING to get created_at in a single round-trip
+        let created_at: String = transaction
+            .query_row(
                 r"
                 INSERT INTO queue_jobs (
                     queue,
@@ -817,6 +807,7 @@ impl QueueStore for SqliteThingStore {
                     strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
                     strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
                 )
+                RETURNING created_at
                 ",
                 params![
                     &job.queue,
@@ -831,13 +822,6 @@ impl QueueStore for SqliteThingStore {
                     job.completed_at_ms,
                     job.dead_at_ms
                 ],
-            )
-            .map_err(ThingdError::from)?;
-
-        let created_at: String = transaction
-            .query_row(
-                "SELECT created_at FROM queue_jobs WHERE queue = ?1 AND id = ?2",
-                params![&job.queue, &job.id],
                 |row| row.get(0),
             )
             .map_err(ThingdError::from)?;
@@ -871,8 +855,9 @@ impl QueueStore for SqliteThingStore {
                 continue;
             }
 
-            transaction
-                .execute(
+            // Use RETURNING to get created_at in a single round-trip
+            let created_at: String = transaction
+                .query_row(
                     r"
                     INSERT INTO queue_jobs (
                         queue,
@@ -904,6 +889,7 @@ impl QueueStore for SqliteThingStore {
                         strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
                         strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
                     )
+                    RETURNING created_at
                     ",
                     params![
                         &job.queue,
@@ -918,13 +904,6 @@ impl QueueStore for SqliteThingStore {
                         job.completed_at_ms,
                         job.dead_at_ms
                     ],
-                )
-                .map_err(ThingdError::from)?;
-
-            let created_at: String = transaction
-                .query_row(
-                    "SELECT created_at FROM queue_jobs WHERE queue = ?1 AND id = ?2",
-                    params![&job.queue, &job.id],
                     |row| row.get(0),
                 )
                 .map_err(ThingdError::from)?;
