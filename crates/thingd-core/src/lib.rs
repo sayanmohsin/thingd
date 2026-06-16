@@ -11,6 +11,8 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
 mod error;
+#[cfg(feature = "connectors")]
+pub mod connector;
 mod in_memory;
 mod model;
 #[cfg(feature = "sqlite")]
@@ -18,6 +20,8 @@ mod sqlite;
 mod store;
 
 pub use error::{ThingdError, ThingdResult};
+#[cfg(feature = "connectors")]
+pub use connector::{Column, ColumnType, Connector, ConnectorConfig, FileConnector, Schema, SyncStrategy};
 pub use in_memory::MemoryEngine;
 pub use model::{
     ListEventsOptions, MemoryEvent, MemoryObject, ObjectKey, QueueClaimOptions, QueueJob,

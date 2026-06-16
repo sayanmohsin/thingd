@@ -6,6 +6,7 @@ use std::hint::black_box;
 use std::time::{Duration, Instant};
 
 use chrono as _;
+use csv as _;
 use rusqlite as _;
 use serde_json as _;
 use thingd_core::{
