@@ -29,7 +29,14 @@ const config = {
     [
       "@semantic-release/exec",
       {
-        prepareCmd: "npm --no-git-tag-version --prefix packages/thingd version ${nextRelease.version} && npm --no-git-tag-version --prefix packages/thingd-cli version ${nextRelease.version} && npm --no-git-tag-version --prefix packages/thingd-native version ${nextRelease.version} && sed -i.bak 's/^version = \".*\"/version = \"${nextRelease.version}\"/' crates/thingd-core/Cargo.toml && rm -f crates/thingd-core/Cargo.toml.bak",
+        prepareCmd: [
+          "npm --no-git-tag-version --prefix packages/thingd version ${nextRelease.version}",
+          "npm --no-git-tag-version --prefix packages/thingd-cli version ${nextRelease.version}",
+          "npm --no-git-tag-version --prefix packages/thingd-native version ${nextRelease.version}",
+          "sed -i.bak 's/^version = \".*\"/version = \"${nextRelease.version}\"/' crates/thingd-core/Cargo.toml && rm -f crates/thingd-core/Cargo.toml.bak",
+          "VERSION_MM=$(echo ${nextRelease.version} | sed 's/\\([0-9]*\\.[0-9]*\\)\\..*/\\1/')",
+          "sed -i.bak 's/version = \"[0-9]*\\.[0-9]*\"/version = \"'\"$VERSION_MM\"'\"/g' README.md crates/thingd-core/README.md && rm -f README.md.bak crates/thingd-core/README.md.bak",
+        ].join(" && "),
         publishCmd: "pnpm --filter thingd publish --access public --no-git-checks && pnpm --filter thingd-cli publish --access public --no-git-checks && pnpm --filter thingd-native publish --access public --no-git-checks"
       }
     ],
@@ -38,10 +45,12 @@ const config = {
       {
         assets: [
           "CHANGELOG.md",
+          "README.md",
           "packages/thingd/package.json",
           "packages/thingd-cli/package.json",
           "packages/thingd-native/package.json",
           "crates/thingd-core/Cargo.toml",
+          "crates/thingd-core/README.md",
         ],
       },
     ],
