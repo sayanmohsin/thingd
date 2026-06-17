@@ -34,6 +34,7 @@ jobs:
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets --all-features -- -D warnings
       - run: cargo test --workspace --all-targets --all-features
+      - run: cargo test --doc --workspace --all-features
 
   node-build-test:
     name: Node build+test (${{ matrix.platform }}-${{ matrix.arch }})
