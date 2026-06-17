@@ -72,6 +72,9 @@ thingd-cloud (private)
 - `thingd-cli` — public CLI
 - `thingd-native` — private (no prebuilts), requires local Rust build
 
+### Published Rust crate
+- `thingd-core` — [crates.io](https://crates.io/crates/thingd-core) — Rust engine primitives with optional SQLite adapter
+
 All three publish in lockstep. Old 1.x/2.x versions are deprecated on npm.
 
 ---
