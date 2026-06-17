@@ -4,6 +4,26 @@
 //! events, and queue storage. The default implementation is in-memory, with a
 //! feature-gated `SQLite` adapter available for durable object, event, and
 //! queue storage.
+//!
+//! # Example
+//!
+//! ```rust
+//! use thingd_core::{MemoryEngine, ObjectStore, EventLog, MemoryObject, MemoryEvent};
+//!
+//! let mut engine = MemoryEngine::new();
+//!
+//! // Store an object
+//! let obj = MemoryObject::new("users", "alice", r#"{"name":"Alice"}"#);
+//! engine.put_object(obj).unwrap();
+//!
+//! // Retrieve it
+//! let user = engine.get_object("users", "alice").unwrap();
+//! assert_eq!(user.unwrap().body, r#"{"name":"Alice"}"#);
+//!
+//! // Append an event
+//! let event = MemoryEvent::new("audit", "user.created", r#"{"user":"alice"}"#);
+//! engine.append_event(event).unwrap();
+//! ```
 
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
@@ -26,12 +46,12 @@ pub use connector::{
 pub use error::{ThingdError, ThingdResult};
 pub use in_memory::MemoryEngine;
 pub use model::{
-    Link, LinkDirection, LinkQueryOptions, ListEventsOptions, MemoryEvent, MemoryObject, ObjectKey,
-    QueueClaimOptions, QueueJob, QueueJobStatus, QueueNackOptions, SearchHit, SearchOptions,
-    DEFAULT_QUEUE_LEASE_MS,
+    DEFAULT_QUEUE_LEASE_MS, Link, LinkDirection, LinkQueryOptions, ListEventsOptions, MemoryEvent,
+    MemoryObject, ObjectKey, QueueClaimOptions, QueueJob, QueueJobStatus, QueueNackOptions,
+    SearchHit, SearchOptions,
 };
 #[cfg(feature = "sqlite")]
-pub use sqlite::{SqliteThingStore, SQLITE_SCHEMA_VERSION};
+pub use sqlite::{SQLITE_SCHEMA_VERSION, SqliteThingStore};
 pub use store::{EventLog, LinkStore, ObjectStore, QueueStore, Searcher, ThingStore};
 
 pub(crate) fn unix_timestamp_millis() -> i64 {
