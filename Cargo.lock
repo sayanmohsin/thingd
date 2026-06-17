@@ -709,7 +709,7 @@ dependencies = [
 
 [[package]]
 name = "thingd-native"
-version = "0.1.0"
+version = "0.25.0"
 dependencies = [
  "napi",
  "napi-build",
