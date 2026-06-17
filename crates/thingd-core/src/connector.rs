@@ -363,10 +363,10 @@ fn infer_json_value(s: &str) -> serde_json::Value {
     }
 
     // Try float
-    if let Ok(f) = s.parse::<f64>() {
-        if let Some(n) = serde_json::Number::from_f64(f) {
-            return serde_json::Value::Number(n);
-        }
+    if let Ok(f) = s.parse::<f64>()
+        && let Some(n) = serde_json::Number::from_f64(f)
+    {
+        return serde_json::Value::Number(n);
     }
 
     // Try JSON

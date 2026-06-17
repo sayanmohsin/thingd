@@ -4,10 +4,9 @@ use std::collections::{BTreeMap, VecDeque};
 
 use crate::model::ListEventsOptions;
 use crate::{
-    now_iso_string, u64_to_i64, unix_timestamp_millis, EventLog, Link, LinkDirection,
-    LinkQueryOptions, LinkStore, MemoryEvent, MemoryObject, ObjectKey, ObjectStore,
-    QueueClaimOptions, QueueJob, QueueJobStatus, QueueNackOptions, QueueStore, ThingdError,
-    ThingdResult,
+    EventLog, Link, LinkDirection, LinkQueryOptions, LinkStore, MemoryEvent, MemoryObject,
+    ObjectKey, ObjectStore, QueueClaimOptions, QueueJob, QueueJobStatus, QueueNackOptions,
+    QueueStore, ThingdError, ThingdResult, now_iso_string, u64_to_i64, unix_timestamp_millis,
 };
 
 /// In-memory engine used to prove the storage boundary.
@@ -317,17 +316,17 @@ impl crate::store::Searcher for MemoryEngine {
         // 1. Search objects
         for object in self.objects.values() {
             // Apply collection filter
-            if let Some(ref collections) = options.collections {
-                if !collections.contains(&object.key.collection) {
-                    continue;
-                }
+            if let Some(ref collections) = options.collections
+                && !collections.contains(&object.key.collection)
+            {
+                continue;
             }
 
             // Apply metadata filter
-            if let Some(ref filter) = options.filter {
-                if !matches_filter_memory(&object.body, filter) {
-                    continue;
-                }
+            if let Some(ref filter) = options.filter
+                && !matches_filter_memory(&object.body, filter)
+            {
+                continue;
             }
 
             let text_to_search = format!(
@@ -356,17 +355,17 @@ impl crate::store::Searcher for MemoryEngine {
         // 2. Search events
         for event in &self.events {
             // Apply collection filter
-            if let Some(ref collections) = options.collections {
-                if !collections.contains(&event.stream) {
-                    continue;
-                }
+            if let Some(ref collections) = options.collections
+                && !collections.contains(&event.stream)
+            {
+                continue;
             }
 
             // Apply metadata filter
-            if let Some(ref filter) = options.filter {
-                if !matches_filter_memory(&event.body, filter) {
-                    continue;
-                }
+            if let Some(ref filter) = options.filter
+                && !matches_filter_memory(&event.body, filter)
+            {
+                continue;
             }
 
             let text_to_search =
@@ -474,8 +473,8 @@ fn matches_filter_memory(body_str: &str, filter: &serde_json::Value) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::store::Searcher;
     use crate::SearchOptions;
+    use crate::store::Searcher;
 
     #[test]
     fn stores_and_reads_objects() {

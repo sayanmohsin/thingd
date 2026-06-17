@@ -5,13 +5,13 @@
 use std::fmt::Write as _;
 use std::path::Path;
 
-use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
+use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 
 use crate::model::ListEventsOptions;
 use crate::{
-    u64_to_i64, unix_timestamp_millis, EventLog, MemoryEvent, MemoryObject, ObjectKey, ObjectStore,
-    QueueClaimOptions, QueueJob, QueueJobStatus, QueueNackOptions, QueueStore, ThingdError,
-    ThingdResult,
+    EventLog, MemoryEvent, MemoryObject, ObjectKey, ObjectStore, QueueClaimOptions, QueueJob,
+    QueueJobStatus, QueueNackOptions, QueueStore, ThingdError, ThingdResult, u64_to_i64,
+    unix_timestamp_millis,
 };
 
 /// Current `SQLite` schema version.
@@ -1347,17 +1347,17 @@ impl crate::store::Searcher for SqliteThingStore {
             let hit = row.map_err(ThingdError::from)?;
 
             // Apply collection filter
-            if let Some(ref collections) = options.collections {
-                if !collections.contains(&hit.collection) {
-                    continue;
-                }
+            if let Some(ref collections) = options.collections
+                && !collections.contains(&hit.collection)
+            {
+                continue;
             }
 
             // Apply metadata filter
-            if let Some(ref filter) = options.filter {
-                if !matches_filter(&hit.body, filter) {
-                    continue;
-                }
+            if let Some(ref filter) = options.filter
+                && !matches_filter(&hit.body, filter)
+            {
+                continue;
             }
 
             hits.push(hit);
@@ -1585,7 +1585,7 @@ fn row_to_queue_job(row: &rusqlite::Row<'_>) -> rusqlite::Result<QueueJob> {
                     5,
                     rusqlite::types::Type::Text,
                     Box::new(std::fmt::Error),
-                ))
+                ));
             },
         },
         available_at_ms: row.get(6)?,
@@ -1729,8 +1729,8 @@ mod tests {
     use tempfile::NamedTempFile;
 
     use super::*;
-    use crate::store::Searcher;
     use crate::SearchOptions;
+    use crate::store::Searcher;
 
     #[test]
     fn records_schema_version_on_initialize() {
