@@ -29,7 +29,7 @@ const config = {
     [
       "@semantic-release/exec",
       {
-        prepareCmd: "npm --no-git-tag-version --prefix packages/thingd version ${nextRelease.version} && npm --no-git-tag-version --prefix packages/thingd-cli version ${nextRelease.version} && npm --no-git-tag-version --prefix packages/thingd-native version ${nextRelease.version}",
+        prepareCmd: "npm --no-git-tag-version --prefix packages/thingd version ${nextRelease.version} && npm --no-git-tag-version --prefix packages/thingd-cli version ${nextRelease.version} && npm --no-git-tag-version --prefix packages/thingd-native version ${nextRelease.version} && sed -i.bak 's/^version = \".*\"/version = \"${nextRelease.version}\"/' crates/thingd-core/Cargo.toml && rm -f crates/thingd-core/Cargo.toml.bak",
         publishCmd: "pnpm --filter thingd publish --access public --no-git-checks && pnpm --filter thingd-cli publish --access public --no-git-checks && pnpm --filter thingd-native publish --access public --no-git-checks"
       }
     ],
@@ -41,6 +41,7 @@ const config = {
           "packages/thingd/package.json",
           "packages/thingd-cli/package.json",
           "packages/thingd-native/package.json",
+          "crates/thingd-core/Cargo.toml",
         ],
       },
     ],
