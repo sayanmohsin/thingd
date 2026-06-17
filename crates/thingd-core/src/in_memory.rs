@@ -10,6 +10,20 @@ use crate::{
 };
 
 /// In-memory engine used to prove the storage boundary.
+///
+/// # Examples
+///
+/// ```rust
+/// use thingd_core::{MemoryEngine, ObjectStore, EventLog, MemoryObject, MemoryEvent};
+///
+/// let mut engine = MemoryEngine::new();
+///
+/// engine.put_object(MemoryObject::new("users", "alice", r#"{"name":"Alice"}"#)).unwrap();
+/// engine.append_event(MemoryEvent::new("audit", "login", r#"{"user":"alice"}"#)).unwrap();
+///
+/// assert_eq!(engine.count_objects().unwrap(), 1);
+/// assert_eq!(engine.count_events().unwrap(), 1);
+/// ```
 #[derive(Default)]
 pub struct MemoryEngine {
     objects: BTreeMap<ObjectKey, MemoryObject>,

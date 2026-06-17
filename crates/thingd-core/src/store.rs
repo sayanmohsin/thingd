@@ -6,6 +6,20 @@ use crate::{
 };
 
 /// Object storage operations.
+///
+/// # Examples
+///
+/// ```rust
+/// use thingd_core::{MemoryEngine, ObjectStore, MemoryObject};
+///
+/// let mut store = MemoryEngine::new();
+/// let obj = MemoryObject::new("users", "alice", r#"{"name":"Alice"}"#);
+/// store.put_object(obj).unwrap();
+///
+/// let user = store.get_object("users", "alice").unwrap();
+/// assert!(user.is_some());
+/// assert_eq!(store.count_objects().unwrap(), 1);
+/// ```
 pub trait ObjectStore {
     /// Insert or replace an object.
     ///
@@ -67,6 +81,20 @@ pub trait ObjectStore {
 }
 
 /// Append-only event log operations.
+///
+/// # Examples
+///
+/// ```rust
+/// use thingd_core::{MemoryEngine, EventLog, MemoryEvent, ListEventsOptions};
+///
+/// let mut store = MemoryEngine::new();
+/// let event = MemoryEvent::new("audit", "user.created", r#"{"user":"alice"}"#);
+/// store.append_event(event).unwrap();
+///
+/// let events = store.list_events(None, ListEventsOptions::default()).unwrap();
+/// assert_eq!(events.len(), 1);
+/// assert_eq!(events[0].event_type, "user.created");
+/// ```
 pub trait EventLog {
     /// Append an event to a stream.
     ///
@@ -117,6 +145,24 @@ pub trait EventLog {
 }
 
 /// Queue storage operations.
+///
+/// # Examples
+///
+/// ```rust
+/// use thingd_core::{MemoryEngine, QueueStore, QueueJob, QueueJobStatus};
+///
+/// let mut store = MemoryEngine::new();
+/// let job = QueueJob::new("emails", "job-1", r#"{"to":"alice@example.com"}"#, 3);
+/// store.push_job(job).unwrap();
+///
+/// let claimed = store.claim_job("emails").unwrap();
+/// assert!(claimed.is_some());
+/// let job = claimed.unwrap();
+/// assert_eq!(job.status, QueueJobStatus::Leased);
+///
+/// let completed = store.ack_job("emails", &job.id).unwrap();
+/// assert_eq!(completed.unwrap().status, QueueJobStatus::Completed);
+/// ```
 pub trait QueueStore {
     /// Push a job onto a queue.
     ///
@@ -245,6 +291,18 @@ pub trait QueueStore {
 }
 
 /// Search operations.
+///
+/// # Examples
+///
+/// ```rust
+/// use thingd_core::{MemoryEngine, ObjectStore, Searcher, MemoryObject, SearchOptions};
+///
+/// let mut store = MemoryEngine::new();
+/// store.put_object(MemoryObject::new("docs", "readme", "Getting started guide")).unwrap();
+///
+/// let results = store.search("getting started", SearchOptions::default()).unwrap();
+/// assert!(!results.is_empty());
+/// ```
 pub trait Searcher {
     /// Search memory objects and event logs by query text.
     ///
