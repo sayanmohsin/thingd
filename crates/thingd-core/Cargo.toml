@@ -2,12 +2,14 @@
 name = "thingd-core"
 version = "0.1.0"
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "Core primitives for thingd, an object-shaped local memory engine for apps and agents."
 readme = "README.md"
-keywords = ["ai", "memory", "mcp", "sqlite"]
-categories = ["database-implementations"]
+keywords = ["ai", "memory", "mcp", "sqlite", "database"]
+categories = ["database-implementations", "caching"]
+exclude = ["examples/"]
 
 [features]
 default = []
