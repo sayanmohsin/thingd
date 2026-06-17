@@ -2,6 +2,7 @@
 
 [![npm downloads (SDK)](https://img.shields.io/npm/dm/thingd?label=SDK&logo=npm&color=ff6a00)](https://www.npmjs.com/package/thingd)
 [![npm downloads (CLI)](https://img.shields.io/npm/dm/thingd-cli?label=CLI&logo=npm&color=ff6a00)](https://www.npmjs.com/package/thingd-cli)
+[![Crates.io](https://img.shields.io/crates/v/thingd-core?label=thingd-core&logo=rust&color=ff6a00)](https://crates.io/crates/thingd-core)
 [![Docker pulls](https://img.shields.io/docker/pulls/sayanmohsin/thingd?label=Docker&logo=docker&color=ff6a00)](https://hub.docker.com/r/sayanmohsin/thingd)
 [![GitHub stars](https://img.shields.io/github/stars/sayanmohsin/thingd?label=Stars&logo=github&color=ff6a00)](https://github.com/sayanmohsin/thingd)
 
@@ -111,6 +112,13 @@ thingd
 
 ```bash
 npm install thingd
+```
+
+### Rust (crate)
+
+```toml
+[dependencies]
+thingd-core = { version = "0.25", features = ["sqlite"] }
 ```
 
 ### Docker (sidecar runtime)
@@ -627,6 +635,7 @@ Conventional commits map to SemVer like this:
 Each release automatically:
 
 - publishes all three npm packages (`thingd`, `thingd-cli`, `thingd-native`)
+- publishes `thingd-core` Rust crate to [crates.io](https://crates.io/crates/thingd-core)
 - updates `CHANGELOG.md` in the repo from conventional commits
 - creates a GitHub Release with release notes
 - pushes version bump commits back to `main`

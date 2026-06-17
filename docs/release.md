@@ -52,11 +52,23 @@ Add these repository secrets before enabling publishing:
 
 ```txt
 NPM_TOKEN               # npm publish (required)
+CARGO_REGISTRY_TOKEN     # crates.io publish (required)
 DOCKER_USERNAME          # Docker Hub username (required for Docker image)
 DOCKER_PASSWORD          # Docker Hub password or access token (required for Docker image)
 ```
 
 The npm package is configured with npm provenance enabled through `publishConfig.provenance`.
+
+## crates.io Publishing
+
+On every release, the workflow publishes `thingd-core` to [crates.io](https://crates.io/crates/thingd-core). The Rust crate version is kept in sync with the npm packages via `semantic-release`.
+
+```toml
+[dependencies]
+thingd-core = { version = "0.25", features = ["sqlite"] }
+```
+
+The publish runs in parallel with npm and Docker publishing.
 
 ## Docker Image Publishing
 

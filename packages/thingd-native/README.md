@@ -19,7 +19,7 @@ thingd
 
 thingd-native
   napi-rs binding package
-  wraps crates/thingd-core
+  wraps crates/thingd-core (published on crates.io)
   exposes low-level JSON bridge methods
 ```
 

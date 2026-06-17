@@ -12,7 +12,7 @@ API design and testing. The optional `sqlite` feature enables the
 
 ```toml
 [dependencies]
-thingd-core = { version = "0.1", features = ["sqlite"] }
+thingd-core = { version = "0.25", features = ["sqlite"] }
 ```
 
 ## Feature Flags
