@@ -22,10 +22,7 @@ pub trait ObjectStore {
     /// # Errors
     ///
     /// Returns an error when the backing store cannot persist any object.
-    fn put_objects_batch(
-        &mut self,
-        objects: Vec<MemoryObject>,
-    ) -> ThingdResult<Vec<MemoryObject>> {
+    fn put_objects_batch(&mut self, objects: Vec<MemoryObject>) -> ThingdResult<Vec<MemoryObject>> {
         let mut results = Vec::with_capacity(objects.len());
         for object in objects {
             results.push(self.put_object(object)?);
@@ -85,10 +82,7 @@ pub trait EventLog {
     /// # Errors
     ///
     /// Returns an error when the backing store cannot append any event.
-    fn append_events_batch(
-        &mut self,
-        events: Vec<MemoryEvent>,
-    ) -> ThingdResult<Vec<MemoryEvent>> {
+    fn append_events_batch(&mut self, events: Vec<MemoryEvent>) -> ThingdResult<Vec<MemoryEvent>> {
         let mut results = Vec::with_capacity(events.len());
         for event in events {
             results.push(self.append_event(event)?);
@@ -138,10 +132,7 @@ pub trait QueueStore {
     /// # Errors
     ///
     /// Returns an error when the backing store cannot persist any job.
-    fn push_jobs_batch(
-        &mut self,
-        jobs: Vec<QueueJob>,
-    ) -> ThingdResult<Vec<QueueJob>> {
+    fn push_jobs_batch(&mut self, jobs: Vec<QueueJob>) -> ThingdResult<Vec<QueueJob>> {
         let mut results = Vec::with_capacity(jobs.len());
         for job in jobs {
             results.push(self.push_job(job)?);

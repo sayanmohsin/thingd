@@ -404,10 +404,7 @@ impl ObjectStore for SqliteThingStore {
         Ok(object)
     }
 
-    fn put_objects_batch(
-        &mut self,
-        objects: Vec<MemoryObject>,
-    ) -> ThingdResult<Vec<MemoryObject>> {
+    fn put_objects_batch(&mut self, objects: Vec<MemoryObject>) -> ThingdResult<Vec<MemoryObject>> {
         let transaction = self.connection.transaction().map_err(ThingdError::from)?;
 
         // Collect object keys for bulk FTS update at the end
@@ -463,11 +460,7 @@ impl ObjectStore for SqliteThingStore {
 
             // Collect FTS updates for bulk processing
             let text = extract_text_from_json(&object.body);
-            fts_updates.push((
-                object.key.collection.clone(),
-                object.key.id.clone(),
-                text,
-            ));
+            fts_updates.push((object.key.collection.clone(), object.key.id.clone(), text));
 
             results.push(object);
         }
@@ -645,10 +638,7 @@ impl EventLog for SqliteThingStore {
         Ok(event)
     }
 
-    fn append_events_batch(
-        &mut self,
-        events: Vec<MemoryEvent>,
-    ) -> ThingdResult<Vec<MemoryEvent>> {
+    fn append_events_batch(&mut self, events: Vec<MemoryEvent>) -> ThingdResult<Vec<MemoryEvent>> {
         let transaction = self.connection.transaction().map_err(ThingdError::from)?;
 
         let mut results = Vec::with_capacity(events.len());
@@ -843,10 +833,7 @@ impl QueueStore for SqliteThingStore {
         Ok(QueueJob { created_at, ..job })
     }
 
-    fn push_jobs_batch(
-        &mut self,
-        jobs: Vec<QueueJob>,
-    ) -> ThingdResult<Vec<QueueJob>> {
+    fn push_jobs_batch(&mut self, jobs: Vec<QueueJob>) -> ThingdResult<Vec<QueueJob>> {
         let transaction = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)

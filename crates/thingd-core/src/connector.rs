@@ -107,10 +107,7 @@ pub trait Connector: Send + Sync {
     /// # Errors
     ///
     /// Returns an error when data cannot be read from the source.
-    fn pull(
-        &self,
-        config: &ConnectorConfig,
-    ) -> ThingdResult<Vec<serde_json::Value>>;
+    fn pull(&self, config: &ConnectorConfig) -> ThingdResult<Vec<serde_json::Value>>;
 }
 
 /// CSV/JSON file connector.
@@ -130,10 +127,7 @@ impl Connector for FileConnector {
             )));
         }
 
-        let extension = path
-            .extension()
-            .and_then(|e| e.to_str())
-            .unwrap_or("");
+        let extension = path.extension().and_then(|e| e.to_str()).unwrap_or("");
 
         match extension {
             "csv" => Self::discover_csv_schema(config),
@@ -146,10 +140,7 @@ impl Connector for FileConnector {
 
     fn pull(&self, config: &ConnectorConfig) -> ThingdResult<Vec<serde_json::Value>> {
         let path = Path::new(&config.source);
-        let extension = path
-            .extension()
-            .and_then(|e| e.to_str())
-            .unwrap_or("");
+        let extension = path.extension().and_then(|e| e.to_str()).unwrap_or("");
 
         match extension {
             "csv" => Self::pull_csv(config),
@@ -185,7 +176,8 @@ impl FileConnector {
 
         // Sample up to 100 rows for type inference
         for (sample_count, result) in reader.records().enumerate() {
-            let record = result.map_err(|e| ThingdError::Storage(format!("CSV read error: {e}")))?;
+            let record =
+                result.map_err(|e| ThingdError::Storage(format!("CSV read error: {e}")))?;
             if sample_count >= 100 {
                 break;
             }
@@ -285,7 +277,8 @@ impl FileConnector {
         let mut objects = Vec::new();
 
         for (index, result) in reader.records().enumerate() {
-            let record = result.map_err(|e| ThingdError::Storage(format!("CSV read error: {e}")))?;
+            let record =
+                result.map_err(|e| ThingdError::Storage(format!("CSV read error: {e}")))?;
 
             let mut obj = serde_json::Map::new();
 
@@ -325,8 +318,9 @@ impl FileConnector {
                 continue;
             }
 
-            let value: serde_json::Value = serde_json::from_str(line)
-                .map_err(|e| ThingdError::Storage(format!("JSON parse error at line {index}: {e}")))?;
+            let value: serde_json::Value = serde_json::from_str(line).map_err(|e| {
+                ThingdError::Storage(format!("JSON parse error at line {index}: {e}"))
+            })?;
 
             // For JSONL, each line is an object
             if let Some(obj) = value.as_object() {
@@ -391,10 +385,7 @@ fn infer_type(samples: &[serde_json::Value]) -> ColumnType {
     }
 
     // Filter out null values for type inference
-    let non_null: Vec<&serde_json::Value> = samples
-        .iter()
-        .filter(|s| !s.is_null())
-        .collect();
+    let non_null: Vec<&serde_json::Value> = samples.iter().filter(|s| !s.is_null()).collect();
 
     if non_null.is_empty() {
         return ColumnType::Unknown;
@@ -415,12 +406,12 @@ fn infer_type(samples: &[serde_json::Value]) -> ColumnType {
                 }
                 has_boolean = false;
                 has_timestamp = false;
-            }
+            },
             serde_json::Value::Bool(_) => {
                 has_integer = false;
                 has_float = false;
                 has_timestamp = false;
-            }
+            },
             serde_json::Value::String(s) => {
                 has_integer = false;
                 has_float = false;
@@ -429,13 +420,13 @@ fn infer_type(samples: &[serde_json::Value]) -> ColumnType {
                 if !s.ends_with('Z') && !s.contains('+') && !s.contains('T') {
                     has_timestamp = false;
                 }
-            }
+            },
             _ => {
                 has_integer = false;
                 has_float = false;
                 has_boolean = false;
                 has_timestamp = false;
-            }
+            },
         }
     }
 
@@ -572,13 +563,21 @@ mod tests {
 
     #[test]
     fn infer_type_integer() {
-        let samples = vec![serde_json::json!(1), serde_json::json!(2), serde_json::json!(3)];
+        let samples = vec![
+            serde_json::json!(1),
+            serde_json::json!(2),
+            serde_json::json!(3),
+        ];
         assert_eq!(infer_type(&samples), ColumnType::Integer);
     }
 
     #[test]
     fn infer_type_mixed_with_nulls() {
-        let samples = vec![serde_json::json!(1), serde_json::Value::Null, serde_json::json!(3)];
+        let samples = vec![
+            serde_json::json!(1),
+            serde_json::Value::Null,
+            serde_json::json!(3),
+        ];
         assert_eq!(infer_type(&samples), ColumnType::Integer);
     }
 }

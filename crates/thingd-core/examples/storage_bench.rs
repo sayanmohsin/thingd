@@ -11,8 +11,8 @@ use csv as _;
 use rusqlite as _;
 use serde_json as _;
 use thingd_core::{
-    EventLog, ListEventsOptions, MemoryEngine, MemoryEvent, MemoryObject, ObjectStore, QueueClaimOptions, QueueJob,
-    QueueStore, SqliteThingStore,
+    EventLog, ListEventsOptions, MemoryEngine, MemoryEvent, MemoryObject, ObjectStore,
+    QueueClaimOptions, QueueJob, QueueStore, SqliteThingStore,
 };
 
 const DEFAULT_ITERATIONS: usize = 5_000;
@@ -233,10 +233,7 @@ where
     Ok(started.elapsed())
 }
 
-fn time_queue_claim_and_ack<S>(
-    store: &mut S,
-    iterations: usize,
-) -> Result<Duration, Box<dyn Error>>
+fn time_queue_claim_and_ack<S>(store: &mut S, iterations: usize) -> Result<Duration, Box<dyn Error>>
 where
     S: QueueStore,
 {
