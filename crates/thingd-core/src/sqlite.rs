@@ -1454,10 +1454,10 @@ impl crate::store::LinkStore for SqliteThingStore {
         };
 
         // Build SQL with parameterized type filter to prevent SQL injection
-        let (type_filter_sql, type_param) = match options.link_type {
-            Some(ref t) => (" AND type = ?2".to_string(), Some(t.clone())),
-            None => (String::new(), None),
-        };
+        let (type_filter_sql, type_param) = options.link_type.as_ref().map_or_else(
+            || (String::new(), None),
+            |t| (" AND type = ?2".to_string(), Some(t.clone())),
+        );
 
         let limit_clause = options
             .limit

@@ -14,6 +14,7 @@ use thingd_core::{
     EventLog, ListEventsOptions, MemoryEngine, MemoryEvent, MemoryObject, ObjectStore,
     QueueClaimOptions, QueueJob, QueueStore, SqliteThingStore,
 };
+use uuid as _;
 
 const DEFAULT_ITERATIONS: usize = 5_000;
 const COLLECTION: &str = "bench_objects";
