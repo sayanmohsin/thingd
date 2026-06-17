@@ -1,3 +1,24 @@
+## [0.25.0](https://github.com/sayanmohsin/thingd/compare/v0.24.0...v0.25.0) (2026-06-17)
+
+### Features
+
+* add batch APIs to N-API native binding ([5cd76d0](https://github.com/sayanmohsin/thingd/commit/5cd76d0c8ec52ad7be6c2a81b3f742f857db2e54))
+* add graph links support with LinkStore trait and implementations ([c992538](https://github.com/sayanmohsin/thingd/commit/c992538810d36b13c39c21ec3e5f87cdd69bc857))
+* **core:** add CSV/JSON file connector with schema inference (Phase 10) ([5f89c93](https://github.com/sayanmohsin/thingd/commit/5f89c938d57362902f961b488281c63a0dda98d1))
+
+### Bug Fixes
+
+* apply cargo fmt formatting ([a9486c3](https://github.com/sayanmohsin/thingd/commit/a9486c32e7766cad534944264185ae555f6b08fe))
+* resolve clippy warnings and duplicate dependency lint ([0f1d4b4](https://github.com/sayanmohsin/thingd/commit/0f1d4b4aff1d3ee9f391dbac1fce8492025f51b2))
+* use parameterized query for link type filter in get_neighbors ([87c2f57](https://github.com/sayanmohsin/thingd/commit/87c2f5727ee2789c3a3913441d6bd5a6791c7cb6))
+
+### Performance Improvements
+
+* **core:** add batch APIs and optimize queue_claim_ack ([e545684](https://github.com/sayanmohsin/thingd/commit/e54568430550128adfdeac2936832528a7375fae))
+* defer FTS index updates in put_objects_batch ([8d58790](https://github.com/sayanmohsin/thingd/commit/8d58790b5d14756c537100fa261a1afa9c2eb2f6))
+* remove object.clone() in put_objects_batch ([8956355](https://github.com/sayanmohsin/thingd/commit/89563555f79110992782cdb064c9ca3e63168017))
+* use RETURNING clause to eliminate timestamp read-back round-trip ([b4d6772](https://github.com/sayanmohsin/thingd/commit/b4d6772fa767ab5b5d6c0090eca8c78362322d3f))
+
 ## [0.24.0](https://github.com/sayanmohsin/thingd/compare/v0.23.0...v0.24.0) (2026-06-16)
 
 ### Features
