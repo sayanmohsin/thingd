@@ -16,7 +16,8 @@ use rusqlite as _;
 use serde_json as _;
 use thingd_core::{
     EventLog, ListEventsOptions, ListObjectsOptions, MemoryEngine, MemoryEvent, MemoryObject,
-    ObjectStore, QueueClaimOptions, QueueJob, QueueStore, SqliteThingStore,
+    ObjectStore, QueueClaimOptions, QueueJob, QueueStore, SearchOptions, Searcher,
+    SqliteThingStore,
 };
 use uuid as _;
 
@@ -75,7 +76,7 @@ fn iterations() -> usize {
 
 fn bench_store<S>(name: &str, mut store: S, iterations: usize) -> Result<(), Box<dyn Error>>
 where
-    S: EventLog + ObjectStore + QueueStore,
+    S: EventLog + ObjectStore + QueueStore + Searcher,
 {
     // ── Object writes ──────────────────────────────────────────────────────
     let elapsed = time_object_puts(&mut store, iterations)?;
@@ -183,6 +184,16 @@ where
 
     let elapsed = time_queue_claim_and_ack(&mut store, iterations)?;
     report(name, "queue_claim_ack2", iterations, elapsed);
+
+    // ── Search ─────────────────────────────────────────────────────────────
+    time_search_benchmarks(name, &store)?;
+
+    // ── Count ──────────────────────────────────────────────────────────────
+    time_count_benchmarks(name, &store)?;
+
+    // ── Delete ─────────────────────────────────────────────────────────────
+    let elapsed = time_object_deletes(&mut store, iterations)?;
+    report(name, "object_delete", iterations, elapsed);
 
     println!();
     Ok(())
@@ -347,6 +358,65 @@ where
     }
 
     Ok(started.elapsed())
+}
+
+fn time_object_deletes<S>(store: &mut S, iterations: usize) -> Result<Duration, Box<dyn Error>>
+where
+    S: ObjectStore,
+{
+    let started = Instant::now();
+
+    for index in 0..iterations {
+        let id = format!("object-{index}");
+        let deleted = store.delete_object(COLLECTION, black_box(id.as_str()))?;
+        black_box(deleted);
+    }
+
+    Ok(started.elapsed())
+}
+
+fn time_search_benchmarks<S>(name: &str, store: &S) -> Result<(), Box<dyn Error>>
+where
+    S: Searcher,
+{
+    let search_opts = SearchOptions::default();
+    let started = Instant::now();
+    let hits = store.search("benchmark", search_opts)?;
+    let elapsed = started.elapsed();
+    black_box(hits.len());
+    report(name, "search", hits.len().max(1), elapsed);
+
+    let filtered_search = SearchOptions {
+        collections: Some(vec![COLLECTION.to_string()]),
+        limit: Some(10),
+        ..Default::default()
+    };
+    let started = Instant::now();
+    let filtered_hits = store.search("benchmark", filtered_search)?;
+    let elapsed = started.elapsed();
+    black_box(filtered_hits.len());
+    report(name, "search_filtered", filtered_hits.len().max(1), elapsed);
+
+    Ok(())
+}
+
+fn time_count_benchmarks<S>(name: &str, store: &S) -> Result<(), Box<dyn Error>>
+where
+    S: ObjectStore + EventLog,
+{
+    let started = Instant::now();
+    let count = store.count_objects()?;
+    let elapsed = started.elapsed();
+    black_box(count);
+    report(name, "count_objects", 1, elapsed);
+
+    let started = Instant::now();
+    let count = store.count_events()?;
+    let elapsed = started.elapsed();
+    black_box(count);
+    report(name, "count_events", 1, elapsed);
+
+    Ok(())
 }
 
 fn report(store: &str, operation: &str, iterations: usize, elapsed: Duration) {
