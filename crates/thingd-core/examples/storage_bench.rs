@@ -1,8 +1,8 @@
 //! Local storage benchmark for thingd-core adapters.
 //!
 //! Usage:
-//!   cargo run --example storage_bench --release --all-features [<iterations>]
-//!   THINGD_BENCH_ITERS=10000 cargo run --example storage_bench --release --all-features
+//!   cargo run --example `storage_bench` --release --all-features [<iterations>]
+//!   `THINGD_BENCH_ITERS=10000` cargo run --example `storage_bench` --release --all-features
 
 use std::env;
 use std::error::Error;
@@ -25,7 +25,7 @@ const COLLECTION: &str = "bench_objects";
 const QUEUE: &str = "bench_queue";
 const STREAM: &str = "bench:events";
 
-/// Object body with a `status` field so we can benchmark filtered list_objects.
+/// Object body with a `status` field so we can benchmark filtered `list_objects`.
 const OBJECT_BODY_ACTIVE: &str =
     r#"{"text":"benchmark object","project":"thingd","status":"active","confidence":0.95}"#;
 const OBJECT_BODY_INACTIVE: &str =

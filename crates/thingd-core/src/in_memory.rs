@@ -513,7 +513,7 @@ fn matches_filter_memory(body_str: &str, filter: &serde_json::Value) -> bool {
 mod tests {
     use super::*;
     use crate::store::{LinkStore, Searcher};
-    use crate::{ListObjectsOptions, SearchOptions};
+    use crate::{Link, ListObjectsOptions, SearchOptions};
 
     #[test]
     fn stores_and_reads_objects() {
@@ -947,13 +947,19 @@ mod tests {
             .put_object(MemoryObject::new("n", "c", "{}"))
             .unwrap();
 
-        let l1 = engine.create_link("n", "a", "n", "b", "connects").unwrap();
-        let l2 = engine.create_link("n", "b", "n", "c", "connects").unwrap();
+        let l1 = engine
+            .create_link(Link::new("n/a", "connects", "n/b"))
+            .unwrap();
+        let l2 = engine
+            .create_link(Link::new("n/b", "connects", "n/c"))
+            .unwrap();
 
         // Delete the first link — the ID counter must NOT reset.
-        engine.delete_link(l1.id).unwrap();
+        engine.delete_link(&l1.id).unwrap();
 
-        let l3 = engine.create_link("n", "a", "n", "c", "connects").unwrap();
+        let l3 = engine
+            .create_link(Link::new("n/a", "connects", "n/c"))
+            .unwrap();
 
         assert_ne!(l3.id, l2.id, "IDs must not collide after a delete");
         assert!(l3.id > l2.id, "IDs must be monotonically increasing");

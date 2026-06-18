@@ -572,7 +572,7 @@ impl ObjectStore for SqliteThingStore {
 
         let mut statement = self.connection.prepare(&sql).map_err(ThingdError::from)?;
         let params: Vec<&dyn rusqlite::types::ToSql> =
-            bound_values.iter().map(|v| v.as_ref()).collect();
+            bound_values.iter().map(AsRef::as_ref).collect();
         let rows = statement
             .query_map(params.as_slice(), row_to_object)
             .map_err(ThingdError::from)?;
