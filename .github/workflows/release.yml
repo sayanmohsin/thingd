@@ -54,6 +54,9 @@ jobs:
     name: Publish to npm
     needs: [build-native]
     runs-on: ubuntu-latest
+    outputs:
+      new_version: ${{ steps.version.outputs.new_version }}
+      released: ${{ steps.version.outputs.released }}
     env:
       NPM_CONFIG_AUDIT: "false"
       NPM_CONFIG_FUND: "false"
@@ -92,9 +95,24 @@ jobs:
       - run: pnpm --filter thingd --filter thingd-cli build
 
       - name: Publish release
+        id: version
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: pnpm release
+        run: |
+          BEFORE=$(grep '^version = ' Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
+          echo "Version before release: $BEFORE"
+          pnpm release
+          AFTER=$(grep '^version = ' Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
+          echo "Version after release: $AFTER"
+          if [ "$BEFORE" != "$AFTER" ]; then
+            echo "released=true" >> "$GITHUB_OUTPUT"
+            echo "new_version=$AFTER" >> "$GITHUB_OUTPUT"
+            echo "New release: $AFTER"
+          else
+            echo "released=false" >> "$GITHUB_OUTPUT"
+            echo "new_version=" >> "$GITHUB_OUTPUT"
+            echo "No new release created"
+          fi
 
   docker:
     name: Build and push Docker image
@@ -117,7 +135,7 @@ jobs:
       - name: Get next version
         id: version
         run: |
-          VERSION=$(npx semantic-release --dry-run --no-ci 2>&1 | grep -oP "next release version is \K\S+" || true)
+          VERSION=$(npx semantic-release --dry-run --no-ci 2>&1 | grep "next release version" | sed 's/.*next release version is //' || true)
           if [ -z "$VERSION" ]; then
             VERSION=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
           fi
@@ -146,6 +164,7 @@ jobs:
   crates-publish:
     name: Publish to crates.io
     needs: [release]
+    if: needs.release.outputs.released == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -155,22 +174,18 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
-      - name: Check if version already exists on crates.io
-        id: check
+      - name: Verify version matches
         run: |
-          VERSION=$(grep '^version = ' Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          EXISTING=$(curl -sL "https://crates.io/api/v1/crates/thingd-core/$VERSION" -H "User-Agent: thingd-ci" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('version',{}).get('num',''))" 2>/dev/null || true)
-          if [ "$EXISTING" = "$VERSION" ]; then
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-            echo "thingd-core@$VERSION already exists on crates.io — skipping publish"
-          else
-            echo "skip=false" >> "$GITHUB_OUTPUT"
-            echo "thingd-core@$VERSION not found — will publish"
+          EXPECTED="${{ needs.release.outputs.new_version }}"
+          ACTUAL=$(grep '^version = ' Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
+          echo "Expected: $EXPECTED"
+          echo "Actual:   $ACTUAL"
+          if [ "$EXPECTED" != "$ACTUAL" ]; then
+            echo "::error::Version mismatch — Cargo.toml has $ACTUAL but expected $EXPECTED"
+            exit 1
           fi
 
       - name: Publish to crates.io
-        if: steps.check.outputs.skip != 'true'
         run: cargo publish -p thingd-core --features sqlite
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
