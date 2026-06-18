@@ -68,25 +68,25 @@ impl ObjectStore for MemoryEngine {
         collections: Option<&[String]>,
         options: &ListObjectsOptions,
     ) -> ThingdResult<Vec<MemoryObject>> {
-        let mut objects: Vec<MemoryObject> = self
-            .objects
-            .values()
-            .filter(|object| {
-                collections.is_none_or(|allowed| allowed.contains(&object.key.collection))
-            })
-            .filter(|object| {
-                if options.filter.is_empty() {
-                    return true;
-                }
-                let Ok(body) = serde_json::from_str::<serde_json::Value>(&object.body) else {
-                    return false;
-                };
-                options.filter.iter().all(|(key, expected)| {
-                    body.get(key.as_str()).is_some_and(|v| v == expected)
+        let mut objects: Vec<MemoryObject> =
+            self.objects
+                .values()
+                .filter(|object| {
+                    collections.is_none_or(|allowed| allowed.contains(&object.key.collection))
                 })
-            })
-            .cloned()
-            .collect();
+                .filter(|object| {
+                    if options.filter.is_empty() {
+                        return true;
+                    }
+                    let Ok(body) = serde_json::from_str::<serde_json::Value>(&object.body) else {
+                        return false;
+                    };
+                    options.filter.iter().all(|(key, expected)| {
+                        body.get(key.as_str()).is_some_and(|v| v == expected)
+                    })
+                })
+                .cloned()
+                .collect();
 
         if let Some(offset) = options.offset {
             let skip = usize::try_from(offset).unwrap_or(usize::MAX);
@@ -548,10 +548,19 @@ mod tests {
             .unwrap();
 
         let filtered = engine
-            .list_objects(Some(&["decisions".to_string()]), &ListObjectsOptions::default())
+            .list_objects(
+                Some(&["decisions".to_string()]),
+                &ListObjectsOptions::default(),
+            )
             .unwrap();
 
-        assert_eq!(engine.list_objects(None, &ListObjectsOptions::default()).unwrap().len(), 2);
+        assert_eq!(
+            engine
+                .list_objects(None, &ListObjectsOptions::default())
+                .unwrap()
+                .len(),
+            2
+        );
         assert_eq!(filtered.len(), 1);
         assert_eq!(filtered[0].key.collection, "decisions");
     }
@@ -815,7 +824,9 @@ mod tests {
             filter: vec![("color".into(), serde_json::json!("red"))],
             ..Default::default()
         };
-        let results = engine.list_objects(Some(&["w".to_string()]), &opts).unwrap();
+        let results = engine
+            .list_objects(Some(&["w".to_string()]), &opts)
+            .unwrap();
         assert_eq!(results.len(), 2);
         assert!(results.iter().all(|o| o.body.contains("\"red\"")));
     }
@@ -831,7 +842,9 @@ mod tests {
             filter: vec![("color".into(), serde_json::json!("green"))],
             ..Default::default()
         };
-        let results = engine.list_objects(Some(&["w".to_string()]), &opts).unwrap();
+        let results = engine
+            .list_objects(Some(&["w".to_string()]), &opts)
+            .unwrap();
         assert!(results.is_empty());
     }
 
@@ -848,7 +861,9 @@ mod tests {
             limit: Some(3),
             ..Default::default()
         };
-        let results = engine.list_objects(Some(&["col".to_string()]), &opts).unwrap();
+        let results = engine
+            .list_objects(Some(&["col".to_string()]), &opts)
+            .unwrap();
         assert_eq!(results.len(), 3);
     }
 
@@ -865,7 +880,9 @@ mod tests {
             offset: Some(3),
             ..Default::default()
         };
-        let results = engine.list_objects(Some(&["col".to_string()]), &opts).unwrap();
+        let results = engine
+            .list_objects(Some(&["col".to_string()]), &opts)
+            .unwrap();
         assert_eq!(results.len(), 2);
     }
 
@@ -890,7 +907,9 @@ mod tests {
             limit: Some(2),
             ..Default::default()
         };
-        let results = engine.list_objects(Some(&["col".to_string()]), &opts).unwrap();
+        let results = engine
+            .list_objects(Some(&["col".to_string()]), &opts)
+            .unwrap();
         assert_eq!(results.len(), 2);
         assert!(results.iter().all(|o| o.body.contains("active")));
     }
@@ -928,19 +947,13 @@ mod tests {
             .put_object(MemoryObject::new("n", "c", "{}"))
             .unwrap();
 
-        let l1 = engine
-            .create_link("n", "a", "n", "b", "connects")
-            .unwrap();
-        let l2 = engine
-            .create_link("n", "b", "n", "c", "connects")
-            .unwrap();
+        let l1 = engine.create_link("n", "a", "n", "b", "connects").unwrap();
+        let l2 = engine.create_link("n", "b", "n", "c", "connects").unwrap();
 
         // Delete the first link — the ID counter must NOT reset.
         engine.delete_link(l1.id).unwrap();
 
-        let l3 = engine
-            .create_link("n", "a", "n", "c", "connects")
-            .unwrap();
+        let l3 = engine.create_link("n", "a", "n", "c", "connects").unwrap();
 
         assert_ne!(l3.id, l2.id, "IDs must not collide after a delete");
         assert!(l3.id > l2.id, "IDs must be monotonically increasing");

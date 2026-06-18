@@ -164,7 +164,12 @@ where
     let limited_events = store.list_events(Some(STREAM), limit_event_opts)?;
     let elapsed = started.elapsed();
     black_box(limited_events.len());
-    report(name, "event_list_limit100", limited_events.len().max(1), elapsed);
+    report(
+        name,
+        "event_list_limit100",
+        limited_events.len().max(1),
+        elapsed,
+    );
 
     // ── Queues ─────────────────────────────────────────────────────────────
     let elapsed = time_queue_pushes(&mut store, iterations)?;
@@ -255,10 +260,7 @@ where
     Ok(started.elapsed())
 }
 
-fn time_event_append_batch<S>(
-    store: &mut S,
-    iterations: usize,
-) -> Result<Duration, Box<dyn Error>>
+fn time_event_append_batch<S>(store: &mut S, iterations: usize) -> Result<Duration, Box<dyn Error>>
 where
     S: EventLog,
 {
@@ -333,10 +335,7 @@ where
     Ok(started.elapsed())
 }
 
-fn time_queue_claim_and_ack<S>(
-    store: &mut S,
-    iterations: usize,
-) -> Result<Duration, Box<dyn Error>>
+fn time_queue_claim_and_ack<S>(store: &mut S, iterations: usize) -> Result<Duration, Box<dyn Error>>
 where
     S: QueueStore,
 {

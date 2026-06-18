@@ -545,7 +545,7 @@ impl ObjectStore for SqliteThingStore {
                     } else {
                         Box::new(n.as_f64().unwrap_or(0.0))
                     }
-                }
+                },
                 serde_json::Value::Bool(b) => Box::new(i64::from(*b)),
                 serde_json::Value::Null => Box::new(rusqlite::types::Null),
                 other => Box::new(other.to_string()),
@@ -1839,10 +1839,19 @@ mod tests {
             .unwrap();
 
         let filtered = store
-            .list_objects(Some(&["decisions".to_string()]), &ListObjectsOptions::default())
+            .list_objects(
+                Some(&["decisions".to_string()]),
+                &ListObjectsOptions::default(),
+            )
             .unwrap();
 
-        assert_eq!(store.list_objects(None, &ListObjectsOptions::default()).unwrap().len(), 2);
+        assert_eq!(
+            store
+                .list_objects(None, &ListObjectsOptions::default())
+                .unwrap()
+                .len(),
+            2
+        );
         assert_eq!(filtered.len(), 1);
         assert_eq!(filtered[0].key.collection, "decisions");
     }
@@ -2293,7 +2302,9 @@ mod tests {
             limit: Some(3),
             ..Default::default()
         };
-        let results = store.list_objects(Some(&["col".to_string()]), &opts).unwrap();
+        let results = store
+            .list_objects(Some(&["col".to_string()]), &opts)
+            .unwrap();
         assert_eq!(results.len(), 3);
     }
 
@@ -2311,7 +2322,9 @@ mod tests {
             offset: Some(3),
             ..Default::default()
         };
-        let results = store.list_objects(Some(&["col".to_string()]), &opts).unwrap();
+        let results = store
+            .list_objects(Some(&["col".to_string()]), &opts)
+            .unwrap();
         assert_eq!(results.len(), 2);
     }
 
@@ -2321,7 +2334,11 @@ mod tests {
 
         for i in 0..4u32 {
             store
-                .put_object(MemoryObject::new("col", format!("id-{i}"), r#"{"status":"active"}"#))
+                .put_object(MemoryObject::new(
+                    "col",
+                    format!("id-{i}"),
+                    r#"{"status":"active"}"#,
+                ))
                 .unwrap();
         }
         store
@@ -2333,7 +2350,9 @@ mod tests {
             limit: Some(2),
             ..Default::default()
         };
-        let results = store.list_objects(Some(&["col".to_string()]), &opts).unwrap();
+        let results = store
+            .list_objects(Some(&["col".to_string()]), &opts)
+            .unwrap();
         assert_eq!(results.len(), 2);
         assert!(results.iter().all(|o| o.body.contains("active")));
     }
@@ -2377,8 +2396,14 @@ mod tests {
 
         assert_eq!(first.sequence, 1);
         assert_eq!(second.sequence, 2);
-        assert!(!first.created_at.is_empty(), "created_at must be set by RETURNING");
-        assert!(!second.created_at.is_empty(), "created_at must be set by RETURNING");
+        assert!(
+            !first.created_at.is_empty(),
+            "created_at must be set by RETURNING"
+        );
+        assert!(
+            !second.created_at.is_empty(),
+            "created_at must be set by RETURNING"
+        );
     }
 
     #[test]
