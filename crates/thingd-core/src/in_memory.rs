@@ -512,8 +512,8 @@ fn matches_filter_memory(body_str: &str, filter: &serde_json::Value) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::SearchOptions;
-    use crate::store::Searcher;
+    use crate::store::{LinkStore, Searcher};
+    use crate::{ListObjectsOptions, SearchOptions};
 
     #[test]
     fn stores_and_reads_objects() {
@@ -794,5 +794,155 @@ mod tests {
             )
             .unwrap();
         assert_eq!(filtered.len(), 2);
+    }
+
+    // ── list_objects: filter / limit / offset ─────────────────────────────
+
+    #[test]
+    fn list_objects_filter_returns_matching_objects() {
+        let mut engine = MemoryEngine::new();
+        engine
+            .put_object(MemoryObject::new("w", "a", r#"{"color":"red","size":1}"#))
+            .unwrap();
+        engine
+            .put_object(MemoryObject::new("w", "b", r#"{"color":"blue","size":2}"#))
+            .unwrap();
+        engine
+            .put_object(MemoryObject::new("w", "c", r#"{"color":"red","size":3}"#))
+            .unwrap();
+
+        let opts = ListObjectsOptions {
+            filter: vec![("color".into(), serde_json::json!("red"))],
+            ..Default::default()
+        };
+        let results = engine.list_objects(Some(&["w".to_string()]), &opts).unwrap();
+        assert_eq!(results.len(), 2);
+        assert!(results.iter().all(|o| o.body.contains("\"red\"")));
+    }
+
+    #[test]
+    fn list_objects_filter_no_match_returns_empty() {
+        let mut engine = MemoryEngine::new();
+        engine
+            .put_object(MemoryObject::new("w", "a", r#"{"color":"red"}"#))
+            .unwrap();
+
+        let opts = ListObjectsOptions {
+            filter: vec![("color".into(), serde_json::json!("green"))],
+            ..Default::default()
+        };
+        let results = engine.list_objects(Some(&["w".to_string()]), &opts).unwrap();
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn list_objects_limit_truncates_results() {
+        let mut engine = MemoryEngine::new();
+        for i in 0..5u32 {
+            engine
+                .put_object(MemoryObject::new("col", format!("id-{i}"), "{}"))
+                .unwrap();
+        }
+
+        let opts = ListObjectsOptions {
+            limit: Some(3),
+            ..Default::default()
+        };
+        let results = engine.list_objects(Some(&["col".to_string()]), &opts).unwrap();
+        assert_eq!(results.len(), 3);
+    }
+
+    #[test]
+    fn list_objects_offset_skips_results() {
+        let mut engine = MemoryEngine::new();
+        for i in 0..5u32 {
+            engine
+                .put_object(MemoryObject::new("col", format!("id-{i}"), "{}"))
+                .unwrap();
+        }
+
+        let opts = ListObjectsOptions {
+            offset: Some(3),
+            ..Default::default()
+        };
+        let results = engine.list_objects(Some(&["col".to_string()]), &opts).unwrap();
+        assert_eq!(results.len(), 2);
+    }
+
+    #[test]
+    fn list_objects_filter_and_limit_combined() {
+        let mut engine = MemoryEngine::new();
+        for i in 0..4u32 {
+            engine
+                .put_object(MemoryObject::new(
+                    "col",
+                    format!("id-{i}"),
+                    r#"{"status":"active"}"#,
+                ))
+                .unwrap();
+        }
+        engine
+            .put_object(MemoryObject::new("col", "id-4", r#"{"status":"inactive"}"#))
+            .unwrap();
+
+        let opts = ListObjectsOptions {
+            filter: vec![("status".into(), serde_json::json!("active"))],
+            limit: Some(2),
+            ..Default::default()
+        };
+        let results = engine.list_objects(Some(&["col".to_string()]), &opts).unwrap();
+        assert_eq!(results.len(), 2);
+        assert!(results.iter().all(|o| o.body.contains("active")));
+    }
+
+    // ── append_event: RETURNING gives correct sequence + created_at ────────
+
+    #[test]
+    fn append_event_returns_sequence_and_timestamp() {
+        let mut engine = MemoryEngine::new();
+
+        let first = engine
+            .append_event(MemoryEvent::new("s", "ev.first", r#"{"x":1}"#))
+            .unwrap();
+        let second = engine
+            .append_event(MemoryEvent::new("s", "ev.second", r#"{"x":2}"#))
+            .unwrap();
+
+        assert_eq!(first.sequence, 1);
+        assert_eq!(second.sequence, 2);
+        assert!(!first.created_at.is_empty(), "created_at should be set");
+    }
+
+    // ── create_link: monotonic IDs survive deletes ─────────────────────────
+
+    #[test]
+    fn create_link_ids_are_unique_after_delete() {
+        let mut engine = MemoryEngine::new();
+        engine
+            .put_object(MemoryObject::new("n", "a", "{}"))
+            .unwrap();
+        engine
+            .put_object(MemoryObject::new("n", "b", "{}"))
+            .unwrap();
+        engine
+            .put_object(MemoryObject::new("n", "c", "{}"))
+            .unwrap();
+
+        let l1 = engine
+            .create_link("n", "a", "n", "b", "connects")
+            .unwrap();
+        let l2 = engine
+            .create_link("n", "b", "n", "c", "connects")
+            .unwrap();
+
+        // Delete the first link — the ID counter must NOT reset.
+        engine.delete_link(l1.id).unwrap();
+
+        let l3 = engine
+            .create_link("n", "a", "n", "c", "connects")
+            .unwrap();
+
+        assert_ne!(l3.id, l2.id, "IDs must not collide after a delete");
+        assert!(l3.id > l2.id, "IDs must be monotonically increasing");
     }
 }

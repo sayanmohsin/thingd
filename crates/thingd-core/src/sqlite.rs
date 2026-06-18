@@ -1749,8 +1749,8 @@ mod tests {
     use tempfile::NamedTempFile;
 
     use super::*;
-    use crate::SearchOptions;
     use crate::store::Searcher;
+    use crate::{ListObjectsOptions, SearchOptions};
 
     #[test]
     fn records_schema_version_on_initialize() {
@@ -2236,5 +2236,167 @@ mod tests {
             )
             .unwrap();
         assert_eq!(filtered.len(), 2);
+    }
+
+    // ── list_objects: filter / limit / offset ─────────────────────────────
+
+    #[test]
+    fn list_objects_filter_returns_matching_objects() {
+        let mut store = SqliteThingStore::open_in_memory().unwrap();
+
+        store
+            .put_object(MemoryObject::new("w", "a", r#"{"color":"red","size":1}"#))
+            .unwrap();
+        store
+            .put_object(MemoryObject::new("w", "b", r#"{"color":"blue","size":2}"#))
+            .unwrap();
+        store
+            .put_object(MemoryObject::new("w", "c", r#"{"color":"red","size":3}"#))
+            .unwrap();
+
+        let opts = ListObjectsOptions {
+            filter: vec![("color".into(), serde_json::json!("red"))],
+            ..Default::default()
+        };
+        let results = store.list_objects(Some(&["w".to_string()]), &opts).unwrap();
+        assert_eq!(results.len(), 2);
+        assert!(results.iter().all(|o| o.body.contains("\"red\"")));
+    }
+
+    #[test]
+    fn list_objects_filter_no_match_returns_empty() {
+        let mut store = SqliteThingStore::open_in_memory().unwrap();
+
+        store
+            .put_object(MemoryObject::new("w", "a", r#"{"color":"red"}"#))
+            .unwrap();
+
+        let opts = ListObjectsOptions {
+            filter: vec![("color".into(), serde_json::json!("green"))],
+            ..Default::default()
+        };
+        let results = store.list_objects(Some(&["w".to_string()]), &opts).unwrap();
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn list_objects_limit_truncates_results() {
+        let mut store = SqliteThingStore::open_in_memory().unwrap();
+
+        for i in 0..5u32 {
+            store
+                .put_object(MemoryObject::new("col", format!("id-{i}"), "{}"))
+                .unwrap();
+        }
+
+        let opts = ListObjectsOptions {
+            limit: Some(3),
+            ..Default::default()
+        };
+        let results = store.list_objects(Some(&["col".to_string()]), &opts).unwrap();
+        assert_eq!(results.len(), 3);
+    }
+
+    #[test]
+    fn list_objects_offset_skips_results() {
+        let mut store = SqliteThingStore::open_in_memory().unwrap();
+
+        for i in 0..5u32 {
+            store
+                .put_object(MemoryObject::new("col", format!("id-{i}"), "{}"))
+                .unwrap();
+        }
+
+        let opts = ListObjectsOptions {
+            offset: Some(3),
+            ..Default::default()
+        };
+        let results = store.list_objects(Some(&["col".to_string()]), &opts).unwrap();
+        assert_eq!(results.len(), 2);
+    }
+
+    #[test]
+    fn list_objects_filter_and_limit_combined() {
+        let mut store = SqliteThingStore::open_in_memory().unwrap();
+
+        for i in 0..4u32 {
+            store
+                .put_object(MemoryObject::new("col", format!("id-{i}"), r#"{"status":"active"}"#))
+                .unwrap();
+        }
+        store
+            .put_object(MemoryObject::new("col", "id-4", r#"{"status":"inactive"}"#))
+            .unwrap();
+
+        let opts = ListObjectsOptions {
+            filter: vec![("status".into(), serde_json::json!("active"))],
+            limit: Some(2),
+            ..Default::default()
+        };
+        let results = store.list_objects(Some(&["col".to_string()]), &opts).unwrap();
+        assert_eq!(results.len(), 2);
+        assert!(results.iter().all(|o| o.body.contains("active")));
+    }
+
+    #[test]
+    fn list_objects_numeric_filter() {
+        let mut store = SqliteThingStore::open_in_memory().unwrap();
+
+        store
+            .put_object(MemoryObject::new("items", "a", r#"{"score":10,"tag":"x"}"#))
+            .unwrap();
+        store
+            .put_object(MemoryObject::new("items", "b", r#"{"score":20,"tag":"x"}"#))
+            .unwrap();
+        store
+            .put_object(MemoryObject::new("items", "c", r#"{"score":10,"tag":"y"}"#))
+            .unwrap();
+
+        let opts = ListObjectsOptions {
+            filter: vec![("score".into(), serde_json::json!(10))],
+            ..Default::default()
+        };
+        let results = store
+            .list_objects(Some(&["items".to_string()]), &opts)
+            .unwrap();
+        assert_eq!(results.len(), 2);
+    }
+
+    // ── append_event: RETURNING gives correct sequence + created_at ────────
+
+    #[test]
+    fn append_event_returning_sets_sequence_and_timestamp() {
+        let mut store = SqliteThingStore::open_in_memory().unwrap();
+
+        let first = store
+            .append_event(MemoryEvent::new("s", "ev.first", r#"{"x":1}"#))
+            .unwrap();
+        let second = store
+            .append_event(MemoryEvent::new("s", "ev.second", r#"{"x":2}"#))
+            .unwrap();
+
+        assert_eq!(first.sequence, 1);
+        assert_eq!(second.sequence, 2);
+        assert!(!first.created_at.is_empty(), "created_at must be set by RETURNING");
+        assert!(!second.created_at.is_empty(), "created_at must be set by RETURNING");
+    }
+
+    #[test]
+    fn append_event_sequence_monotonically_increases_across_streams() {
+        let mut store = SqliteThingStore::open_in_memory().unwrap();
+
+        let a = store
+            .append_event(MemoryEvent::new("stream-a", "t", "{}"))
+            .unwrap();
+        let b = store
+            .append_event(MemoryEvent::new("stream-b", "t", "{}"))
+            .unwrap();
+        let c = store
+            .append_event(MemoryEvent::new("stream-a", "t", "{}"))
+            .unwrap();
+
+        assert_eq!(a.sequence, 1);
+        assert_eq!(b.sequence, 2);
+        assert_eq!(c.sequence, 3);
     }
 }
