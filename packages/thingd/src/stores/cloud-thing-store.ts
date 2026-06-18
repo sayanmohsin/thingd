@@ -19,6 +19,7 @@ import type {
   ThingDeleteResult,
   ThingStore,
 } from "../types.js";
+import { SDK_VERSION } from "../version.js";
 
 export type CloudThingStoreOptions = {
   url: string;
@@ -37,7 +38,7 @@ export class CloudThingStore implements ThingStore {
         : urlOrOptions;
     const client = new Client({
       name: options.clientName ?? "thingd-node-sdk",
-      version: options.clientVersion ?? "0.1.0",
+      version: options.clientVersion ?? SDK_VERSION,
     });
     const transport = new StreamableHTTPClientTransport(new URL(resolveMcpUrl(options.url)), {
       requestInit: options.authToken
