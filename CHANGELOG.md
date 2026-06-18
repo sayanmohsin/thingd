@@ -1,3 +1,9 @@
+## [0.25.1](https://github.com/sayanmohsin/thingd/compare/v0.25.0...v0.25.1) (2026-06-18)
+
+### Bug Fixes
+
+* trigger patch release for crates.io publish test ([7b8bda1](https://github.com/sayanmohsin/thingd/commit/7b8bda116453e38901a2a99e55e9523961ac3455))
+
 ## [0.25.0](https://github.com/sayanmohsin/thingd/compare/v0.24.0...v0.25.0) (2026-06-17)
 
 ### Features
