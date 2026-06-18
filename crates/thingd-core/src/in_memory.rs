@@ -31,6 +31,7 @@ pub struct MemoryEngine {
     queues: BTreeMap<String, VecDeque<QueueJob>>,
     links: Vec<Link>,
     next_event_sequence: u64,
+    next_link_id: u64,
 }
 
 impl MemoryEngine {
@@ -413,8 +414,8 @@ impl crate::store::Searcher for MemoryEngine {
 
 impl LinkStore for MemoryEngine {
     fn create_link(&mut self, mut link: Link) -> ThingdResult<Link> {
-        let id = format!("link-{}", self.links.len() + 1);
-        link.id = id;
+        self.next_link_id += 1;
+        link.id = format!("link-{}", self.next_link_id);
         if link.created_at.is_empty() {
             link.created_at = now_iso_string();
         }
