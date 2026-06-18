@@ -728,10 +728,8 @@ async function handleReplicationEvents(
   const afterSeq = afterStr ? Number.parseInt(afterStr, 10) : 0;
 
   try {
-    const allEvents = await state.db.events.list("__thingd:system:replication");
-    const filteredEvents = allEvents.filter((ev) => {
-      const seq = Number.parseInt(ev.id, 10);
-      return !Number.isNaN(seq) && seq > afterSeq;
+    const filteredEvents = await state.db.events.list("__thingd:system:replication", {
+      fromSequence: afterSeq,
     });
 
     writeJson(
