@@ -52,10 +52,39 @@ export class CloudThingStore implements ThingStore {
 
     await client.connect(transport);
 
-    return new CloudThingStore(client);
+    return new CloudThingStore(client, options);
   }
 
-  private constructor(private readonly client: Client) {}
+  private constructor(
+    private client: Client,
+    private readonly connectOptions: CloudThingStoreOptions
+  ) {}
+
+  /**
+   * Explicitly reconnect the transport — useful if you detect the connection
+   * has dropped and want to recover without recreating the store.
+   */
+  async reconnect(): Promise<void> {
+    try {
+      await this.client.close();
+    } catch {
+      // ignore close errors
+    }
+    const client = new Client({
+      name: this.connectOptions.clientName ?? "thingd-node-sdk",
+      version: this.connectOptions.clientVersion ?? SDK_VERSION,
+    });
+    const transport = new StreamableHTTPClientTransport(
+      new URL(resolveMcpUrl(this.connectOptions.url)),
+      {
+        requestInit: this.connectOptions.authToken
+          ? { headers: { Authorization: `Bearer ${this.connectOptions.authToken}` } }
+          : undefined,
+      }
+    );
+    await client.connect(transport);
+    this.client = client;
+  }
 
   put(collection: string, object: MemoryObject): Promise<StoredMemoryObject> {
     return this.callTool("thing_put", {
@@ -207,10 +236,32 @@ export class CloudThingStore implements ThingStore {
   }
 
   private async callTool<T>(name: string, args: Record<string, unknown>): Promise<T> {
-    const result = (await this.client.callTool({
-      name,
-      arguments: args,
-    })) as CallToolResult;
+    return this.callToolOnce<T>(name, args, true);
+  }
+
+  private async callToolOnce<T>(
+    name: string,
+    args: Record<string, unknown>,
+    retryOnTransportError: boolean
+  ): Promise<T> {
+    let result: CallToolResult;
+    try {
+      result = (await this.client.callTool({ name, arguments: args })) as CallToolResult;
+    } catch (error) {
+      // Transport-level error (connection dropped, ECONNRESET, etc.).
+      // Attempt one reconnect and retry before propagating.
+      if (retryOnTransportError) {
+        try {
+          await this.reconnect();
+        } catch (reconnectError) {
+          throw new Error(
+            `thingd cloud: transport error calling "${name}" and reconnect failed: ${reconnectError instanceof Error ? reconnectError.message : String(reconnectError)}`
+          );
+        }
+        return this.callToolOnce<T>(name, args, false);
+      }
+      throw error;
+    }
 
     if (result.isError) {
       const text = result.content.find(
