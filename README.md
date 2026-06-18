@@ -16,28 +16,30 @@ thingd stores versioned JSON objects in collections, with built-in durable queue
 
 ## Status
 
-`thingd` is in early design and scaffolding.
+`thingd` is in early-to-mid stage prototype (0.x track). The core engine,
+SDK, CLI, and MCP server are functional and tested, but the project is not
+production-ready yet.
 
-The repository currently contains:
+### Shipped
 
-- a Rust workspace
-- Rust storage boundary traits and an in-memory Rust engine
-- a feature-gated SQLite adapter for durable Rust object, event, and queue storage
-- a working TypeScript Node.js SDK with an in-memory store
-- an opt-in private N-API native driver that opens the Rust SQLite store locally
-- a remote Node.js SDK driver that talks to the sidecar over Streamable HTTP MCP
-- a feature-rich `thingd` admin/operator CLI featuring a real-time Interactive TUI Dashboard and scriptable non-interactive JSON output
-- object, event, search, and queue APIs
-- queue semantics for leases, `ack`, `nack`, delayed jobs, retry delays, and dead-letter jobs
-- package smoke testing without publishing
-- stdio and Streamable HTTP MCP server package with object, event, search, and queue tools
-- Docker runtime scaffold for the HTTP MCP server
-- bridge-mode env vars with leader/follower MCP forwarding and automatic leader failover
-- SQLite schema version tracking and migration guardrails
-- MCP audit events for write tools
-- architecture, release, persistence, and integration docs
+- **Rust engine** (`thingd-core`) — object CRUD, append-only events, durable job queues with lease/ack/nack/dead-letter/delayed/retry, full-text search (FTS5), graph links, SQLite schema migrations
+- **Node.js SDK** (`thingd`) — three drivers: memory (default in-memory TS store), native (napi-rs Rust SQLite), remote/cloud (Streamable HTTP MCP)
+- **CLI** (`thingd-cli`) — TUI dashboard, 30+ subcommands (search, objects, events, queues, export/import/snapshot, doctor, bench, install for Cursor/Claude Desktop)
+- **MCP server** — 20 tools, stdio + Streamable HTTP, audit events, collection allowlists, read-only mode
+- **Docker** — multi-stage image, compose + K8s for leader/follower cluster
+- **CI/tooling** — semantic-release, biome, lefthook, doc tests
 
-It is not production-ready yet. The default public Node.js SDK path still uses the TypeScript in-memory store for API exploration and local integration tests. The Rust core has SQLite-backed object, event, and queue persistence behind the `sqlite` feature, and the repo now has an opt-in private native driver for local testing. Node apps can also use the remote driver to talk to a `thingd` sidecar through `THINGD_URL`. Production packaging and deployment hardening are still next.
+### What's next
+
+- Production packaging and deployment hardening
+- Public native driver prebuilds
+- Vector search integration
+- Priority queues and advanced scheduling
+
+The default public Node.js SDK path uses the TypeScript in-memory store for
+API exploration and local integration tests. The Rust core has SQLite-backed
+object, event, and queue persistence behind the `sqlite` feature. Node apps can
+use the remote driver to talk to a `thingd` sidecar through `THINGD_URL`.
 
 | Entry point | Default driver | Default path |
 | --- | --- | --- |

@@ -222,7 +222,7 @@ Your MCP endpoint: `https://example.com/mcp`
    - **URL**: `https://example.com/mcp`
    - **Bearer token**: `strong-random-token`
 
-ChatGPT can now call all 12 thingd tools in any conversation.
+ChatGPT can now call all 20 thingd tools in any conversation.
 
 ---
 
