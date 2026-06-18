@@ -1,3 +1,25 @@
+## [0.26.0](https://github.com/sayanmohsin/thingd/compare/v0.25.1...v0.26.0) (2026-06-18)
+
+### Features
+
+* **sdk:** add auto-reconnect to CloudThingStore on transport drop ([fb43aaa](https://github.com/sayanmohsin/thingd/commit/fb43aaa79fdec433258ce1f5ed9bea5f8377bd3e)), closes [#30](https://github.com/sayanmohsin/thingd/issues/30)
+
+### Bug Fixes
+
+* create_link test API, redundant closure, doc backticks ([d6fba59](https://github.com/sayanmohsin/thingd/commit/d6fba595830505eaa96ec5c0bdf6bfa390f56e32))
+* **engine:** use monotonic counter for link IDs in MemoryEngine ([a428e2f](https://github.com/sayanmohsin/thingd/commit/a428e2fabee4264db545f1af7ec4102f9006b5b7)), closes [#22](https://github.com/sayanmohsin/thingd/issues/22)
+* link ID dedup, list_objects filter/limit/offset, search limit consistency ([0bf9ff5](https://github.com/sayanmohsin/thingd/commit/0bf9ff5f340972a54b59c9d8206d7dcf4eafa695))
+* **mcp:** fix hardcoded McpServer version and document per-request lifecycle ([39dbbb5](https://github.com/sayanmohsin/thingd/commit/39dbbb5c74f2a37f7273298cbe3adcec79598d68)), closes [#24](https://github.com/sayanmohsin/thingd/issues/24)
+* **sdk:** remove hardcoded default search limit of 10 in InMemoryThingStore ([37042f7](https://github.com/sayanmohsin/thingd/commit/37042f78bf0de4d717b8caf21176876bc0fd38a7)), closes [#28](https://github.com/sayanmohsin/thingd/issues/28)
+* **sdk:** stop hardcoding CloudThingStore client version as 0.1.0 ([f5afd5b](https://github.com/sayanmohsin/thingd/commit/f5afd5bec0fdf0cd5a3b07b24127e6faa08bbb74)), closes [#29](https://github.com/sayanmohsin/thingd/issues/29)
+
+### Performance Improvements
+
+* **engine:** push list_objects filter/limit/offset down to SQLite ([94b839b](https://github.com/sayanmohsin/thingd/commit/94b839b02796c55c7776f8af9cf706ded068493a)), closes [#27](https://github.com/sayanmohsin/thingd/issues/27)
+* **engine:** use RETURNING in append_event to eliminate extra SELECT ([31c2485](https://github.com/sayanmohsin/thingd/commit/31c2485237ae0db9396a03d93542ca1673930127)), closes [#21](https://github.com/sayanmohsin/thingd/issues/21)
+* **mcp:** decouple replication lag from /healthz — cache async in runner ([c83aeeb](https://github.com/sayanmohsin/thingd/commit/c83aeebc93ccef63285d0b96fc821e738f24eef5)), closes [#26](https://github.com/sayanmohsin/thingd/issues/26)
+* **mcp:** pass fromSequence to events.list in replication endpoint ([32aa6cd](https://github.com/sayanmohsin/thingd/commit/32aa6cd0f49a8d285a019ec7e77dc631322f7882)), closes [#25](https://github.com/sayanmohsin/thingd/issues/25)
+
 ## [0.25.1](https://github.com/sayanmohsin/thingd/compare/v0.25.0...v0.25.1) (2026-06-18)
 
 ### Bug Fixes
