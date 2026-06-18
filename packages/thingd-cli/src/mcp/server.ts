@@ -1,5 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ThingD } from "thingd";
+import { SDK_VERSION } from "thingd";
 import type { ThingdMcpAuditOptions } from "./audit.js";
 import type { ThingdMcpHardeningOptions } from "./config.js";
 import { registerThingdTools } from "./tools.js";
@@ -9,11 +10,20 @@ export type ThingdMcpServerOptions = {
   hardening?: ThingdMcpHardeningOptions;
 };
 
+/**
+ * Create a new McpServer with all thingd tools registered.
+ *
+ * Note: a new instance must be created per HTTP request because
+ * @modelcontextprotocol/sdk's underlying Server.connect() throws if called
+ * on an already-connected instance (stateless HTTP mode: one transport per
+ * request lifecycle). Tool registration is cheap (Map insertions) so this
+ * is not a meaningful overhead in practice.
+ */
 export function createThingdMcpServer(db: ThingD, options: ThingdMcpServerOptions = {}): McpServer {
   const server = new McpServer(
     {
       name: "thingd",
-      version: "0.1.0",
+      version: SDK_VERSION,
     },
     {
       instructions:
