@@ -40,6 +40,8 @@ export type ResolvedThingdClusterOptions = {
   peersPath: string;
   leaderElection: boolean;
   electionMaxFailures: number;
+  /** Cached replication lag (events behind leader). Updated by the replication runner. */
+  cachedReplicationLag: number;
 };
 
 export type ThingdClusterStatus = {
@@ -129,6 +131,7 @@ export function resolveClusterOptions(
     peersPath: options?.peersPath ?? "/cluster/peers",
     leaderElection,
     electionMaxFailures,
+    cachedReplicationLag: 0,
   };
 }
 
@@ -146,39 +149,12 @@ export async function getClusterStatus(
           ? status.lastReplicatedSequence
           : 0;
 
-      let lag = 0;
-      let statusStr = "syncing";
-      if (cluster.leaderUrl) {
-        try {
-          const leaderStatusUrl = new URL("/cluster/status", cluster.leaderUrl).toString();
-          const headers: Record<string, string> = { Accept: "application/json" };
-          if (cluster.forwardAuthToken) {
-            headers.Authorization = `Bearer ${cluster.forwardAuthToken}`;
-          }
-          const leaderRes = await fetch(leaderStatusUrl, {
-            headers,
-            signal: AbortSignal.timeout(1000),
-          });
-          if (leaderRes.ok) {
-            const leaderStatus = (await leaderRes.json()) as {
-              replication?: { lastReplicatedSequence?: number };
-            };
-            const leaderSeq = leaderStatus?.replication?.lastReplicatedSequence;
-            if (typeof leaderSeq === "number") {
-              lag = Math.max(0, leaderSeq - lastSeq);
-            }
-          } else {
-            statusStr = "error";
-          }
-        } catch {
-          statusStr = "error";
-        }
-      }
-
+      // Lag is updated asynchronously by the replication runner — read cached value
+      // to avoid a synchronous outbound HTTP call on every /healthz request.
       replication = {
         lastReplicatedSequence: lastSeq,
-        status: statusStr,
-        lag,
+        status: "syncing",
+        lag: cluster.cachedReplicationLag,
       };
     } catch {
       replication = { lastReplicatedSequence: 0, status: "error" };

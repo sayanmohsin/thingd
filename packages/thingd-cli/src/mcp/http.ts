@@ -622,6 +622,9 @@ function startReplicationRunner(state: RuntimeState) {
         }
 
         fetched = true;
+        // Asynchronously update the cached replication lag so /healthz never
+        // blocks on an outbound request. Fire-and-forget; errors are non-fatal.
+        void updateCachedLag(state, url, lastSeq);
         break;
       } catch (error) {
         console.error(
@@ -672,6 +675,41 @@ function stopReplicationRunner(state: RuntimeState) {
   if (state.replicationTimer) {
     clearTimeout(state.replicationTimer);
     state.replicationTimer = undefined;
+  }
+}
+
+/**
+ * Asynchronously fetch the leader's last replicated sequence and update
+ * the cached lag on the cluster state. Called after each successful sync
+ * so that /healthz can return the lag without making an outbound request.
+ */
+async function updateCachedLag(
+  state: RuntimeState,
+  leaderUrl: string,
+  localLastSeq: number
+): Promise<void> {
+  try {
+    const leaderStatusUrl = new URL("/cluster/status", leaderUrl).toString();
+    const headers: Record<string, string> = { Accept: "application/json" };
+    if (state.cluster.forwardAuthToken) {
+      headers.Authorization = `Bearer ${state.cluster.forwardAuthToken}`;
+    }
+    const res = await fetch(leaderStatusUrl, {
+      headers,
+      signal: AbortSignal.timeout(5_000),
+    });
+    if (!res.ok) {
+      return;
+    }
+    const leaderStatus = (await res.json()) as {
+      replication?: { lastReplicatedSequence?: number };
+    };
+    const leaderSeq = leaderStatus?.replication?.lastReplicatedSequence;
+    if (typeof leaderSeq === "number") {
+      state.cluster.cachedReplicationLag = Math.max(0, leaderSeq - localLastSeq);
+    }
+  } catch {
+    // Non-fatal — lag will remain at the last known value.
   }
 }
 
