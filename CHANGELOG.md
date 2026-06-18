@@ -1,3 +1,9 @@
+## [0.27.0](https://github.com/sayanmohsin/thingd/compare/v0.26.0...v0.27.0) (2026-06-18)
+
+### Features
+
+* add search, count, and delete benchmarks to storage_bench ([e15bfcd](https://github.com/sayanmohsin/thingd/commit/e15bfcd2e5149b933be3e0304814ca8362add42d))
+
 ## [0.26.0](https://github.com/sayanmohsin/thingd/compare/v0.25.1...v0.26.0) (2026-06-18)
 
 ### Features
