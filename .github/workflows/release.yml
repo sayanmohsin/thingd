@@ -155,7 +155,22 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
+      - name: Check if version already exists on crates.io
+        id: check
+        run: |
+          VERSION=$(grep '^version = ' Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          EXISTING=$(curl -sL "https://crates.io/api/v1/crates/thingd-core/$VERSION" -H "User-Agent: thingd-ci" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('version',{}).get('num',''))" 2>/dev/null || true)
+          if [ "$EXISTING" = "$VERSION" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "thingd-core@$VERSION already exists on crates.io — skipping publish"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+            echo "thingd-core@$VERSION not found — will publish"
+          fi
+
       - name: Publish to crates.io
+        if: steps.check.outputs.skip != 'true'
         run: cargo publish -p thingd-core --features sqlite
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
