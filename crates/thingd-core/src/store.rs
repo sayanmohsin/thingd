@@ -1,6 +1,6 @@
 //! Storage traits implemented by thingd storage adapters.
 
-use crate::model::ListEventsOptions;
+use crate::model::{ListEventsOptions, ListObjectsOptions};
 use crate::{
     MemoryEvent, MemoryObject, QueueClaimOptions, QueueJob, QueueNackOptions, ThingdResult,
 };
@@ -51,12 +51,18 @@ pub trait ObjectStore {
     /// Returns an error when the backing store cannot read the object.
     fn get_object(&self, collection: &str, id: &str) -> ThingdResult<Option<MemoryObject>>;
 
-    /// List objects, optionally restricted to the provided collections.
+    /// List objects in one or more collections, with optional filtering, limit, and offset.
+    ///
+    /// Pass an empty `ListObjectsOptions` to return all objects across all collections.
     ///
     /// # Errors
     ///
     /// Returns an error when the backing store cannot list objects.
-    fn list_objects(&self, collections: Option<&[String]>) -> ThingdResult<Vec<MemoryObject>>;
+    fn list_objects(
+        &self,
+        collections: Option<&[String]>,
+        options: &ListObjectsOptions,
+    ) -> ThingdResult<Vec<MemoryObject>>;
 
     /// Delete an object by collection and id.
     ///

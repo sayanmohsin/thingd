@@ -22,7 +22,12 @@ import type {
 type NativeThingStoreBinding = {
   putObjectJson(collection: string, id: string, body: string): string;
   getObjectJson(collection: string, id: string): string | null;
-  listObjectsJson(collectionsJson?: string): string;
+  listObjectsJson(
+    collectionsJson?: string,
+    filterJson?: string,
+    limit?: number,
+    offset?: number
+  ): string;
   deleteObject(collection: string, id: string): boolean;
   appendEventJson(stream: string, body: string): string;
   listEventsJson(stream?: string, fromSequence?: number, limit?: number): string;
@@ -170,24 +175,15 @@ export class NativeThingStore implements ThingStore {
     options?: ListObjectsOptions
   ): Promise<T[]> {
     const collectionsJson = JSON.stringify([collection]);
-    let results = parseJson<NativeObjectRecord[]>(
-      this.binding.listObjectsJson(collectionsJson)
+    const filterJson = options?.filter ? JSON.stringify(options.filter) : undefined;
+    return parseJson<NativeObjectRecord[]>(
+      this.binding.listObjectsJson(
+        collectionsJson,
+        filterJson,
+        options?.limit,
+        options?.offset
+      )
     ).map(objectFromNative) as T[];
-    const filter = options?.filter;
-    if (filter) {
-      results = results.filter((obj) =>
-        Object.entries(filter).every(
-          ([key, value]) => (obj as Record<string, unknown>)[key] === value
-        )
-      );
-    }
-    if (options?.offset) {
-      results = results.slice(options.offset);
-    }
-    if (options?.limit) {
-      results = results.slice(0, options.limit);
-    }
-    return results;
   }
 
   async appendEvent(stream: string, event: MemoryEvent): Promise<StoredMemoryEvent> {

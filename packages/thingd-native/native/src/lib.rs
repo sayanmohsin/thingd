@@ -5,9 +5,9 @@ use napi_derive::napi;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use thingd_core::{
-    EventLog, ListEventsOptions, MemoryEvent, MemoryObject, ObjectStore, QueueClaimOptions,
-    QueueJob, QueueJobStatus, QueueNackOptions, QueueStore, SearchOptions, Searcher,
-    SqliteThingStore,
+    EventLog, ListEventsOptions, ListObjectsOptions, MemoryEvent, MemoryObject, ObjectStore,
+    QueueClaimOptions, QueueJob, QueueJobStatus, QueueNackOptions, QueueStore, SearchOptions,
+    Searcher, SqliteThingStore,
 };
 
 #[derive(Deserialize)]
@@ -82,11 +82,33 @@ impl NativeThingStore {
     }
 
     #[napi(js_name = "listObjectsJson")]
-    pub fn list_objects_json(&self, collections_json: Option<String>) -> Result<String> {
+    pub fn list_objects_json(
+        &self,
+        collections_json: Option<String>,
+        filter_json: Option<String>,
+        limit: Option<i64>,
+        offset: Option<i64>,
+    ) -> Result<String> {
         let collections = parse_optional_string_array(collections_json)?;
+
+        let filter_pairs: Vec<(String, Value)> = filter_json
+            .map(|json| {
+                let obj: serde_json::Map<String, Value> =
+                    serde_json::from_str(&json).map_err(napi_error)?;
+                Ok::<_, Error>(obj.into_iter().collect())
+            })
+            .transpose()?
+            .unwrap_or_default();
+
+        let options = ListObjectsOptions {
+            filter: filter_pairs,
+            limit: limit.map(|v| v as u64),
+            offset: offset.map(|v| v as u64),
+        };
+
         let store = self.lock_store()?;
         let objects = store
-            .list_objects(collections.as_deref())
+            .list_objects(collections.as_deref(), &options)
             .map_err(napi_error)?
             .into_iter()
             .map(object_record)

@@ -181,6 +181,19 @@ pub struct ListEventsOptions {
     pub limit: Option<u64>,
 }
 
+/// Options for listing objects in a collection.
+#[derive(Clone, Debug, Default)]
+pub struct ListObjectsOptions {
+    /// Filter key-value pairs serialised as JSON pairs: only objects whose body
+    /// contains every listed top-level key with the exact JSON value are returned.
+    /// Each string is `"key":<json-value>` without surrounding braces.
+    pub filter: Vec<(String, serde_json::Value)>,
+    /// Maximum number of objects to return.
+    pub limit: Option<u64>,
+    /// Number of objects to skip before returning results.
+    pub offset: Option<u64>,
+}
+
 /// Options used when claiming a queue job.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct QueueClaimOptions {

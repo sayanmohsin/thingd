@@ -2,7 +2,7 @@
 
 use std::collections::{BTreeMap, VecDeque};
 
-use crate::model::ListEventsOptions;
+use crate::model::{ListEventsOptions, ListObjectsOptions};
 use crate::{
     EventLog, Link, LinkDirection, LinkQueryOptions, LinkStore, MemoryEvent, MemoryObject,
     ObjectKey, ObjectStore, QueueClaimOptions, QueueJob, QueueJobStatus, QueueNackOptions,
@@ -63,15 +63,39 @@ impl ObjectStore for MemoryEngine {
         Ok(self.objects.get(&ObjectKey::new(collection, id)).cloned())
     }
 
-    fn list_objects(&self, collections: Option<&[String]>) -> ThingdResult<Vec<MemoryObject>> {
-        let objects = self
+    fn list_objects(
+        &self,
+        collections: Option<&[String]>,
+        options: &ListObjectsOptions,
+    ) -> ThingdResult<Vec<MemoryObject>> {
+        let mut objects: Vec<MemoryObject> = self
             .objects
             .values()
             .filter(|object| {
                 collections.is_none_or(|allowed| allowed.contains(&object.key.collection))
             })
+            .filter(|object| {
+                if options.filter.is_empty() {
+                    return true;
+                }
+                let Ok(body) = serde_json::from_str::<serde_json::Value>(&object.body) else {
+                    return false;
+                };
+                options.filter.iter().all(|(key, expected)| {
+                    body.get(key.as_str()).is_some_and(|v| v == expected)
+                })
+            })
             .cloned()
             .collect();
+
+        if let Some(offset) = options.offset {
+            let skip = usize::try_from(offset).unwrap_or(usize::MAX);
+            objects = objects.into_iter().skip(skip).collect();
+        }
+        if let Some(limit) = options.limit {
+            let take = usize::try_from(limit).unwrap_or(usize::MAX);
+            objects.truncate(take);
+        }
 
         Ok(objects)
     }
@@ -524,10 +548,10 @@ mod tests {
             .unwrap();
 
         let filtered = engine
-            .list_objects(Some(&["decisions".to_string()]))
+            .list_objects(Some(&["decisions".to_string()]), &ListObjectsOptions::default())
             .unwrap();
 
-        assert_eq!(engine.list_objects(None).unwrap().len(), 2);
+        assert_eq!(engine.list_objects(None, &ListObjectsOptions::default()).unwrap().len(), 2);
         assert_eq!(filtered.len(), 1);
         assert_eq!(filtered[0].key.collection, "decisions");
     }

@@ -7,7 +7,7 @@ use std::path::Path;
 
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 
-use crate::model::ListEventsOptions;
+use crate::model::{ListEventsOptions, ListObjectsOptions};
 use crate::{
     EventLog, MemoryEvent, MemoryObject, ObjectKey, ObjectStore, QueueClaimOptions, QueueJob,
     QueueJobStatus, QueueNackOptions, QueueStore, ThingdError, ThingdResult, u64_to_i64,
@@ -513,41 +513,74 @@ impl ObjectStore for SqliteThingStore {
             .map_err(ThingdError::from)
     }
 
-    fn list_objects(&self, collections: Option<&[String]>) -> ThingdResult<Vec<MemoryObject>> {
-        let mut objects = Vec::new();
+    fn list_objects(
+        &self,
+        collections: Option<&[String]>,
+        options: &ListObjectsOptions,
+    ) -> ThingdResult<Vec<MemoryObject>> {
+        // Build a dynamic SQL query applying collection filter, JSON field filters,
+        // LIMIT, and OFFSET entirely in SQLite — no post-processing in Rust.
+        let mut conditions: Vec<String> = Vec::new();
+        let mut bound_values: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
 
-        if let Some(cols) = collections.filter(|c| !c.is_empty()) {
-            let placeholders: Vec<String> = (0..cols.len()).map(|_| "?".to_string()).collect();
-            let sql = format!(
-                "SELECT collection, id, body, version, created_at, updated_at FROM objects WHERE collection IN ({}) ORDER BY collection, id",
-                placeholders.join(", ")
-            );
-            let mut statement = self.connection.prepare(&sql).map_err(ThingdError::from)?;
-            let params: Vec<&dyn rusqlite::types::ToSql> = cols
-                .iter()
-                .map(|s| s as &dyn rusqlite::types::ToSql)
-                .collect();
-            let rows = statement
-                .query_map(params.as_slice(), row_to_object)
-                .map_err(ThingdError::from)?;
-            for row in rows {
-                objects.push(row.map_err(ThingdError::from)?);
-            }
-        } else {
-            let mut statement = self
-                .connection
-                .prepare(
-                    "SELECT collection, id, body, version, created_at, updated_at FROM objects ORDER BY collection, id",
-                )
-                .map_err(ThingdError::from)?;
-            let rows = statement
-                .query_map([], row_to_object)
-                .map_err(ThingdError::from)?;
-            for row in rows {
-                objects.push(row.map_err(ThingdError::from)?);
+        // Collection IN (...) clause.
+        let has_collections = collections.is_some_and(|c| !c.is_empty());
+        if has_collections {
+            let cols = collections.unwrap_or_default();
+            let placeholders = cols.iter().map(|_| "?").collect::<Vec<_>>().join(", ");
+            conditions.push(format!("collection IN ({placeholders})"));
+            for col in cols {
+                bound_values.push(Box::new(col.clone()));
             }
         }
 
+        // json_extract(...) = ? for each filter pair.
+        for (key, value) in &options.filter {
+            conditions.push(format!("json_extract(body, '$.{key}') = ?"));
+            let sql_val: Box<dyn rusqlite::types::ToSql> = match value {
+                serde_json::Value::String(s) => Box::new(s.clone()),
+                serde_json::Value::Number(n) => {
+                    if let Some(i) = n.as_i64() {
+                        Box::new(i)
+                    } else {
+                        Box::new(n.as_f64().unwrap_or(0.0))
+                    }
+                }
+                serde_json::Value::Bool(b) => Box::new(i64::from(*b)),
+                serde_json::Value::Null => Box::new(rusqlite::types::Null),
+                other => Box::new(other.to_string()),
+            };
+            bound_values.push(sql_val);
+        }
+
+        let where_clause = if conditions.is_empty() {
+            String::new()
+        } else {
+            format!("WHERE {}", conditions.join(" AND "))
+        };
+
+        let limit_clause = match (options.limit, options.offset) {
+            (Some(l), Some(o)) => format!("LIMIT {l} OFFSET {o}"),
+            (Some(l), None) => format!("LIMIT {l}"),
+            (None, Some(o)) => format!("LIMIT -1 OFFSET {o}"),
+            (None, None) => String::new(),
+        };
+
+        let sql = format!(
+            "SELECT collection, id, body, version, created_at, updated_at FROM objects {where_clause} ORDER BY collection, id {limit_clause}"
+        );
+
+        let mut statement = self.connection.prepare(&sql).map_err(ThingdError::from)?;
+        let params: Vec<&dyn rusqlite::types::ToSql> =
+            bound_values.iter().map(|v| v.as_ref()).collect();
+        let rows = statement
+            .query_map(params.as_slice(), row_to_object)
+            .map_err(ThingdError::from)?;
+
+        let mut objects = Vec::new();
+        for row in rows {
+            objects.push(row.map_err(ThingdError::from)?);
+        }
         Ok(objects)
     }
 
@@ -1806,10 +1839,10 @@ mod tests {
             .unwrap();
 
         let filtered = store
-            .list_objects(Some(&["decisions".to_string()]))
+            .list_objects(Some(&["decisions".to_string()]), &ListObjectsOptions::default())
             .unwrap();
 
-        assert_eq!(store.list_objects(None).unwrap().len(), 2);
+        assert_eq!(store.list_objects(None, &ListObjectsOptions::default()).unwrap().len(), 2);
         assert_eq!(filtered.len(), 1);
         assert_eq!(filtered[0].key.collection, "decisions");
     }

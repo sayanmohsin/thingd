@@ -46,9 +46,9 @@ pub use connector::{
 pub use error::{ThingdError, ThingdResult};
 pub use in_memory::MemoryEngine;
 pub use model::{
-    DEFAULT_QUEUE_LEASE_MS, Link, LinkDirection, LinkQueryOptions, ListEventsOptions, MemoryEvent,
-    MemoryObject, ObjectKey, QueueClaimOptions, QueueJob, QueueJobStatus, QueueNackOptions,
-    SearchHit, SearchOptions,
+    DEFAULT_QUEUE_LEASE_MS, Link, LinkDirection, LinkQueryOptions, ListEventsOptions,
+    ListObjectsOptions, MemoryEvent, MemoryObject, ObjectKey, QueueClaimOptions, QueueJob,
+    QueueJobStatus, QueueNackOptions, SearchHit, SearchOptions,
 };
 #[cfg(feature = "sqlite")]
 pub use sqlite::{SQLITE_SCHEMA_VERSION, SqliteThingStore};
