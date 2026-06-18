@@ -277,7 +277,6 @@ export class InMemoryThingStore implements ThingStore {
   async search(query: string, options: MemorySearchOptions = {}): Promise<MemorySearchResult[]> {
     const normalizedQuery = query.toLowerCase();
     const collections = options.collections ? new Set(options.collections) : null;
-    const limit = options.limit ?? 10;
     const results: MemorySearchResult[] = [];
 
     for (const [collection, records] of this.collections) {
@@ -312,7 +311,7 @@ export class InMemoryThingStore implements ThingStore {
       }
     }
 
-    return results.slice(0, limit);
+    return options.limit !== undefined ? results.slice(0, options.limit) : results;
   }
 
   async countObjects(): Promise<number> {
