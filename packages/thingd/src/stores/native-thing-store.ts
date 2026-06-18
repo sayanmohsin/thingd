@@ -177,12 +177,7 @@ export class NativeThingStore implements ThingStore {
     const collectionsJson = JSON.stringify([collection]);
     const filterJson = options?.filter ? JSON.stringify(options.filter) : undefined;
     return parseJson<NativeObjectRecord[]>(
-      this.binding.listObjectsJson(
-        collectionsJson,
-        filterJson,
-        options?.limit,
-        options?.offset
-      )
+      this.binding.listObjectsJson(collectionsJson, filterJson, options?.limit, options?.offset)
     ).map(objectFromNative) as T[];
   }
 

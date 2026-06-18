@@ -4,7 +4,6 @@ export { InMemoryThingStore } from "./stores/in-memory-thing-store.js";
 export { NativeThingStore } from "./stores/native-thing-store.js";
 export type { ThingDDriver, ThingDOpenConfig, ThingDOpenOptions } from "./thingd.js";
 export { ThingD } from "./thingd.js";
-export { SDK_VERSION } from "./version.js";
 export type {
   ListEventsOptions,
   ListObjectsOptions,
@@ -26,3 +25,4 @@ export type {
   ThingDeleteResult,
   ThingStore,
 } from "./types.js";
+export { SDK_VERSION } from "./version.js";
