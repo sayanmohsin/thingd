@@ -601,27 +601,21 @@ impl ObjectStore for SqliteThingStore {
 impl EventLog for SqliteThingStore {
     fn append_event(&mut self, mut event: MemoryEvent) -> ThingdResult<MemoryEvent> {
         let transaction = self.connection.transaction().map_err(ThingdError::from)?;
-        transaction
-            .execute(
+
+        let (sequence, created_at): (i64, String) = transaction
+            .query_row(
                 r"
                 INSERT INTO events (stream, event_type, body, created_at)
                 VALUES (?1, ?2, ?3, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+                RETURNING sequence, created_at
                 ",
                 params![&event.stream, &event.event_type, &event.body],
+                |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?)),
             )
             .map_err(ThingdError::from)?;
 
-        let sequence = transaction.last_insert_rowid();
         event.sequence =
             u64::try_from(sequence).map_err(|error| ThingdError::Storage(error.to_string()))?;
-
-        let created_at: String = transaction
-            .query_row(
-                "SELECT created_at FROM events WHERE sequence = ?1",
-                params![sequence],
-                |row| row.get(0),
-            )
-            .map_err(ThingdError::from)?;
         event.created_at = created_at;
 
         let text = extract_text_from_json(&event.body);
@@ -643,28 +637,21 @@ impl EventLog for SqliteThingStore {
 
         let mut results = Vec::with_capacity(events.len());
         for event in events {
-            transaction
-                .execute(
+            let (sequence, created_at): (i64, String) = transaction
+                .query_row(
                     r"
                     INSERT INTO events (stream, event_type, body, created_at)
                     VALUES (?1, ?2, ?3, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+                    RETURNING sequence, created_at
                     ",
                     params![&event.stream, &event.event_type, &event.body],
+                    |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?)),
                 )
                 .map_err(ThingdError::from)?;
 
-            let sequence = transaction.last_insert_rowid();
             let mut result = event;
             result.sequence =
                 u64::try_from(sequence).map_err(|error| ThingdError::Storage(error.to_string()))?;
-
-            let created_at: String = transaction
-                .query_row(
-                    "SELECT created_at FROM events WHERE sequence = ?1",
-                    params![sequence],
-                    |row| row.get(0),
-                )
-                .map_err(ThingdError::from)?;
             result.created_at = created_at;
 
             let text = extract_text_from_json(&result.body);
