@@ -1,5 +1,7 @@
 <script>
   import { onMount, onDestroy } from 'svelte';
+  import { flip } from 'svelte/animate';
+  import { fly, fade } from 'svelte/transition';
   import JsonEditor from './lib/JsonEditor.svelte';
 
   // App State
@@ -40,6 +42,17 @@
   let searchCollections = '';
   let searchMetadata = '';
   let searchResults = [];
+
+  // Recently changed items (for highlight animation)
+  let recentlyChanged = new Set();
+  function markChanged(id) {
+    recentlyChanged.add(id);
+    recentlyChanged = recentlyChanged;
+    setTimeout(() => {
+      recentlyChanged.delete(id);
+      recentlyChanged = recentlyChanged;
+    }, 1500);
+  }
 
   // Modals Visibility
   let modalObjectVisible = false;
@@ -275,6 +288,7 @@
       showToast(`Object "${objId}" saved successfully.`, 'success');
       logDiagnostic(`Saved object "${objId}" in collection "${selectedCollection}".`);
       modalObjectVisible = false;
+      markChanged(objId);
       fetchObjects();
       fetchStatus();
     } catch (err) {
@@ -356,6 +370,7 @@
       showToast('Event logged successfully.', 'success');
       logDiagnostic(`Appended event [${eventType}] to stream "${eventStream}".`);
       modalEventVisible = false;
+      markChanged(eventStream);
       fetchStreams();
       if (selectedStream === eventStream) {
         fetchEvents();
@@ -441,6 +456,7 @@
       showToast(`Job "${result.id}" pushed onto queue.`, 'success');
       logDiagnostic(`Pushed job ID "${result.id}" onto queue "${selectedQueue}".`);
       modalPushJobVisible = false;
+      markChanged(result.id);
       fetchQueueStats();
       fetchQueueJobs();
       fetchStatus();
@@ -846,8 +862,8 @@
                   <span class="terminal-title">quick diagnostics</span>
                 </div>
                 <div class="terminal-body" style="max-height: 180px; overflow-y: auto;">
-                  {#each diagnosticLogs as log}
-                    <div class="log-line">
+                  {#each diagnosticLogs as log (log.time)}
+                    <div class="log-line" in:fly={{ y: 10, duration: 200 }}>
                       <span class="text-muted">[{log.time}]</span>
                       <span class={log.type ? `text-${log.type}` : ''}>{log.text}</span>
                     </div>
@@ -871,8 +887,11 @@
                 {#if collections.length === 0}
                   <div class="empty-state">No collections found.</div>
                 {:else}
-                  {#each collections as col}
-                    <button class="sidebar-list-item {selectedCollection === col ? 'active' : ''}" on:click={() => selectCollection(col)}>
+                  {#each collections as col (col)}
+                    <button class="sidebar-list-item {selectedCollection === col ? 'active' : ''} {recentlyChanged.has(col) ? 'flash-highlight' : ''}" on:click={() => selectCollection(col)}
+                      animate:flip={{ duration: 250 }}
+                      in:fly={{ x: -20, duration: 250 }}
+                      out:fade={{ duration: 150 }}>
                       <span class="item-name">{col}</span>
                       <span class="item-count-badge">coll</span>
                     </button>
@@ -912,8 +931,11 @@
                           <td colspan="5" class="text-center text-muted">This collection is currently empty.</td>
                         </tr>
                       {:else}
-                        {#each objects as obj}
-                          <tr>
+                        {#each objects as obj (obj.id)}
+                          <tr class="{recentlyChanged.has(obj.id) ? 'flash-highlight' : ''}"
+                            animate:flip={{ duration: 300 }}
+                            in:fly={{ y: 20, duration: 300 }}
+                            out:fade={{ duration: 150 }}>
                             <td class="code-cell font-weight-bold" title={obj.id}>{obj.id}</td>
                             <td class="text-cell" title={obj.text || ''}>{obj.text || '-'}</td>
                             <td class="code-cell" title={JSON.stringify(obj)}>{JSON.stringify(obj)}</td>
@@ -948,8 +970,11 @@
                 {#if streams.length === 0}
                   <div class="empty-state">No event streams found.</div>
                 {:else}
-                  {#each streams as str}
-                    <button class="sidebar-list-item {selectedStream === str ? 'active' : ''}" on:click={() => selectStream(str)}>
+                  {#each streams as str (str)}
+                    <button class="sidebar-list-item {selectedStream === str ? 'active' : ''} {recentlyChanged.has(str) ? 'flash-highlight' : ''}" on:click={() => selectStream(str)}
+                      animate:flip={{ duration: 250 }}
+                      in:fly={{ x: -20, duration: 250 }}
+                      out:fade={{ duration: 150 }}>
                       <span class="item-name">{str}</span>
                       <span class="item-count-badge">stream</span>
                     </button>
@@ -974,8 +999,11 @@
                   {:else if events.length === 0}
                     <div class="timeline-empty">This stream has no logged events yet.</div>
                   {:else}
-                    {#each events as ev}
-                      <div class="timeline-item">
+                    {#each events as ev (ev.id)}
+                      <div class="timeline-item {recentlyChanged.has(ev.id) ? 'flash-highlight' : ''}"
+                        animate:flip={{ duration: 300 }}
+                        in:fly={{ y: 20, duration: 300 }}
+                        out:fade={{ duration: 150 }}>
                         <div class="timeline-marker"></div>
                         <div class="timeline-card">
                           <div class="timeline-header">
@@ -1012,8 +1040,11 @@
                 {#if queues.length === 0}
                   <div class="empty-state">No active queues found.</div>
                 {:else}
-                  {#each queues as q}
-                    <button class="sidebar-list-item {selectedQueue === q ? 'active' : ''}" on:click={() => selectQueue(q)}>
+                  {#each queues as q (q)}
+                    <button class="sidebar-list-item {selectedQueue === q ? 'active' : ''} {recentlyChanged.has(q) ? 'flash-highlight' : ''}" on:click={() => selectQueue(q)}
+                      animate:flip={{ duration: 250 }}
+                      in:fly={{ x: -20, duration: 250 }}
+                      out:fade={{ duration: 150 }}>
                       <span class="item-name">{q}</span>
                       <span class="item-count-badge">queue</span>
                     </button>
@@ -1074,8 +1105,11 @@
                             <td colspan="7" class="text-center text-muted">No active jobs in this queue.</td>
                           </tr>
                         {:else}
-                          {#each activeJobs as job}
-                            <tr>
+                          {#each activeJobs as job (job.id)}
+                            <tr class="{recentlyChanged.has(job.id) ? 'flash-highlight' : ''}"
+                              animate:flip={{ duration: 300 }}
+                              in:fly={{ y: 20, duration: 300 }}
+                              out:fade={{ duration: 150 }}>
                               <td class="code-cell font-weight-bold" title={job.id}>{job.id}</td>
                               <td><span class="badge {job.status === 'leased' ? 'badge-leased' : 'badge-ready'}">{job.status}</span></td>
                               <td class="text-center">{job.attempts}</td>
@@ -1114,8 +1148,11 @@
                             <td colspan="6" class="text-center text-muted">No poison or dead jobs reported.</td>
                           </tr>
                         {:else}
-                          {#each deadJobs as job}
-                            <tr>
+                          {#each deadJobs as job (job.id)}
+                            <tr
+                              animate:flip={{ duration: 300 }}
+                              in:fly={{ y: 20, duration: 300 }}
+                              out:fade={{ duration: 150 }}>
                               <td class="code-cell font-weight-bold" title={job.id}>{job.id}</td>
                               <td class="text-center">{job.attempts}</td>
                               <td class="text-center">{job.maxAttempts}</td>
@@ -1191,8 +1228,11 @@
                           <td colspan="5" class="text-center text-muted">Enter a search query above and click 'Run Search' to inspect FTS5 matching.</td>
                         </tr>
                       {:else}
-                        {#each searchResults as res}
-                          <tr>
+                        {#each searchResults as res (res.id)}
+                          <tr
+                            animate:flip={{ duration: 300 }}
+                            in:fly={{ y: 20, duration: 300 }}
+                            out:fade={{ duration: 150 }}>
                             <td><span class="badge badge-leased">{res.collection}</span></td>
                             <td class="code-cell font-weight-bold" title={res.id}>{res.id}</td>
                             <!-- svelte-ignore html_unsafe_element_attribute -->
