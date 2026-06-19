@@ -1,3 +1,9 @@
+## [0.29.0](https://github.com/sayanmohsin/thingd/compare/v0.28.0...v0.29.0) (2026-06-19)
+
+### Features
+
+* add FLIP, fly, fade animations + highlight flash to dashboard lists ([87ae28e](https://github.com/sayanmohsin/thingd/commit/87ae28e3313dfcb521adf9a43a3fc1d812985f96))
+
 ## [0.28.0](https://github.com/sayanmohsin/thingd/compare/v0.27.0...v0.28.0) (2026-06-19)
 
 ### Features
