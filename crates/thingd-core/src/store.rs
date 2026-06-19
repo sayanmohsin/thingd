@@ -1,6 +1,6 @@
 //! Storage traits implemented by thingd storage adapters.
 
-use crate::model::{ListEventsOptions, ListObjectsOptions};
+use crate::model::{ListEventsOptions, ListObjectsOptions, PutObjectOptions};
 use crate::{
     MemoryEvent, MemoryObject, QueueClaimOptions, QueueJob, QueueNackOptions, ThingdResult,
 };
@@ -44,6 +44,24 @@ pub trait ObjectStore {
         Ok(results)
     }
 
+    /// Insert or replace an object with explicit options.
+    ///
+    /// When `options.index` is `false`, the FTS search index is not updated.
+    /// Use this when only metadata changes (e.g. timestamp dedup) and the body
+    /// text is identical — avoids wasted FTS DELETE + INSERT.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the backing store cannot persist the object.
+    fn put_object_with_options(
+        &mut self,
+        object: MemoryObject,
+        options: PutObjectOptions,
+    ) -> ThingdResult<MemoryObject> {
+        let _ = options;
+        self.put_object(object)
+    }
+
     /// Read an object by collection and id.
     ///
     /// # Errors
@@ -70,6 +88,25 @@ pub trait ObjectStore {
     ///
     /// Returns an error when the backing store cannot delete the object.
     fn delete_object(&mut self, collection: &str, id: &str) -> ThingdResult<bool>;
+
+    /// Delete multiple objects in a single transaction.
+    ///
+    /// Returns the number of deleted objects. The `SQLite` adapter emits a bulk
+    /// `DELETE` statement in one transaction. The default implementation loops
+    /// calling `delete_object`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the backing store cannot delete any object.
+    fn delete_objects_batch(&mut self, keys: &[(String, String)]) -> ThingdResult<u64> {
+        let mut count = 0u64;
+        for (collection, id) in keys {
+            if self.delete_object(collection, id)? {
+                count += 1;
+            }
+        }
+        Ok(count)
+    }
 
     /// Count total objects across all collections.
     ///

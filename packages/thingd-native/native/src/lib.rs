@@ -102,6 +102,7 @@ impl NativeThingStore {
 
         let options = ListObjectsOptions {
             filter: filter_pairs,
+            sort_by: None,
             limit: limit.map(|v| v as u64),
             offset: offset.map(|v| v as u64),
         };

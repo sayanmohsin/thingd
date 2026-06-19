@@ -88,6 +88,23 @@ impl ObjectStore for MemoryEngine {
                 .cloned()
                 .collect();
 
+        // Apply sort if requested
+        if let Some(ref sort_by) = options.sort_by {
+            use crate::model::SortDirection;
+            let asc = sort_by.direction == SortDirection::Asc;
+            objects.sort_by(|a, b| {
+                let cmp = match sort_by.field.as_str() {
+                    "id" => a.key.id.cmp(&b.key.id),
+                    "collection" => a.key.collection.cmp(&b.key.collection),
+                    "created_at" => a.created_at.cmp(&b.created_at),
+                    "updated_at" => a.updated_at.cmp(&b.updated_at),
+                    "version" => a.version.cmp(&b.version),
+                    _ => std::cmp::Ordering::Equal,
+                };
+                if asc { cmp } else { cmp.reverse() }
+            });
+        }
+
         if let Some(offset) = options.offset {
             let skip = usize::try_from(offset).unwrap_or(usize::MAX);
             objects = objects.into_iter().skip(skip).collect();
@@ -963,5 +980,104 @@ mod tests {
 
         assert_ne!(l3.id, l2.id, "IDs must not collide after a delete");
         assert!(l3.id > l2.id, "IDs must be monotonically increasing");
+    }
+
+    // ── list_objects: sort by created_at DESC ──────────────────────────────
+
+    #[test]
+    fn list_objects_sort_by_created_at_desc() {
+        let mut engine = MemoryEngine::new();
+        engine
+            .put_object(MemoryObject::new("w", "a", r#"{"x":1}"#))
+            .unwrap();
+        engine
+            .put_object(MemoryObject::new("w", "b", r#"{"x":2}"#))
+            .unwrap();
+        engine
+            .put_object(MemoryObject::new("w", "c", r#"{"x":3}"#))
+            .unwrap();
+
+        let opts = ListObjectsOptions {
+            sort_by: Some(crate::SortBy::desc("created_at")),
+            ..Default::default()
+        };
+        let results = engine
+            .list_objects(Some(&["w".to_string()]), &opts)
+            .unwrap();
+        assert_eq!(results.len(), 3);
+    }
+
+    // ── list_objects: sort by id ASC ───────────────────────────────────────
+
+    #[test]
+    fn list_objects_sort_by_id_asc() {
+        let mut engine = MemoryEngine::new();
+        engine
+            .put_object(MemoryObject::new("w", "c", r#"{"x":3}"#))
+            .unwrap();
+        engine
+            .put_object(MemoryObject::new("w", "a", r#"{"x":1}"#))
+            .unwrap();
+        engine
+            .put_object(MemoryObject::new("w", "b", r#"{"x":2}"#))
+            .unwrap();
+
+        let opts = ListObjectsOptions {
+            sort_by: Some(crate::SortBy::asc("id")),
+            ..Default::default()
+        };
+        let results = engine
+            .list_objects(Some(&["w".to_string()]), &opts)
+            .unwrap();
+        assert_eq!(results.len(), 3);
+        assert_eq!(results[0].key.id, "a");
+        assert_eq!(results[1].key.id, "b");
+        assert_eq!(results[2].key.id, "c");
+    }
+
+    // ── delete_objects_batch ───────────────────────────────────────────────
+
+    #[test]
+    fn delete_objects_batch_deletes_multiple() {
+        let mut engine = MemoryEngine::new();
+        engine
+            .put_object(MemoryObject::new("w", "a", "{}"))
+            .unwrap();
+        engine
+            .put_object(MemoryObject::new("w", "b", "{}"))
+            .unwrap();
+        engine
+            .put_object(MemoryObject::new("w", "c", "{}"))
+            .unwrap();
+
+        let keys = vec![
+            ("w".to_string(), "a".to_string()),
+            ("w".to_string(), "b".to_string()),
+        ];
+        let deleted = engine.delete_objects_batch(&keys).unwrap();
+        assert_eq!(deleted, 2);
+        assert_eq!(engine.count_objects().unwrap(), 1);
+        assert!(engine.get_object("w", "a").unwrap().is_none());
+        assert!(engine.get_object("w", "b").unwrap().is_none());
+        assert!(engine.get_object("w", "c").unwrap().is_some());
+    }
+
+    // ── put_object_with_options: index=false ───────────────────────────────
+
+    #[test]
+    fn put_object_with_options_skip_index() {
+        let mut engine = MemoryEngine::new();
+        let opts = crate::PutObjectOptions { index: false };
+
+        engine
+            .put_object_with_options(
+                MemoryObject::new("w", "a", r#"{"text":"hello"}"#),
+                opts,
+            )
+            .unwrap();
+
+        let obj = engine.get_object("w", "a").unwrap();
+        assert!(obj.is_some());
+        assert_eq!(obj.unwrap().body, r#"{"text":"hello"}"#);
     }
 }

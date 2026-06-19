@@ -47,8 +47,8 @@ pub use error::{ThingdError, ThingdResult};
 pub use in_memory::MemoryEngine;
 pub use model::{
     DEFAULT_QUEUE_LEASE_MS, Link, LinkDirection, LinkQueryOptions, ListEventsOptions,
-    ListObjectsOptions, MemoryEvent, MemoryObject, ObjectKey, QueueClaimOptions, QueueJob,
-    QueueJobStatus, QueueNackOptions, SearchHit, SearchOptions,
+    ListObjectsOptions, MemoryEvent, MemoryObject, ObjectKey, PutObjectOptions, QueueClaimOptions,
+    QueueJob, QueueJobStatus, QueueNackOptions, SearchHit, SearchOptions, SortBy, SortDirection,
 };
 #[cfg(feature = "sqlite")]
 pub use sqlite::{SQLITE_SCHEMA_VERSION, SqliteThingStore};

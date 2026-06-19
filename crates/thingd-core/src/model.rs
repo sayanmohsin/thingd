@@ -181,6 +181,43 @@ pub struct ListEventsOptions {
     pub limit: Option<u64>,
 }
 
+/// Sort direction for list queries.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum SortDirection {
+    /// Ascending order (A→Z, oldest→newest, smallest→largest).
+    #[default]
+    Asc,
+    /// Descending order (Z→A, newest→oldest, largest→smallest).
+    Desc,
+}
+
+/// Sort specification for list queries.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SortBy {
+    /// Field name: `id`, `collection`, `created_at`, `updated_at`, `version`.
+    pub field: String,
+    /// Sort direction.
+    pub direction: SortDirection,
+}
+
+impl SortBy {
+    /// Create ascending sort by field name.
+    pub fn asc(field: impl Into<String>) -> Self {
+        Self {
+            field: field.into(),
+            direction: SortDirection::Asc,
+        }
+    }
+
+    /// Create descending sort by field name.
+    pub fn desc(field: impl Into<String>) -> Self {
+        Self {
+            field: field.into(),
+            direction: SortDirection::Desc,
+        }
+    }
+}
+
 /// Options for listing objects in a collection.
 #[derive(Clone, Debug, Default)]
 pub struct ListObjectsOptions {
@@ -188,10 +225,27 @@ pub struct ListObjectsOptions {
     /// contains every listed top-level key with the exact JSON value are returned.
     /// Each string is `"key":<json-value>` without surrounding braces.
     pub filter: Vec<(String, serde_json::Value)>,
+    /// Sort specification. Default is insertion order.
+    pub sort_by: Option<SortBy>,
     /// Maximum number of objects to return.
     pub limit: Option<u64>,
     /// Number of objects to skip before returning results.
     pub offset: Option<u64>,
+}
+
+/// Options for putting an object.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct PutObjectOptions {
+    /// Whether to update the FTS search index. Default: `true`.
+    /// Set to `false` when only metadata changes (e.g. timestamp dedup)
+    /// and the body text is identical — skips FTS DELETE + INSERT.
+    pub index: bool,
+}
+
+impl Default for PutObjectOptions {
+    fn default() -> Self {
+        Self { index: true }
+    }
 }
 
 /// Options used when claiming a queue job.

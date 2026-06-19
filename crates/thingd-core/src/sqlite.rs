@@ -486,6 +486,79 @@ impl ObjectStore for SqliteThingStore {
         Ok(results)
     }
 
+    fn put_object_with_options(
+        &mut self,
+        mut object: MemoryObject,
+        options: crate::PutObjectOptions,
+    ) -> ThingdResult<MemoryObject> {
+        let transaction = self.connection.transaction().map_err(ThingdError::from)?;
+        let version = transaction
+            .query_row(
+                "SELECT version FROM objects WHERE collection = ?1 AND id = ?2",
+                params![&object.key.collection, &object.key.id],
+                |row| row.get::<_, i64>(0),
+            )
+            .optional()
+            .map_err(ThingdError::from)?
+            .map_or(Ok::<u64, ThingdError>(1), |existing| {
+                u64::try_from(existing)
+                    .map(|existing| existing + 1)
+                    .map_err(|error| ThingdError::Storage(error.to_string()))
+            })?;
+
+        object.version = version;
+        let stored_version = i64::try_from(object.version)
+            .map_err(|error| ThingdError::Storage(error.to_string()))?;
+
+        let timestamps = transaction
+            .query_row(
+                r"
+                INSERT INTO objects (collection, id, body, version, created_at, updated_at)
+                VALUES (?1, ?2, ?3, ?4, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+                ON CONFLICT(collection, id) DO UPDATE SET
+                    body = excluded.body,
+                    version = excluded.version,
+                    updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+                RETURNING created_at, updated_at
+                ",
+                params![
+                    &object.key.collection,
+                    &object.key.id,
+                    &object.body,
+                    stored_version
+                ],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                    ))
+                },
+            )
+            .map_err(ThingdError::from)?;
+        object.created_at = timestamps.0;
+        object.updated_at = timestamps.1;
+
+        if options.index {
+            let text = extract_text_from_json(&object.body);
+            transaction
+                .execute(
+                    "DELETE FROM search_index WHERE collection = ?1 AND id = ?2 AND kind = 'object'",
+                    params![&object.key.collection, &object.key.id],
+                )
+                .map_err(ThingdError::from)?;
+            transaction
+                .execute(
+                    "INSERT INTO search_index (collection, id, kind, text) VALUES (?1, ?2, 'object', ?3)",
+                    params![&object.key.collection, &object.key.id, text],
+                )
+                .map_err(ThingdError::from)?;
+        }
+
+        transaction.commit().map_err(ThingdError::from)?;
+
+        Ok(object)
+    }
+
     fn get_object(&self, collection: &str, id: &str) -> ThingdResult<Option<MemoryObject>> {
         self.connection
             .query_row(
@@ -566,8 +639,27 @@ impl ObjectStore for SqliteThingStore {
             (None, None) => String::new(),
         };
 
+        let order_clause = options.sort_by.as_ref().map_or_else(
+            || "ORDER BY collection, id".to_string(),
+            |sort_by| {
+                let col = match sort_by.field.as_str() {
+                    "id" => "id",
+                    "collection" => "collection",
+                    "created_at" => "created_at",
+                    "updated_at" => "updated_at",
+                    "version" => "version",
+                    _ => "collection, id",
+                };
+                let dir = match sort_by.direction {
+                    crate::model::SortDirection::Asc => "ASC",
+                    crate::model::SortDirection::Desc => "DESC",
+                };
+                format!("ORDER BY {col} {dir}")
+            },
+        );
+
         let sql = format!(
-            "SELECT collection, id, body, version, created_at, updated_at FROM objects {where_clause} ORDER BY collection, id {limit_clause}"
+            "SELECT collection, id, body, version, created_at, updated_at FROM objects {where_clause} {order_clause} {limit_clause}"
         );
 
         let mut statement = self.connection.prepare(&sql).map_err(ThingdError::from)?;
@@ -604,6 +696,33 @@ impl ObjectStore for SqliteThingStore {
 
         transaction.commit().map_err(ThingdError::from)?;
         Ok(changed > 0)
+    }
+
+    fn delete_objects_batch(&mut self, keys: &[(String, String)]) -> ThingdResult<u64> {
+        let transaction = self.connection.transaction().map_err(ThingdError::from)?;
+        let mut count = 0u64;
+
+        for (collection, id) in keys {
+            let changed = transaction
+                .execute(
+                    "DELETE FROM objects WHERE collection = ?1 AND id = ?2",
+                    params![collection, id],
+                )
+                .map_err(ThingdError::from)?;
+
+            if changed > 0 {
+                transaction
+                    .execute(
+                        "DELETE FROM search_index WHERE collection = ?1 AND id = ?2 AND kind = 'object'",
+                        params![collection, id],
+                    )
+                    .map_err(ThingdError::from)?;
+                count += 1;
+            }
+        }
+
+        transaction.commit().map_err(ThingdError::from)?;
+        Ok(count)
     }
 
     fn count_objects(&self) -> ThingdResult<u64> {
