@@ -1070,10 +1070,7 @@ mod tests {
         let opts = crate::PutObjectOptions { index: false };
 
         engine
-            .put_object_with_options(
-                MemoryObject::new("w", "a", r#"{"text":"hello"}"#),
-                opts,
-            )
+            .put_object_with_options(MemoryObject::new("w", "a", r#"{"text":"hello"}"#), opts)
             .unwrap();
 
         let obj = engine.get_object("w", "a").unwrap();
