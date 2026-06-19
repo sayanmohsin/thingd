@@ -1,3 +1,9 @@
+## [0.28.0](https://github.com/sayanmohsin/thingd/compare/v0.27.0...v0.28.0) (2026-06-19)
+
+### Features
+
+* add sort, delete_objects_batch, put_object_with_options (skip FTS) ([e6e8d74](https://github.com/sayanmohsin/thingd/commit/e6e8d748cfe9c96788cc67630a9c749fdcd6de51))
+
 ## [0.27.0](https://github.com/sayanmohsin/thingd/compare/v0.26.0...v0.27.0) (2026-06-18)
 
 ### Features
