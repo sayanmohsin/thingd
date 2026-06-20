@@ -58,10 +58,10 @@ thingd-cloud (private)
 
 | Area | Details |
 |------|---------|
-| Rust engine | `thingd-core` — memory + SQLite adapters, FTS5 search, queue lifecycle (lease/ack/nack/dead-letter/delayed/retry), schema migrations v1-v3, ~38 tests |
-| Node.js SDK | `thingd` — three drivers: memory (default in-memory TS store), native (napi-rs Rust SQLite), remote/cloud (Streamable HTTP MCP) |
-| CLI | `thingd-cli` — TUI dashboard, 30+ subcommands (search, objects, events, queues, export/import/snapshot, doctor, bench, install for Cursor/Claude Desktop) |
-| MCP server | 16 tools, stdio + Streamable HTTP, audit events to `__thingd:mcp:audit` stream, collection allowlists, read-only mode |
+| Rust engine | `thingd-core` — memory + SQLite adapters, FTS5 search, queue lifecycle (lease/ack/nack/dead-letter/delayed/retry), schema migrations v1-v4, graph links, ~74 tests |
+| Node.js SDK | `thingd` — three drivers: memory (default in-memory TS store), native (napi-rs Rust SQLite), remote/cloud (Streamable HTTP MCP); batch ops, sort/filter/offset, graph links |
+| CLI | `thingd-cli` — TUI dashboard, 30+ subcommands (search, objects, events, queues, links, export/import/snapshot, doctor, bench, install for Cursor/Claude Desktop) |
+| MCP server | 27 tools, stdio + Streamable HTTP, audit events to `__thingd:mcp:audit` stream, collection allowlists, read-only mode |
 | Docker | Multi-stage (Node 24 + Rust), compose + K8s for leader/follower cluster |
 | Logo/branding | `{thing:d}` monospace SVG, truecolor ANSI CLI logo (orange #e05316 + cyan #00c4d4) |
 | SEO | JSON-LD structured data, Twitter Cards, canonical URL, robots.txt, sitemap.xml |
@@ -177,6 +177,62 @@ startup, and TUI header.
 - **Commits** — conventionalcommits format (`fix:`, `feat:`, `refactor:`, etc.)
   for semantic-release to detect version bumps
 - **Commit automation** — do NOT commit unless explicitly asked
+
+---
+
+## Documentation checklist (every feature)
+
+When adding a new feature or changing an API surface, update **all** of these:
+
+### Code layer (required)
+- [ ] `packages/thingd/src/types.ts` — TypeScript types/interfaces
+- [ ] `packages/thingd/src/thingd.ts` — ThingD facade methods
+- [ ] `packages/thingd/src/stores/in-memory-thing-store.ts` — memory implementation
+- [ ] `packages/thingd/src/stores/native-thing-store.ts` — native binding wiring
+- [ ] `packages/thingd/src/stores/cloud-thing-store.ts` — stub (reject with error)
+- [ ] `packages/thingd-native/native/src/lib.rs` — Rust napi binding
+- [ ] `packages/thingd-cli/src/mcp/tools.ts` — MCP tool registration
+- [ ] `packages/thingd-cli/src/index.ts` — CLI subcommand (if applicable)
+- [ ] `packages/thingd/test/thingd.test.mjs` — Node SDK tests
+
+### Documentation layer (required)
+- [ ] `README.md` — feature section + MCP tool list + tool count badge
+- [ ] `docs/mcp-server.md` — tool table entry + tool count in "Current Status"
+- [ ] `docs/cli-reference.md` — CLI command reference (if applicable)
+- [ ] `docs/faq.md` — MCP tool count, error handling (if new error types)
+- [ ] `examples/node-basic/index.ts` — runnable example
+
+### Optional (if applicable)
+- [ ] `docs/agent-patterns.md` — agent usage pattern
+- [ ] `docs/benchmarks.md` — performance characteristics
+- [ ] `docs/release.md` — if publishing process changes
+- [ ] `docs/agent-setup.md` — if tool count or setup changes
+- [ ] `thingd-cloud/docs/thingd/roadmap.md` — if completing a roadmap phase
+
+### Common miss patterns (learned the hard way)
+- **MCP tool count** — update in `README.md` (badge line), `docs/mcp-server.md` (Current Status), `docs/faq.md` (tool list)
+- **Blog/Reddit drafts** — `docs/blog-drafts.md` and `docs/reddit-drafts.md` have hardcoded tool counts that go stale
+- **Native binding type** — when adding napi methods, update the `NativeThingStoreBinding` type in `native-thing-store.ts`
+- **Sort/filter params** — if the Rust `ListObjectsOptions` gets new fields, the native binding `list_objects_json` and TypeScript `listObjects` must pass them through
+
+### Rust ↔ TypeScript alignment rule
+
+Every public Rust feature in `thingd-core` must have a corresponding TypeScript surface. When adding or changing a Rust trait method, struct, or field:
+
+1. **Rust `store.rs` trait** → add method with default impl (backward compat)
+2. **Rust `model.rs`** → add types/options structs
+3. **Rust `in_memory.rs`** → implement in `MemoryEngine`
+4. **Rust `sqlite.rs`** → implement in `SqliteThingStore` (push down to SQL where possible)
+5. **Rust `lib.rs` native binding** → add `#[napi]` method wrapping the trait method
+6. **TypeScript `types.ts`** → add types/interfaces matching Rust structs
+7. **TypeScript `thingd.ts`** → add facade method delegating to store
+8. **TypeScript `in-memory-thing-store.ts`** → implement
+9. **TypeScript `native-thing-store.ts`** → wire to native binding
+10. **TypeScript `cloud-thing-store.ts`** → stub (reject with "not supported")
+11. **MCP `tools.ts`** → register tool with zod schema
+12. **CLI `index.ts`** → add subcommand if user-facing
+
+**Never ship a Rust-only feature without exposing it to TypeScript.** If the feature is internal-only (e.g., `claim_and_ack` optimization), document why it's intentionally not exposed.
 
 ---
 
