@@ -891,7 +891,11 @@ async function runLinks(context: CliContext): Promise<void> {
     if (action === "count") {
       const count = await db.countLinks();
       if (context.pretty) {
-        writeLog(context.stdout, [{ label: "Links", value: String(count) }], "thingd  links  count");
+        writeLog(
+          context.stdout,
+          [{ label: "Links", value: String(count) }],
+          "thingd  links  count"
+        );
       } else {
         writeJson(context.stdout, { count }, false);
       }

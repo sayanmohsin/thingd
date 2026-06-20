@@ -115,9 +115,15 @@ export class InMemoryThingStore implements ThingStore {
       results.sort((a, b) => {
         const va = (a as Record<string, unknown>)[field] as string | number | undefined;
         const vb = (b as Record<string, unknown>)[field] as string | number | undefined;
-        if (va === vb) return 0;
-        if (va === undefined) return 1;
-        if (vb === undefined) return -1;
+        if (va === vb) {
+          return 0;
+        }
+        if (va === undefined) {
+          return 1;
+        }
+        if (vb === undefined) {
+          return -1;
+        }
         const cmp = va < vb ? -1 : 1;
         return asc ? cmp : -cmp;
       });
@@ -385,10 +391,14 @@ export class InMemoryThingStore implements ThingStore {
   async deleteBatch(collection: string, ids: string[]): Promise<number> {
     return this.withLock(() => {
       const records = this.collections.get(collection);
-      if (!records) return 0;
+      if (!records) {
+        return 0;
+      }
       let count = 0;
       for (const id of ids) {
-        if (records.delete(id)) count++;
+        if (records.delete(id)) {
+          count++;
+        }
       }
       return count;
     });

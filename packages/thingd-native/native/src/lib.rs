@@ -7,8 +7,7 @@ use serde_json::Value;
 use thingd_core::{
     EventLog, Link, LinkDirection, LinkQueryOptions, LinkStore, ListEventsOptions,
     ListObjectsOptions, MemoryEvent, MemoryObject, ObjectStore, QueueClaimOptions, QueueJob,
-    QueueJobStatus, QueueNackOptions, QueueStore, SearchOptions, Searcher, SortBy, SortDirection,
-    SqliteThingStore,
+    QueueJobStatus, QueueNackOptions, QueueStore, SearchOptions, Searcher, SqliteThingStore,
 };
 
 #[derive(Deserialize)]
