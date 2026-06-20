@@ -120,7 +120,7 @@ npm install thingd
 
 ```toml
 [dependencies]
-thingd-core = { version = "0.29", features = ["sqlite"] }
+thingd-core = { version = "0.30", features = ["sqlite"] }
 ```
 
 ### Docker (sidecar runtime)

@@ -1,3 +1,9 @@
+## [0.30.0](https://github.com/sayanmohsin/thingd/compare/v0.29.0...v0.30.0) (2026-06-20)
+
+### Features
+
+* add graph links to SDK + MCP server (5 new tools) ([96d1e4b](https://github.com/sayanmohsin/thingd/commit/96d1e4bf4681f0c1d3b44485b05f11c646413f7d))
+
 ## [0.29.0](https://github.com/sayanmohsin/thingd/compare/v0.28.0...v0.29.0) (2026-06-19)
 
 ### Features
