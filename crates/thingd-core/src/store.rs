@@ -2,7 +2,8 @@
 
 use crate::model::{ListEventsOptions, ListObjectsOptions, PutObjectOptions};
 use crate::{
-    MemoryEvent, MemoryObject, QueueClaimOptions, QueueJob, QueueNackOptions, ThingdResult,
+    MemoryEvent, MemoryObject, QueueClaimOptions, QueueJob, QueueNackOptions, ThingdError,
+    ThingdResult,
 };
 
 /// Object storage operations.
@@ -163,6 +164,8 @@ pub trait EventLog {
 
     /// List events, optionally filtered by stream, with pagination.
     ///
+    /// Events are returned in ascending sequence order (oldest first).
+    ///
     /// # Errors
     ///
     /// Returns an error when the backing store cannot read events.
@@ -171,6 +174,35 @@ pub trait EventLog {
         stream: Option<&str>,
         options: ListEventsOptions,
     ) -> ThingdResult<Vec<MemoryEvent>>;
+
+    /// Delete the most recent event from a stream.
+    ///
+    /// Returns the deleted event, or `None` if the stream was empty or
+    /// did not exist. This is useful for implementing undo patterns in
+    /// event-sourced applications.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the backing store cannot delete the event.
+    fn delete_last_event(&mut self, _stream: &str) -> ThingdResult<Option<MemoryEvent>> {
+        Err(ThingdError::Storage(
+            "delete_last_event is not supported by this adapter".into(),
+        ))
+    }
+
+    /// Delete all events in a stream.
+    ///
+    /// Returns the number of events deleted. This is useful for cleaning
+    /// up completed or expired event streams (e.g. finished game matches).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the backing store cannot delete the events.
+    fn delete_stream(&mut self, _stream: &str) -> ThingdResult<u64> {
+        Err(ThingdError::Storage(
+            "delete_stream is not supported by this adapter".into(),
+        ))
+    }
 
     /// Count total events across all streams.
     ///

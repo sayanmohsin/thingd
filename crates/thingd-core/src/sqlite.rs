@@ -892,6 +892,76 @@ impl EventLog for SqliteThingStore {
         }
         Ok(streams)
     }
+
+    fn delete_last_event(&mut self, stream: &str) -> ThingdResult<Option<MemoryEvent>> {
+        let transaction = self.connection.transaction().map_err(ThingdError::from)?;
+
+        let result = transaction
+            .query_row(
+                r"
+                DELETE FROM events
+                WHERE sequence = (
+                    SELECT MAX(sequence) FROM events WHERE stream = ?1
+                )
+                RETURNING stream, event_type, body, sequence, created_at
+                ",
+                params![stream],
+                row_to_event,
+            )
+            .optional()
+            .map_err(ThingdError::from)?;
+
+        if result.is_some() {
+            transaction
+                .execute(
+                    "DELETE FROM search_index WHERE collection = ?1 AND kind = 'event'",
+                    params![stream],
+                )
+                .map_err(ThingdError::from)?;
+            // Re-index remaining events in the stream
+            let remaining: Vec<(i64, String)> = transaction
+                .prepare("SELECT sequence, body FROM events WHERE stream = ?1 ORDER BY sequence")
+                .map_err(ThingdError::from)?
+                .query_map(params![stream], |row| {
+                    Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+                })
+                .map_err(ThingdError::from)?
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(ThingdError::from)?;
+
+            for (seq, body) in &remaining {
+                let text = extract_text_from_json(body);
+                let seq_str = seq.to_string();
+                transaction
+                    .execute(
+                        "INSERT INTO search_index (collection, id, kind, text) VALUES (?1, ?2, 'event', ?3)",
+                        params![stream, seq_str, text],
+                    )
+                    .map_err(ThingdError::from)?;
+            }
+        }
+
+        transaction.commit().map_err(ThingdError::from)?;
+        Ok(result)
+    }
+
+    fn delete_stream(&mut self, stream: &str) -> ThingdResult<u64> {
+        let transaction = self.connection.transaction().map_err(ThingdError::from)?;
+
+        let count = transaction
+            .execute("DELETE FROM events WHERE stream = ?1", params![stream])
+            .map_err(ThingdError::from)?;
+
+        transaction
+            .execute(
+                "DELETE FROM search_index WHERE collection = ?1 AND kind = 'event'",
+                params![stream],
+            )
+            .map_err(ThingdError::from)?;
+
+        transaction.commit().map_err(ThingdError::from)?;
+        Ok(count as u64)
+    }
 }
 
 impl QueueStore for SqliteThingStore {
@@ -2249,6 +2319,77 @@ mod tests {
             .append_event(MemoryEvent::new("test", "b", ""))
             .unwrap();
         assert_eq!(store.count_events().unwrap(), 2);
+    }
+
+    #[test]
+    fn deletes_last_event_from_stream() {
+        let mut store = SqliteThingStore::open_in_memory().unwrap();
+
+        store
+            .append_event(MemoryEvent::new("match:1", "turn.recorded", "{}"))
+            .unwrap();
+        store
+            .append_event(MemoryEvent::new("match:1", "turn.recorded", "{}"))
+            .unwrap();
+        store
+            .append_event(MemoryEvent::new("match:2", "turn.recorded", "{}"))
+            .unwrap();
+
+        let deleted = store.delete_last_event("match:1").unwrap().unwrap();
+        assert_eq!(deleted.sequence, 2);
+
+        let remaining = store
+            .list_events(Some("match:1"), ListEventsOptions::default())
+            .unwrap();
+        assert_eq!(remaining.len(), 1);
+        assert_eq!(remaining[0].sequence, 1);
+
+        // match:2 unaffected
+        let match2 = store
+            .list_events(Some("match:2"), ListEventsOptions::default())
+            .unwrap();
+        assert_eq!(match2.len(), 1);
+    }
+
+    #[test]
+    fn returns_none_when_delete_last_event_on_empty_stream() {
+        let mut store = SqliteThingStore::open_in_memory().unwrap();
+        assert!(store.delete_last_event("nonexistent").unwrap().is_none());
+    }
+
+    #[test]
+    fn deletes_stream_and_returns_count() {
+        let mut store = SqliteThingStore::open_in_memory().unwrap();
+
+        store
+            .append_event(MemoryEvent::new("match:1", "turn.recorded", "{}"))
+            .unwrap();
+        store
+            .append_event(MemoryEvent::new("match:1", "turn.recorded", "{}"))
+            .unwrap();
+        store
+            .append_event(MemoryEvent::new("match:2", "turn.recorded", "{}"))
+            .unwrap();
+
+        let count = store.delete_stream("match:1").unwrap();
+        assert_eq!(count, 2);
+
+        let remaining = store
+            .list_events(Some("match:1"), ListEventsOptions::default())
+            .unwrap();
+        assert_eq!(remaining.len(), 0);
+
+        // match:2 unaffected
+        let match2 = store
+            .list_events(Some("match:2"), ListEventsOptions::default())
+            .unwrap();
+        assert_eq!(match2.len(), 1);
+    }
+
+    #[test]
+    fn returns_zero_for_delete_stream_on_empty_stream() {
+        let mut store = SqliteThingStore::open_in_memory().unwrap();
+        assert_eq!(store.delete_stream("nonexistent").unwrap(), 0);
     }
 
     #[test]

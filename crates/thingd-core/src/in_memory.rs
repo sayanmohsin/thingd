@@ -188,6 +188,20 @@ impl EventLog for MemoryEngine {
         streams.dedup();
         Ok(streams)
     }
+
+    fn delete_last_event(&mut self, stream: &str) -> ThingdResult<Option<MemoryEvent>> {
+        let pos = self.events.iter().rposition(|e| e.stream == stream);
+        match pos {
+            Some(idx) => Ok(Some(self.events.remove(idx))),
+            None => Ok(None),
+        }
+    }
+
+    fn delete_stream(&mut self, stream: &str) -> ThingdResult<u64> {
+        let before = self.events.len();
+        self.events.retain(|e| e.stream != stream);
+        Ok((before - self.events.len()) as u64)
+    }
 }
 
 impl QueueStore for MemoryEngine {
@@ -602,6 +616,77 @@ mod tests {
                 .len(),
             1
         );
+    }
+
+    #[test]
+    fn deletes_last_event_from_stream() {
+        let mut engine = MemoryEngine::new();
+
+        engine
+            .append_event(MemoryEvent::new("match:1", "turn.recorded", "{}"))
+            .unwrap();
+        engine
+            .append_event(MemoryEvent::new("match:1", "turn.recorded", "{}"))
+            .unwrap();
+        engine
+            .append_event(MemoryEvent::new("match:2", "turn.recorded", "{}"))
+            .unwrap();
+
+        let deleted = engine.delete_last_event("match:1").unwrap().unwrap();
+        assert_eq!(deleted.sequence, 2);
+
+        let remaining = engine
+            .list_events(Some("match:1"), ListEventsOptions::default())
+            .unwrap();
+        assert_eq!(remaining.len(), 1);
+        assert_eq!(remaining[0].sequence, 1);
+
+        // match:2 unaffected
+        let match2 = engine
+            .list_events(Some("match:2"), ListEventsOptions::default())
+            .unwrap();
+        assert_eq!(match2.len(), 1);
+    }
+
+    #[test]
+    fn returns_none_when_delete_last_event_on_empty_stream() {
+        let mut engine = MemoryEngine::new();
+        assert!(engine.delete_last_event("nonexistent").unwrap().is_none());
+    }
+
+    #[test]
+    fn deletes_stream_and_returns_count() {
+        let mut engine = MemoryEngine::new();
+
+        engine
+            .append_event(MemoryEvent::new("match:1", "turn.recorded", "{}"))
+            .unwrap();
+        engine
+            .append_event(MemoryEvent::new("match:1", "turn.recorded", "{}"))
+            .unwrap();
+        engine
+            .append_event(MemoryEvent::new("match:2", "turn.recorded", "{}"))
+            .unwrap();
+
+        let count = engine.delete_stream("match:1").unwrap();
+        assert_eq!(count, 2);
+
+        let remaining = engine
+            .list_events(Some("match:1"), ListEventsOptions::default())
+            .unwrap();
+        assert_eq!(remaining.len(), 0);
+
+        // match:2 unaffected
+        let match2 = engine
+            .list_events(Some("match:2"), ListEventsOptions::default())
+            .unwrap();
+        assert_eq!(match2.len(), 1);
+    }
+
+    #[test]
+    fn returns_zero_for_delete_stream_on_empty_stream() {
+        let mut engine = MemoryEngine::new();
+        assert_eq!(engine.delete_stream("nonexistent").unwrap(), 0);
     }
 
     #[test]
