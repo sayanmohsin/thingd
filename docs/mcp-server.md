@@ -22,6 +22,7 @@ Implemented:
 - object read/write/delete tools
 - event append/list tools
 - queue push/claim/ack/nack/list/dead tools
+- graph link create/delete/get/neighbors/count tools
 - in-process MCP client tests
 - Streamable HTTP MCP client tests
 - audit events for MCP write tools
@@ -62,6 +63,16 @@ Implemented:
 | `thing_queue_nack` | Reject a job for retry or dead-letter routing |
 | `thing_queue_list` | List all jobs in a queue |
 | `thing_queue_dead` | List dead-letter jobs in a queue |
+
+### Link tools
+
+| Tool | Description |
+|------|-------------|
+| `thing_link_create` | Create a directed graph link between two references |
+| `thing_link_delete` | Delete a graph link by id |
+| `thing_link_get` | Get a graph link by id |
+| `thing_link_neighbors` | Get links connected to a reference (outgoing/incoming/both) |
+| `thing_link_count` | Count all graph links |
 
 ### Count and discovery tools
 

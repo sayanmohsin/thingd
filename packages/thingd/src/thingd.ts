@@ -102,6 +102,25 @@ export class ThingD implements ThingDConnection {
     };
   }
 
+  readonly links = {
+    create: (
+      fromRef: string,
+      linkType: string,
+      toRef: string,
+      weight?: number,
+      metadataJson?: string
+    ) =>
+      this.store.createLink?.(fromRef, linkType, toRef, weight, metadataJson) ??
+      Promise.reject(new Error("Graph links not supported by this driver")),
+    delete: (id: string) => this.store.deleteLink?.(id) ?? Promise.resolve(false),
+    get: (id: string) => this.store.getLink?.(id) ?? Promise.resolve(null),
+    neighbors: (
+      reference: string,
+      direction: import("./types.js").LinkDirection = "Both",
+      options: import("./types.js").LinkQueryOptions = {}
+    ) => this.store.getNeighbors?.(reference, direction, options) ?? Promise.resolve([]),
+  };
+
   async close(): Promise<void> {
     await this.store.close?.();
   }
@@ -120,6 +139,10 @@ export class ThingD implements ThingDConnection {
 
   async countDeadJobs(): Promise<number> {
     return this.store.countDeadJobs?.() ?? 0;
+  }
+
+  async countLinks(): Promise<number> {
+    return this.store.countLinks?.() ?? 0;
   }
 
   async listCollections(): Promise<string[]> {

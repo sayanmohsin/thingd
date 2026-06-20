@@ -52,6 +52,7 @@ export class InMemoryThingStore implements ThingStore {
   private readonly events: StoredMemoryEvent[] = [];
   private nextEventSequence = 0;
   private readonly queues = new Map<string, QueueJob[]>();
+  private readonly links = new Map<string, import("../types.js").Link>();
   private readonly mutex = new Mutex();
 
   private async withLock<T>(fn: () => T): Promise<T> {
@@ -340,6 +341,70 @@ export class InMemoryThingStore implements ThingStore {
       total += jobs.filter((job) => job.status === "dead").length;
     }
     return total;
+  }
+
+  async countLinks(): Promise<number> {
+    return this.links.size;
+  }
+
+  async createLink(
+    fromRef: string,
+    linkType: string,
+    toRef: string,
+    weight?: number,
+    metadataJson?: string
+  ): Promise<import("../types.js").Link> {
+    return this.withLock(() => {
+      const link: import("../types.js").Link = {
+        id: randomUUID(),
+        fromRef,
+        linkType,
+        toRef,
+        weight,
+        metadataJson: metadataJson ?? "{}",
+        createdAt: new Date().toISOString(),
+      };
+      this.links.set(link.id, link);
+      return link;
+    });
+  }
+
+  async deleteLink(id: string): Promise<boolean> {
+    return this.withLock(() => {
+      return this.links.delete(id);
+    });
+  }
+
+  async getLink(id: string): Promise<import("../types.js").Link | null> {
+    return this.links.get(id) ?? null;
+  }
+
+  async getNeighbors(
+    reference: string,
+    direction: import("../types.js").LinkDirection,
+    options: import("../types.js").LinkQueryOptions
+  ): Promise<import("../types.js").Link[]> {
+    let results = Array.from(this.links.values());
+
+    results = results.filter((link) => {
+      if (direction === "Outgoing") {
+        return link.fromRef === reference;
+      }
+      if (direction === "Incoming") {
+        return link.toRef === reference;
+      }
+      return link.fromRef === reference || link.toRef === reference;
+    });
+
+    if (options.linkType) {
+      results = results.filter((link) => link.linkType === options.linkType);
+    }
+
+    if (options.limit !== undefined) {
+      results = results.slice(0, options.limit);
+    }
+
+    return results;
   }
 
   async listCollections(): Promise<string[]> {

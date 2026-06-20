@@ -627,7 +627,7 @@ dependencies = [
 
 [[package]]
 name = "thingd-core"
-version = "0.28.0"
+version = "0.29.0"
 dependencies = [
  "chrono",
  "csv",
@@ -639,7 +639,7 @@ dependencies = [
 
 [[package]]
 name = "thingd-native"
-version = "0.28.0"
+version = "0.29.0"
 dependencies = [
  "napi",
  "napi-build",

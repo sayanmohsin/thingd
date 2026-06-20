@@ -94,6 +94,23 @@ export type MemorySearchResult =
       value: StoredMemoryEvent;
     };
 
+export type LinkDirection = "Outgoing" | "Incoming" | "Both";
+
+export type LinkQueryOptions = {
+  linkType?: string;
+  limit?: number;
+};
+
+export type Link = {
+  id: string;
+  fromRef: string;
+  linkType: string;
+  toRef: string;
+  weight?: number;
+  metadataJson: string;
+  createdAt: string;
+};
+
 export type MemoryQueue = {
   push(payload: QueueJobPayload, options?: QueueJobOptions): Promise<QueueJob>;
   claim(options?: QueueClaimOptions): Promise<QueueJob | null>;
@@ -143,6 +160,23 @@ export interface ThingDConnection {
   countEvents(): Promise<number>;
   countActiveJobs(): Promise<number>;
   countDeadJobs(): Promise<number>;
+  countLinks(): Promise<number>;
+  readonly links: {
+    create(
+      fromRef: string,
+      linkType: string,
+      toRef: string,
+      weight?: number,
+      metadataJson?: string
+    ): Promise<Link>;
+    delete(id: string): Promise<boolean>;
+    get(id: string): Promise<Link | null>;
+    neighbors(
+      reference: string,
+      direction?: LinkDirection,
+      options?: LinkQueryOptions
+    ): Promise<Link[]>;
+  };
   listCollections(): Promise<string[]>;
   listStreams(): Promise<string[]>;
   listQueues(): Promise<string[]>;
@@ -169,6 +203,21 @@ export interface ThingStore {
   countEvents?(): Promise<number>;
   countActiveJobs?(): Promise<number>;
   countDeadJobs?(): Promise<number>;
+  countLinks?(): Promise<number>;
+  createLink?(
+    fromRef: string,
+    linkType: string,
+    toRef: string,
+    weight?: number,
+    metadataJson?: string
+  ): Promise<Link>;
+  deleteLink?(id: string): Promise<boolean>;
+  getLink?(id: string): Promise<Link | null>;
+  getNeighbors?(
+    reference: string,
+    direction: LinkDirection,
+    options: LinkQueryOptions
+  ): Promise<Link[]>;
   listCollections?(): Promise<string[]>;
   listStreams?(): Promise<string[]>;
   listQueues?(): Promise<string[]>;

@@ -219,6 +219,36 @@ export class CloudThingStore implements ThingStore {
     return this.callTool("thing_count_dead_jobs", {});
   }
 
+  async countLinks(): Promise<number> {
+    return Promise.reject(new Error("Graph links not supported by cloud driver yet"));
+  }
+
+  async createLink(
+    _fromRef: string,
+    _linkType: string,
+    _toRef: string,
+    _weight?: number,
+    _metadataJson?: string
+  ): Promise<import("../types.js").Link> {
+    return Promise.reject(new Error("Graph links not supported by cloud driver yet"));
+  }
+
+  async deleteLink(_id: string): Promise<boolean> {
+    return Promise.reject(new Error("Graph links not supported by cloud driver yet"));
+  }
+
+  async getLink(_id: string): Promise<import("../types.js").Link | null> {
+    return Promise.reject(new Error("Graph links not supported by cloud driver yet"));
+  }
+
+  async getNeighbors(
+    _reference: string,
+    _direction: import("../types.js").LinkDirection,
+    _options: import("../types.js").LinkQueryOptions
+  ): Promise<import("../types.js").Link[]> {
+    return Promise.reject(new Error("Graph links not supported by cloud driver yet"));
+  }
+
   async listCollections(): Promise<string[]> {
     return this.callTool("thing_list_collections", {});
   }

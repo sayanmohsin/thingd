@@ -47,9 +47,20 @@ type NativeThingStoreBinding = {
   countEventsJson(): Promise<number>;
   countActiveJobsJson(): Promise<number>;
   countDeadJobsJson(): Promise<number>;
+  countLinksJson(): Promise<number>;
   listCollectionsJson(): Promise<string>;
   listStreamsJson(): Promise<string>;
   listQueuesJson(): Promise<string>;
+  createLinkJson(
+    fromRef: string,
+    linkType: string,
+    toRef: string,
+    weight?: number,
+    metadataJson?: string
+  ): string;
+  deleteLink(id: string): boolean;
+  getLinkJson(id: string): string | null;
+  getNeighborsJson(reference: string, direction: string, linkType?: string, limit?: number): string;
   searchJson(query: string, collectionsJson?: string, limit?: number, filterJson?: string): string;
   putObjectsBatchJson(objectsJson: string): string;
   appendEventsBatchJson(eventsJson: string): string;
@@ -96,6 +107,16 @@ type NativeQueueJobRecord = {
   deadAtMs?: number;
   createdAt: string;
   lastError: string;
+};
+
+type NativeLinkRecord = {
+  id: string;
+  fromRef: string;
+  linkType: string;
+  toRef: string;
+  weight?: number;
+  metadataJson: string;
+  createdAt: string;
 };
 
 type NativeQueueJobResult =
@@ -338,6 +359,43 @@ export class NativeThingStore implements ThingStore {
     return this.binding.countDeadJobsJson();
   }
 
+  async countLinks(): Promise<number> {
+    return this.binding.countLinksJson();
+  }
+
+  async createLink(
+    fromRef: string,
+    linkType: string,
+    toRef: string,
+    weight?: number,
+    metadataJson?: string
+  ): Promise<import("../types.js").Link> {
+    return linkFromNative(
+      parseJson<NativeLinkRecord>(
+        this.binding.createLinkJson(fromRef, linkType, toRef, weight, metadataJson)
+      )
+    );
+  }
+
+  async deleteLink(id: string): Promise<boolean> {
+    return this.binding.deleteLink(id);
+  }
+
+  async getLink(id: string): Promise<import("../types.js").Link | null> {
+    const record = this.binding.getLinkJson(id);
+    return record ? linkFromNative(parseJson<NativeLinkRecord>(record)) : null;
+  }
+
+  async getNeighbors(
+    reference: string,
+    direction: import("../types.js").LinkDirection,
+    options: import("../types.js").LinkQueryOptions
+  ): Promise<import("../types.js").Link[]> {
+    return parseJson<NativeLinkRecord[]>(
+      this.binding.getNeighborsJson(reference, direction, options.linkType, options.limit)
+    ).map(linkFromNative);
+  }
+
   async listCollections(): Promise<string[]> {
     return parseJson<string[]>(await this.binding.listCollectionsJson());
   }
@@ -472,6 +530,13 @@ function jobFromNative(record: NativeQueueJobRecord): QueueJob {
     completedAt: optionalTimestampToIso(record.completedAtMs),
     deadAt: optionalTimestampToIso(record.deadAtMs),
     lastError: record.lastError || undefined,
+  };
+}
+
+function linkFromNative(record: NativeLinkRecord): import("../types.js").Link {
+  return {
+    ...record,
+    createdAt: record.createdAt ?? new Date().toISOString(),
   };
 }
 

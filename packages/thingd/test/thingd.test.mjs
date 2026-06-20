@@ -460,4 +460,73 @@ function runThingDBehaviorSuite(label, openDb) {
     // close does not throw
     await db.close();
   });
+
+  test(`${label}: creates, gets, and deletes graph links`, async () => {
+    const db = await openDb();
+
+    const link = await db.links.create("users/alice", "authored", "docs/readme");
+    assert.ok(link.id);
+    assert.equal(link.fromRef, "users/alice");
+    assert.equal(link.linkType, "authored");
+    assert.equal(link.toRef, "docs/readme");
+    assert.ok(link.createdAt);
+
+    const fetched = await db.links.get(link.id);
+    assert.deepEqual(fetched, link);
+
+    const deleted = await db.links.delete(link.id);
+    assert.equal(deleted, true);
+
+    const gone = await db.links.get(link.id);
+    assert.equal(gone, null);
+
+    await db.close();
+  });
+
+  test(`${label}: gets link neighbors by direction`, async () => {
+    const db = await openDb();
+
+    await db.links.create("users/alice", "authored", "docs/readme");
+    await db.links.create("users/alice", "authored", "docs/api");
+    await db.links.create("docs/readme", "references", "docs/api");
+
+    const outgoing = await db.links.neighbors("users/alice", "Outgoing");
+    assert.equal(outgoing.length, 2);
+    assert.ok(outgoing.every((l) => l.fromRef === "users/alice"));
+
+    const incoming = await db.links.neighbors("docs/api", "Incoming");
+    assert.equal(incoming.length, 2);
+    assert.ok(incoming.every((l) => l.toRef === "docs/api"));
+
+    const both = await db.links.neighbors("docs/readme", "Both");
+    assert.equal(both.length, 2);
+
+    const authored = await db.links.neighbors("users/alice", "Outgoing", { linkType: "authored" });
+    assert.equal(authored.length, 2);
+
+    const refs = await db.links.neighbors("users/alice", "Outgoing", { linkType: "references" });
+    assert.equal(refs.length, 0);
+
+    const limited = await db.links.neighbors("users/alice", "Outgoing", { limit: 1 });
+    assert.equal(limited.length, 1);
+
+    await db.close();
+  });
+
+  test(`${label}: counts graph links`, async () => {
+    const db = await openDb();
+
+    assert.equal(await db.countLinks(), 0);
+
+    await db.links.create("a", "rel", "b");
+    assert.equal(await db.countLinks(), 1);
+
+    await db.links.create("b", "rel", "c");
+    assert.equal(await db.countLinks(), 2);
+
+    await db.links.delete((await db.links.neighbors("a", "Outgoing"))[0].id);
+    assert.equal(await db.countLinks(), 1);
+
+    await db.close();
+  });
 }

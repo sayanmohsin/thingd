@@ -587,6 +587,110 @@ export function registerThingdTools(
     },
     async () => jsonResult(await db.listQueues())
   );
+
+  server.registerTool(
+    "thing_link_create",
+    {
+      title: "Create Link",
+      description:
+        "Create a directed graph link between two references (e.g., thingd objects, external URLs). You can optionally assign a linkType (e.g., 'parent', 'related_to'), weight, and metadata JSON string.",
+      inputSchema: {
+        fromRef: z.string().min(1),
+        linkType: z.string().min(1),
+        toRef: z.string().min(1),
+        weight: z.number().optional(),
+        metadataJson: z.string().optional(),
+      },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: false,
+      },
+    },
+    async ({ fromRef, linkType, toRef, weight, metadataJson }) => {
+      assertWriteAllowed();
+      return jsonResult(await db.links.create(fromRef, linkType, toRef, weight, metadataJson));
+    }
+  );
+
+  server.registerTool(
+    "thing_link_delete",
+    {
+      title: "Delete Link",
+      description: "Delete a graph link by its id. Returns an object with a deleted boolean.",
+      inputSchema: {
+        id: z.string().min(1),
+      },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async ({ id }) => {
+      assertWriteAllowed();
+      return jsonResult({ deleted: await db.links.delete(id) });
+    }
+  );
+
+  server.registerTool(
+    "thing_link_get",
+    {
+      title: "Get Link",
+      description: "Get a graph link by its id.",
+      inputSchema: {
+        id: z.string().min(1),
+      },
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async ({ id }) => jsonResult(await db.links.get(id))
+  );
+
+  server.registerTool(
+    "thing_link_neighbors",
+    {
+      title: "Get Link Neighbors",
+      description:
+        "Get all links connected to a specific reference. You can filter by direction (Outgoing, Incoming, Both) and linkType.",
+      inputSchema: {
+        reference: z.string().min(1),
+        direction: z.enum(["Outgoing", "Incoming", "Both"]).optional(),
+        linkType: z.string().optional(),
+        limit: z.number().int().positive().optional(),
+      },
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async ({ reference, direction, linkType, limit }) =>
+      jsonResult(await db.links.neighbors(reference, direction, { linkType, limit }))
+  );
+
+  server.registerTool(
+    "thing_link_count",
+    {
+      title: "Count Links",
+      description: "Count all graph links in the store.",
+      inputSchema: {},
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async () => jsonResult(await db.countLinks())
+  );
 }
 
 function auditMetadata(

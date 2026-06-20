@@ -5,9 +5,9 @@ use napi_derive::napi;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use thingd_core::{
-    EventLog, ListEventsOptions, ListObjectsOptions, MemoryEvent, MemoryObject, ObjectStore,
-    QueueClaimOptions, QueueJob, QueueJobStatus, QueueNackOptions, QueueStore, SearchOptions,
-    Searcher, SqliteThingStore,
+    EventLog, Link, LinkDirection, LinkQueryOptions, LinkStore, ListEventsOptions,
+    ListObjectsOptions, MemoryEvent, MemoryObject, ObjectStore, QueueClaimOptions, QueueJob,
+    QueueJobStatus, QueueNackOptions, QueueStore, SearchOptions, Searcher, SqliteThingStore,
 };
 
 #[derive(Deserialize)]
@@ -375,6 +375,77 @@ impl NativeThingStore {
 
         to_json(&records)
     }
+
+    #[napi(js_name = "createLinkJson")]
+    pub fn create_link_json(
+        &self,
+        from_ref: String,
+        link_type: String,
+        to_ref: String,
+        weight: Option<f64>,
+        metadata_json: Option<String>,
+    ) -> Result<String> {
+        let mut store = self.lock_store()?;
+        let mut link = Link::new(from_ref, link_type, to_ref);
+        if let Some(w) = weight {
+            link = link.with_weight(w);
+        }
+        if let Some(m) = metadata_json {
+            link = link.with_metadata(m);
+        }
+
+        let created = store.create_link(link).map_err(napi_error)?;
+        to_json(&link_record(created))
+    }
+
+    #[napi(js_name = "deleteLink")]
+    pub fn delete_link(&self, id: String) -> Result<bool> {
+        let mut store = self.lock_store()?;
+        store.delete_link(&id).map_err(napi_error)
+    }
+
+    #[napi(js_name = "getLinkJson")]
+    pub fn get_link_json(&self, id: String) -> Result<Option<String>> {
+        let store = self.lock_store()?;
+        let link = store
+            .get_link(&id)
+            .map_err(napi_error)?
+            .map(link_record)
+            .map(|record| to_json(&record))
+            .transpose()?;
+
+        Ok(link)
+    }
+
+    #[napi(js_name = "getNeighborsJson")]
+    pub fn get_neighbors_json(
+        &self,
+        reference: String,
+        direction: String,
+        link_type: Option<String>,
+        limit: Option<i64>,
+    ) -> Result<String> {
+        let dir = match direction.as_str() {
+            "Outgoing" => LinkDirection::Outgoing,
+            "Incoming" => LinkDirection::Incoming,
+            "Both" => LinkDirection::Both,
+            _ => return Err(Error::from_reason("invalid direction")),
+        };
+        let options = LinkQueryOptions {
+            link_type,
+            limit: limit.map(|l| l as usize),
+        };
+
+        let store = self.lock_store()?;
+        let links = store
+            .get_neighbors(&reference, dir, options)
+            .map_err(napi_error)?
+            .into_iter()
+            .map(link_record)
+            .collect::<Vec<_>>();
+
+        to_json(&links)
+    }
 }
 
 use napi::bindgen_prelude::AsyncTask;
@@ -543,6 +614,13 @@ impl NativeThingStore {
             store: self.store.clone(),
         }))
     }
+
+    #[napi(js_name = "countLinksJson")]
+    pub fn count_links_json(&self) -> Result<AsyncTask<CountLinksTask>> {
+        Ok(AsyncTask::new(CountLinksTask {
+            store: self.store.clone(),
+        }))
+    }
 }
 
 impl NativeThingStore {
@@ -617,6 +695,38 @@ struct NativeSearchHit {
     event_type: Option<String>,
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct NativeLinkRecord {
+    id: String,
+    from_ref: String,
+    link_type: String,
+    to_ref: String,
+    weight: Option<f64>,
+    metadata_json: String,
+    created_at: String,
+}
+
+pub struct CountLinksTask {
+    store: Arc<Mutex<SqliteThingStore>>,
+}
+#[napi]
+impl Task for CountLinksTask {
+    type Output = u32;
+    type JsValue = u32;
+    fn compute(&mut self) -> Result<Self::Output> {
+        let store = self
+            .store
+            .lock()
+            .map_err(|_| Error::from_reason("poisoned"))?;
+        let count = store.count_links().map_err(napi_error)?;
+        Ok(u32::try_from(count).unwrap_or(u32::MAX))
+    }
+    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
+        Ok(output)
+    }
+}
+
 impl NativeQueueJobResult {
     fn ok(job: NativeQueueJobRecord) -> Self {
         Self {
@@ -671,6 +781,18 @@ fn job_record(job: QueueJob) -> NativeQueueJobRecord {
         dead_at_ms: job.dead_at_ms,
         created_at: job.created_at,
         last_error: job.last_error,
+    }
+}
+
+fn link_record(link: Link) -> NativeLinkRecord {
+    NativeLinkRecord {
+        id: link.id,
+        from_ref: link.from_ref,
+        link_type: link.link_type,
+        to_ref: link.to_ref,
+        weight: link.weight,
+        metadata_json: link.metadata_json,
+        created_at: link.created_at,
     }
 }
 

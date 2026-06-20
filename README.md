@@ -25,7 +25,7 @@ production-ready yet.
 - **Rust engine** (`thingd-core`) — object CRUD, append-only events, durable job queues with lease/ack/nack/dead-letter/delayed/retry, full-text search (FTS5), graph links, SQLite schema migrations
 - **Node.js SDK** (`thingd`) — three drivers: memory (default in-memory TS store), native (napi-rs Rust SQLite), remote/cloud (Streamable HTTP MCP)
 - **CLI** (`thingd-cli`) — TUI dashboard, 30+ subcommands (search, objects, events, queues, export/import/snapshot, doctor, bench, install for Cursor/Claude Desktop)
-- **MCP server** — 20 tools, stdio + Streamable HTTP, audit events, collection allowlists, read-only mode
+- **MCP server** — 25 tools, stdio + Streamable HTTP, audit events, collection allowlists, read-only mode
 - **Docker** — multi-stage image, compose + K8s for leader/follower cluster
 - **CI/tooling** — semantic-release, biome, lefthook, doc tests
 
