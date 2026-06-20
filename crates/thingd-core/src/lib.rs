@@ -2,31 +2,50 @@
 //!
 //! This crate owns the durable engine boundary: object storage, append-only
 //! events, and queue storage. The default implementation is in-memory, with a
-//! feature-gated `SQLite` adapter available for durable object, event, and
+//! feature-gated SQLite adapter available for durable object, event, and
 //! queue storage.
 //!
-//! # Example
+//! # Feature Flags
+//!
+//! | Feature | Default | Description |
+//! |---------|---------|-------------|
+//! | `sqlite` | No | Enables [`SqliteThingStore`] with FTS5 search, WAL mode, and auto-migration |
+//! | `connectors` | No | Enables CSV/JSON file connectors for data import |
+//!
+//! # Example (in-memory)
 //!
 //! ```rust
 //! use thingd_core::{MemoryEngine, ObjectStore, EventLog, MemoryObject, MemoryEvent};
 //!
 //! let mut engine = MemoryEngine::new();
 //!
-//! // Store an object
 //! let obj = MemoryObject::new("users", "alice", r#"{"name":"Alice"}"#);
 //! engine.put_object(obj).unwrap();
 //!
-//! // Retrieve it
 //! let user = engine.get_object("users", "alice").unwrap();
 //! assert_eq!(user.unwrap().body, r#"{"name":"Alice"}"#);
 //!
-//! // Append an event
 //! let event = MemoryEvent::new("audit", "user.created", r#"{"user":"alice"}"#);
 //! engine.append_event(event).unwrap();
+//! ```
+//!
+//! # Example (SQLite — requires `sqlite` feature)
+//!
+//! ```rust,no_run
+//! #[cfg(feature = "sqlite")]
+//! {
+//!     use thingd_core::{SqliteThingStore, ObjectStore, MemoryObject};
+//!
+//!     let mut db = SqliteThingStore::open_in_memory().unwrap();
+//!     db.put_object(MemoryObject::new("users", "alice", r#"{"name":"Alice"}"#)).unwrap();
+//!     let user = db.get_object("users", "alice").unwrap();
+//!     assert_eq!(user.unwrap().body, r#"{"name":"Alice"}"#);
+//! }
 //! ```
 
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
+#![cfg_attr(docsrs, feature(doc_cfg))]
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -51,6 +70,7 @@ pub use model::{
     QueueJob, QueueJobStatus, QueueNackOptions, SearchHit, SearchOptions, SortBy, SortDirection,
 };
 #[cfg(feature = "sqlite")]
+#[cfg_attr(docsrs, doc(cfg(feature = "sqlite")))]
 pub use sqlite::{SQLITE_SCHEMA_VERSION, SqliteThingStore};
 pub use store::{EventLog, LinkStore, ObjectStore, QueueStore, Searcher, ThingStore};
 

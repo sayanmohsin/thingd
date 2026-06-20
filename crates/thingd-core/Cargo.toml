@@ -35,3 +35,7 @@ path = "src/lib.rs"
 
 [lints]
 workspace = true
+
+[package.metadata.docs.rs]
+features = ["sqlite"]
+rustdoc-args = ["--cfg", "docsrs"]
