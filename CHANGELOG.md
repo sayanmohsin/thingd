@@ -1,3 +1,9 @@
+## [0.31.0](https://github.com/sayanmohsin/thingd/compare/v0.30.0...v0.31.0) (2026-06-20)
+
+### Features
+
+* add delete_last_event and delete_stream to EventLog trait ([8112320](https://github.com/sayanmohsin/thingd/commit/8112320a14f02960ac335778b6213afc18183b39)), closes [#35](https://github.com/sayanmohsin/thingd/issues/35) [#36](https://github.com/sayanmohsin/thingd/issues/36) [#37](https://github.com/sayanmohsin/thingd/issues/37)
+
 ## [0.30.0](https://github.com/sayanmohsin/thingd/compare/v0.29.0...v0.30.0) (2026-06-20)
 
 ### Features

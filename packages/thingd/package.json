@@ -1,6 +1,6 @@
 {
   "name": "thingd",
-  "version": "0.30.0",
+  "version": "0.31.0",
   "description": "A fast object-first data engine for applications and AI agents.",
   "type": "module",
   "author": "Sayan Mohsin",
