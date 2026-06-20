@@ -307,6 +307,11 @@ async function runCommand(context: CliContext): Promise<void> {
     return;
   }
 
+  if (command === "links") {
+    await runLinks(context);
+    return;
+  }
+
   if (command === "metrics") {
     await runMetrics(context);
     return;
@@ -876,6 +881,77 @@ async function runQueues(context: CliContext): Promise<void> {
     }
 
     throw new Error(`Unknown queues action: ${action}`);
+  });
+}
+
+async function runLinks(context: CliContext): Promise<void> {
+  const action = requiredToken(context.parsed, 1, "links action");
+
+  await withDb(context, async (db) => {
+    if (action === "count") {
+      const count = await db.countLinks();
+      if (context.pretty) {
+        writeLog(context.stdout, [{ label: "Links", value: String(count) }], "thingd  links  count");
+      } else {
+        writeJson(context.stdout, { count }, false);
+      }
+      return;
+    }
+
+    if (action === "create") {
+      const fromRef = requiredToken(context.parsed, 2, "from reference");
+      const linkType = requiredToken(context.parsed, 3, "link type");
+      const toRef = requiredToken(context.parsed, 4, "to reference");
+      const weight = optionalInt(context.parsed, "weight");
+      const metadata = stringFlag(context.parsed, "metadata");
+      writeJson(
+        context.stdout,
+        await db.links.create(fromRef, linkType, toRef, weight ?? undefined, metadata),
+        context.pretty
+      );
+      return;
+    }
+
+    const id = requiredToken(context.parsed, 2, "link id");
+
+    if (action === "get") {
+      writeJson(context.stdout, await db.links.get(id), context.pretty);
+      return;
+    }
+
+    if (action === "delete") {
+      writeJson(context.stdout, { deleted: await db.links.delete(id) }, context.pretty);
+      return;
+    }
+
+    if (action === "neighbors") {
+      const direction = (stringFlag(context.parsed, "direction") ?? "Both") as
+        | "Outgoing"
+        | "Incoming"
+        | "Both";
+      const linkType = stringFlag(context.parsed, "type");
+      const limit = optionalInt(context.parsed, "limit");
+      const neighbors = await db.links.neighbors(id, direction, {
+        linkType: linkType ?? undefined,
+        limit: limit ?? undefined,
+      });
+      if (context.pretty) {
+        const bullets = neighbors.map(
+          (l) =>
+            `${pc.dim(l.id)} ${pc.green(l.fromRef)} ${pc.magenta(l.linkType)} ${pc.green(l.toRef)}`
+        );
+        writeLogBullets(
+          context.stdout,
+          bullets.map((t) => ({ text: t })),
+          `thingd  links  neighbors  ${id}`
+        );
+      } else {
+        writeJson(context.stdout, neighbors, false);
+      }
+      return;
+    }
+
+    throw new Error(`Unknown links action: ${action}`);
   });
 }
 

@@ -529,4 +529,94 @@ function runThingDBehaviorSuite(label, openDb) {
 
     await db.close();
   });
+
+  test(`${label}: putBatch creates multiple objects`, async () => {
+    const db = await openDb();
+
+    const results = await db.putBatch("widgets", [
+      { id: "w1", color: "red" },
+      { id: "w2", color: "blue" },
+      { id: "w3", color: "green" },
+    ]);
+
+    assert.equal(results.length, 3);
+    assert.equal(results[0].collection, "widgets");
+    assert.equal(results[0].version, 1);
+
+    const all = await db.listObjects("widgets");
+    assert.equal(all.length, 3);
+
+    await db.close();
+  });
+
+  test(`${label}: deleteBatch removes multiple objects`, async () => {
+    const db = await openDb();
+
+    await db.put("items", { id: "a", x: 1 });
+    await db.put("items", { id: "b", x: 2 });
+    await db.put("items", { id: "c", x: 3 });
+
+    const deleted = await db.deleteBatch("items", ["a", "c"]);
+    assert.equal(deleted, 2);
+
+    const remaining = await db.listObjects("items");
+    assert.equal(remaining.length, 1);
+    assert.equal(remaining[0].id, "b");
+
+    await db.close();
+  });
+
+  test(`${label}: listObjects with filter`, async () => {
+    const db = await openDb();
+
+    await db.put("things", { id: "t1", status: "active" });
+    await db.put("things", { id: "t2", status: "inactive" });
+    await db.put("things", { id: "t3", status: "active" });
+
+    const active = await db.listObjects("things", { filter: { status: "active" } });
+    assert.equal(active.length, 2);
+    assert.ok(active.every((o) => o.status === "active"));
+
+    const inactive = await db.listObjects("things", { filter: { status: "inactive" } });
+    assert.equal(inactive.length, 1);
+    assert.equal(inactive[0].id, "t2");
+
+    await db.close();
+  });
+
+  test(`${label}: listObjects with sortBy`, async () => {
+    const db = await openDb();
+
+    await db.put("sorted", { id: "c", val: 3 });
+    await db.put("sorted", { id: "a", val: 1 });
+    await db.put("sorted", { id: "b", val: 2 });
+
+    const asc = await db.listObjects("sorted", { sortBy: { field: "id", direction: "asc" } });
+    assert.deepEqual(asc.map((o) => o.id), ["a", "b", "c"]);
+
+    const desc = await db.listObjects("sorted", { sortBy: { field: "id", direction: "desc" } });
+    assert.deepEqual(desc.map((o) => o.id), ["c", "b", "a"]);
+
+    await db.close();
+  });
+
+  test(`${label}: listObjects with limit and offset`, async () => {
+    const db = await openDb();
+
+    for (let i = 0; i < 10; i++) {
+      await db.put("paged", { id: `item-${i}`, idx: i });
+    }
+
+    const page1 = await db.listObjects("paged", { limit: 3, offset: 0 });
+    assert.equal(page1.length, 3);
+
+    const page2 = await db.listObjects("paged", { limit: 3, offset: 3 });
+    assert.equal(page2.length, 3);
+    assert.notEqual(page1[0].id, page2[0].id);
+
+    const lastPage = await db.listObjects("paged", { limit: 3, offset: 9 });
+    assert.equal(lastPage.length, 1);
+
+    await db.close();
+  });
 }

@@ -23,6 +23,7 @@ Implemented:
 - event append/list tools
 - queue push/claim/ack/nack/list/dead tools
 - graph link create/delete/get/neighbors/count tools
+- object batch put/delete tools
 - in-process MCP client tests
 - Streamable HTTP MCP client tests
 - audit events for MCP write tools
@@ -44,7 +45,9 @@ Implemented:
 | `thing_get` | Read one object by collection and id |
 | `thing_put` | Create or replace an object in a collection |
 | `thing_delete` | Delete an object by collection and id |
-| `thing_objects_list` | List all objects in a collection |
+| `thing_objects_list` | List objects with optional filter, sortBy, limit, offset |
+| `thing_objects_put_batch` | Create or replace multiple objects in a single operation |
+| `thing_objects_delete_batch` | Delete multiple objects by ID in a single operation |
 
 ### Event tools
 

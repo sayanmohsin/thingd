@@ -125,10 +125,18 @@ export type ListEventsOptions = {
   limit?: number;
 };
 
+export type SortDirection = "asc" | "desc";
+
+export type SortBy = {
+  field: "id" | "collection" | "created_at" | "updated_at" | "version";
+  direction?: SortDirection;
+};
+
 export type ListObjectsOptions = {
   limit?: number;
   offset?: number;
   filter?: Record<string, unknown>;
+  sortBy?: SortBy;
 };
 
 /**
@@ -150,6 +158,8 @@ export interface ThingDConnection {
   ): Promise<T[]>;
   search(query: string, options?: MemorySearchOptions): Promise<MemorySearchResult[]>;
   searchObjects<T = StoredMemoryObject>(query: string, options?: MemorySearchOptions): Promise<T[]>;
+  putBatch(collection: string, objects: MemoryObject[]): Promise<StoredMemoryObject[]>;
+  deleteBatch(collection: string, ids: string[]): Promise<number>;
   readonly events: {
     append(stream: string, event: MemoryEvent): Promise<StoredMemoryEvent>;
     list<T = StoredMemoryEvent>(stream?: string, options?: ListEventsOptions): Promise<T[]>;
@@ -218,6 +228,8 @@ export interface ThingStore {
     direction: LinkDirection,
     options: LinkQueryOptions
   ): Promise<Link[]>;
+  putBatch?(collection: string, objects: MemoryObject[]): Promise<StoredMemoryObject[]>;
+  deleteBatch?(collection: string, ids: string[]): Promise<number>;
   listCollections?(): Promise<string[]>;
   listStreams?(): Promise<string[]>;
   listQueues?(): Promise<string[]>;

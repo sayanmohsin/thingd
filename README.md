@@ -25,7 +25,7 @@ production-ready yet.
 - **Rust engine** (`thingd-core`) — object CRUD, append-only events, durable job queues with lease/ack/nack/dead-letter/delayed/retry, full-text search (FTS5), graph links, SQLite schema migrations
 - **Node.js SDK** (`thingd`) — three drivers: memory (default in-memory TS store), native (napi-rs Rust SQLite), remote/cloud (Streamable HTTP MCP)
 - **CLI** (`thingd-cli`) — TUI dashboard, 30+ subcommands (search, objects, events, queues, export/import/snapshot, doctor, bench, install for Cursor/Claude Desktop)
-- **MCP server** — 25 tools, stdio + Streamable HTTP, audit events, collection allowlists, read-only mode
+- **MCP server** — 27 tools, stdio + Streamable HTTP, audit events, collection allowlists, read-only mode
 - **Docker** — multi-stage image, compose + K8s for leader/follower cluster
 - **CI/tooling** — semantic-release, biome, lefthook, doc tests
 
@@ -260,6 +260,57 @@ Events are useful for:
 - sync and replication
 - answering questions like "what changed?" or "why did this happen?"
 
+## Querying objects
+
+List objects with filtering, sorting, limit, and offset:
+
+```ts
+// Filter by field value
+const active = await db.listObjects("tasks", { filter: { status: "active" } });
+
+// Sort by field
+const sorted = await db.listObjects("tasks", { sortBy: { field: "created_at", direction: "desc" } });
+
+// Paginate
+const page1 = await db.listObjects("tasks", { limit: 10, offset: 0 });
+const page2 = await db.listObjects("tasks", { limit: 10, offset: 10 });
+```
+
+## Batch operations
+
+Bulk create or delete objects in a single call:
+
+```ts
+// Batch create
+const results = await db.putBatch("tasks", [
+  { id: "task-1", title: "Implement search" },
+  { id: "task-2", title: "Add graph links" },
+  { id: "task-3", title: "Write docs" },
+]);
+
+// Batch delete
+const deleted = await db.deleteBatch("tasks", ["task-1", "task-2"]);
+```
+
+## Graph links
+
+Create directed relationships between any two references:
+
+```ts
+// Create a link
+const link = await db.links.create("users/alice", "authored", "docs/readme");
+
+// Query neighbors
+const outgoing = await db.links.neighbors("users/alice", "Outgoing");
+const incoming = await db.links.neighbors("docs/readme", "Incoming");
+
+// Filter by link type
+const authored = await db.links.neighbors("users/alice", "Outgoing", { linkType: "authored" });
+
+// Count all links
+const count = await db.countLinks();
+```
+
 ## Durable queues
 
 `thingd` includes queue primitives because apps constantly need background work:
@@ -358,6 +409,8 @@ thing_get
 thing_put
 thing_delete
 thing_objects_list
+thing_objects_put_batch
+thing_objects_delete_batch
 thing_events_append
 thing_events_list
 thing_queue_push

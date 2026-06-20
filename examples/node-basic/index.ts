@@ -78,9 +78,47 @@ async function main() {
   const searchResults = await db.search("rust");
   log("10. Search", "Searched across all objects and events for query 'rust':", searchResults);
 
-  // 11. Close the database
+  // 11. Graph Links
+  const link = await db.links.create("decisions/rust-core", "authored", "docs/architecture");
+  log("11. Create Link", "Created a directed graph link:", link);
+
+  const neighbors = await db.links.neighbors("decisions/rust-core", "Outgoing");
+  log("12. Get Neighbors", "Outgoing links from 'decisions/rust-core':", neighbors);
+
+  const linkCount = await db.countLinks();
+  log("13. Count Links", `Total links in the store: ${linkCount}`);
+
+  // 14. Batch Operations
+  const batchResults = await db.putBatch("tasks", [
+    { id: "task-1", title: "Implement search", status: "done" },
+    { id: "task-2", title: "Add graph links", status: "done" },
+    { id: "task-3", title: "Write docs", status: "active" },
+  ]);
+  log("14. Batch Put", `Stored ${batchResults.length} objects in a single call:`, batchResults);
+
+  const deletedCount = await db.deleteBatch("tasks", ["task-1"]);
+  log("15. Batch Delete", `Deleted ${deletedCount} object(s) in a single call`);
+
+  // 16. Sort and Filter
+  const sorted = await db.listObjects("tasks", {
+    sortBy: { field: "id", direction: "asc" },
+  });
+  log("16. Sorted List", "Tasks sorted by ID ascending:", sorted);
+
+  const filtered = await db.listObjects("tasks", {
+    filter: { status: "active" },
+  });
+  log("17. Filtered List", "Tasks with status 'active':", filtered);
+
+  const paged = await db.listObjects("tasks", {
+    limit: 1,
+    offset: 0,
+  });
+  log("18. Paginated List", "First 1 task (limit=1, offset=0):", paged);
+
+  // 19. Close the database
   await db.close();
-  log("11. Database Closed", "Closed the database instance safely.");
+  log("19. Database Closed", "Closed the database instance safely.");
 
   console.log("\n🎉 Node.js TypeScript Basic Example completed successfully!\n");
 }

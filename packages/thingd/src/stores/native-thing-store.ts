@@ -26,7 +26,9 @@ type NativeThingStoreBinding = {
     collectionsJson?: string,
     filterJson?: string,
     limit?: number,
-    offset?: number
+    offset?: number,
+    sortField?: string,
+    sortDirection?: string
   ): string;
   deleteObject(collection: string, id: string): boolean;
   appendEventJson(stream: string, body: string): string;
@@ -65,6 +67,7 @@ type NativeThingStoreBinding = {
   putObjectsBatchJson(objectsJson: string): string;
   appendEventsBatchJson(eventsJson: string): string;
   pushJobsBatchJson(jobsJson: string): string;
+  deleteObjectsBatchJson(keysJson: string): number;
 };
 
 type NativeThingStoreConstructor = {
@@ -197,8 +200,17 @@ export class NativeThingStore implements ThingStore {
   ): Promise<T[]> {
     const collectionsJson = JSON.stringify([collection]);
     const filterJson = options?.filter ? JSON.stringify(options.filter) : undefined;
+    const sortField = options?.sortBy?.field;
+    const sortDirection = options?.sortBy?.direction;
     return parseJson<NativeObjectRecord[]>(
-      this.binding.listObjectsJson(collectionsJson, filterJson, options?.limit, options?.offset)
+      this.binding.listObjectsJson(
+        collectionsJson,
+        filterJson,
+        options?.limit,
+        options?.offset,
+        sortField,
+        sortDirection
+      )
     ).map(objectFromNative) as T[];
   }
 
@@ -361,6 +373,18 @@ export class NativeThingStore implements ThingStore {
 
   async countLinks(): Promise<number> {
     return this.binding.countLinksJson();
+  }
+
+  async putBatch(collection: string, objects: MemoryObject[]): Promise<StoredMemoryObject[]> {
+    const inputs = objects.map((obj) => ({ collection, id: obj.id, body: JSON.stringify(obj) }));
+    return parseJson<NativeObjectRecord[]>(
+      this.binding.putObjectsBatchJson(JSON.stringify(inputs))
+    ).map(objectFromNative);
+  }
+
+  async deleteBatch(collection: string, ids: string[]): Promise<number> {
+    const keys = ids.map((id) => [collection, id]);
+    return this.binding.deleteObjectsBatchJson(JSON.stringify(keys));
   }
 
   async createLink(

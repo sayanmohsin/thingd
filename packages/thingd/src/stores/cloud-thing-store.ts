@@ -223,6 +223,17 @@ export class CloudThingStore implements ThingStore {
     return Promise.reject(new Error("Graph links not supported by cloud driver yet"));
   }
 
+  async putBatch(
+    _collection: string,
+    _objects: import("../types.js").MemoryObject[]
+  ): Promise<import("../types.js").StoredMemoryObject[]> {
+    return Promise.reject(new Error("Batch put not supported by cloud driver yet"));
+  }
+
+  async deleteBatch(_collection: string, _ids: string[]): Promise<number> {
+    return Promise.reject(new Error("Batch delete not supported by cloud driver yet"));
+  }
+
   async createLink(
     _fromRef: string,
     _linkType: string,

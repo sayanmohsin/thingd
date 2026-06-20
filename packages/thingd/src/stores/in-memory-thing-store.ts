@@ -109,6 +109,19 @@ export class InMemoryThingStore implements ThingStore {
         )
       );
     }
+    if (options?.sortBy) {
+      const { field, direction } = options.sortBy;
+      const asc = direction !== "desc";
+      results.sort((a, b) => {
+        const va = (a as Record<string, unknown>)[field] as string | number | undefined;
+        const vb = (b as Record<string, unknown>)[field] as string | number | undefined;
+        if (va === vb) return 0;
+        if (va === undefined) return 1;
+        if (vb === undefined) return -1;
+        const cmp = va < vb ? -1 : 1;
+        return asc ? cmp : -cmp;
+      });
+    }
     if (options?.offset) {
       results = results.slice(options.offset);
     }
@@ -345,6 +358,40 @@ export class InMemoryThingStore implements ThingStore {
 
   async countLinks(): Promise<number> {
     return this.links.size;
+  }
+
+  async putBatch(collection: string, objects: MemoryObject[]): Promise<StoredMemoryObject[]> {
+    return this.withLock(() => {
+      const records = this.getCollection(collection);
+      const now = new Date().toISOString();
+      const results: StoredMemoryObject[] = [];
+      for (const object of objects) {
+        const existing = records.get(object.id);
+        const record: StoredMemoryObject = {
+          ...object,
+          id: object.id,
+          collection,
+          createdAt: existing?.createdAt ?? now,
+          updatedAt: now,
+          version: (existing?.version ?? 0) + 1,
+        };
+        records.set(object.id, record);
+        results.push(record);
+      }
+      return results;
+    });
+  }
+
+  async deleteBatch(collection: string, ids: string[]): Promise<number> {
+    return this.withLock(() => {
+      const records = this.collections.get(collection);
+      if (!records) return 0;
+      let count = 0;
+      for (const id of ids) {
+        if (records.delete(id)) count++;
+      }
+      return count;
+    });
   }
 
   async createLink(

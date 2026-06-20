@@ -56,6 +56,16 @@ thingd queues dead <queue>
 thingd queues stats <queue>
 ```
 
+### Links
+
+```txt
+thingd links create <fromRef> <linkType> <toRef> [--weight <n>] [--metadata <json>]
+thingd links get <id>
+thingd links delete <id>
+thingd links neighbors <reference> [--direction Outgoing|Incoming|Both] [--type <linkType>] [--limit <n>]
+thingd links count
+```
+
 ### Export / Import
 
 ```txt

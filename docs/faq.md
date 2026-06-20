@@ -161,7 +161,7 @@ CLI commands: `thingd queues dead <queue>` lists dead jobs. To replay, delete an
 
 ### What MCP tools are exposed?
 
-25 tools: `thing_search`, `thing_get`, `thing_put`, `thing_delete`, `thing_objects_list`, `thing_events_append`, `thing_events_list`, `thing_queue_push`, `thing_queue_claim`, `thing_queue_ack`, `thing_queue_nack`, `thing_queue_list`, `thing_queue_dead`, `thing_link_create`, `thing_link_delete`, `thing_link_get`, `thing_link_neighbors`, `thing_link_count`, `thing_count_objects`, `thing_count_events`, `thing_count_active_jobs`, `thing_count_dead_jobs`, `thing_list_collections`, `thing_list_streams`, `thing_list_queues`.
+27 tools: `thing_search`, `thing_get`, `thing_put`, `thing_delete`, `thing_objects_list`, `thing_objects_put_batch`, `thing_objects_delete_batch`, `thing_events_append`, `thing_events_list`, `thing_queue_push`, `thing_queue_claim`, `thing_queue_ack`, `thing_queue_nack`, `thing_queue_list`, `thing_queue_dead`, `thing_link_create`, `thing_link_delete`, `thing_link_get`, `thing_link_neighbors`, `thing_link_count`, `thing_count_objects`, `thing_count_events`, `thing_count_active_jobs`, `thing_count_dead_jobs`, `thing_list_collections`, `thing_list_streams`, `thing_list_queues`.
 
 ### Can agents bypass allowlists accidentally?
 
@@ -186,6 +186,39 @@ Yes. Queues use leases for safe multi-worker coordination. Each agent claims a j
 ### What prevents prompt injection from mutating data?
 
 thingd does not currently have MCP-level prompt injection defenses. The application should treat MCP tool access as a privileged API boundary — control which agents have access, use read-only mode when agents only need to search, and validate tool arguments at the application level.
+
+## Error handling
+
+### What error types does the Rust engine return?
+
+The Rust engine uses `ThingdError` with four variants:
+
+- `InvalidInput` — malformed input (e.g., empty collection name)
+- `NotFound` — requested resource does not exist
+- `Conflict` — concurrent modification conflict
+- `Storage` — underlying storage error (SQLite, I/O)
+
+### How do queue job results indicate failure?
+
+`QueueJobResult` is a discriminated union:
+
+- `{ ok: true, job }` — operation succeeded
+- `{ ok: false, reason }` — operation failed with reason:
+  - `"not_found"` — job ID does not exist
+  - `"not_leased"` — job is not in leased state (cannot ack/nack)
+  - `"terminal"` — job is already completed or dead
+
+### How do errors surface in the TypeScript SDK?
+
+All store methods throw generic `Error` objects. The error message contains the Rust error description. Catch errors with try/catch:
+
+```ts
+try {
+  await db.put("col", { id: "test" });
+} catch (err) {
+  console.error(err.message); // e.g. "Storage: database is locked"
+}
+```
 
 ## Schema and data model
 

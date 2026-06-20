@@ -83,6 +83,20 @@ export class ThingD implements ThingDConnection {
       .map((r) => r.value as T);
   }
 
+  async putBatch(collection: string, objects: MemoryObject[]): Promise<StoredMemoryObject[]> {
+    return (
+      this.store.putBatch?.(collection, objects) ??
+      Promise.reject(new Error("Batch put not supported by this driver"))
+    );
+  }
+
+  async deleteBatch(collection: string, ids: string[]): Promise<number> {
+    return (
+      this.store.deleteBatch?.(collection, ids) ??
+      Promise.reject(new Error("Batch delete not supported by this driver"))
+    );
+  }
+
   readonly events = {
     append: (stream: string, event: MemoryEvent): Promise<StoredMemoryEvent> =>
       this.store.appendEvent(stream, event),

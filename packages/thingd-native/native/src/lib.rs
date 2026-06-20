@@ -7,7 +7,8 @@ use serde_json::Value;
 use thingd_core::{
     EventLog, Link, LinkDirection, LinkQueryOptions, LinkStore, ListEventsOptions,
     ListObjectsOptions, MemoryEvent, MemoryObject, ObjectStore, QueueClaimOptions, QueueJob,
-    QueueJobStatus, QueueNackOptions, QueueStore, SearchOptions, Searcher, SqliteThingStore,
+    QueueJobStatus, QueueNackOptions, QueueStore, SearchOptions, Searcher, SortBy, SortDirection,
+    SqliteThingStore,
 };
 
 #[derive(Deserialize)]
@@ -88,6 +89,8 @@ impl NativeThingStore {
         filter_json: Option<String>,
         limit: Option<i64>,
         offset: Option<i64>,
+        sort_field: Option<String>,
+        sort_direction: Option<String>,
     ) -> Result<String> {
         let collections = parse_optional_string_array(collections_json)?;
 
@@ -100,9 +103,17 @@ impl NativeThingStore {
             .transpose()?
             .unwrap_or_default();
 
+        let sort_by = sort_field.map(|field| {
+            let direction = match sort_direction.as_deref() {
+                Some("desc") => thingd_core::SortDirection::Desc,
+                _ => thingd_core::SortDirection::Asc,
+            };
+            thingd_core::SortBy { field, direction }
+        });
+
         let options = ListObjectsOptions {
             filter: filter_pairs,
-            sort_by: None,
+            sort_by,
             limit: limit.map(|v| v as u64),
             offset: offset.map(|v| v as u64),
         };
@@ -374,6 +385,15 @@ impl NativeThingStore {
             .collect::<Vec<_>>();
 
         to_json(&records)
+    }
+
+    #[napi(js_name = "deleteObjectsBatchJson")]
+    pub fn delete_objects_batch_json(&self, keys_json: String) -> Result<u32> {
+        let keys: Vec<(String, String)> =
+            serde_json::from_str(&keys_json).map_err(napi_error)?;
+        let mut store = self.lock_store()?;
+        let count = store.delete_objects_batch(&keys).map_err(napi_error)?;
+        Ok(u32::try_from(count).unwrap_or(u32::MAX))
     }
 
     #[napi(js_name = "createLinkJson")]

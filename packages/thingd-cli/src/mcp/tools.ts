@@ -452,9 +452,18 @@ export function registerThingdTools(
     {
       title: "List Objects",
       description:
-        "List all objects in a collection. Returns every stored record in the named collection. Use this to enumerate stored data when you need to browse or audit a full collection. Returns an array of objects.",
+        "List objects in a collection with optional filtering, sorting, limit, and offset. Returns an array of objects. Use sortBy.field to sort by id, collection, created_at, updated_at, or version.",
       inputSchema: {
         collection: z.string().min(1),
+        filter: z.record(z.string(), z.unknown()).optional(),
+        sortBy: z
+          .object({
+            field: z.enum(["id", "collection", "created_at", "updated_at", "version"]),
+            direction: z.enum(["asc", "desc"]).default("asc"),
+          })
+          .optional(),
+        limit: z.number().int().positive().optional(),
+        offset: z.number().int().nonnegative().optional(),
       },
       annotations: {
         readOnlyHint: true,
@@ -463,9 +472,9 @@ export function registerThingdTools(
         openWorldHint: false,
       },
     },
-    async ({ collection }) => {
+    async ({ collection, filter, sortBy, limit, offset }) => {
       assertCollectionAllowed(collection);
-      return jsonResult(await db.listObjects(collection));
+      return jsonResult(await db.listObjects(collection, { filter, sortBy, limit, offset }));
     }
   );
 
@@ -586,6 +595,58 @@ export function registerThingdTools(
       },
     },
     async () => jsonResult(await db.listQueues())
+  );
+
+  server.registerTool(
+    "thing_objects_put_batch",
+    {
+      title: "Put Objects Batch",
+      description:
+        "Create or replace multiple objects in a collection in a single operation. More efficient than calling thing_put repeatedly. Returns the array of stored objects.",
+      inputSchema: {
+        collection: z.string().min(1),
+        objects: z
+          .array(z.object({ id: z.string() }).passthrough())
+          .min(1)
+          .max(1000),
+      },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: false,
+      },
+    },
+    async ({ collection, objects }) => {
+      assertWriteAllowed();
+      assertCollectionAllowed(collection);
+      return jsonResult(await db.putBatch(collection, objects));
+    }
+  );
+
+  server.registerTool(
+    "thing_objects_delete_batch",
+    {
+      title: "Delete Objects Batch",
+      description:
+        "Delete multiple objects by ID in a single operation. Returns the count of deleted objects.",
+      inputSchema: {
+        collection: z.string().min(1),
+        ids: z.array(z.string().min(1)).min(1).max(1000),
+      },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async ({ collection, ids }) => {
+      assertWriteAllowed();
+      assertCollectionAllowed(collection);
+      const deleted = await db.deleteBatch(collection, ids);
+      return jsonResult({ deleted });
+    }
   );
 
   server.registerTool(
