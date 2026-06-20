@@ -69,16 +69,17 @@ await db.eventAppend("agent:session-1", "decision.made", {
 
 thingd speaks MCP (Model Context Protocol) natively. That means any
 MCP-compatible agent — Claude Desktop, Cursor, Cline, or custom — gets
-20 tools automatically:
+25 tools automatically:
 
 | Category | Tools |
 |----------|-------|
-| Objects | `thing_put`, `thing_get`, `thing_delete`, `thing_list` |
+| Objects | `thing_put`, `thing_get`, `thing_delete`, `thing_objects_list` |
 | Search | `thing_search` |
-| Queues | `thing_queue_push`, `thing_queue_claim`, `thing_queue_ack`, `thing_queue_nack` |
-| Events | `thing_event_append`, `thing_event_list` |
-| Meta | `thing_metrics`, `thing_collections`, `thing_streams`, `thing_queues` |
-| Admin | `thing_mcp_audit`, `thing_mcp_resources` |
+| Queues | `thing_queue_push`, `thing_queue_claim`, `thing_queue_ack`, `thing_queue_nack`, `thing_queue_list`, `thing_queue_dead` |
+| Events | `thing_events_append`, `thing_events_list` |
+| Links | `thing_link_create`, `thing_link_delete`, `thing_link_get`, `thing_link_neighbors`, `thing_link_count` |
+| Count | `thing_count_objects`, `thing_count_events`, `thing_count_active_jobs`, `thing_count_dead_jobs` |
+| Discovery | `thing_list_collections`, `thing_list_streams`, `thing_list_queues` |
 
 No schema definitions, no API generation, no manual tool registration.
 The agent discovers everything at runtime.
@@ -285,7 +286,7 @@ BM25 ranking handles relevance. Metadata filters handle scope.
 ### The MCP layer
 
 All four primitives are exposed via MCP (Model Context Protocol). Any
-MCP-compatible agent gets 20 tools automatically:
+MCP-compatible agent gets 25 tools automatically:
 
 ```bash
 npx thingd install    # Configure MCP

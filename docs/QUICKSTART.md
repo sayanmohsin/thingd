@@ -134,6 +134,11 @@ thing_queue_ack   — complete a job
 thing_queue_nack  — retry or dead-letter a job
 thing_queue_list  — list active jobs
 thing_queue_dead  — list dead-letter jobs
+thing_link_create — create a graph link
+thing_link_delete — delete a graph link
+thing_link_get    — get a graph link by id
+thing_link_neighbors — get links connected to a reference
+thing_link_count  — count all graph links
 ```
 
 **Example: agent puts a task for the next session**

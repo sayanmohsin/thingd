@@ -366,6 +366,18 @@ thing_queue_ack
 thing_queue_nack
 thing_queue_list
 thing_queue_dead
+thing_link_create
+thing_link_delete
+thing_link_get
+thing_link_neighbors
+thing_link_count
+thing_count_objects
+thing_count_events
+thing_count_active_jobs
+thing_count_dead_jobs
+thing_list_collections
+thing_list_streams
+thing_list_queues
 ```
 
 Run the automatic zero-config setup for Claude Desktop and Cursor:

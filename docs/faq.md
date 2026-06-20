@@ -161,7 +161,7 @@ CLI commands: `thingd queues dead <queue>` lists dead jobs. To replay, delete an
 
 ### What MCP tools are exposed?
 
-12 tools: `thing_search`, `thing_get`, `thing_put`, `thing_delete`, `thing_events_append`, `thing_events_list`, `thing_queue_push`, `thing_queue_claim`, `thing_queue_ack`, `thing_queue_nack`, `thing_queue_list`, `thing_queue_dead`.
+25 tools: `thing_search`, `thing_get`, `thing_put`, `thing_delete`, `thing_objects_list`, `thing_events_append`, `thing_events_list`, `thing_queue_push`, `thing_queue_claim`, `thing_queue_ack`, `thing_queue_nack`, `thing_queue_list`, `thing_queue_dead`, `thing_link_create`, `thing_link_delete`, `thing_link_get`, `thing_link_neighbors`, `thing_link_count`, `thing_count_objects`, `thing_count_events`, `thing_count_active_jobs`, `thing_count_dead_jobs`, `thing_list_collections`, `thing_list_streams`, `thing_list_queues`.
 
 ### Can agents bypass allowlists accidentally?
 

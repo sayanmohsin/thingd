@@ -76,7 +76,7 @@ What's inside:
 ├─ Durable queues — leases, retries, DLQ, idempotency keys
 ├─ Event streams — append-only timelines
 ├─ Full-text search — FTS5, BM25 ranking, metadata filters
-├─ MCP native — 20 tools AI agents discover automatically
+├─ MCP native — 25 tools AI agents discover automatically
 └─ Multi-mode — embedded, sidecar, Docker, cluster
 
 Stack: Rust core (NAPI-RS), Node.js/TypeScript SDK, SQLite.
@@ -104,7 +104,7 @@ Features:
 - Durable queues (leases, retries, DLQ)
 - Full-text search (FTS5, BM25)
 - Event streams (append-only)
-- MCP-native (20 tools for AI agents)
+- MCP-native (25 tools for AI agents)
 - SQLite or in-memory
 - CLI + TUI dashboard + Docker
 
@@ -140,8 +140,8 @@ Or via Docker:
   docker run -p 8757:8757 sayanmohsin/thingd
   # Point your agent to http://localhost:8757/mcp
 
-The 20 tools cover: search, put/get/delete objects, queue push/claim/ack/nack,
-event append/list, metrics, collections/streams/queues listing.
+The 25 tools cover: search, put/get/delete objects, queue push/claim/ack/nack,
+event append/list, graph links, metrics, collections/streams/queues listing.
 
 Under the hood: Rust engine, SQLite, Node.js SDK, Apache 2.0.
 
@@ -157,7 +157,7 @@ https://github.com/sayanmohsin/thingd
 
 ## r/AI_Agents
 
-**Title:** `thingd — give your AI agent persistent memory + 20 tools in one command`
+**Title:** `thingd — give your AI agent persistent memory + 25 tools in one command`
 
 ```
 Every AI agent I built ended up needing a way to store, search, and
