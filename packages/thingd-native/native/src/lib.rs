@@ -388,8 +388,7 @@ impl NativeThingStore {
 
     #[napi(js_name = "deleteObjectsBatchJson")]
     pub fn delete_objects_batch_json(&self, keys_json: String) -> Result<u32> {
-        let keys: Vec<(String, String)> =
-            serde_json::from_str(&keys_json).map_err(napi_error)?;
+        let keys: Vec<(String, String)> = serde_json::from_str(&keys_json).map_err(napi_error)?;
         let mut store = self.lock_store()?;
         let count = store.delete_objects_batch(&keys).map_err(napi_error)?;
         Ok(u32::try_from(count).unwrap_or(u32::MAX))
