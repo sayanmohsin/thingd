@@ -4,6 +4,7 @@ import { dirname, extname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { ThingD } from "thingd";
 import type { ConnectionOptions } from "../index.js";
+import { handleRestRequest } from "../rest/server.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -90,8 +91,9 @@ export async function startDashboardServer(
       // Security Gate middleware for API endpoints
       const isApiRoute = pathname.startsWith("/api/");
       const isConnectRoute = pathname === "/api/connect";
+      const isRestRoute = pathname.startsWith("/v1/");
 
-      if (isApiRoute && !isConnectRoute && activeOptions.authToken) {
+      if ((isApiRoute || isRestRoute) && !isConnectRoute && activeOptions.authToken) {
         const authHeader = req.headers.authorization;
         const expectedHeader = `Bearer ${activeOptions.authToken}`;
         if (!authHeader || authHeader !== expectedHeader) {
@@ -385,6 +387,12 @@ export async function startDashboardServer(
         }
 
         sendError(res, 404, `Endpoint ${req.method} ${pathname} not found.`);
+        return;
+      }
+
+      // REST API Routes (/v1/*)
+      if (pathname.startsWith("/v1/")) {
+        await handleRestRequest(db, req, res, pathname);
         return;
       }
 
