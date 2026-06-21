@@ -1,3 +1,14 @@
+## [0.32.0](https://github.com/sayanmohsin/thingd/compare/v0.31.0...v0.32.0) (2026-06-21)
+
+### Features
+
+* add REST API for app SDKs ([215609a](https://github.com/sayanmohsin/thingd/commit/215609a4657cae198947f101784cfc0c5e360dd3))
+* expose batch, sort/filter, links CLI — complete SDK surface coverage ([f350dda](https://github.com/sayanmohsin/thingd/commit/f350dda22cac5f645da11d07f6baf14858b26458))
+
+### Bug Fixes
+
+* update package smoke test to use @thingd/sdk ([671f26a](https://github.com/sayanmohsin/thingd/commit/671f26adae55851e7c673fc614166f97f9a2f7a9))
+
 ## [0.31.0](https://github.com/sayanmohsin/thingd/compare/v0.30.0...v0.31.0) (2026-06-20)
 
 ### Features
