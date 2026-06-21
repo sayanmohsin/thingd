@@ -473,7 +473,7 @@
         <div class="feature-card"><div class="icon">📋</div><h3>Durable queues</h3><p>At-least-once with leases, retries, delays, idempotency keys, and dead-letter queue.</p></div>
         <div class="feature-card"><div class="icon">📡</div><h3>Event streams</h3><p>Append-only timelines with auto-incrementing sequences. Built for audit and replication.</p></div>
         <div class="feature-card"><div class="icon">🔍</div><h3>Full-text search</h3><p>SQLite FTS5 with Porter stemming, metadata filters, and recency-weighted BM25 ranking.</p></div>
-        <div class="feature-card"><div class="icon">🤖</div><h3>MCP-native</h3><p><span data-dynamic="tools">20</span> built-in MCP tools. AI agents read, write, search, and process jobs without custom code.</p></div>
+        <div class="feature-card"><div class="icon">🤖</div><h3>MCP-native</h3><p><span data-dynamic="tools">27</span> built-in MCP tools. AI agents read, write, search, and process jobs without custom code.</p></div>
         <div class="feature-card"><div class="icon">⚡</div><h3>Multi-mode</h3><p>Embedded, sidecar, or cluster. In-memory or persistent SQLite. Same API everywhere.</p></div>
       </div>
     </section>
@@ -481,7 +481,7 @@
     <!-- ═══ MCP TOOLS ═══ -->
     <section>
       <h2 class="section-title">Built-in MCP tools</h2>
-      <p class="section-sub">AI agents interact with thingd through <span data-dynamic="tools">20</span> standardized tools — no custom integrations needed.</p>
+      <p class="section-sub">AI agents interact with thingd through <span data-dynamic="tools">27</span> standardized tools — no custom integrations needed.</p>
       <div class="mcp-card" id="mcp-card">
         <div class="mcp-group">
           <div class="mcp-group-label">Search &amp; Objects</div>
@@ -490,7 +490,9 @@
             <div class="mcp-tool"><span class="name">thing_get</span><span class="desc">· get object by ID</span></div>
             <div class="mcp-tool"><span class="name">thing_put</span><span class="desc">· create or update</span></div>
             <div class="mcp-tool"><span class="name">thing_delete</span><span class="desc">· delete object</span></div>
-            <div class="mcp-tool"><span class="name">thing_objects_list</span><span class="desc">· list all objects</span></div>
+            <div class="mcp-tool"><span class="name">thing_objects_list</span><span class="desc">· list objects with filter/sort</span></div>
+            <div class="mcp-tool"><span class="name">thing_objects_put_batch</span><span class="desc">· batch create/update</span></div>
+            <div class="mcp-tool"><span class="name">thing_objects_delete_batch</span><span class="desc">· batch delete</span></div>
           </div>
         </div>
         <div class="mcp-group">
@@ -509,6 +511,16 @@
             <div class="mcp-tool"><span class="name">thing_queue_nack</span><span class="desc">· retry / fail</span></div>
             <div class="mcp-tool"><span class="name">thing_queue_list</span><span class="desc">· list queue jobs</span></div>
             <div class="mcp-tool"><span class="name">thing_queue_dead</span><span class="desc">· list dead-letter jobs</span></div>
+          </div>
+        </div>
+        <div class="mcp-group">
+          <div class="mcp-group-label">Links</div>
+          <div class="mcp-grid">
+            <div class="mcp-tool"><span class="name">thing_link_create</span><span class="desc">· create graph link</span></div>
+            <div class="mcp-tool"><span class="name">thing_link_get</span><span class="desc">· get link by ID</span></div>
+            <div class="mcp-tool"><span class="name">thing_link_delete</span><span class="desc">· delete link</span></div>
+            <div class="mcp-tool"><span class="name">thing_link_neighbors</span><span class="desc">· find connected links</span></div>
+            <div class="mcp-tool"><span class="name">thing_link_count</span><span class="desc">· count all links</span></div>
           </div>
         </div>
         <div class="mcp-group">
@@ -543,7 +555,7 @@
         </div>
 
         <div class="code-block" id="code-npm">
-          <span class="prompt">$</span> npm install thingd<br><br>
+          <span class="prompt">$</span> npm install @thingd/sdk<br><br>
           <span class="dim">// app.mjs</span><br>
           <span class="accent">import</span> { ThingD } <span class="accent">from</span> <span class="string">"thingd"</span>;<br>
           <span class="accent">const</span> db = <span class="accent">await</span> ThingD.<span class="pink">open</span>(<span class="string">":memory:"</span>);<br>
@@ -618,7 +630,7 @@
           <span class="agent-icon">⚙</span>
           <span class="agent-name">Any MCP client</span>
           <span class="agent-mode">stdio / HTTP</span>
-          <span class="agent-desc"><span data-dynamic="tools">20</span> tools: search, objects, events, queues</span>
+          <span class="agent-desc"><span data-dynamic="tools">27</span> tools: search, objects, events, queues, links</span>
         </div>
       </div>
       <p style="text-align:center;margin-top:1.5rem;font-size:0.85rem;color:var(--muted)">
@@ -628,8 +640,8 @@
 
     <!-- ═══ STATS ═══ -->
     <div class="stats-row" id="stats-row">
-      <div class="stat"><div class="stat-num" data-stat="tools" data-count="20">0</div><div class="stat-label">MCP tools</div></div>
-      <div class="stat"><div class="stat-num" data-stat="modes" data-count="4">0</div><div class="stat-label">deployment modes</div></div>
+      <div class="stat"><div class="stat-num" data-stat="tools" data-count="27">0</div><div class="stat-label">MCP tools</div></div>
+      <div class="stat"><div class="stat-num" data-stat="modes" data-count="3">0</div><div class="stat-label">deployment modes</div></div>
       <div class="stat"><div class="stat-num" data-stat="releases" data-count="23">0</div><div class="stat-label">npm releases</div></div>
       <div class="stat"><div class="stat-num" id="version-num">—</div><div class="stat-label">latest version</div></div>
     </div>
@@ -644,6 +656,7 @@
         <a href="https://github.com/sayanmohsin/thingd/tree/main/docs">Docs</a>
         <a href="https://github.com/sayanmohsin/thingd/blob/main/docs/agent-setup.md">Agent setup</a>
         <a href="https://github.com/sayanmohsin/thingd/blob/main/docs/cli-reference.md">CLI reference</a>
+        <a href="https://github.com/sayanmohsin/thingd/tree/main/docs/api-spec">API spec</a>
       </div>
       thingd is open source under the Apache-2.0 license.
     </footer>
@@ -657,7 +670,7 @@
         const [npmRes, ghRes, toolsRes] = await Promise.all([
           fetch('https://registry.npmjs.org/thingd/latest'),
           fetch('https://api.github.com/repos/sayanmohsin/thingd/releases?per_page=1'),
-          fetch('https://raw.githubusercontent.com/sayanmohsin/thingd/main/packages/thingd-cli/src/mcp/tools.ts'),
+          fetch('https://raw.githubusercontent.com/sayanmohsin/thingd/main/packages/thingd/src/mcp/tools.ts'),
         ]);
 
         if (npmRes.ok) {

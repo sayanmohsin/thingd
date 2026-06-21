@@ -9,6 +9,8 @@ knowing SQL or internal storage details.
 
 ## Current Status
 
+**27 MCP tools** exposed via stdio and Streamable HTTP.
+
 The package implements the local stdio server plus a remote-capable Streamable
 HTTP runtime.
 
@@ -314,4 +316,4 @@ ChatGPT / agent
 ```
 
 See [docker-runtime.md](./docker-runtime.md), [runtime-env.md](./runtime-env.md),
-and the [deploy examples](../deploy).
+[api-spec/mcp-tools.md](./api-spec/mcp-tools.md), and the [deploy examples](../deploy).

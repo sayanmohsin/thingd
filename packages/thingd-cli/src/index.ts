@@ -6,17 +6,19 @@ import { setTimeout as sleep } from "node:timers/promises";
 import { pathToFileURL } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import pc from "picocolors";
 import {
+  type ListObjectsOptions,
   type MemoryEvent,
   type MemoryObject,
   type MemorySearchOptions,
   type QueueClaimOptions,
   type QueueJobOptions,
   type QueueNackOptions,
+  type SortBy,
   ThingD,
   type ThingDDriver,
-} from "thingd";
+} from "@thingd/sdk";
+import pc from "picocolors";
 import { runInteractiveCli } from "./interactive.js";
 import { logoLine } from "./logo.js";
 import { runMcp } from "./mcp.js";
@@ -101,11 +103,13 @@ Usage:
   thingd mcp [--path <path>] [--driver <driver>]
   thingd mcp-http [--path <path>] [--driver <driver>] [--host <host>] [--port <port>] [--auth-token <tok>] [--allow-unauthenticated]
   thingd search <query> [--collection <name>] [--limit <n>] [--filter <json>]
-  thingd objects list <collection>
+  thingd objects list <collection> [--limit <n>] [--offset <n>] [--sort-by <field>] [--sort-dir <asc|desc>] [--filter <json>]
   thingd objects get <collection> <id>
   thingd objects put <collection> <id> --text <text>
   thingd objects put <collection> <id> --data '{"field":"value"}'
+  thingd objects put-batch <collection> --file <path>
   thingd objects delete <collection> <id>
+  thingd objects delete-batch <collection> <id1> [id2] ...
   thingd events streams
   thingd events append <stream> <type> [--text <text>] [--data '{"field":"value"}']
   thingd events list [stream] [--limit <n>]
@@ -580,7 +584,19 @@ async function runObjects(context: CliContext): Promise<void> {
 
   await withDb(context, async (db) => {
     if (action === "list") {
-      const objects = await db.listObjects(collection);
+      const sortByField = stringFlag(context.parsed, "sort-by") as SortBy["field"] | undefined;
+      const sortByDir = stringFlag(context.parsed, "sort-dir") as SortBy["direction"] | undefined;
+      const sortBy: SortBy | undefined = sortByField
+        ? { field: sortByField, direction: sortByDir ?? "asc" }
+        : undefined;
+      const filterStr = stringFlag(context.parsed, "filter");
+      const options: ListObjectsOptions = {
+        filter: filterStr ? JSON.parse(filterStr) : undefined,
+        sortBy,
+        limit: optionalInt(context.parsed, "limit"),
+        offset: optionalInt(context.parsed, "offset"),
+      };
+      const objects = await db.listObjects(collection, compactOptions(options));
       if (context.pretty) {
         const bullets = objects.map((obj) => {
           const { id, version, createdAt } = obj;
@@ -594,6 +610,54 @@ async function runObjects(context: CliContext): Promise<void> {
         );
       } else {
         writeJson(context.stdout, objects, false);
+      }
+      return;
+    }
+
+    if (action === "put-batch") {
+      const filePath = stringFlag(context.parsed, "file");
+      if (!filePath) {
+        throw new Error("put-batch requires --file <path>");
+      }
+      const { existsSync, readFileSync } = await import("node:fs");
+      const { resolve } = await import("node:path");
+      const resolved = resolve(filePath);
+      if (!existsSync(resolved)) {
+        throw new Error(`File not found: ${resolved}`);
+      }
+      const raw = readFileSync(resolved, "utf8");
+      const parsed = JSON.parse(raw);
+      const objects = Array.isArray(parsed) ? parsed : parsed.objects;
+      if (!Array.isArray(objects)) {
+        throw new Error("File must contain a JSON array or { objects: [...] }");
+      }
+      const result = await db.putBatch(collection, objects);
+      if (context.pretty) {
+        writeLog(
+          context.stdout,
+          [{ label: "Created", value: `${result.length} object(s)` }],
+          `thingd  objects  put-batch  ${collection}`
+        );
+      } else {
+        writeJson(context.stdout, result, false);
+      }
+      return;
+    }
+
+    if (action === "delete-batch") {
+      const ids = context.parsed.tokens.slice(3);
+      if (ids.length === 0) {
+        throw new Error("delete-batch requires at least one object id");
+      }
+      const count = await db.deleteBatch(collection, ids);
+      if (context.pretty) {
+        writeLog(
+          context.stdout,
+          [{ label: "Deleted", value: `${count} object(s)` }],
+          `thingd  objects  delete-batch  ${collection}`
+        );
+      } else {
+        writeJson(context.stdout, { deleted: count }, false);
       }
       return;
     }
@@ -916,26 +980,27 @@ async function runLinks(context: CliContext): Promise<void> {
       return;
     }
 
-    const id = requiredToken(context.parsed, 2, "link id");
-
     if (action === "get") {
+      const id = requiredToken(context.parsed, 2, "link id");
       writeJson(context.stdout, await db.links.get(id), context.pretty);
       return;
     }
 
     if (action === "delete") {
+      const id = requiredToken(context.parsed, 2, "link id");
       writeJson(context.stdout, { deleted: await db.links.delete(id) }, context.pretty);
       return;
     }
 
     if (action === "neighbors") {
+      const reference = requiredToken(context.parsed, 2, "reference");
       const direction = (stringFlag(context.parsed, "direction") ?? "Both") as
         | "Outgoing"
         | "Incoming"
         | "Both";
       const linkType = stringFlag(context.parsed, "type");
       const limit = optionalInt(context.parsed, "limit");
-      const neighbors = await db.links.neighbors(id, direction, {
+      const neighbors = await db.links.neighbors(reference, direction, {
         linkType: linkType ?? undefined,
         limit: limit ?? undefined,
       });
@@ -947,7 +1012,7 @@ async function runLinks(context: CliContext): Promise<void> {
         writeLogBullets(
           context.stdout,
           bullets.map((t) => ({ text: t })),
-          `thingd  links  neighbors  ${id}`
+          `thingd  links  neighbors  ${reference}`
         );
       } else {
         writeJson(context.stdout, neighbors, false);

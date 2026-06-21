@@ -245,7 +245,7 @@ async function openStore(path: string, options: ResolvedThingDOpenOptions): Prom
     }
 
     console.warn(
-      `Warning: The native thingd driver is not available. Falling back to the temporary in-memory store. Data will not persist. Run "pnpm --filter thingd-native build" or install "thingd-native" to enable native persistence.`
+      `Warning: The native thingd driver is not available. Falling back to the temporary in-memory store. Data will not persist. Run "pnpm --filter @thingd/native build" or install "@thingd/native" to enable native persistence.`
     );
   }
 

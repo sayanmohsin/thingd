@@ -15,7 +15,7 @@
 //! # Example (in-memory)
 //!
 //! ```rust
-//! use thingd_core::{MemoryEngine, ObjectStore, EventLog, MemoryObject, MemoryEvent};
+//! use thingd::{MemoryEngine, ObjectStore, EventLog, MemoryObject, MemoryEvent};
 //!
 //! let mut engine = MemoryEngine::new();
 //!
@@ -34,7 +34,7 @@
 //! ```rust,no_run
 //! #[cfg(feature = "sqlite")]
 //! {
-//!     use thingd_core::{SqliteThingStore, ObjectStore, MemoryObject};
+//!     use thingd::{SqliteThingStore, ObjectStore, MemoryObject};
 //!
 //!     let mut db = SqliteThingStore::open_in_memory().unwrap();
 //!     db.put_object(MemoryObject::new("users", "alice", r#"{"name":"Alice"}"#)).unwrap();

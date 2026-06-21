@@ -9,7 +9,7 @@
     "scheduler": "pnpm build && node dist/scheduler-heartbeat.js"
   },
   "dependencies": {
-    "thingd": "file:../../packages/thingd"
+    "@thingd/sdk": "file:../../packages/thingd"
   },
   "devDependencies": {
     "typescript": "^6.0.3",

@@ -70,12 +70,16 @@ Expected:
 
 ### Tools your agent can now call
 
-`thing_search`, `thing_get`, `thing_put`, `thing_delete`,
-`thing_events_append`, `thing_events_list`, `thing_queue_push`,
-`thing_queue_claim`, `thing_queue_ack`, `thing_queue_nack`,
-`thing_queue_list`, `thing_queue_dead`
+`thing_search`, `thing_get`, `thing_put`, `thing_delete`, `thing_objects_list`,
+`thing_objects_put_batch`, `thing_objects_delete_batch`,
+`thing_events_append`, `thing_events_list`,
+`thing_queue_push`, `thing_queue_claim`, `thing_queue_ack`, `thing_queue_nack`,
+`thing_queue_list`, `thing_queue_dead`,
+`thing_link_create`, `thing_link_get`, `thing_link_delete`, `thing_link_neighbors`, `thing_link_count`,
+`thing_count_objects`, `thing_count_events`, `thing_count_active_jobs`, `thing_count_dead_jobs`,
+`thing_list_collections`, `thing_list_streams`, `thing_list_queues`
 
-Full details: [MCP Server](./mcp-server.md)
+Full details: [MCP Server](./mcp-server.md) · [API Spec](./api-spec/mcp-tools.md)
 
 ---
 
@@ -222,7 +226,7 @@ Your MCP endpoint: `https://example.com/mcp`
    - **URL**: `https://example.com/mcp`
    - **Bearer token**: `strong-random-token`
 
-ChatGPT can now call all 20 thingd tools in any conversation.
+ChatGPT can now call all 27 thingd tools in any conversation.
 
 ---
 
@@ -232,7 +236,7 @@ Copy the `.cursorrules` file to your project root to teach agents the memory
 conventions automatically:
 
 ```bash
-cp node_modules/thingd-cli/examples/cursor-agent-memory/.cursorrules .cursorrules
+cp node_modules/@thingd/cli/examples/cursor-agent-memory/.cursorrules .cursorrules
 ```
 
 Or write your own system prompt for GPT / Claude:
@@ -273,3 +277,4 @@ scheduler, multi-agent blackboard, agent handoff, inbox, and heartbeat.
 - [Runtime environment variables](./runtime-env.md)
 - [Agent patterns](./agent-patterns.md)
 - [Why agents use thingd](./why-agents.md)
+- [API spec](./api-spec/)

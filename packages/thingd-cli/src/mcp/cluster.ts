@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-import type { ThingD } from "thingd";
+import type { ThingD } from "@thingd/sdk";
 import { parseBooleanFlag, parsePort } from "./config.js";
 
 export type ThingdClusterMode = "single" | "leader" | "follower";

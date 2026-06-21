@@ -44,17 +44,19 @@ The durable engine should be append-friendly and rebuildable:
 objects
 events
 queue_jobs
+links
 indexes
 ```
 
 Objects are the primary app-facing shape. Events explain how state changed. Indexes are derived and can be rebuilt.
 
-`crates/thingd-core` defines the current storage boundary with these traits:
+`crates/thingd` defines the current storage boundary with these traits:
 
 ```txt
 ObjectStore
 EventLog
 QueueStore
+LinkStore
 ThingStore
 ```
 
@@ -123,7 +125,7 @@ thingd
 thingd-native
   napi-rs binding package
 
-crates/thingd-core
+crates/thingd
   durable engine traits and adapters
 ```
 

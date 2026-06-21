@@ -144,7 +144,7 @@ export type ListObjectsOptions = {
  * Consumers can use this for type-safe dependency injection instead of `any`:
  *
  * ```ts
- * import type { ThingDConnection } from "thingd";
+ * import type { ThingDConnection } from "@thingd/sdk";
  * private readonly db: ThingDConnection;
  * ```
  */

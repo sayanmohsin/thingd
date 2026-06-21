@@ -95,7 +95,7 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      - run: pnpm --filter thingd --filter thingd-cli build
+      - run: pnpm --filter @thingd/sdk --filter @thingd/cli build
 
       - name: Publish release
         id: version
@@ -192,6 +192,6 @@ jobs:
           fi
 
       - name: Publish to crates.io
-        run: cargo publish -p thingd-core --features sqlite
+        run: cargo publish -p thingd --features sqlite
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}

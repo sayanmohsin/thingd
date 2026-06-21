@@ -11,7 +11,7 @@ use crate::{
 /// # Examples
 ///
 /// ```rust
-/// use thingd_core::{MemoryEngine, ObjectStore, MemoryObject};
+/// use thingd::{MemoryEngine, ObjectStore, MemoryObject};
 ///
 /// let mut store = MemoryEngine::new();
 /// let obj = MemoryObject::new("users", "alice", r#"{"name":"Alice"}"#);
@@ -129,7 +129,7 @@ pub trait ObjectStore {
 /// # Examples
 ///
 /// ```rust
-/// use thingd_core::{MemoryEngine, EventLog, MemoryEvent, ListEventsOptions};
+/// use thingd::{MemoryEngine, EventLog, MemoryEvent, ListEventsOptions};
 ///
 /// let mut store = MemoryEngine::new();
 /// let event = MemoryEvent::new("audit", "user.created", r#"{"user":"alice"}"#);
@@ -224,7 +224,7 @@ pub trait EventLog {
 /// # Examples
 ///
 /// ```rust
-/// use thingd_core::{MemoryEngine, QueueStore, QueueJob, QueueJobStatus};
+/// use thingd::{MemoryEngine, QueueStore, QueueJob, QueueJobStatus};
 ///
 /// let mut store = MemoryEngine::new();
 /// let job = QueueJob::new("emails", "job-1", r#"{"to":"alice@example.com"}"#, 3);
@@ -370,7 +370,7 @@ pub trait QueueStore {
 /// # Examples
 ///
 /// ```rust
-/// use thingd_core::{MemoryEngine, ObjectStore, Searcher, MemoryObject, SearchOptions};
+/// use thingd::{MemoryEngine, ObjectStore, Searcher, MemoryObject, SearchOptions};
 ///
 /// let mut store = MemoryEngine::new();
 /// store.put_object(MemoryObject::new("docs", "readme", "Getting started guide")).unwrap();

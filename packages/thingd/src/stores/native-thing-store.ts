@@ -146,7 +146,7 @@ type NativeSearchHit = {
 };
 
 const DEFAULT_LEASE_MS = 30_000;
-const NATIVE_PACKAGE_NAME = "thingd-native";
+const NATIVE_PACKAGE_NAME = "@thingd/native";
 
 export class NativeThingStore implements ThingStore {
   static async open(path: string): Promise<NativeThingStore> {

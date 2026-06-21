@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/thingd-core", "packages/thingd-native"]
+members = ["crates/thingd", "packages/thingd-native"]
 resolver = "2"
 
 [workspace.package]

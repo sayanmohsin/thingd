@@ -50,6 +50,52 @@ thingd-cloud (private)
   single source of truth for roadmap/phase tracking.
 - Never commit secrets, API keys, or production credentials to either repo.
 
+## Repository boundaries
+
+### thingd (public) — everything external users need
+- **Core engine:** `thingd` Rust crate (zero HTTP/MCP knowledge)
+- **Node.js SDK:** `thingd` npm package (MCP + REST handlers, three stores)
+- **CLI:** `thingd-cli` npm package (TUI, transports, cluster)
+- **API spec:** `docs/api-spec/` — language-agnostic contract for future SDKs
+- **Docs:** quickstart, MCP reference, CLI reference, FAQ, benchmarks, architecture
+- **Docker:** multi-stage image with CLI + TUI dashboard
+
+### thingd-cloud (private) — hosted instance only
+- **Auth, billing, tenants** — user management on top of thingd
+- **Rate limiting, quotas** — per-tenant resource controls
+- **Managed MCP gateway** — cloud-hosted MCP endpoint
+- **Web UI** — connects to local + cloud instances
+- **No user-defined functions** — thingd-cloud just hosts thingd instances
+
+### What goes where
+
+| Change | Repo |
+|--------|------|
+| New engine feature (Rust) | thingd |
+| New SDK method (TypeScript) | thingd |
+| New MCP tool | thingd |
+| New REST endpoint | thingd |
+| API spec update | thingd (`docs/api-spec/`) |
+| Auth/billing/tenants | thingd-cloud |
+| Rate limiting | thingd-cloud |
+| Roadmap/phase tracking | thingd-cloud |
+| Planning docs | thingd-cloud |
+| Public docs | thingd |
+
+### Language-specific SDKs (future)
+
+Each language SDK wraps `thingd` via FFI and implements the API spec:
+
+| Language | FFI | Package |
+|----------|-----|---------|
+| Node.js | napi-rs | `thingd` (this repo) |
+| Go | cgo | `thingd-go` (separate repo) |
+| Rust | direct crate | `thingd-rust` (separate repo) |
+| Flutter | dart:ffi | `thingd-flutter` (separate repo) |
+
+Each SDK implements its own MCP/REST handlers following `docs/api-spec/`.
+The API contract lives in thingd public repo as language-agnostic docs.
+
 ---
 
 ## Project status — early-to-mid stage prototype (0.x track)
@@ -58,7 +104,7 @@ thingd-cloud (private)
 
 | Area | Details |
 |------|---------|
-| Rust engine | `thingd-core` — memory + SQLite adapters, FTS5 search, queue lifecycle (lease/ack/nack/dead-letter/delayed/retry), schema migrations v1-v4, graph links, ~74 tests |
+| Rust engine | `thingd` — memory + SQLite adapters, FTS5 search, queue lifecycle (lease/ack/nack/dead-letter/delayed/retry), schema migrations v1-v4, graph links, ~74 tests |
 | Node.js SDK | `thingd` — three drivers: memory (default in-memory TS store), native (napi-rs Rust SQLite), remote/cloud (Streamable HTTP MCP); batch ops, sort/filter/offset, graph links |
 | CLI | `thingd-cli` — TUI dashboard, 30+ subcommands (search, objects, events, queues, links, export/import/snapshot, doctor, bench, install for Cursor/Claude Desktop) |
 | MCP server | 27 tools, stdio + Streamable HTTP, audit events to `__thingd:mcp:audit` stream, collection allowlists, read-only mode |
@@ -73,7 +119,7 @@ thingd-cloud (private)
 - `thingd-native` — private (no prebuilts), requires local Rust build
 
 ### Published Rust crate
-- `thingd-core` — [crates.io](https://crates.io/crates/thingd-core) — Rust engine primitives with optional SQLite adapter
+- `thingd` — [crates.io](https://crates.io/crates/thingd) — Rust engine primitives with optional SQLite adapter
 
 All three publish in lockstep. Old 1.x/2.x versions are deprecated on npm.
 
@@ -200,6 +246,7 @@ When adding a new feature or changing an API surface, update **all** of these:
 - [ ] `docs/mcp-server.md` — tool table entry + tool count in "Current Status"
 - [ ] `docs/cli-reference.md` — CLI command reference (if applicable)
 - [ ] `docs/faq.md` — MCP tool count, error handling (if new error types)
+- [ ] `docs/api-spec/` — update REST routes, MCP tools, data model, errors (if applicable)
 - [ ] `examples/node-basic/index.ts` — runnable example
 
 ### Optional (if applicable)
@@ -217,7 +264,7 @@ When adding a new feature or changing an API surface, update **all** of these:
 
 ### Rust ↔ TypeScript alignment rule
 
-Every public Rust feature in `thingd-core` must have a corresponding TypeScript surface. When adding or changing a Rust trait method, struct, or field:
+Every public Rust feature in `thingd` must have a corresponding TypeScript surface. When adding or changing a Rust trait method, struct, or field:
 
 1. **Rust `store.rs` trait** → add method with default impl (backward compat)
 2. **Rust `model.rs`** → add types/options structs

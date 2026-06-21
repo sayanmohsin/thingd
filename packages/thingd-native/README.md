@@ -1,45 +1,7 @@
-# thingd-native
+# @thingd/native
 
-[![npm downloads (native)](https://img.shields.io/npm/dm/thingd-native?label=downloads&logo=npm&color=ff6a00)](https://www.npmjs.com/package/thingd-native)
-[![npm version (native)](https://img.shields.io/npm/v/thingd-native?label=version&logo=npm&color=ff6a00)](https://www.npmjs.com/package/thingd-native)
+[![npm](https://img.shields.io/npm/v/@thingd/native?label=@thingd/native&logo=npm&color=ff6a00)](https://www.npmjs.com/package/@thingd/native)
 
-Native Node.js binding for `thingd` — a fast object-first data engine for applications and AI agents.
+Native Node.js binding for [thingd](https://github.com/sayanmohsin/thingd) — wraps `crates/thingd` (published on crates.io as `thingd`).
 
-This package provides the native SQLite persistence layer for the thingd SDK. It is currently private and opt-in, loaded only when `driver: "native"` is requested.
-
-This package is intentionally private and non-publishable right now. The public package remains `thingd`.
-
-Current shape:
-
-```txt
-thingd
-  TypeScript public API
-  ThingStore interface
-  loads this package only for driver: "native"
-
-thingd-native
-  napi-rs binding package
-  wraps crates/thingd-core (published on crates.io)
-  exposes low-level JSON bridge methods
-```
-
-Build locally:
-
-```bash
-pnpm --filter thingd-native build
-```
-
-Then use it through the public SDK:
-
-```ts
-import { ThingD } from "thingd";
-
-const db = await ThingD.open({
-  path: "./thingd.db",
-  driver: "native",
-});
-```
-
-The native package should not define a separate app-facing API. It should satisfy the same SDK behavior tested in `packages/thingd/test`.
-
-Do not publish this package until it has a prebuild strategy, migration story, and CI coverage for supported Node.js/platform combinations.
+This package is an internal dependency of `@thingd/sdk` and provides the native SQLite-backed store via napi-rs. You don't need to install it directly — `@thingd/sdk` pulls it in automatically when using `driver: "native"`.

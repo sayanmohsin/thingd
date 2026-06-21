@@ -36,9 +36,9 @@ const config = {
           "sed -i.bak 's/^version = \".*\"/version = \"${nextRelease.version}\"/' Cargo.toml && rm -f Cargo.toml.bak",
           "sed -i.bak 's/export const SDK_VERSION = \".*\"/export const SDK_VERSION = \"${nextRelease.version}\"/' packages/thingd/src/version.ts && rm -f packages/thingd/src/version.ts.bak",
           "VERSION_MM=$(echo ${nextRelease.version} | sed 's/\\([0-9]*\\.[0-9]*\\)\\..*/\\1/')",
-          "sed -i.bak 's/version = \"[0-9]*\\.[0-9]*\"/version = \"'\"$VERSION_MM\"'\"/g' README.md crates/thingd-core/README.md && rm -f README.md.bak crates/thingd-core/README.md.bak",
+          "sed -i.bak 's/version = \"[0-9]*\\.[0-9]*\"/version = \"'\"$VERSION_MM\"'\"/g' README.md crates/thingd/README.md && rm -f README.md.bak crates/thingd/README.md.bak",
         ].join(" && "),
-        publishCmd: "pnpm --filter thingd publish --access public --no-git-checks && pnpm --filter thingd-cli publish --access public --no-git-checks && pnpm --filter thingd-native publish --access public --no-git-checks"
+        publishCmd: "pnpm --filter @thingd/sdk publish --access public --no-git-checks && pnpm --filter @thingd/cli publish --access public --no-git-checks && pnpm --filter @thingd/native publish --access public --no-git-checks"
       }
     ],
     [
@@ -52,7 +52,7 @@ const config = {
           "packages/thingd/src/version.ts",
           "packages/thingd-cli/package.json",
           "packages/thingd-native/package.json",
-          "crates/thingd-core/README.md",
+          "crates/thingd/README.md",
         ],
       },
     ],

@@ -1,8 +1,8 @@
 # thingd
 
-[![npm downloads (SDK)](https://img.shields.io/npm/dm/thingd?label=SDK&logo=npm&color=ff6a00)](https://www.npmjs.com/package/thingd)
-[![npm downloads (CLI)](https://img.shields.io/npm/dm/thingd-cli?label=CLI&logo=npm&color=ff6a00)](https://www.npmjs.com/package/thingd-cli)
-[![Crates.io](https://img.shields.io/crates/v/thingd-core?label=thingd-core&logo=rust&color=ff6a00)](https://crates.io/crates/thingd-core)
+[![npm downloads (SDK)](https://img.shields.io/npm/dm/@thingd/sdk?label=SDK&logo=npm&color=ff6a00)](https://www.npmjs.com/package/@thingd/sdk)
+[![npm downloads (CLI)](https://img.shields.io/npm/dm/@thingd/cli?label=CLI&logo=npm&color=ff6a00)](https://www.npmjs.com/package/@thingd/cli)
+[![Crates.io](https://img.shields.io/crates/v/thingd?label=engine&logo=rust&color=ff6a00)](https://crates.io/crates/thingd)
 [![Docker pulls](https://img.shields.io/docker/pulls/sayanmohsin/thingd?label=Docker&logo=docker&color=ff6a00)](https://hub.docker.com/r/sayanmohsin/thingd)
 [![GitHub stars](https://img.shields.io/github/stars/sayanmohsin/thingd?label=Stars&logo=github&color=ff6a00)](https://github.com/sayanmohsin/thingd)
 
@@ -22,9 +22,9 @@ production-ready yet.
 
 ### Shipped
 
-- **Rust engine** (`thingd-core`) — object CRUD, append-only events, durable job queues with lease/ack/nack/dead-letter/delayed/retry, full-text search (FTS5), graph links, SQLite schema migrations
-- **Node.js SDK** (`thingd`) — three drivers: memory (default in-memory TS store), native (napi-rs Rust SQLite), remote/cloud (Streamable HTTP MCP)
-- **CLI** (`thingd-cli`) — TUI dashboard, 30+ subcommands (search, objects, events, queues, export/import/snapshot, doctor, bench, install for Cursor/Claude Desktop)
+- **Rust engine** (`thingd` — crates.io) — memory + SQLite adapters, FTS5 search, queue lifecycle, graph links, SQLite schema migrations
+- **Node.js SDK** (`@thingd/sdk`) — three drivers: memory (default in-memory TS store), native (napi-rs Rust SQLite), remote/cloud (Streamable HTTP MCP)
+- **CLI** (`@thingd/cli`) — TUI dashboard, 30+ subcommands (search, objects, events, queues, export/import/snapshot, doctor, bench, install for Cursor/Claude Desktop)
 - **MCP server** — 27 tools, stdio + Streamable HTTP, audit events, collection allowlists, read-only mode
 - **Docker** — multi-stage image, compose + K8s for leader/follower cluster
 - **CI/tooling** — semantic-release, biome, lefthook, doc tests
@@ -113,14 +113,30 @@ thingd
 ### npm (SDK)
 
 ```bash
-npm install thingd
+npm install @thingd/sdk
 ```
 
 ### Rust (crate)
 
 ```toml
 [dependencies]
-thingd-core = { version = "0.31", features = ["sqlite"] }
+thingd = { version = "0.31", features = ["sqlite"] }
+```
+
+### Subpath imports
+
+```typescript
+// Full SDK (Node.js: MCP + REST + stores + native binding)
+import { ThingD } from "@thingd/sdk";
+
+// Lightweight HTTP client (browser + Node.js, zero dependencies)
+import { ThingD } from "@thingd/sdk/client";
+
+// Pure in-memory store (browser + Node.js, zero dependencies)
+import { ThingD } from "@thingd/sdk/memory";
+
+// Types only (for type-safe dependency injection)
+import type { ThingDConnection } from "@thingd/sdk/types";
 ```
 
 ### Docker (sidecar runtime)
@@ -137,7 +153,7 @@ See the [Docker Hub](https://hub.docker.com/r/sayanmohsin/thingd) page for all t
 This is the target developer experience.
 
 ```ts
-import { ThingD } from "thingd";
+import { ThingD } from "@thingd/sdk";
 
 const db = await ThingD.open(":memory:");
 
@@ -512,6 +528,30 @@ The MCP layer should continue to enforce:
 - safe mutation boundaries
 - source and actor attribution
 
+## REST API
+
+thingd also exposes a REST API on port 4100 under the `/v1` prefix, for apps that prefer HTTP over MCP:
+
+```bash
+# health check
+curl http://localhost:4100/v1/health
+
+# put an object
+curl -X PUT http://localhost:4100/v1/objects/users/user-001 \
+  -H "Content-Type: application/json" \
+  -d '{"name": "Alice", "role": "admin"}'
+
+# search
+curl -X POST http://localhost:4100/v1/search \
+  -H "Content-Type: application/json" \
+  -d '{"query": "alice"}'
+
+# list objects with filter and sort
+curl "http://localhost:4100/v1/objects?collection=users&filter.role=admin&sortBy=created_at&sortDir=desc"
+```
+
+Full REST reference: [docs/api-spec/rest-api.md](./docs/api-spec/rest-api.md)
+
 ## Sidecar and cluster mode
 
 The long-term deployment model has two simple modes:
@@ -596,7 +636,7 @@ Planned package layout:
 
 ```txt
 crates/
-  thingd-core/       Rust engine primitives
+  thingd/            Rust engine primitives
 
 packages/
   thingd/            Node.js SDK
@@ -651,7 +691,7 @@ Or add it to that app's `package.json`:
 ```json
 {
   "dependencies": {
-    "thingd": "file:/path/to/thingd/packages/thingd"
+    "@thingd/sdk": "file:/path/to/thingd/packages/thingd"
   }
 }
 ```
@@ -666,7 +706,7 @@ Project conventions live in checked-in files so this repo stays easy to work on:
 - [rustfmt.toml](./rustfmt.toml) controls Rust formatting.
 - [Cargo.toml](./Cargo.toml) defines workspace Rust and Clippy lints.
 
-Documentation: see [docs/](./docs/) for quickstart, MCP server reference, agent setup, patterns, FAQ, and architecture.
+Documentation: see [docs/](./docs/) for quickstart, MCP server reference, API spec, agent setup, patterns, FAQ, and architecture.
 
 Useful commands:
 
@@ -701,8 +741,8 @@ Conventional commits map to SemVer like this:
 
 Each release automatically:
 
-- publishes all three npm packages (`thingd`, `thingd-cli`, `thingd-native`)
-- publishes `thingd-core` Rust crate to [crates.io](https://crates.io/crates/thingd-core)
+- publishes all three npm packages (`@thingd/sdk`, `@thingd/cli`, `@thingd/native`)
+- publishes `thingd` Rust crate to [crates.io](https://crates.io/crates/thingd)
 - updates `CHANGELOG.md` in the repo from conventional commits
 - creates a GitHub Release with release notes
 - pushes version bump commits back to `main`

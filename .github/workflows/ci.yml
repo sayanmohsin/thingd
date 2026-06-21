@@ -81,9 +81,9 @@ jobs:
         if: matrix.build_native == 'true'
       - run: pnpm install --frozen-lockfile
       - run: pnpm check
-      - run: pnpm --filter thingd --filter thingd-cli --filter thingd-native build
+      - run: pnpm --filter @thingd/sdk --filter @thingd/cli --filter @thingd/native build
         if: matrix.build_native == 'true'
-      - run: pnpm --filter thingd --filter thingd-cli build
+      - run: pnpm --filter @thingd/sdk --filter @thingd/cli build
         if: matrix.build_native == 'false'
       - run: pnpm test:node
       - run: pnpm test:cli
@@ -107,7 +107,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: pnpm install --frozen-lockfile
       - run: pnpm check
-      - run: pnpm --filter thingd --filter thingd-cli --filter thingd-native build
+      - run: pnpm --filter @thingd/sdk --filter @thingd/cli --filter @thingd/native build
       - run: pnpm test:node
       - run: pnpm test:cli
       - run: pnpm test:package

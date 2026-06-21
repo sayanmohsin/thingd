@@ -1,10 +1,10 @@
-# thingd-core
+# thingd
 
-[![Crates.io](https://img.shields.io/crates/v/thingd-core?logo=rust&color=ff6a00)](https://crates.io/crates/thingd-core)
-[![Documentation](https://img.shields.io/docsrs/thingd-core?logo=rust&color=00c4d4)](https://docs.rs/thingd-core)
-[![License](https://img.shields.io/crates/l/thingd-core?color=ff6a00)](./LICENSE)
+[![Crates.io](https://img.shields.io/crates/v/thingd?logo=rust&color=ff6a00)](https://crates.io/crates/thingd)
+[![Documentation](https://img.shields.io/docsrs/thingd?logo=rust&color=00c4d4)](https://docs.rs/thingd)
+[![License](https://img.shields.io/crates/l/thingd?color=ff6a00)](./LICENSE)
 
-Core storage engine for [thingd](https://github.com/sayanmohsin/thingd) — an
+Core engine for [thingd](https://github.com/sayanmohsin/thingd) — an
 object-first data engine for applications and AI agents.
 
 This crate provides the storage boundary: object CRUD, append-only events,
@@ -12,7 +12,7 @@ durable job queues, full-text search, and graph links. It ships with two
 engines: an in-memory engine for fast prototyping and testing, and an optional
 SQLite-backed engine for durable production storage.
 
-## Why thingd-core?
+## Why thingd?
 
 Modern apps and AI agents commonly need:
 
@@ -22,7 +22,7 @@ Modern apps and AI agents commonly need:
 - **Durable job queues** with leases, retries, and dead-letter handling
 - **Graph links** between objects, memories, and decisions
 
-Today you stitch these together from 3-5 separate tools. thingd-core gives you
+Today you stitch these together from 3-5 separate tools. thingd gives you
 all five primitives behind a single composable trait interface.
 
 ## Feature Flags
@@ -37,7 +37,7 @@ all five primitives behind a single composable trait interface.
 ### In-memory engine (zero setup)
 
 ```rust
-use thingd_core::{MemoryEngine, ObjectStore, MemoryObject};
+use thingd::{MemoryEngine, ObjectStore, MemoryObject};
 
 let mut engine = MemoryEngine::new();
 
@@ -50,7 +50,7 @@ assert_eq!(user.unwrap().body, r#"{"name":"Alice"}"#);
 ### SQLite engine (durable storage)
 
 ```rust
-use thingd_core::{SqliteThingStore, ObjectStore, MemoryObject};
+use thingd::{SqliteThingStore, ObjectStore, MemoryObject};
 
 let mut db = SqliteThingStore::open_in_memory().unwrap();
 
@@ -63,7 +63,7 @@ assert_eq!(user.unwrap().body, r#"{"name":"Alice"}"#);
 ### Full-text search
 
 ```rust
-use thingd_core::{SqliteThingStore, ObjectStore, MemoryObject, Searcher};
+use thingd::{SqliteThingStore, ObjectStore, MemoryObject, Searcher};
 
 let mut db = SqliteThingStore::open_in_memory().unwrap();
 
@@ -77,7 +77,7 @@ assert!(!hits.is_empty());
 ### Append-only events
 
 ```rust
-use thingd_core::{SqliteThingStore, EventLog, MemoryEvent};
+use thingd::{SqliteThingStore, EventLog, MemoryEvent};
 
 let mut db = SqliteThingStore::open_in_memory().unwrap();
 
@@ -87,7 +87,7 @@ db.append_event(MemoryEvent::new("project:thingd", "decision.made", r#"{"text":"
 ### Durable job queues
 
 ```rust
-use thingd_core::{SqliteThingStore, QueueStore, QueueJob, QueueClaimOptions};
+use thingd::{SqliteThingStore, QueueStore, QueueJob, QueueClaimOptions};
 
 let mut db = SqliteThingStore::open_in_memory().unwrap();
 
@@ -102,7 +102,7 @@ db.ack_job("embeddings", &claimed.unwrap().id).unwrap();
 ### Graph links
 
 ```rust
-use thingd_core::{SqliteThingStore, LinkStore, Link, LinkDirection};
+use thingd::{SqliteThingStore, LinkStore, Link, LinkDirection};
 
 let mut db = SqliteThingStore::open_in_memory().unwrap();
 
@@ -140,7 +140,7 @@ Both `MemoryEngine` and `SqliteThingStore` implement all five traits.
 
 ## Comparison
 
-| Tool | Great at | Why thingd-core is different |
+| Tool | Great at | Why thingd is different |
 |------|----------|------------------------------|
 | SQLite | relational storage | object API, events, queues, search, graph |
 | MongoDB | flexible documents | local-first, Rust, no server process |

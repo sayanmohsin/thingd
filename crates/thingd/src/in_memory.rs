@@ -14,7 +14,7 @@ use crate::{
 /// # Examples
 ///
 /// ```rust
-/// use thingd_core::{MemoryEngine, ObjectStore, EventLog, MemoryObject, MemoryEvent};
+/// use thingd::{MemoryEngine, ObjectStore, EventLog, MemoryObject, MemoryEvent};
 ///
 /// let mut engine = MemoryEngine::new();
 ///

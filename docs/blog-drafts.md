@@ -30,7 +30,7 @@ I kept rebuilding the same backend for every agent project:
 thingd bundles all of these into one engine:
 
 ```
-npm install thingd
+npm install @thingd/sdk
 ```
 
 ```typescript
@@ -52,15 +52,15 @@ const results = await db.search("postgres", {
 });
 
 // Durable queues with leases and retries
-await db.queuePush("embed-queue", {
+await db.queue("embed-queue").push({
   payload: { docId: "arch-1", text: "Use PostgreSQL..." },
 });
-const job = await db.queueClaim("embed-queue");
+const job = await db.queue("embed-queue").claim();
 // ... process ...
-await db.queueAck("embed-queue", job.id);
+await db.queue("embed-queue").ack(job.id);
 
 // Event streams
-await db.eventAppend("agent:session-1", "decision.made", {
+await db.events.append("agent:session-1", { type: "decision.made",
   data: { decision: "arch-1", reason: "..." },
 });
 ```
@@ -69,11 +69,11 @@ await db.eventAppend("agent:session-1", "decision.made", {
 
 thingd speaks MCP (Model Context Protocol) natively. That means any
 MCP-compatible agent — Claude Desktop, Cursor, Cline, or custom — gets
-25 tools automatically:
+27 tools automatically:
 
 | Category | Tools |
 |----------|-------|
-| Objects | `thing_put`, `thing_get`, `thing_delete`, `thing_objects_list` |
+| Objects | `thing_put`, `thing_get`, `thing_delete`, `thing_objects_list`, `thing_objects_put_batch`, `thing_objects_delete_batch` |
 | Search | `thing_search` |
 | Queues | `thing_queue_push`, `thing_queue_claim`, `thing_queue_ack`, `thing_queue_nack`, `thing_queue_list`, `thing_queue_dead` |
 | Events | `thing_events_append`, `thing_events_list` |
@@ -131,13 +131,13 @@ An agent that:
 
 ### Prerequisites
 
-- Node.js 18+
+- Node.js >= 24.0.0
 - Claude Desktop (or any MCP client)
 
 ### Step 1: Install thingd
 
 ```bash
-npm install -g thingd-cli
+npm install -g @thingd/cli
 ```
 
 ### Step 2: Set up MCP
@@ -154,7 +154,7 @@ Open Claude Desktop and ask:
 
 > What tools do you have for managing data?
 
-Claude should list 20 `thing_*` tools covering objects, queues, events,
+Claude should list 27 `thing_*` tools covering objects, queues, events,
 and search.
 
 ### Step 4: Use it in code
@@ -181,14 +181,14 @@ console.log(results);
 
 ```typescript
 // Push a job
-await db.queuePush("embed-queue", {
+await db.queue("embed-queue").push({
   payload: { docId: "project-setup", text: "..." },
 });
 
 // Claim and process
-const job = await db.queueClaim("embed-queue");
+const job = await db.queue("embed-queue").claim();
 // ... generate embeddings ...
-await db.queueAck("embed-queue", job.id);
+await db.queue("embed-queue").ack(job.id);
 ```
 
 ### What's next?
@@ -229,9 +229,9 @@ await db.put("notes", { id: "n1", text: "hello", tags: ["greeting"] });
 Durable job queues with leases, retries, delay, and dead-letter.
 
 ```typescript
-await db.queuePush("work", { payload: { task: "process" } });
-const job = await db.queueClaim("work");
-await db.queueAck("work", job.id);
+await db.queue("work").push({ payload: { task: "process" } });
+const job = await db.queue("work").claim();
+await db.queue("work").ack(job.id);
 ```
 
 **3. Events**
@@ -239,7 +239,7 @@ await db.queueAck("work", job.id);
 Append-only timelines. Track what happened and when.
 
 ```typescript
-await db.eventAppend("session:1", "action", { data: { type: "click" } });
+await db.events.append("session:1", { type: "action", data: { type: "click" } });
 ```
 
 **4. Search**
@@ -286,7 +286,7 @@ BM25 ranking handles relevance. Metadata filters handle scope.
 ### The MCP layer
 
 All four primitives are exposed via MCP (Model Context Protocol). Any
-MCP-compatible agent gets 25 tools automatically:
+MCP-compatible agent gets 27 tools automatically:
 
 ```bash
 npx thingd install    # Configure MCP
@@ -296,7 +296,7 @@ thingd mcp            # Start MCP server
 ### Try it
 
 ```bash
-npm install thingd
+npm install @thingd/sdk
 ```
 
 ```typescript

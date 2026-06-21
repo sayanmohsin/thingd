@@ -4,7 +4,7 @@ Fork https://github.com/punkpeye/awesome-mcp-servers, then add this entry
 alphabetically under the **Databases** section:
 
 ```
-- [thingd](https://github.com/sayanmohsin/thingd) 🦀 📇 🏠 - Agent-native memory engine: object store, durable queues, FTS5 search, event streams, and 20 MCP tools out of the box.
+- [thingd](https://github.com/sayanmohsin/thingd) 🦀 📇 🏠 - Agent-native memory engine: object store, durable queues, FTS5 search, event streams, and 27 MCP tools out of the box.
 ```
 
 ## PR details

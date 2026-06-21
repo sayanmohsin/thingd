@@ -207,6 +207,31 @@ This gives you current truth (objects), history (events), and pending work (queu
 
 ---
 
+## Pattern 10 — Bulk operations
+
+When processing multiple records, use batch operations to reduce round trips:
+
+```txt
+thing_objects_put_batch  { collection: "tasks", objects: [{ id: "t1", ... }, { id: "t2", ... }] }
+thing_objects_delete_batch { collection: "tasks", ids: ["t1", "t2"] }
+```
+
+Batch operations are atomic within the collection — all items succeed or all fail. Use them for data migration, bulk imports, or cleaning up stale records.
+
+---
+
+## Pattern 11 — Paginated task triage
+
+When reviewing large collections, use sort + filter + pagination to work through items systematically:
+
+```txt
+thing_objects_list { collection: "tasks", filter: { status: "active" }, sortBy: { field: "created_at", direction: "desc" }, limit: 10, offset: 0 }
+```
+
+Process the first page, then increment `offset` by `limit` for the next page. Combine with `thing_search` for keyword-based filtering.
+
+---
+
 ## Anti-patterns
 
 - Storing large blobs without chunking — use object refs + queue jobs to process
@@ -227,3 +252,5 @@ Fully runnable examples in [`examples/cursor-agent-memory/`](../examples/cursor-
 3. **[scheduler-heartbeat.ts](../examples/cursor-agent-memory/scheduler-heartbeat.ts)** — full Schedules + Queue + Heartbeat scheduler pattern.
 
 5-minute install guide: **[docs/QUICKSTART.md](./QUICKSTART.md)**
+
+Full API reference: **[docs/api-spec/](./api-spec/)**

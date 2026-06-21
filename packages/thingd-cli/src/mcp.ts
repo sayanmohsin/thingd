@@ -1,5 +1,5 @@
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { createThingdMcpServer, readMcpHardeningOptionsFromEnv } from "thingd";
+import { createThingdMcpServer, readMcpHardeningOptionsFromEnv } from "@thingd/sdk";
 import { type CliContext, resolveConnection, withDb } from "./index.js";
 import { readMcpAuditOptionsFromEnv } from "./mcp/config.js";
 

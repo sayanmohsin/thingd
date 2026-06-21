@@ -13,7 +13,7 @@ export {
   type ThingdMcpAuditOptions,
   type ThingdMcpHardeningOptions,
   type ThingdMcpServerOptions,
-} from "thingd";
+} from "@thingd/sdk";
 
 // CLI-only: cluster + HTTP transport
 export type {

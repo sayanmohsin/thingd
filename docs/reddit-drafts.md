@@ -7,15 +7,15 @@
 **Title:** `thingd — data engine with queues, search, events, and MCP. Try it in 30 seconds.`
 
 ```
-npm install thingd && node -e "
-const { ThingD } = require('thingd');
+npm install @thingd/sdk && node --input-type=module -e "
+import { ThingD } from 'thingd';
 const db = await ThingD.open(':memory:');
 await db.put('test', { id: 'hello', text: 'Hello world' });
 console.log(await db.get('test', 'hello'));
 "
 
 That's it. One npm package. Object store, durable queues, full-text search,
-event streams, and 20 MCP tools for AI agents — all in one engine.
+event streams, and 27 MCP tools for AI agents — all in one engine.
 
 Written in Rust (NAPI-RS), Node.js SDK, Apache 2.0.
 Run embedded, sidecar (MCP stdio/HTTP), Docker, or cluster.
@@ -33,9 +33,9 @@ https://github.com/sayanmohsin/thingd
 **Title:** `thingd — one npm install replaces your DB, queue, search, and event stream`
 
 ```
-npm install thingd
+npm install @thingd/sdk
 
-const { ThingD } = require("thingd");
+import { ThingD } from "thingd";
 const db = await ThingD.open("persistent.db");
 await db.put("users", { id: "abc", name: "test" });
 
@@ -50,9 +50,9 @@ await db.queueAck("jobs", job.id);
 // Event stream
 await db.eventAppend("orders", "created", { data: { orderId: "123" } });
 
-// 20 MCP tools — AI agents can use it out of the box
+// 27 MCP tools — AI agents can use it out of the box
 
-20 commands total in the CLI. TUI dashboard. Docker image.
+36 commands total in the CLI. TUI dashboard. Docker image.
 
 Rust engine, SQLite persistence, Apache 2.0.
 
@@ -68,7 +68,7 @@ https://github.com/sayanmohsin/thingd
 **Title:** `thingd — object store + durable queues + FTS + event streams, one engine (Apache 2.0)`
 
 ```
-thingd (v0.20.0) is an open-source data engine that replaces the usual
+thingd is an open-source data engine that replaces the usual
 3-5 backend stack with a single dependency.
 
 What's inside:
@@ -76,7 +76,7 @@ What's inside:
 ├─ Durable queues — leases, retries, DLQ, idempotency keys
 ├─ Event streams — append-only timelines
 ├─ Full-text search — FTS5, BM25 ranking, metadata filters
-├─ MCP native — 25 tools AI agents discover automatically
+├─ MCP native — 27 tools AI agents discover automatically
 └─ Multi-mode — embedded, sidecar, Docker, cluster
 
 Stack: Rust core (NAPI-RS), Node.js/TypeScript SDK, SQLite.
@@ -104,7 +104,7 @@ Features:
 - Durable queues (leases, retries, DLQ)
 - Full-text search (FTS5, BM25)
 - Event streams (append-only)
-- MCP-native (25 tools for AI agents)
+- MCP-native (27 tools for AI agents)
 - SQLite or in-memory
 - CLI + TUI dashboard + Docker
 
@@ -114,7 +114,7 @@ I'm looking for:
 - Honest feedback on the API design
 
 Getting started:
-  npm install thingd
+  npm install @thingd/sdk
   # or
   docker run -p 8757:8757 sayanmohsin/thingd
 
@@ -127,10 +127,10 @@ Don't just star it — try it and tell me what's broken.
 
 ## r/MCP
 
-**Title:** `thingd — embeddable data engine with 20 built-in MCP tools. One-line agent setup.`
+**Title:** `thingd — embeddable data engine with 27 built-in MCP tools. One-line agent setup.`
 
 ```
-thingd ships with 20 MCP tools out of the box. Every MCP client (Claude,
+thingd ships with 27 MCP tools out of the box. Every MCP client (Claude,
 Cursor, Cline, etc.) can connect and use it immediately.
 
 Try it with Claude Desktop:
@@ -140,7 +140,7 @@ Or via Docker:
   docker run -p 8757:8757 sayanmohsin/thingd
   # Point your agent to http://localhost:8757/mcp
 
-The 25 tools cover: search, put/get/delete objects, queue push/claim/ack/nack,
+The 27 tools cover: search, put/get/delete objects, queue push/claim/ack/nack,
 event append/list, graph links, metrics, collections/streams/queues listing.
 
 Under the hood: Rust engine, SQLite, Node.js SDK, Apache 2.0.
@@ -157,7 +157,7 @@ https://github.com/sayanmohsin/thingd
 
 ## r/AI_Agents
 
-**Title:** `thingd — give your AI agent persistent memory + 25 tools in one command`
+**Title:** `thingd — give your AI agent persistent memory + 27 tools in one command`
 
 ```
 Every AI agent I built ended up needing a way to store, search, and
@@ -173,7 +173,7 @@ What your agent gets:
 → Persistent object store (put/get/delete/search)
 → Durable queues (push jobs, claim, ack/nack)
 → Event streams (append, list, search)
-→ 20 MCP tools total, auto-discovered
+→ 27 MCP tools total, auto-discovered
 
 All data persists locally via SQLite. No cloud dependency.
 Open source, Apache 2.0.

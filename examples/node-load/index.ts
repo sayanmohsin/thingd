@@ -1,6 +1,6 @@
 import os from "node:os";
 import path from "node:path";
-import { ThingD } from "thingd";
+import { ThingD } from "@thingd/sdk";
 
 async function run() {
   const db = await ThingD.open({

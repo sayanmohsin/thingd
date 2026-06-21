@@ -1,4 +1,4 @@
-use thingd_core::SqliteThingStore;
+use thingd::SqliteThingStore;
 
 fn main() {
     println!("Opening db...");

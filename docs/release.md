@@ -61,11 +61,11 @@ The npm package is configured with npm provenance enabled through `publishConfig
 
 ## crates.io Publishing
 
-On every release, the workflow publishes `thingd-core` to [crates.io](https://crates.io/crates/thingd-core). The Rust crate version is kept in sync with the npm packages via `semantic-release`.
+On every release, the workflow publishes `thingd` to [crates.io](https://crates.io/crates/thingd). The Rust crate version is kept in sync with the npm packages via `semantic-release`.
 
 ```toml
 [dependencies]
-thingd-core = { version = "0.31", features = ["sqlite"] }
+thingd = { version = "0.31", features = ["sqlite"] }
 ```
 
 The publish runs in parallel with npm and Docker publishing.

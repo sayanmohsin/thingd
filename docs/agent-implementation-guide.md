@@ -12,7 +12,7 @@ Current implementation:
 
 - `packages/thingd` exposes the Node.js SDK.
 - `packages/thingd/src/stores/in-memory-thing-store.ts` is the current proof store.
-- `crates/thingd-core` contains the Rust storage boundary, in-memory Rust engine, and `SqliteThingStore` behind the `sqlite` feature.
+- `crates/thingd` contains the Rust storage boundary, in-memory Rust engine, and `SqliteThingStore` behind the `sqlite` feature.
 - `packages/thingd-native` is a private N-API binding for local native driver testing.
 - `packages/thingd/src/stores/remote-thing-store.ts` lets the SDK talk to a sidecar over Streamable HTTP MCP.
 - `packages/thingd-cli` exposes the visual TUI dashboard, non-interactive CLI commands, and integrated stdio and Streamable HTTP MCP servers.
@@ -259,9 +259,9 @@ thingd
 
 thingd-native
   private N-API binding
-  wraps crates/thingd-core
+  wraps crates/thingd
 
-crates/thingd-core
+crates/thingd
   ObjectStore
   EventLog
   QueueStore
@@ -280,7 +280,7 @@ For agent value and patterns, read [why-agents.md](./why-agents.md) and
 ## Implementation Rules For Agents
 
 - Keep public API changes reflected in `packages/thingd/src/types.ts`.
-- Keep Rust storage boundary changes reflected in `crates/thingd-core`.
+- Keep Rust storage boundary changes reflected in `crates/thingd`.
 - Add or update tests in `packages/thingd/test/thingd.test.mjs` for behavior changes.
 - Update README/docs when changing integration behavior.
 - Do not use internal store classes from app examples unless the example is explicitly about custom stores.

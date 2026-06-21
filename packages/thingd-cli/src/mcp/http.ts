@@ -8,7 +8,7 @@ import {
   ThingD,
   type ThingdMcpAuditOptions,
   type ThingdMcpHardeningOptions,
-} from "thingd";
+} from "@thingd/sdk";
 import {
   findNextLeaderCandidate,
   forwardMcpRequestToLeader,

@@ -1,4 +1,4 @@
-import type { ThingDDriver, ThingdMcpAuditOptions } from "thingd";
+import type { ThingDDriver, ThingdMcpAuditOptions } from "@thingd/sdk";
 
 export type ThingDStorageDriver = Exclude<ThingDDriver, "remote">;
 

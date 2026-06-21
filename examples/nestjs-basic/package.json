@@ -12,7 +12,7 @@
     "@nestjs/common": "^11.1.24",
     "@nestjs/core": "^11.1.24",
     "@nestjs/platform-express": "^11.1.24",
-    "thingd": "file:../../packages/thingd",
+    "@thingd/sdk": "file:../../packages/thingd",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.2"
   },

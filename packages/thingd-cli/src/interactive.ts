@@ -4,8 +4,8 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import readline from "node:readline";
+import { type MemorySearchOptions, ThingD, type ThingDDriver } from "@thingd/sdk";
 import pc from "picocolors";
-import { type MemorySearchOptions, ThingD, type ThingDDriver } from "thingd";
 import { logoText } from "./logo.js";
 
 // ── Helpers ──────────────────────────────────────────────────────────

@@ -6,7 +6,7 @@ import type {
   QueueJob,
   StoredMemoryEvent,
   StoredMemoryObject,
-} from "thingd";
+} from "@thingd/sdk";
 import { type CliContext, hasFlag, requiredFlag, stringFlag, withDb, writeJson } from "./index.js";
 
 const DEFAULT_REDACT_KEYS = [

@@ -1,4 +1,4 @@
-//! Local storage benchmark for thingd-core adapters.
+//! Local storage benchmark for thingd adapters.
 //!
 //! Usage:
 //!   cargo run --example `storage_bench` --release --all-features [<iterations>]
@@ -14,7 +14,7 @@ use chrono as _;
 use csv as _;
 use rusqlite as _;
 use serde_json as _;
-use thingd_core::{
+use thingd::{
     EventLog, ListEventsOptions, ListObjectsOptions, MemoryEngine, MemoryEvent, MemoryObject,
     ObjectStore, QueueClaimOptions, QueueJob, QueueStore, SearchOptions, Searcher,
     SqliteThingStore,

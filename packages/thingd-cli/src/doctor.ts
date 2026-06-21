@@ -1,5 +1,5 @@
+import { NativeThingStore } from "@thingd/sdk";
 import pc from "picocolors";
-import { NativeThingStore } from "thingd";
 import { type CliContext, resolveConnection } from "./index.js";
 
 export async function runDoctor(context: CliContext): Promise<void> {

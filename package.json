@@ -9,8 +9,8 @@
     "postinstall": "lefthook install 2>/dev/null || true",
     "build": "pnpm -r --if-present build",
     "bench:node": "pnpm build && node packages/thingd/bench/node-bench.mjs",
-    "bench:rust": "cargo run --release -p thingd-core --example storage_bench --features sqlite",
-    "bench:rust:smoke": "cargo run --release -p thingd-core --example storage_bench --features sqlite -- 100",
+    "bench:rust": "cargo run --release -p thingd --example storage_bench --features sqlite",
+    "bench:rust:smoke": "cargo run --release -p thingd --example storage_bench --features sqlite -- 100",
     "check": "biome check .",
     "check:write": "biome check --write .",
     "format": "biome format --write .",
@@ -26,13 +26,13 @@
     "smoke:docker": "bash scripts/smoke-docker.sh",
     "cli": "node packages/thingd-cli/dist/index.js",
     "test": "pnpm test:node && pnpm test:cli && pnpm test:package && pnpm test:rust",
-    "test:cli": "pnpm --filter thingd-cli test",
+    "test:cli": "pnpm --filter @thingd/cli test",
     "test:local": "pnpm check && pnpm build && pnpm test:node && pnpm test:cli && pnpm test:package",
-    "test:mcp": "pnpm --filter thingd-cli test",
-    "test:node": "pnpm --filter thingd test",
+    "test:mcp": "pnpm --filter @thingd/cli test",
+    "test:node": "pnpm --filter @thingd/sdk test",
     "examples": "pnpm --filter \"thingd-node-basic-example\" start && pnpm --filter \"thingd-node-stream-example\" start && pnpm --filter \"thingd-node-queue-example\" start",
     "examples:load": "pnpm --filter \"thingd-node-load-example\" start",
-    "test:package": "pnpm --filter thingd build && node scripts/verify-package.mjs",
+    "test:package": "pnpm --filter @thingd/sdk build && node scripts/verify-package.mjs",
     "test:rust": "cargo test --workspace --all-targets --all-features"
   },
   "devDependencies": {
@@ -49,7 +49,7 @@
     "cross-spawn": "^7.0.6",
     "lefthook": "^2.1.9",
     "semantic-release": "25.0.5",
-    "thingd-native": "file:packages/thingd-native",
+    "@thingd/native": "file:packages/thingd-native",
     "typescript": "6.0.3"
   }
 }

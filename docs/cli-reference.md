@@ -5,7 +5,7 @@ The `thingd` command-line tool for inspecting and operating thingd stores.
 ## Installation
 
 ```bash
-npm install -g thingd-cli
+npm install -g @thingd/cli
 ```
 
 Or run with `npx`:
@@ -32,8 +32,10 @@ thingd search <query>       full-text search across collections
 thingd objects get <collection> <id>
 thingd objects put <collection> <id> --text <text>
 thingd objects put <collection> <id> --data '{"field":"value"}'
+thingd objects put-batch <collection> --file <path>
 thingd objects delete <collection> <id>
-thingd objects list <collection>
+thingd objects delete-batch <collection> <id1> [id2] ...
+thingd objects list <collection> [--limit <n>] [--offset <n>] [--sort-by <field>] [--sort-dir <asc|desc>] [--filter <json>]
 ```
 
 ### Events
@@ -142,3 +144,5 @@ THINGD_DRIVER=native|memory|remote
 ```
 
 Full env var reference: [runtime-env.md](./runtime-env.md)
+
+Full API reference: [api-spec/](./api-spec/)

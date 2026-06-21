@@ -124,7 +124,7 @@ Kubernetes deployment manifests (sidecar and leader/follower) are available in t
 ## Connecting with the SDK
 
 ```ts
-import { ThingD } from "thingd";
+import { ThingD } from "@thingd/sdk";
 
 const db = await ThingD.open({
   url: "http://localhost:8757/mcp",
@@ -149,5 +149,5 @@ GET /cluster/status
 
 - [GitHub](https://github.com/sayanmohsin/thingd)
 - [npm (SDK)](https://www.npmjs.com/package/thingd)
-- [npm (CLI)](https://www.npmjs.com/package/thingd-cli)
+- [npm (CLI)](https://www.npmjs.com/package/@thingd/cli)
 - [Documentation](https://github.com/sayanmohsin/thingd/tree/main/docs)

@@ -1,4 +1,4 @@
-import { ThingD } from "thingd";
+import { ThingD } from "@thingd/sdk";
 
 // Formatted logger helper
 function log(step: string, message: string, data?: unknown) {

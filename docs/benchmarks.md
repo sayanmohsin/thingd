@@ -36,7 +36,7 @@ THINGD_BENCH_ITERS=20000 pnpm bench:rust
 Or pass the iteration count directly to the benchmark example:
 
 ```bash
-cargo run --release -p thingd-core --example storage_bench --features sqlite -- 20000
+cargo run --release -p thingd --example storage_bench --features sqlite -- 20000
 ```
 
 ## Node.js SDK Benchmark

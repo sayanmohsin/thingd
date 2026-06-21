@@ -1,5 +1,5 @@
 {
-  "name": "thingd-cli",
+  "name": "@thingd/cli",
   "version": "0.31.0",
   "description": "CLI, Interactive TUI Dashboard, and MCP server for thingd — a fast object-first data engine for applications and AI agents.",
   "type": "module",
@@ -44,7 +44,7 @@
     "@modelcontextprotocol/sdk": "^1.29.0",
     "cli-table3": "^0.6.5",
     "picocolors": "^1.1.1",
-    "thingd": "workspace:*",
+    "@thingd/sdk": "workspace:*",
     "zod": "^4.4.3"
   },
   "scripts": {

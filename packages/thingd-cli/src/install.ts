@@ -3,8 +3,8 @@ import { homedir, platform } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { fileURLToPath } from "node:url";
+import { NativeThingStore } from "@thingd/sdk";
 import pc from "picocolors";
-import { NativeThingStore } from "thingd";
 import type { CliContext } from "./index.js";
 import { defaultThingdDbPath, ensureThingdDir } from "./paths.js";
 

@@ -1,4 +1,4 @@
-import { readMcpHardeningOptionsFromEnv } from "thingd";
+import { readMcpHardeningOptionsFromEnv } from "@thingd/sdk";
 import type { CliContext } from "./index.js";
 import { readClusterOptionsFromEnv } from "./mcp/cluster.js";
 import { parsePort, parseThingdDriver, readMcpAuditOptionsFromEnv } from "./mcp/config.js";

@@ -1,5 +1,5 @@
 {
-  "name": "thingd",
+  "name": "@thingd/sdk",
   "version": "0.31.0",
   "description": "A fast object-first data engine for applications and AI agents.",
   "type": "module",
@@ -40,6 +40,18 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./client": {
+      "types": "./dist/client/index.d.ts",
+      "import": "./dist/client/index.js"
+    },
+    "./memory": {
+      "types": "./dist/memory/index.d.ts",
+      "import": "./dist/memory/index.js"
+    },
+    "./types": {
+      "types": "./dist/types/index.d.ts",
+      "import": "./dist/types/index.js"
     }
   },
   "files": [
@@ -51,7 +63,7 @@
     "zod": "^4.4.3"
   },
   "optionalDependencies": {
-    "thingd-native": "workspace:*"
+    "@thingd/native": "workspace:*"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",

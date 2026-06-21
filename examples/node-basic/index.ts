@@ -1,4 +1,4 @@
-import { ThingD } from "thingd";
+import { ThingD } from "@thingd/sdk";
 
 // Helper for formatted, colored console logging
 function log(step: string, message: string, data?: unknown) {
@@ -16,12 +16,12 @@ function log(step: string, message: string, data?: unknown) {
 async function main() {
   console.log("\n🚀 Starting thingd Node.js Basic TypeScript Example...");
 
-  // 1. Open database (using in-memory SQLite store by default)
+  // 1. Open database (persistent SQLite file via native driver)
   const db = await ThingD.open({
     path: "./data.db",
     driver: "native",
   });
-  log("1. Database Open", "Opened an in-memory thingd instance.");
+  log("1. Database Open", "Opened a persistent SQLite thingd instance.");
 
   // 2. Put object
   const decision = await db.put("decisions", {
@@ -116,9 +116,20 @@ async function main() {
   });
   log("18. Paginated List", "First 1 task (limit=1, offset=0):", paged);
 
-  // 19. Close the database
+  // 19. Counts and Discovery
+  const objectCount = await db.countObjects();
+  const eventCount = await db.countEvents();
+  const collections = await db.listCollections();
+  const streams = await db.listStreams();
+  const queues = await db.listQueues();
+  log(
+    "19. Counts & Discovery",
+    `Objects: ${objectCount}, Events: ${eventCount}, Collections: ${collections.length}, Streams: ${streams.length}, Queues: ${queues.length}`
+  );
+
+  // 20. Close the database
   await db.close();
-  log("19. Database Closed", "Closed the database instance safely.");
+  log("20. Database Closed", "Closed the database instance safely.");
 
   console.log("\n🎉 Node.js TypeScript Basic Example completed successfully!\n");
 }

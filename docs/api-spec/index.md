@@ -16,7 +16,7 @@ thingd is a fast, object-first data engine for applications and AI agents. It su
 
 ```
 ┌─────────────────────────────────────────────────────┐
-│              thingd-core (Rust engine)               │
+│              thingd (Rust engine)                    │
 │  ObjectStore, EventLog, QueueStore, Searcher,       │
 │  LinkStore — in-memory + SQLite implementations     │
 └──────────────────────┬──────────────────────────────┘

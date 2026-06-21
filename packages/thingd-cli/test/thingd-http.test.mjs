@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import { ThingD } from "thingd";
+import { ThingD } from "@thingd/sdk";
 import { startThingdHttpServer } from "../dist/mcp/index.js";
 
 test("serves health checks", async () => {

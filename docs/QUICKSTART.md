@@ -4,8 +4,10 @@ This guide takes you from zero to a working persistent agent memory store, ready
 
 ## 1. Install
 
+Requires Node.js >= 24.0.0.
+
 ```bash
-npm install -g thingd-cli
+npm install -g @thingd/cli
 ```
 
 Or run directly with `npx`:
@@ -79,11 +81,11 @@ Opens a dark-mode browser dashboard at `http://localhost:8758`. Browse collectio
 ## 5. Put your first memory object (via Node SDK)
 
 ```bash
-npm install thingd
+npm install @thingd/sdk
 ```
 
 ```ts
-import { ThingD } from "thingd";
+import { ThingD } from "@thingd/sdk";
 
 const db = await ThingD.open({ driver: "native" });
 
@@ -119,27 +121,39 @@ await db.close();
 
 ## 6. Use memory tools from your agent (MCP)
 
-Once the MCP server is registered, Cursor and Claude can call these tools directly:
+Once the MCP server is registered, Cursor and Claude can call these 27 tools directly:
 
 ```txt
-thing_search      — full-text + metadata filter search
-thing_get         — fetch a specific object by id
-thing_put         — create or update an object
-thing_delete      — remove an object
-thing_events_append — write to an event stream
-thing_events_list   — read an event stream
-thing_queue_push  — enqueue a background job
-thing_queue_claim — lease and start a job
-thing_queue_ack   — complete a job
-thing_queue_nack  — retry or dead-letter a job
-thing_queue_list  — list active jobs
-thing_queue_dead  — list dead-letter jobs
-thing_link_create — create a graph link
-thing_link_delete — delete a graph link
-thing_link_get    — get a graph link by id
-thing_link_neighbors — get links connected to a reference
-thing_link_count  — count all graph links
+thing_search          — full-text + metadata filter search
+thing_get             — fetch a specific object by id
+thing_put             — create or update an object
+thing_delete          — remove an object
+thing_objects_list    — list objects with filter/sort/offset
+thing_objects_put_batch — batch create/update objects
+thing_objects_delete_batch — batch delete objects
+thing_events_append   — write to an event stream
+thing_events_list     — read an event stream
+thing_queue_push      — enqueue a background job
+thing_queue_claim     — lease and start a job
+thing_queue_ack       — complete a job
+thing_queue_nack      — retry or dead-letter a job
+thing_queue_list      — list active jobs
+thing_queue_dead      — list dead-letter jobs
+thing_link_create     — create a graph link
+thing_link_delete     — delete a graph link
+thing_link_get        — get a graph link by id
+thing_link_neighbors  — get links connected to a reference
+thing_link_count      — count all graph links
+thing_count_objects   — count all objects
+thing_count_events    — count all events
+thing_count_active_jobs — count active queue jobs
+thing_count_dead_jobs — count dead-letter jobs
+thing_list_collections — list all collection names
+thing_list_streams    — list all event stream names
+thing_list_queues     — list all queue names
 ```
+
+Full tool reference: [api-spec/mcp-tools.md](./api-spec/mcp-tools.md)
 
 **Example: agent puts a task for the next session**
 
@@ -173,7 +187,7 @@ thing_link_count  — count all graph links
 Copy the provided `.cursorrules` to your project root to teach agents the memory conventions automatically:
 
 ```bash
-cp node_modules/thingd-cli/examples/cursor-agent-memory/.cursorrules .cursorrules
+cp node_modules/@thingd/cli/examples/cursor-agent-memory/.cursorrules .cursorrules
 ```
 
 Or see the full example at [examples/cursor-agent-memory/](../examples/cursor-agent-memory/).
@@ -185,3 +199,4 @@ Or see the full example at [examples/cursor-agent-memory/](../examples/cursor-ag
 - **Sidecar mode** — share one store between your app and agents: [mcp-server.md](./mcp-server.md#bridge-mode)
 - **MCP hardening** — collection allowlists, read-only mode, payload limits: [mcp-server.md](./mcp-server.md)
 - **Why thingd?** — the full agent value proposition: [why-agents.md](./why-agents.md)
+- **API spec** — REST and MCP reference: [api-spec/](./api-spec/)

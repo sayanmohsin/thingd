@@ -4,7 +4,7 @@ use napi::bindgen_prelude::{Error, Result};
 use napi_derive::napi;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use thingd_core::{
+use thingd::{
     EventLog, Link, LinkDirection, LinkQueryOptions, LinkStore, ListEventsOptions,
     ListObjectsOptions, MemoryEvent, MemoryObject, ObjectStore, QueueClaimOptions, QueueJob,
     QueueJobStatus, QueueNackOptions, QueueStore, SearchOptions, Searcher, SqliteThingStore,
@@ -104,10 +104,10 @@ impl NativeThingStore {
 
         let sort_by = sort_field.map(|field| {
             let direction = match sort_direction.as_deref() {
-                Some("desc") => thingd_core::SortDirection::Desc,
-                _ => thingd_core::SortDirection::Asc,
+                Some("desc") => thingd::SortDirection::Desc,
+                _ => thingd::SortDirection::Asc,
             };
-            thingd_core::SortBy { field, direction }
+            thingd::SortBy { field, direction }
         });
 
         let options = ListObjectsOptions {

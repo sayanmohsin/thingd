@@ -1,4 +1,4 @@
-import { ThingD } from "thingd";
+import { ThingD } from "@thingd/sdk";
 
 // Helper for formatted, colored console logging
 function log(step: string, message: string, data?: unknown) {
