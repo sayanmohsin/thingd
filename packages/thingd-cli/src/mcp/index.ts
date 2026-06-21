@@ -1,4 +1,21 @@
-export type { ThingdMcpAuditMetadata, ThingdMcpAuditOptions } from "./audit.js";
+// Re-export core MCP logic from the SDK
+export {
+  appendMcpAuditEvent,
+  createThingdMcpServer,
+  jsonResult,
+  parseCollectionAllowlist,
+  parsePayloadSizeLimit,
+  type RegisterThingdToolsOptions,
+  readMcpHardeningOptionsFromEnv,
+  registerThingdTools,
+  resolveThingdMcpAuditOptions,
+  type ThingdMcpAuditMetadata,
+  type ThingdMcpAuditOptions,
+  type ThingdMcpHardeningOptions,
+  type ThingdMcpServerOptions,
+} from "thingd";
+
+// CLI-only: cluster + HTTP transport
 export type {
   ResolvedThingdClusterOptions,
   ThingdClusterDiscovery,
@@ -6,11 +23,5 @@ export type {
   ThingdClusterOptions,
   ThingdClusterStatus,
 } from "./cluster.js";
-export type { ThingdMcpHardeningOptions } from "./config.js";
-export { readMcpHardeningOptionsFromEnv } from "./config.js";
 export type { RunningThingdHttpServer, ThingdHttpServerOptions } from "./http.js";
 export { startThingdHttpServer } from "./http.js";
-export type { ThingdMcpServerOptions } from "./server.js";
-export { createThingdMcpServer } from "./server.js";
-export type { RegisterThingdToolsOptions } from "./tools.js";
-export { registerThingdTools } from "./tools.js";

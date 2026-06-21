@@ -2,9 +2,8 @@ import { existsSync, promises as fs, statSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { dirname, extname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { ThingD } from "thingd";
+import { handleRestRequest, ThingD } from "thingd";
 import type { ConnectionOptions } from "../index.js";
-import { handleRestRequest } from "../rest/server.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);

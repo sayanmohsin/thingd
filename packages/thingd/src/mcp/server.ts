@@ -1,6 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { ThingD } from "thingd";
-import { SDK_VERSION } from "thingd";
+import type { ThingD } from "../thingd.js";
+import { SDK_VERSION } from "../version.js";
 import type { ThingdMcpAuditOptions } from "./audit.js";
 import type { ThingdMcpHardeningOptions } from "./config.js";
 import { registerThingdTools } from "./tools.js";

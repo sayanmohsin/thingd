@@ -1,6 +1,6 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { ThingD } from "thingd";
 import { z } from "zod";
+import type { ThingD } from "../thingd.js";
 import {
   appendMcpAuditEvent,
   resolveThingdMcpAuditOptions,

@@ -1,8 +1,14 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { PassThrough } from "node:stream";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import { type MemoryEvent, type MemoryObject, ThingD } from "thingd";
-import type { ThingdMcpAuditOptions } from "./audit.js";
+import {
+  createThingdMcpServer,
+  type MemoryEvent,
+  type MemoryObject,
+  ThingD,
+  type ThingdMcpAuditOptions,
+  type ThingdMcpHardeningOptions,
+} from "thingd";
 import {
   findNextLeaderCandidate,
   forwardMcpRequestToLeader,
@@ -11,12 +17,7 @@ import {
   resolveClusterOptions,
   type ThingdClusterOptions,
 } from "./cluster.js";
-import {
-  ensureHttpRuntimeIsSafe,
-  type ThingDStorageDriver,
-  type ThingdMcpHardeningOptions,
-} from "./config.js";
-import { createThingdMcpServer } from "./server.js";
+import { ensureHttpRuntimeIsSafe, type ThingDStorageDriver } from "./config.js";
 
 export type ThingdHttpServerOptions = {
   path: string;

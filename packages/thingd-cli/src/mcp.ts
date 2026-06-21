@@ -1,7 +1,7 @@
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { createThingdMcpServer, readMcpHardeningOptionsFromEnv } from "thingd";
 import { type CliContext, resolveConnection, withDb } from "./index.js";
-import { readMcpAuditOptionsFromEnv, readMcpHardeningOptionsFromEnv } from "./mcp/config.js";
-import { createThingdMcpServer } from "./mcp/index.js";
+import { readMcpAuditOptionsFromEnv } from "./mcp/config.js";
 
 export async function runMcp(context: CliContext): Promise<void> {
   const connection = resolveConnection(context);
