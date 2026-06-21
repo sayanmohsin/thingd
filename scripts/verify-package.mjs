@@ -92,7 +92,7 @@ try {
   await writeFile(
     join(tempDir, "smoke.mjs"),
     `import assert from "node:assert/strict";
-import { ThingD } from "thingd";
+import { ThingD } from "@thingd/sdk";
 
 const db = await ThingD.open(":memory:");
 await db.put("decisions", {
