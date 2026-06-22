@@ -1,3 +1,9 @@
+## [0.33.0](https://github.com/sayanmohsin/thingd/compare/v0.32.2...v0.33.0) (2026-06-22)
+
+### Features
+
+* add thingd-server Rust sidecar with MCP + REST + cluster ([24bd130](https://github.com/sayanmohsin/thingd/commit/24bd1300800496eccee79ea5cf08491398b19693))
+
 ## [0.32.2](https://github.com/sayanmohsin/thingd/compare/v0.32.1...v0.32.2) (2026-06-22)
 
 ### Bug Fixes
