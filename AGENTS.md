@@ -54,11 +54,12 @@ thingd-cloud (private)
 
 ### thingd (public) — everything external users need
 - **Core engine:** `thingd` Rust crate (zero HTTP/MCP knowledge)
-- **Node.js SDK:** `thingd` npm package (MCP + REST handlers, three stores)
-- **CLI:** `thingd-cli` npm package (TUI, transports, cluster)
+- **Node.js SDK:** `@thingd/sdk` npm package (MCP + REST handlers, three stores)
+- **CLI:** `@thingd/cli` npm package (TUI, transports, cluster)
+- **Rust sidecar:** `thingd-server` crate (Rust binary, MCP + REST + cluster, ~15MB Docker)
 - **API spec:** `docs/api-spec/` — language-agnostic contract for future SDKs
 - **Docs:** quickstart, MCP reference, CLI reference, FAQ, benchmarks, architecture
-- **Docker:** multi-stage image with CLI + TUI dashboard
+- **Docker:** Rust sidecar (`thingd-server`) with MCP + REST + cluster, ~15MB
 
 ### thingd-cloud (private) — hosted instance only
 - **Auth, billing, tenants** — user management on top of thingd
@@ -88,7 +89,7 @@ Each language SDK wraps `thingd` via FFI and implements the API spec:
 
 | Language | FFI | Package |
 |----------|-----|---------|
-| Node.js | napi-rs | `thingd` (this repo) |
+| Node.js | napi-rs | `@thingd/node` (this repo) |
 | Go | cgo | `thingd-go` (separate repo) |
 | Rust | direct crate | `thingd-rust` (separate repo) |
 | Flutter | dart:ffi | `thingd-flutter` (separate repo) |
@@ -105,23 +106,23 @@ The API contract lives in thingd public repo as language-agnostic docs.
 | Area | Details |
 |------|---------|
 | Rust engine | `thingd` — memory + SQLite adapters, FTS5 search, queue lifecycle (lease/ack/nack/dead-letter/delayed/retry), schema migrations v1-v4, graph links, ~74 tests |
-| Node.js SDK | `thingd` — three drivers: memory (default in-memory TS store), native (napi-rs Rust SQLite), remote/cloud (Streamable HTTP MCP); batch ops, sort/filter/offset, graph links |
-| CLI | `thingd-cli` — TUI dashboard, 30+ subcommands (search, objects, events, queues, links, export/import/snapshot, doctor, bench, install for Cursor/Claude Desktop) |
+| Node.js SDK | `@thingd/sdk` — three drivers: memory (default in-memory TS store), native (napi-rs Rust SQLite), remote/cloud (Streamable HTTP MCP); batch ops, sort/filter/offset, graph links |
+| CLI | `@thingd/cli` — TUI dashboard, 30+ subcommands (search, objects, events, queues, links, export/import/snapshot, doctor, bench, install for Cursor/Claude Desktop) |
 | MCP server | 27 tools, stdio + Streamable HTTP, audit events to `__thingd:mcp:audit` stream, collection allowlists, read-only mode |
-| Docker | Multi-stage (Node 24 + Rust), compose + K8s for leader/follower cluster |
+| Docker | Rust sidecar (`thingd-server`) with MCP + REST + cluster, ~15MB |
 | Logo/branding | `{thing:d}` monospace SVG, truecolor ANSI CLI logo (orange #e05316 + cyan #00c4d4) |
 | SEO | JSON-LD structured data, Twitter Cards, canonical URL, robots.txt, sitemap.xml |
 | CI/tooling | semantic-release, biome, lefthook (lint+build on pre-push) |
 
 ### Published npm packages
-- `thingd` — public SDK
-- `thingd-cli` — public CLI
-- `thingd-native` — private (no prebuilts), requires local Rust build
+- `@thingd/sdk` — public SDK
+- `@thingd/cli` — public CLI
+- `@thingd/native` — private (no prebuilts), requires local Rust build
 
 ### Published Rust crate
 - `thingd` — [crates.io](https://crates.io/crates/thingd) — Rust engine primitives with optional SQLite adapter
 
-All three publish in lockstep. Old 1.x/2.x versions are deprecated on npm.
+All three publish in lockstep via semantic-release.
 
 ---
 
@@ -193,7 +194,7 @@ Releases are done via `semantic-release` (GitHub Actions workflow in
 
 Pre-release manual publish (fallback):
 - Anchor version via git tag (e.g., `v0.20.0`), update all 3 package.jsons
-- Run: `pnpm --filter thingd publish --access public --no-git-checks`
+- Run: `pnpm --filter @thingd/sdk publish --access public --no-git-checks`
 - Deprecate old versions on npm if needed
 
 Semantic-release bumps all 3 packages in sync via `prepareCmd`.
@@ -226,70 +227,55 @@ startup, and TUI header.
 
 ---
 
-## Documentation checklist (every feature)
+## Spec-first development
 
-When adding a new feature or changing an API surface, update **all** of these:
+`docs/api-spec/` is the single source of truth for the API contract.
+Every feature starts there before any code is written.
 
-### Code layer (required)
-- [ ] `packages/thingd/src/types.ts` — TypeScript types/interfaces
-- [ ] `packages/thingd/src/thingd.ts` — ThingD facade methods
-- [ ] `packages/thingd/src/stores/in-memory-thing-store.ts` — memory implementation
-- [ ] `packages/thingd/src/stores/native-thing-store.ts` — native binding wiring
-- [ ] `packages/thingd/src/stores/cloud-thing-store.ts` — stub (reject with error)
-- [ ] `packages/thingd-native/native/src/lib.rs` — Rust napi binding
-- [ ] `packages/thingd-cli/src/mcp/tools.ts` — MCP tool registration
-- [ ] `packages/thingd-cli/src/index.ts` — CLI subcommand (if applicable)
-- [ ] `packages/thingd/test/thingd.test.mjs` — Node SDK tests
+### Required order (every feature)
 
-### Documentation layer (required)
-- [ ] `README.md` — feature section + MCP tool list + tool count badge
-- [ ] `docs/mcp-server.md` — tool table entry + tool count in "Current Status"
-- [ ] `docs/cli-reference.md` — CLI command reference (if applicable)
-- [ ] `docs/faq.md` — MCP tool count, error handling (if new error types)
-- [ ] `docs/api-spec/` — update REST routes, MCP tools, data model, errors (if applicable)
-- [ ] `examples/node-basic/index.ts` — runnable example
+1. [ ] `docs/api-spec/data-model.md` — types/interfaces
+2. [ ] `docs/api-spec/rest-api.md` — REST endpoint(s)
+3. [ ] `docs/api-spec/mcp-tools.md` — MCP tool(s)
+4. [ ] `docs/api-spec/errors.md` — error codes
+5. [ ] `docs/api-spec/search.md` — search query syntax (if applicable)
 
-### Optional (if applicable)
-- [ ] `docs/agent-patterns.md` — agent usage pattern
-- [ ] `docs/benchmarks.md` — performance characteristics
-- [ ] `docs/release.md` — if publishing process changes
-- [ ] `docs/agent-setup.md` — if tool count or setup changes
-- [ ] `thingd-cloud/docs/thingd/roadmap.md` — if completing a roadmap phase
+If you can't find where in the spec to add it, you haven't designed it yet.
 
-### Common miss patterns (learned the hard way)
-- **MCP tool count** — update in `README.md` (badge line), `docs/mcp-server.md` (Current Status), `docs/faq.md` (tool list)
-- **Blog/Reddit drafts** — `docs/blog-drafts.md` and `docs/reddit-drafts.md` have hardcoded tool counts that go stale
+### All layers must implement the spec
+
+After the spec is updated, implement in **every** layer:
+
+| Layer | Location | Language |
+|-------|----------|----------|
+| Engine | `crates/thingd/src/` (store.rs, model.rs, in_memory.rs, sqlite.rs) | Rust |
+| Native binding | `packages/thingd-native/native/src/lib.rs` | Rust (napi) |
+| Sidecar REST | `crates/thingd-server/src/rest.rs` | Rust (axum) |
+| Sidecar MCP | `crates/thingd-server/src/mcp.rs` | Rust |
+| Node.js SDK | `packages/thingd/src/thingd.ts` | TypeScript |
+| Node.js REST | `packages/thingd/src/rest/server.ts` | TypeScript |
+| Node.js MCP | `packages/thingd/src/mcp/tools.ts` | TypeScript |
+| Node.js stores | `packages/thingd/src/stores/*.ts` | TypeScript |
+| CLI | `packages/thingd-cli/src/index.ts` | TypeScript |
+| Tests | `packages/thingd/test/`, `packages/thingd-cli/test/`, `crates/thingd/` | TS + Rust |
+
+**Never ship a feature in only one layer.** If the Node.js SDK gets a new
+endpoint, the Rust sidecar must too — and vice versa. The spec ensures both
+implement the same contract.
+
+### Common miss patterns
+
+- **MCP tool count** — update `README.md` badge, `docs/mcp-server.md` Current Status, `docs/faq.md`
+- **Sidecar REST gap** — every REST endpoint in `docs/api-spec/rest-api.md` must exist in `crates/thingd-server/src/rest.rs`
+- **Sidecar MCP gap** — every MCP tool in `docs/api-spec/mcp-tools.md` must exist in `crates/thingd-server/src/mcp.rs`
 - **Native binding type** — when adding napi methods, update the `NativeThingStoreBinding` type in `native-thing-store.ts`
 - **Sort/filter params** — if the Rust `ListObjectsOptions` gets new fields, the native binding `list_objects_json` and TypeScript `listObjects` must pass them through
 
-### Rust ↔ TypeScript alignment rule
-
-Every public Rust feature in `thingd` must have a corresponding TypeScript surface. When adding or changing a Rust trait method, struct, or field:
-
-1. **Rust `store.rs` trait** → add method with default impl (backward compat)
-2. **Rust `model.rs`** → add types/options structs
-3. **Rust `in_memory.rs`** → implement in `MemoryEngine`
-4. **Rust `sqlite.rs`** → implement in `SqliteThingStore` (push down to SQL where possible)
-5. **Rust `lib.rs` native binding** → add `#[napi]` method wrapping the trait method
-6. **TypeScript `types.ts`** → add types/interfaces matching Rust structs
-7. **TypeScript `thingd.ts`** → add facade method delegating to store
-8. **TypeScript `in-memory-thing-store.ts`** → implement
-9. **TypeScript `native-thing-store.ts`** → wire to native binding
-10. **TypeScript `cloud-thing-store.ts`** → stub (reject with "not supported")
-11. **MCP `tools.ts`** → register tool with zod schema
-12. **CLI `index.ts`** → add subcommand if user-facing
-
-**Never ship a Rust-only feature without exposing it to TypeScript.** If the feature is internal-only (e.g., `claim_and_ack` optimization), document why it's intentionally not exposed.
-
----
-
-## Release process notes
+### Publishing process notes
 
 - All versions stay below 1.0 (0.x series) indefinitely during early stage
-- Bad tags/releases from 1.x/2.x have been deleted from remote and local,
-  and the corresponding npm versions deprecated
-- GitHub release titles must match the semver tag (delete bad releases on GitHub
-  and recreate them if needed)
+- GitHub release titles must match the semver tag
+- Semantic-release bumps all packages in sync via `prepareCmd` in `release.config.mjs`
 
 ---
 
