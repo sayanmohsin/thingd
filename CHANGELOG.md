@@ -1,3 +1,10 @@
+## [0.33.2](https://github.com/sayanmohsin/thingd/compare/v0.33.1...v0.33.2) (2026-06-22)
+
+### Performance Improvements
+
+* add benchmarks, sidecar tests, and optimize mutex type ([7e3a690](https://github.com/sayanmohsin/thingd/commit/7e3a690f69eb545ebb892888fc1d68ac3c73a2cc))
+* optimize SQLite upsert and batch delete ([10867c6](https://github.com/sayanmohsin/thingd/commit/10867c60873765234d306b19dd5cdaadab90ff3d))
+
 ## [0.33.1](https://github.com/sayanmohsin/thingd/compare/v0.33.0...v0.33.1) (2026-06-22)
 
 ### Bug Fixes
