@@ -148,98 +148,89 @@ Environment:
 
 | Operation | Elapsed | Ops/sec |
 | --- | ---: | ---: |
-| object_put | 4.09ms | 24,473 |
-| object_batch | 4.58ms | 21,819 |
-| object_get | 334µs | 300,300 |
-| list_objects | 88µs | 2,298,850 |
-| list_objects_filter | 101µs | 1,000,000 |
-| list_objects_limit100 | 47µs | 2,173,913 |
-| list_objects_page | 46µs | 2,173,913 |
-| event_append | 2.20ms | 45,495 |
-| event_batch | 1.90ms | 52,770 |
-| event_list | 86µs | 2,325,581 |
-| event_list_from_seq | 42µs | 2,380,952 |
+| object_put | **3.54ms** | **28,248** |
+| object_batch | 4.51ms | 22,163 |
+| object_get | 338µs | 295,857 |
+| list_objects | 84µs | 2,380,952 |
+| list_objects_filter | 99µs | 1,010,101 |
+| list_objects_limit100 | 49µs | 2,040,816 |
+| list_objects_page | 47µs | 2,127,659 |
+| event_append | 2.33ms | 42,936 |
+| event_batch | 2.07ms | 48,332 |
+| event_list | 83µs | 2,409,638 |
+| event_list_from_seq | 41µs | 2,439,024 |
 | event_list_limit100 | 35µs | 2,941,176 |
-| queue_push | 1.52ms | 65,659 |
-| queue_batch | 1.42ms | 70,671 |
-| queue_claim_ack | 3.13ms | 31,908 |
-| queue_claim_ack2 | 2.36ms | 42,337 |
-| search | 5.41ms | 73,978 |
-| search_filtered | 5.27ms | 1,896 |
-| put_batch_10 | 790µs | 12,674 |
-| put_batch_100 | 7.99ms | 12,518 |
-| put_batch_1000 | 154ms | 6,476 |
-| delete_batch_10 | 2.10ms | 4,759 |
-| delete_batch_100 | 20.5ms | 4,888 |
-| delete_batch_1000 | 128ms | 7,798 |
-| count_objects | 11µs | 90,909 |
+| queue_push | 1.49ms | 67,159 |
+| queue_batch | 1.46ms | 68,306 |
+| queue_claim_ack | 3.29ms | 30,441 |
+| queue_claim_ack2 | 2.48ms | 40,290 |
+| search | 5.27ms | 75,872 |
+| search_filtered | 5.20ms | 1,921 |
+| put_batch_10 | 844µs | 11,862 |
+| put_batch_100 | 7.64ms | 13,089 |
+| put_batch_1000 | 154ms | 6,507 |
+| delete_batch_10 | 1.12ms | **8,896** |
+| delete_batch_100 | 20.3ms | 4,935 |
+| delete_batch_1000 | 116ms | **8,649** |
+| count_objects | 20µs | 50,000 |
 | count_events | 2µs | 500,000 |
-| object_delete | 6.42ms | 15,583 |
-| concurrent_read_1t | 382µs | 261,780 |
-| concurrent_read_2t | 512µs | 195,312 |
-| concurrent_read_4t | 766µs | 130,548 |
-| concurrent_read_8t | 616µs | 155,844 |
-| contention_4r1w | 1.55ms | 64,391 |
+| object_delete | 6.65ms | 15,044 |
+| concurrent_read_1t | 364µs | 274,725 |
+| concurrent_read_2t | 443µs | 226,244 |
+| concurrent_read_4t | 539µs | 185,873 |
+| concurrent_read_8t | 764µs | 125,819 |
+| contention_4r1w | 1.54ms | 65,104 |
 
 ### Rust — SQLite (file-backed, 100 iters)
 
 | Operation | Elapsed | Ops/sec |
 | --- | ---: | ---: |
-| object_put | 8.86ms | 11,291 |
-| object_batch | 4.58ms | 21,815 |
-| object_get | 424µs | 236,406 |
-| list_objects | 77µs | 2,597,402 |
-| list_objects_filter | 69µs | 1,449,275 |
-| list_objects_limit100 | 43µs | 2,380,952 |
-| list_objects_page | 43µs | 2,380,952 |
-| event_append | 8.96ms | 11,160 |
-| event_batch | 1.82ms | 54,884 |
-| event_list | 78µs | 2,597,402 |
-| event_list_from_seq | 38µs | 2,702,702 |
-| event_list_limit100 | 35µs | 2,941,176 |
-| queue_push | 4.71ms | 21,244 |
-| queue_batch | 1.40ms | 71,581 |
-| queue_claim_ack | 6.43ms | 15,544 |
-| queue_claim_ack2 | 5.74ms | 17,421 |
-| search | 5.13ms | 78,033 |
-| search_filtered | 5.18ms | 1,929 |
-| put_batch_10 | 827µs | 12,091 |
-| put_batch_100 | 7.79ms | 12,843 |
-| put_batch_1000 | 154ms | 6,477 |
-| delete_batch_10 | 2.29ms | 4,363 |
-| delete_batch_100 | 20.8ms | 4,797 |
-| delete_batch_1000 | 129ms | 7,757 |
-| count_objects | 18µs | 58,823 |
+| object_put | 8.59ms | **11,645** |
+| object_batch | 4.78ms | 20,942 |
+| object_get | 470µs | 213,219 |
+| list_objects | 91µs | 2,222,222 |
+| list_objects_filter | 77µs | 1,315,789 |
+| list_objects_limit100 | 48µs | 2,127,659 |
+| list_objects_page | 47µs | 2,173,913 |
+| event_append | 8.99ms | 11,120 |
+| event_batch | 1.99ms | 50,352 |
+| event_list | 100µs | 2,020,202 |
+| event_list_from_seq | 41µs | 2,500,000 |
+| event_list_limit100 | 37µs | 2,702,702 |
+| queue_push | 5.27ms | 18,982 |
+| queue_batch | 1.80ms | 55,586 |
+| queue_claim_ack | 6.58ms | 15,192 |
+| queue_claim_ack2 | 6.66ms | 15,024 |
+| search | 5.31ms | 75,400 |
+| search_filtered | 5.23ms | 1,912 |
+| put_batch_10 | 786µs | 12,722 |
+| put_batch_100 | 7.81ms | 12,802 |
+| put_batch_1000 | 153ms | 6,555 |
+| delete_batch_10 | 1.06ms | **9,451** |
+| delete_batch_100 | 20.4ms | 4,907 |
+| delete_batch_1000 | 115ms | **8,686** |
+| count_objects | 22µs | 47,619 |
 | count_events | 4µs | 333,333 |
-| object_delete | 12.5ms | 7,998 |
-| concurrent_read_1t | 621µs | 161,030 |
-| concurrent_read_2t | 733µs | 136,612 |
-| concurrent_read_4t | 741µs | 134,952 |
-| concurrent_read_8t | 850µs | 113,074 |
-| contention_4r1w | 3.18ms | 31,456 |
-
-### Batch API Improvements (sqlite-file)
-
-| Operation | Before | After | Speedup |
-| --- | --- | ---: | ---: |
-| event append | 12,332 ops/s | 123,502 ops/s | **10x** |
-| queue push | 21,989 ops/s | 70,927 ops/s | **3.2x** |
-| queue claim+ack | 12,895 ops/s | 19,061 ops/s | **1.5x** |
-
-Batch APIs (`put_objects_batch`, `append_events_batch`, `push_jobs_batch`) wrap
-multiple operations in a single SQLite transaction, eliminating per-operation
-commit overhead. Use these for imports, migrations, and bulk data loading.
-
-The optimized `claim_and_ack` method combines claim + ack into a single
-transaction, reducing round-trips for queue processing workloads.
+| object_delete | 13.7ms | 7,315 |
+| concurrent_read_1t | 505µs | 198,412 |
+| concurrent_read_2t | 557µs | 179,533 |
+| concurrent_read_4t | 613µs | 163,132 |
+| concurrent_read_8t | 694µs | 138,328 |
+| contention_4r1w | 2.91ms | 34,364 |
 
 ### Performance Optimizations Applied
 
-1. **RETURNING clause** — Eliminated timestamp read-back round-trip for `put_object` and `push_job` operations
-2. **Object clone removal** — `put_objects_batch` now consumes objects directly instead of cloning
-3. **Deferred FTS updates** — Batch operations collect FTS updates and execute after all INSERTs
-4. **Parameterized queries** — Fixed SQL injection vulnerability in `get_neighbors` type filter
-5. **N-API batch APIs** — Added `putObjectsBatchJson`, `appendEventsBatchJson`, `pushJobsBatchJson` to native binding
+1. **UPSERT auto-version** — `put_object` / `put_objects_batch` no longer do a separate `SELECT version` before the UPSERT. SQLite's ON CONFLICT now atomically increments `version = version + 1`, eliminating one round-trip per write. **+15%** object_put (sqlite-memory), **+3%** (sqlite-file).
+
+2. **Batch delete single-statement** — `delete_objects_batch` uses a single OR-chained `DELETE` instead of N individual statements (chunked at 500 to avoid SQLite expression depth limits). **+117%** delete_batch_10 (sqlite-file), **+12%** delete_batch_1000 (sqlite-file). Fixes crash at 1000+ item batches.
+
+3. **parking_lot::Mutex** — Sidecar engine switched from `tokio::sync::Mutex` to `parking_lot::Mutex` for the per-engine lock. No async yield overhead, faster uncontended acquisition. Pool engine cache uses `parking_lot::RwLock` for concurrent multi-tenant lookups.
+
+4. **RETURNING clause** — Eliminated timestamp read-back round-trip for `put_object` and `push_job` operations
+5. **Object clone removal** — `put_objects_batch` now consumes objects directly instead of cloning
+6. **Deferred FTS updates** — Batch operations collect FTS updates and execute after all INSERTs
+7. **Parameterized queries** — Fixed SQL injection vulnerability in `get_neighbors` type filter
+8. **N-API batch APIs** — Added `putObjectsBatchJson`, `appendEventsBatchJson`, `pushJobsBatchJson` to native binding
 
 ### Node.js (1000 iterations)
 
