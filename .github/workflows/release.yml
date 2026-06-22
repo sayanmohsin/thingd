@@ -137,7 +137,10 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Build thingd-server binary
-        run: cargo build -p thingd-server --release
+        run: |
+          cargo build -p thingd-server --release
+          mkdir -p docker-context
+          cp target/release/thingd-server docker-context/
 
       - name: Get next version
         id: version
@@ -160,6 +163,7 @@ jobs:
       - name: Build and push
         uses: docker/build-push-action@v7
         with:
+          context: docker-context
           push: true
           platforms: linux/amd64,linux/arm64
           tags: |
