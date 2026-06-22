@@ -8,7 +8,7 @@
 
 ```
 npm install @thingd/sdk && node --input-type=module -e "
-import { ThingD } from 'thingd';
+import { ThingD } from '@thingd/sdk';
 const db = await ThingD.open(':memory:');
 await db.put('test', { id: 'hello', text: 'Hello world' });
 console.log(await db.get('test', 'hello'));
@@ -35,7 +35,7 @@ https://github.com/sayanmohsin/thingd
 ```
 npm install @thingd/sdk
 
-import { ThingD } from "thingd";
+import { ThingD } from "@thingd/sdk";
 const db = await ThingD.open("persistent.db");
 await db.put("users", { id: "abc", name: "test" });
 

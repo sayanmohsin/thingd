@@ -173,11 +173,11 @@ export async function runCli(
       const arch = process.arch;
       const candidates = [
         // installed via pnpm/npm as transitive dependency of thingd
-        join(cliDir, "node_modules", "thingd-native", "dist", "thingd_native.node"),
+        join(cliDir, "node_modules", "@thingd/native", "dist", "thingd_native.node"),
         join(
           cliDir,
           "node_modules",
-          "thingd-native",
+          "@thingd/native",
           "prebuilds",
           `${platform}-${arch}`,
           "thingd_native.node"
@@ -386,7 +386,7 @@ async function runBench(context: CliContext): Promise<void> {
         "run",
         "--release",
         "-p",
-        "thingd-core",
+        "thingd",
         "--example",
         "storage_bench",
         "--features",

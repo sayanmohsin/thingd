@@ -248,7 +248,7 @@ function detectDriver(): "native" | "memory" {
     // When installed globally via npm, thingd-native is typically a sibling package.
     const cliDir = join(resolveCliPath(), "..", "..");
     const nativePaths = [
-      join(cliDir, "node_modules", "thingd-native", "dist", "thingd_native.node"),
+      join(cliDir, "node_modules", "@thingd/native", "dist", "thingd_native.node"),
       join(cliDir, "..", "thingd-native", "dist", "thingd_native.node"),
     ];
 

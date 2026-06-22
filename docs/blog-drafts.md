@@ -34,7 +34,7 @@ npm install @thingd/sdk
 ```
 
 ```typescript
-import { ThingD } from "thingd";
+import { ThingD } from "@thingd/sdk";
 
 const db = await ThingD.open("agent-memory.db");
 
@@ -160,7 +160,7 @@ and search.
 ### Step 4: Use it in code
 
 ```typescript
-import { ThingD } from "thingd";
+import { ThingD } from "@thingd/sdk";
 
 const db = await ThingD.open("agent-memory.db");
 
@@ -300,7 +300,7 @@ npm install @thingd/sdk
 ```
 
 ```typescript
-import { ThingD } from "thingd";
+import { ThingD } from "@thingd/sdk";
 const db = await ThingD.open(":memory:");
 await db.put("test", { id: "1", text: "hello" });
 console.log(await db.get("test", "1"));

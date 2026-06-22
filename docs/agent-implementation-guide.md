@@ -113,7 +113,7 @@ intentional documentation edits.
 ## Basic Node.js Pattern
 
 ```ts
-import { ThingD } from "thingd";
+import { ThingD } from "@thingd/sdk";
 
 const db = await ThingD.open();
 
@@ -176,7 +176,7 @@ Create a module-level provider and inject it into services/controllers.
 
 ```ts
 import { Global, Module } from "@nestjs/common";
-import { ThingD } from "thingd";
+import { ThingD } from "@thingd/sdk";
 
 export const THINGD = Symbol("THINGD");
 
@@ -194,7 +194,7 @@ export class ThingDModule {}
 
 // Usage in other modules:
 import { Injectable, Inject } from "@nestjs/common";
-import { ThingD } from "thingd";
+import { ThingD } from "@thingd/sdk";
 import { THINGD } from "./thingd.module";
 
 @Injectable()

@@ -40,7 +40,7 @@ The [`index.ts`](./index.ts) script takes you step-by-step through the core feat
 ### 1. Unified Client Open
 Instantiates the database client. By default, it runs as a pure in-memory SQLite store:
 ```ts
-import { ThingD } from "thingd";
+import { ThingD } from "@thingd/sdk";
 const db = await ThingD.open();
 ```
 

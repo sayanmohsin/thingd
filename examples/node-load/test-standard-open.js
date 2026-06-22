@@ -2,7 +2,7 @@ console.log("Starting...");
 
 import os from "node:os";
 import path from "node:path";
-import { ThingD } from "thingd";
+import { ThingD } from "@thingd/sdk";
 
 console.log("Imported ThingD");
 

@@ -30,7 +30,7 @@
     "url": "https://sayanmohsin.github.io/thingd/",
     "sameAs": [
       "https://github.com/sayanmohsin/thingd",
-      "https://www.npmjs.com/package/thingd",
+      "https://www.npmjs.com/package/@thingd/sdk",
       "https://hub.docker.com/r/sayanmohsin/thingd"
     ],
     "offers": {
@@ -427,8 +427,8 @@
         Persistent storage, durable queues, event streams, full-text search, and MCP-native access.
       </p>
       <div class="hero-badges">
-        <a href="https://www.npmjs.com/package/thingd"><img src="https://img.shields.io/npm/dm/thingd?label=SDK&logo=npm&color=ff6a00" alt="npm SDK"></a>
-        <a href="https://www.npmjs.com/package/thingd-cli"><img src="https://img.shields.io/npm/dm/thingd-cli?label=CLI&logo=npm&color=ff6a00" alt="npm CLI"></a>
+        <a href="https://www.npmjs.com/package/@thingd/sdk"><img src="https://img.shields.io/npm/dm/@thingd/sdk?label=SDK&logo=npm&color=ff6a00" alt="npm SDK"></a>
+        <a href="https://www.npmjs.com/package/@thingd/cli"><img src="https://img.shields.io/npm/dm/@thingd/cli?label=CLI&logo=npm&color=ff6a00" alt="npm CLI"></a>
         <a href="https://hub.docker.com/r/sayanmohsin/thingd"><img src="https://img.shields.io/docker/pulls/sayanmohsin/thingd?label=Docker&logo=docker&color=ff6a00" alt="Docker pulls"></a>
         <a href="https://github.com/sayanmohsin/thingd"><img src="https://img.shields.io/github/stars/sayanmohsin/thingd?label=Stars&logo=github&color=ff6a00" alt="Stars"></a>
       </div>
@@ -448,12 +448,12 @@
         <span class="terminal-title">thingd — interactive demo</span>
       </div>
       <div class="terminal-body" id="terminal-body">
-        <div><span class="prompt">$</span> <span class="t-green">npm install</span> thingd</div>
-        <div class="t-dim">+ thingd 0.18.3</div>
+        <div><span class="prompt">$</span> <span class="t-green">npm install</span> @thingd/sdk</div>
+        <div class="t-dim">+ @thingd/sdk 0.32.0</div>
         <div class="t-dim">added 1 package in 0.5s</div>
         <div class="t-space"></div>
-        <div><span class="prompt">$</span> node</div>
-        <div><span class="t-bright">&gt;</span> <span class="t-blue">const</span> { ThingD } = <span class="t-blue">require</span>(<span class="t-green">"thingd"</span>);</div>
+        <div><span class="prompt">$</span> node --input-type=module</div>
+        <div><span class="t-bright">&gt;</span> <span class="t-blue">import</span> { ThingD } <span class="t-blue">from</span> <span class="t-green">"@thingd/sdk"</span>;</div>
         <div><span class="t-bright">&gt;</span> <span class="t-blue">const</span> db = <span class="t-blue">await</span> ThingD.<span class="t-magenta">open</span>(<span class="t-green">":memory:"</span>);</div>
         <div class="t-dim">→ ThingD { store: InMemoryThingStore }</div>
         <div><span class="t-bright">&gt;</span> <span class="t-blue">await</span> db.<span class="t-magenta">put</span>(<span class="t-green">"notes"</span>, { id: <span class="t-green">"hello"</span>, text: <span class="t-green">"Hello world"</span> });</div>
@@ -557,7 +557,7 @@
         <div class="code-block" id="code-npm">
           <span class="prompt">$</span> npm install @thingd/sdk<br><br>
           <span class="dim">// app.mjs</span><br>
-          <span class="accent">import</span> { ThingD } <span class="accent">from</span> <span class="string">"thingd"</span>;<br>
+          <span class="accent">import</span> { ThingD } <span class="accent">from</span> <span class="string">"@thingd/sdk"</span>;<br>
           <span class="accent">const</span> db = <span class="accent">await</span> ThingD.<span class="pink">open</span>(<span class="string">":memory:"</span>);<br>
           <span class="accent">await</span> db.<span class="pink">put</span>(<span class="string">"notes"</span>, { id: <span class="string">"1"</span>, text: <span class="string">"hello"</span> });<br>
           <span class="accent">const</span> obj = <span class="accent">await</span> db.<span class="pink">get</span>(<span class="string">"notes"</span>, <span class="string">"1"</span>);<br>
@@ -575,7 +575,7 @@
         </div>
 
         <div class="code-block" id="code-cli" style="display:none">
-          <span class="prompt">$</span> npm install -g thingd-cli<br><br>
+          <span class="prompt">$</span> npm install -g @thingd/cli<br><br>
           <span class="prompt">$</span> thingd<br>
           <span class="dim">// → Interactive TUI Dashboard</span><br><br>
           <span class="prompt">$</span> thingd mcp --driver native<br>
@@ -650,8 +650,8 @@
     <footer>
       <div class="footer-links">
         <a href="https://github.com/sayanmohsin/thingd">GitHub</a>
-        <a href="https://www.npmjs.com/package/thingd">npm (SDK)</a>
-        <a href="https://www.npmjs.com/package/thingd-cli">npm (CLI)</a>
+        <a href="https://www.npmjs.com/package/@thingd/sdk">npm (SDK)</a>
+        <a href="https://www.npmjs.com/package/@thingd/cli">npm (CLI)</a>
         <a href="https://hub.docker.com/r/sayanmohsin/thingd">Docker Hub</a>
         <a href="https://github.com/sayanmohsin/thingd/tree/main/docs">Docs</a>
         <a href="https://github.com/sayanmohsin/thingd/blob/main/docs/agent-setup.md">Agent setup</a>

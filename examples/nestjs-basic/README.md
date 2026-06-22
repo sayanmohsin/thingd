@@ -9,7 +9,7 @@ sidecar drivers.
 ## Installation
 
 ```bash
-npm install thingd
+npm install @thingd/sdk
 ```
 
 ## Run
