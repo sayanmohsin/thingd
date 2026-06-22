@@ -1,3 +1,13 @@
+## [0.32.2](https://github.com/sayanmohsin/thingd/compare/v0.32.1...v0.32.2) (2026-06-22)
+
+### Bug Fixes
+
+* configure npm auth for CI publish, remove OIDC provenance ([25338b1](https://github.com/sayanmohsin/thingd/commit/25338b1bd637e842017a46ad289247ee3185f57f))
+
+### Performance Improvements
+
+* skip Rust compilation in Docker, use prebuilt native binaries ([696320c](https://github.com/sayanmohsin/thingd/commit/696320cabb96b91da251347c470a8fb82debcd40))
+
 ## [0.32.1](https://github.com/sayanmohsin/thingd/compare/v0.32.0...v0.32.1) (2026-06-22)
 
 ### Bug Fixes
