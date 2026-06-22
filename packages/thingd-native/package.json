@@ -4,8 +4,7 @@
   "description": "Native Node.js binding for thingd — a fast object-first data engine for applications and AI agents.",
   "type": "module",
   "publishConfig": {
-    "access": "public",
-    "provenance": true
+    "access": "public"
   },
   "author": "Sayan Mohsin",
   "license": "Apache-2.0",

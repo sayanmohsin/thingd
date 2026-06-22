@@ -76,6 +76,12 @@ jobs:
           registry-url: https://registry.npmjs.org
           cache: pnpm
 
+      - run: pnpm install --frozen-lockfile
+
+      - name: Configure npm auth for @thingd scope
+        run: |
+          echo "//registry.npmjs.org/:_authToken=${{ secrets.NPM_TOKEN }}" >> .npmrc
+
       - name: Download prebuild artifacts
         uses: actions/download-artifact@v8
         with:

@@ -18,8 +18,7 @@
     "local-first"
   ],
   "publishConfig": {
-    "access": "public",
-    "provenance": true
+    "access": "public"
   },
   "bin": {
     "thingd": "./dist/index.js"
