@@ -1,0 +1,340 @@
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[derive(Default)]
+pub struct Config {
+    #[serde(default)]
+    pub server: ServerConfig,
+    #[serde(default)]
+    pub auth: AuthConfig,
+    #[serde(default)]
+    pub tenant: TenantConfig,
+    #[serde(default)]
+    pub mcp: McpConfig,
+    #[serde(default)]
+    pub rest: RestConfig,
+    #[serde(default)]
+    pub cluster: ClusterConfig,
+    #[serde(default)]
+    pub hardening: HardeningConfig,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ServerConfig {
+    #[serde(default = "default_host")]
+    pub host: String,
+    #[serde(default = "default_port")]
+    pub port: u16,
+    #[serde(default = "default_db")]
+    pub database: String,
+    #[serde(default = "default_request_timeout")]
+    pub request_timeout_secs: u64,
+    #[serde(default = "default_max_connections")]
+    pub max_connections: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[derive(Default)]
+pub struct AuthConfig {
+    #[serde(default)]
+    pub token: String,
+    #[serde(default)]
+    pub allow_unauthenticated: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TenantConfig {
+    #[serde(default = "default_tenant_mode")]
+    pub mode: TenantMode,
+    #[serde(default = "default_tenant_header")]
+    pub header: String,
+    #[serde(default = "default_tenant_db_prefix")]
+    pub database_prefix: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub enum TenantMode {
+    #[serde(rename = "single")]
+    #[default]
+    Single,
+    #[serde(rename = "multi-tenant")]
+    MultiTenant,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct McpConfig {
+    #[serde(default = "default_mcp_path")]
+    pub path: String,
+    #[serde(default)]
+    pub read_only: bool,
+    #[serde(default = "default_payload_limit")]
+    pub max_payload_bytes: usize,
+    #[serde(default)]
+    pub collection_allowlist: Vec<String>,
+    #[serde(default = "default_true")]
+    pub audit: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RestConfig {
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub enum ClusterMode {
+    #[serde(rename = "single")]
+    #[default]
+    Single,
+    #[serde(rename = "leader")]
+    Leader,
+    #[serde(rename = "follower")]
+    Follower,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ClusterConfig {
+    #[serde(default = "default_cluster_mode")]
+    pub mode: ClusterMode,
+    #[serde(default)]
+    pub advertise_url: String,
+    #[serde(default)]
+    pub leader_url: String,
+    #[serde(default)]
+    pub fallback_leader_url: String,
+    #[serde(default)]
+    pub peers: Vec<String>,
+    #[serde(default = "default_discovery")]
+    pub discovery: String,
+    #[serde(default)]
+    pub forward_auth_token: String,
+    #[serde(default)]
+    pub leader_election: bool,
+    #[serde(default = "default_election_failures")]
+    pub election_max_failures: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct HardeningConfig {
+    #[serde(default = "default_payload_limit")]
+    pub max_payload_bytes: usize,
+}
+
+impl Default for ServerConfig {
+    fn default() -> Self {
+        Self {
+            host: default_host(),
+            port: default_port(),
+            database: default_db(),
+            request_timeout_secs: default_request_timeout(),
+            max_connections: default_max_connections(),
+        }
+    }
+}
+
+impl Default for TenantConfig {
+    fn default() -> Self {
+        Self {
+            mode: default_tenant_mode(),
+            header: default_tenant_header(),
+            database_prefix: default_tenant_db_prefix(),
+        }
+    }
+}
+
+impl Default for McpConfig {
+    fn default() -> Self {
+        Self {
+            path: default_mcp_path(),
+            read_only: false,
+            max_payload_bytes: default_payload_limit(),
+            collection_allowlist: Vec::new(),
+            audit: true,
+        }
+    }
+}
+
+impl Default for RestConfig {
+    fn default() -> Self {
+        Self { enabled: true }
+    }
+}
+
+impl Default for ClusterConfig {
+    fn default() -> Self {
+        Self {
+            mode: ClusterMode::Single,
+            advertise_url: String::new(),
+            leader_url: String::new(),
+            fallback_leader_url: String::new(),
+            peers: Vec::new(),
+            discovery: default_discovery(),
+            forward_auth_token: String::new(),
+            leader_election: false,
+            election_max_failures: default_election_failures(),
+        }
+    }
+}
+
+impl Default for HardeningConfig {
+    fn default() -> Self {
+        Self {
+            max_payload_bytes: default_payload_limit(),
+        }
+    }
+}
+
+fn default_host() -> String {
+    "127.0.0.1".into()
+}
+fn default_port() -> u16 {
+    8757
+}
+fn default_db() -> String {
+    "/data/thingd.db".into()
+}
+fn default_request_timeout() -> u64 {
+    30
+}
+fn default_max_connections() -> u32 {
+    256
+}
+fn default_tenant_mode() -> TenantMode {
+    TenantMode::Single
+}
+fn default_tenant_header() -> String {
+    "X-Tenant-Id".into()
+}
+fn default_tenant_db_prefix() -> String {
+    "/data/".into()
+}
+fn default_mcp_path() -> String {
+    "/mcp".into()
+}
+fn default_payload_limit() -> usize {
+    524_288
+}
+fn default_true() -> bool {
+    true
+}
+fn default_cluster_mode() -> ClusterMode {
+    ClusterMode::Single
+}
+fn default_discovery() -> String {
+    "static".into()
+}
+fn default_election_failures() -> u32 {
+    3
+}
+
+impl Config {
+    pub fn load(path: Option<&str>) -> Result<Self, Box<dyn std::error::Error>> {
+        let mut config = if let Some(p) = path {
+            let content = std::fs::read_to_string(p)
+                .map_err(|e| format!("Failed to read config file {}: {}", p, e))?;
+            serde_yaml::from_str(&content)?
+        } else {
+            Config::default()
+        };
+
+        config.apply_env_overrides();
+        config.validate()?;
+        Ok(config)
+    }
+
+    fn apply_env_overrides(&mut self) {
+        if let Ok(v) = std::env::var("THINGD_HOST") {
+            self.server.host = v;
+        }
+        if let Ok(v) = std::env::var("THINGD_PORT")
+            && let Ok(n) = v.parse()
+        {
+            self.server.port = n;
+        }
+        if let Ok(v) = std::env::var("THINGD_PATH") {
+            self.server.database = v;
+        }
+        if let Ok(v) = std::env::var("THINGD_AUTH_TOKEN") {
+            self.auth.token = v;
+        }
+        if let Ok(v) = std::env::var("THINGD_ALLOW_UNAUTHENTICATED") {
+            self.auth.allow_unauthenticated = v == "true";
+        }
+        if let Ok(v) = std::env::var("THINGD_MCP_READ_ONLY") {
+            self.mcp.read_only = v == "true";
+        }
+        if let Ok(v) = std::env::var("THINGD_MCP_MAX_PAYLOAD_BYTES")
+            && let Ok(n) = v.parse()
+        {
+            self.mcp.max_payload_bytes = n;
+        }
+        if let Ok(v) = std::env::var("THINGD_MCP_COLLECTIONS") {
+            self.mcp.collection_allowlist = v
+                .split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect();
+        }
+        if let Ok(v) = std::env::var("THINGD_MCP_AUDIT") {
+            self.mcp.audit = v == "true";
+        }
+        if let Ok(v) = std::env::var("THINGD_CLUSTER_MODE") {
+            self.cluster.mode = match v.as_str() {
+                "leader" => ClusterMode::Leader,
+                "follower" => ClusterMode::Follower,
+                _ => ClusterMode::Single,
+            };
+        }
+        if let Ok(v) = std::env::var("THINGD_ADVERTISE_URL") {
+            self.cluster.advertise_url = v;
+        }
+        if let Ok(v) = std::env::var("THINGD_CLUSTER_LEADER_URL") {
+            self.cluster.leader_url = v;
+        }
+        if let Ok(v) = std::env::var("THINGD_CLUSTER_LEADER_FALLBACK_URL") {
+            self.cluster.fallback_leader_url = v;
+        }
+        if let Ok(v) = std::env::var("THINGD_CLUSTER_PEERS") {
+            self.cluster.peers = v
+                .split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect();
+        }
+        if let Ok(v) = std::env::var("THINGD_CLUSTER_FORWARD_AUTH_TOKEN") {
+            self.cluster.forward_auth_token = v;
+        }
+        if let Ok(v) = std::env::var("THINGD_CLUSTER_LEADER_ELECTION") {
+            self.cluster.leader_election = v == "true";
+        }
+        if let Ok(v) = std::env::var("THINGD_CLUSTER_LEADER_ELECTION_MAX_FAILURES")
+            && let Ok(n) = v.parse()
+        {
+            self.cluster.election_max_failures = n;
+        }
+    }
+
+    fn validate(&self) -> Result<(), Box<dyn std::error::Error>> {
+        if self.server.port == 0 {
+            return Err("server.port must be between 1 and 65535".into());
+        }
+        if !self.auth.allow_unauthenticated
+            && self.auth.token.len() < 16
+            && self.auth.token.is_empty()
+        {
+            // Token can be empty when allow_unauthenticated is set
+        }
+        if self.cluster.mode == ClusterMode::Follower && self.cluster.leader_url.is_empty() {
+            return Err("cluster.leader_url is required when mode is 'follower'".into());
+        }
+        Ok(())
+    }
+}

@@ -6,7 +6,8 @@ use crate::{u64_to_i64, unix_timestamp_millis};
 pub const DEFAULT_QUEUE_LEASE_MS: u64 = 30_000;
 
 /// Stable object key inside a collection.
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ObjectKey {
     /// Collection name, such as `decisions`, `documents`, or `customers`.
     pub collection: String,
@@ -25,7 +26,8 @@ impl ObjectKey {
 }
 
 /// An object stored in a thingd collection.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct MemoryObject {
     /// Stable object key.
     pub key: ObjectKey,
@@ -57,7 +59,8 @@ impl MemoryObject {
 }
 
 /// An append-only event stored in a thingd stream.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct MemoryEvent {
     /// Stream name, such as `project:thingd` or `customer:cus_123`.
     pub stream: String,
@@ -89,7 +92,8 @@ impl MemoryEvent {
 }
 
 /// Queue job lifecycle state.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub enum QueueJobStatus {
     /// Ready to be claimed by a worker.
     Ready,
@@ -102,7 +106,8 @@ pub enum QueueJobStatus {
 }
 
 /// A queued unit of work.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct QueueJob {
     /// Queue name.
     pub queue: String,
@@ -173,7 +178,8 @@ impl QueueJob {
 }
 
 /// Options for listing events.
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ListEventsOptions {
     /// Only return events with sequence greater than this value.
     pub from_sequence: Option<u64>,
@@ -182,7 +188,8 @@ pub struct ListEventsOptions {
 }
 
 /// Sort direction for list queries.
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub enum SortDirection {
     /// Ascending order (A→Z, oldest→newest, smallest→largest).
     #[default]
@@ -192,7 +199,8 @@ pub enum SortDirection {
 }
 
 /// Sort specification for list queries.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SortBy {
     /// Field name: `id`, `collection`, `created_at`, `updated_at`, `version`.
     pub field: String,
@@ -234,7 +242,8 @@ pub struct ListObjectsOptions {
 }
 
 /// Options for putting an object.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct PutObjectOptions {
     /// Whether to update the FTS search index. Default: `true`.
     /// Set to `false` when only metadata changes (e.g. timestamp dedup)
@@ -312,7 +321,8 @@ pub struct SearchOptions {
 }
 
 /// A single match returned by a search query.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SearchHit {
     /// Result kind: "object" or "event".
     pub kind: String,
@@ -337,7 +347,8 @@ pub struct SearchHit {
 }
 
 /// A graph link connecting two references.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Link {
     /// Unique link identifier.
     pub id: String,
@@ -389,7 +400,8 @@ impl Link {
 }
 
 /// Options for querying graph links.
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct LinkQueryOptions {
     /// Filter by relationship type.
     pub link_type: Option<String>,
@@ -398,7 +410,8 @@ pub struct LinkQueryOptions {
 }
 
 /// Direction for neighbor queries.
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub enum LinkDirection {
     /// Only outgoing links (`from_ref` matches).
     Outgoing,

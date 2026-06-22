@@ -1,0 +1,64 @@
+# thingd-server configuration
+# All values can be overridden by environment variables (THINGD_*).
+
+server:
+  # Bind address and port
+  host: "0.0.0.0"
+  port: 8757
+  # Database path (or ":memory:" for in-memory)
+  database: "/data/thingd.db"
+  # Request timeout in seconds
+  request_timeout_secs: 30
+  # Maximum concurrent connections
+  max_connections: 256
+
+auth:
+  # Bearer token for API authentication (min 16 chars)
+  # Override: THINGD_AUTH_TOKEN
+  token: ""
+  # Allow unauthenticated requests (not recommended for production)
+  allow_unauthenticated: true
+
+tenant:
+  # "single" for single-tenant, "multi-tenant" for file-per-tenant
+  mode: "single"
+  # HTTP header used to identify the tenant in multi-tenant mode
+  header: "X-Tenant-Id"
+  # Prefix for per-tenant database files: /data/{tenant_id}.db
+  database_prefix: "/data/"
+
+mcp:
+  # MCP endpoint path
+  path: "/mcp"
+  # Reject all write operations
+  read_only: false
+  # Maximum MCP request body size (default 512KB)
+  max_payload_bytes: 524288
+  # Collection allowlist (empty = all collections allowed)
+  collection_allowlist: []
+  # Enable audit event stream for write operations
+  audit: true
+
+rest:
+  # Enable REST API at /v1/*
+  enabled: true
+
+cluster:
+  # Cluster mode: "single", "leader", or "follower"
+  mode: "single"
+  # This node's advertised URL (for failover)
+  advertise_url: ""
+  # Leader URL (required when mode is "follower")
+  leader_url: ""
+  # Fallback leader URL
+  fallback_leader_url: ""
+  # Static peer list
+  peers: []
+  # Discovery mechanism: "none", "static", "kubernetes"
+  discovery: "static"
+  # Auth token for inter-node forwarding
+  forward_auth_token: ""
+  # Enable automatic leader failover
+  leader_election: false
+  # Consecutive failures before triggering election
+  election_max_failures: 3

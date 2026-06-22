@@ -13,6 +13,7 @@ use chrono as _;
 #[cfg(feature = "connectors")]
 use csv as _;
 use rusqlite as _;
+use serde as _;
 use serde_json as _;
 use thingd::{
     EventLog, ListEventsOptions, ListObjectsOptions, MemoryEngine, MemoryEvent, MemoryObject,
