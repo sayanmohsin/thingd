@@ -87,7 +87,7 @@ Or use a `file:` dependency:
 ```json
 {
   "dependencies": {
-    "thingd": "file:/path/to/thingd/packages/thingd"
+    "@thingd/sdk": "file:/path/to/thingd/packages/thingd"
   }
 }
 ```

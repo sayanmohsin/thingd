@@ -39,57 +39,16 @@ Implemented:
 
 ## Tool Surface
 
-### Object tools
+All 27 tools are documented in the [API spec — MCP tools reference](api-spec/mcp-tools.md)
+with JSON schemas, input/output types, and return formats.
 
-| Tool | Description |
-|------|-------------|
-| `thing_search` | Full-text search across objects and events with metadata filters |
-| `thing_get` | Read one object by collection and id |
-| `thing_put` | Create or replace an object in a collection |
-| `thing_delete` | Delete an object by collection and id |
-| `thing_objects_list` | List objects with optional filter, sortBy, limit, offset |
-| `thing_objects_put_batch` | Create or replace multiple objects in a single operation |
-| `thing_objects_delete_batch` | Delete multiple objects by ID in a single operation |
+### Categories
 
-### Event tools
-
-| Tool | Description |
-|------|-------------|
-| `thing_events_append` | Append an event to a named stream |
-| `thing_events_list` | List events with optional stream filter and pagination |
-
-### Queue tools
-
-| Tool | Description |
-|------|-------------|
-| `thing_queue_push` | Push a job onto a queue with optional delay and idempotency |
-| `thing_queue_claim` | Claim the next ready job from a queue |
-| `thing_queue_ack` | Mark a leased job as completed |
-| `thing_queue_nack` | Reject a job for retry or dead-letter routing |
-| `thing_queue_list` | List all jobs in a queue |
-| `thing_queue_dead` | List dead-letter jobs in a queue |
-
-### Link tools
-
-| Tool | Description |
-|------|-------------|
-| `thing_link_create` | Create a directed graph link between two references |
-| `thing_link_delete` | Delete a graph link by id |
-| `thing_link_get` | Get a graph link by id |
-| `thing_link_neighbors` | Get links connected to a reference (outgoing/incoming/both) |
-| `thing_link_count` | Count all graph links |
-
-### Count and discovery tools
-
-| Tool | Description |
-|------|-------------|
-| `thing_count_objects` | Count all objects across all collections |
-| `thing_count_events` | Count all events across all streams |
-| `thing_count_active_jobs` | Count all active (non-dead) queue jobs |
-| `thing_count_dead_jobs` | Count all dead-letter queue jobs |
-| `thing_list_collections` | List all collection names |
-| `thing_list_streams` | List all event stream names |
-| `thing_list_queues` | List all queue names |
+- **Search & Objects** (7): `thing_search`, `thing_get`, `thing_put`, `thing_delete`, `thing_objects_list`, `thing_objects_put_batch`, `thing_objects_delete_batch`
+- **Events** (2): `thing_events_append`, `thing_events_list`
+- **Queues** (6): `thing_queue_push`, `thing_queue_claim`, `thing_queue_ack`, `thing_queue_nack`, `thing_queue_list`, `thing_queue_dead`
+- **Links** (5): `thing_link_create`, `thing_link_delete`, `thing_link_get`, `thing_link_neighbors`, `thing_link_count`
+- **Count & Discovery** (7): `thing_count_objects`, `thing_count_events`, `thing_count_active_jobs`, `thing_count_dead_jobs`, `thing_list_collections`, `thing_list_streams`, `thing_list_queues`
 
 ## Zero-Config Setup
 

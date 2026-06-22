@@ -417,37 +417,7 @@ const hits = await db.search("customers who upgraded after a failed deployment",
 
 MCP is a core part of the design. The database ships with stdio and Streamable HTTP MCP server entrypoints so tools can read and write through explicit operations instead of guessing internal schemas.
 
-Current tools:
-
-```txt
-thing_search
-thing_get
-thing_put
-thing_delete
-thing_objects_list
-thing_objects_put_batch
-thing_objects_delete_batch
-thing_events_append
-thing_events_list
-thing_queue_push
-thing_queue_claim
-thing_queue_ack
-thing_queue_nack
-thing_queue_list
-thing_queue_dead
-thing_link_create
-thing_link_delete
-thing_link_get
-thing_link_neighbors
-thing_link_count
-thing_count_objects
-thing_count_events
-thing_count_active_jobs
-thing_count_dead_jobs
-thing_list_collections
-thing_list_streams
-thing_list_queues
-```
+Current tools: see the [MCP tools reference](docs/api-spec/mcp-tools.md) for all 27 tools with schemas and examples.
 
 Run the automatic zero-config setup for Claude Desktop and Cursor:
 
@@ -731,23 +701,12 @@ pnpm test:rust
 
 ## Releases
 
-`thingd` uses semantic-release on `main` for automatic npm versioning, changelog generation, and publishing.
+`thingd` uses [semantic-release](https://semantic-release.gitbook.io) on `main`
+with conventional commits to determine version bumps, publish npm packages, and
+create GitHub releases.
 
-Conventional commits map to SemVer like this:
-
-- `fix:` creates a patch release
-- `feat:` creates a minor release
-- `BREAKING CHANGE:` or `!` creates a major release
-
-Each release automatically:
-
-- publishes all three npm packages (`@thingd/sdk`, `@thingd/cli`, `@thingd/native`)
-- publishes `thingd` Rust crate to [crates.io](https://crates.io/crates/thingd)
-- updates `CHANGELOG.md` in the repo from conventional commits
-- creates a GitHub Release with release notes
-- pushes version bump commits back to `main`
-
-Publishing is skipped until the repository has an `NPM_TOKEN` secret configured.
+See [release.md](docs/release.md) for the full release process, required secrets,
+native prebuild workflow, and troubleshooting.
 
 Before enabling publish, run:
 

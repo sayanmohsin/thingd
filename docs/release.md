@@ -38,7 +38,7 @@ Before configuring `NPM_TOKEN`, use the local package smoke test:
 pnpm test:package
 ```
 
-This command builds `thingd`, packs it into a package tarball, installs that tarball into a temporary app, and imports the installed package.
+This command builds `@thingd/sdk`, packs it into a package tarball, installs that tarball into a temporary app, and imports the installed package.
 
 You can also verify the release plan without publishing:
 
@@ -102,7 +102,7 @@ feat: initial thingd release
 ```
 
 3. Open GitHub -> Actions -> Release -> Run workflow -> branch `main`.
-4. The workflow runs checks, builds the package from `packages/thingd`, publishes `thingd`, creates the Git tag, and creates the GitHub release.
+4. The workflow runs checks, builds the package from `packages/thingd`, publishes `@thingd/sdk`, creates the Git tag, and creates the GitHub release.
 
 If semantic-release says there is no release, the commits on `main` did not include a releasable conventional commit. Add a `feat:`, `fix:`, `perf:`, or breaking-change commit and run the workflow again.
 
@@ -133,7 +133,7 @@ The release workflow pushes version bump commits (including `CHANGELOG.md` and u
 
 ## Native Prebuilds Workflow
 
-Prebuild binaries (`.node` files) are compiled for common architectures and platforms, then bundled inside the `thingd-native` package.
+Prebuild binaries (`.node` files) are compiled for common architectures and platforms, then bundled inside the `@thingd/native` package.
 
 ### Target Matrix
 - `darwin-arm64` (macOS Apple Silicon)

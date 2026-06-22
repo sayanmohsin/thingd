@@ -15,71 +15,18 @@ memory store with search, events, and queues.
 
 ## 1. Local stdio (Cursor / Claude Desktop)
 
-One command sets up both:
+Follow the [5-minute quickstart](QUICKSTART.md) for step-by-step Cursor and
+Claude Desktop setup. The install, config, and verification steps are identical.
+
+**TL;DR:**
 
 ```bash
 npx thingd install
 ```
 
-This writes the Claude Desktop config automatically (macOS) and prints a
-copy-pasteable JSON block for Cursor. If you already have the CLI installed:
-
-```bash
-thingd install
-```
-
-### Manual Cursor config
-
-Open **Cursor Settings → Features → MCP → + Add New MCP Tool**:
-
-| Field | Value |
-|---|---|
-| Name | `thingd` |
-| Type | `command` |
-| Command | `thingd mcp --driver native` |
-
-### Manual Claude Desktop config
-
-Add to `claude_desktop_config.json`:
-
-```json
-{
-  "mcpServers": {
-    "thingd": {
-      "command": "thingd",
-      "args": ["mcp", "--driver", "native"]
-    }
-  }
-}
-```
-
-### Verify
-
-```bash
-thingd doctor
-```
-
-Expected:
-
-```txt
-✔ Node runtime: /usr/local/bin/node
-✔ Native driver: available
-✔ Database: ~/.thingd/data.db
-✔ MCP server: reachable
-```
-
-### Tools your agent can now call
-
-`thing_search`, `thing_get`, `thing_put`, `thing_delete`, `thing_objects_list`,
-`thing_objects_put_batch`, `thing_objects_delete_batch`,
-`thing_events_append`, `thing_events_list`,
-`thing_queue_push`, `thing_queue_claim`, `thing_queue_ack`, `thing_queue_nack`,
-`thing_queue_list`, `thing_queue_dead`,
-`thing_link_create`, `thing_link_get`, `thing_link_delete`, `thing_link_neighbors`, `thing_link_count`,
-`thing_count_objects`, `thing_count_events`, `thing_count_active_jobs`, `thing_count_dead_jobs`,
-`thing_list_collections`, `thing_list_streams`, `thing_list_queues`
-
-Full details: [MCP Server](./mcp-server.md) · [API Spec](./api-spec/mcp-tools.md)
+Your agent can then call all 27 `thing_*` tools (search, objects, events, queues,
+links, counts, discovery). See the [MCP tools reference](api-spec/mcp-tools.md)
+for the full list.
 
 ---
 
