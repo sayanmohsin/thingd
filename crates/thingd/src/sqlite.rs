@@ -338,52 +338,32 @@ impl SqliteThingStore {
 impl ObjectStore for SqliteThingStore {
     fn put_object(&mut self, mut object: MemoryObject) -> ThingdResult<MemoryObject> {
         let transaction = self.connection.transaction().map_err(ThingdError::from)?;
-        let version = transaction
-            .query_row(
-                "SELECT version FROM objects WHERE collection = ?1 AND id = ?2",
-                params![&object.key.collection, &object.key.id],
-                |row| row.get::<_, i64>(0),
-            )
-            .optional()
-            .map_err(ThingdError::from)?
-            .map_or(Ok::<u64, ThingdError>(1), |existing| {
-                u64::try_from(existing)
-                    .map(|existing| existing + 1)
-                    .map_err(|error| ThingdError::Storage(error.to_string()))
-            })?;
 
-        object.version = version;
-        let stored_version = i64::try_from(object.version)
-            .map_err(|error| ThingdError::Storage(error.to_string()))?;
-
-        // Use RETURNING to get timestamps in a single round-trip
-        let timestamps = transaction
+        // Use UPSERT with automatic version increment — no SELECT needed
+        let row = transaction
             .query_row(
                 r"
                 INSERT INTO objects (collection, id, body, version, created_at, updated_at)
-                VALUES (?1, ?2, ?3, ?4, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+                VALUES (?1, ?2, ?3, 1, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
                 ON CONFLICT(collection, id) DO UPDATE SET
                     body = excluded.body,
-                    version = excluded.version,
+                    version = version + 1,
                     updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-                RETURNING created_at, updated_at
+                RETURNING version, created_at, updated_at
                 ",
-                params![
-                    &object.key.collection,
-                    &object.key.id,
-                    &object.body,
-                    stored_version
-                ],
+                params![&object.key.collection, &object.key.id, &object.body],
                 |row| {
                     Ok((
-                        row.get::<_, String>(0)?,
+                        row.get::<_, i64>(0)?,
                         row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
                     ))
                 },
             )
             .map_err(ThingdError::from)?;
-        object.created_at = timestamps.0;
-        object.updated_at = timestamps.1;
+        object.version = u64::try_from(row.0).map_err(|e| ThingdError::Storage(e.to_string()))?;
+        object.created_at = row.1;
+        object.updated_at = row.2;
 
         let text = extract_text_from_json(&object.body);
         transaction
@@ -407,65 +387,42 @@ impl ObjectStore for SqliteThingStore {
     fn put_objects_batch(&mut self, objects: Vec<MemoryObject>) -> ThingdResult<Vec<MemoryObject>> {
         let transaction = self.connection.transaction().map_err(ThingdError::from)?;
 
-        // Collect object keys for bulk FTS update at the end
         let mut fts_updates: Vec<(String, String, String)> = Vec::with_capacity(objects.len());
         let mut results = Vec::with_capacity(objects.len());
         for mut object in objects {
-            let version = transaction
-                .query_row(
-                    "SELECT version FROM objects WHERE collection = ?1 AND id = ?2",
-                    params![&object.key.collection, &object.key.id],
-                    |row| row.get::<_, i64>(0),
-                )
-                .optional()
-                .map_err(ThingdError::from)?
-                .map_or(Ok::<u64, ThingdError>(1), |existing| {
-                    u64::try_from(existing)
-                        .map(|existing| existing + 1)
-                        .map_err(|error| ThingdError::Storage(error.to_string()))
-                })?;
-
-            object.version = version;
-            let stored_version = i64::try_from(object.version)
-                .map_err(|error| ThingdError::Storage(error.to_string()))?;
-
-            // Use RETURNING to get timestamps in a single round-trip
-            let timestamps = transaction
+            // Use UPSERT with automatic version increment — no SELECT needed
+            let row = transaction
                 .query_row(
                     r"
                     INSERT INTO objects (collection, id, body, version, created_at, updated_at)
-                    VALUES (?1, ?2, ?3, ?4, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+                    VALUES (?1, ?2, ?3, 1, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
                     ON CONFLICT(collection, id) DO UPDATE SET
                         body = excluded.body,
-                        version = excluded.version,
+                        version = version + 1,
                         updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-                    RETURNING created_at, updated_at
+                    RETURNING version, created_at, updated_at
                     ",
-                    params![
-                        &object.key.collection,
-                        &object.key.id,
-                        &object.body,
-                        stored_version
-                    ],
+                    params![&object.key.collection, &object.key.id, &object.body],
                     |row| {
                         Ok((
-                            row.get::<_, String>(0)?,
+                            row.get::<_, i64>(0)?,
                             row.get::<_, String>(1)?,
+                            row.get::<_, String>(2)?,
                         ))
                     },
                 )
                 .map_err(ThingdError::from)?;
-            object.created_at = timestamps.0;
-            object.updated_at = timestamps.1;
+            object.version =
+                u64::try_from(row.0).map_err(|e| ThingdError::Storage(e.to_string()))?;
+            object.created_at = row.1;
+            object.updated_at = row.2;
 
-            // Collect FTS updates for bulk processing
             let text = extract_text_from_json(&object.body);
             fts_updates.push((object.key.collection.clone(), object.key.id.clone(), text));
 
             results.push(object);
         }
 
-        // Bulk FTS index update: delete all affected entries, then insert new ones
         for (collection, id, text) in &fts_updates {
             transaction
                 .execute(
@@ -699,30 +656,49 @@ impl ObjectStore for SqliteThingStore {
     }
 
     fn delete_objects_batch(&mut self, keys: &[(String, String)]) -> ThingdResult<u64> {
+        use std::fmt::Write;
+
         let transaction = self.connection.transaction().map_err(ThingdError::from)?;
-        let mut count = 0u64;
 
-        for (collection, id) in keys {
-            let changed = transaction
-                .execute(
-                    "DELETE FROM objects WHERE collection = ?1 AND id = ?2",
-                    params![collection, id],
-                )
-                .map_err(ThingdError::from)?;
+        if keys.is_empty() {
+            return Ok(0);
+        }
 
-            if changed > 0 {
-                transaction
-                    .execute(
-                        "DELETE FROM search_index WHERE collection = ?1 AND id = ?2 AND kind = 'object'",
-                        params![collection, id],
-                    )
-                    .map_err(ThingdError::from)?;
-                count += 1;
+        let mut total_deleted = 0u64;
+        // Chunk to avoid SQLite expression tree depth limit (max ~500 per chunk is safe)
+        for chunk in keys.chunks(500) {
+            let mut sql = String::from("DELETE FROM objects WHERE ");
+            let mut fts_sql = String::from("DELETE FROM search_index WHERE kind = 'object' AND (");
+            let mut param_values: Vec<String> = Vec::with_capacity(chunk.len() * 2);
+            for (i, (collection, id)) in chunk.iter().enumerate() {
+                if i > 0 {
+                    sql.push_str(" OR ");
+                    fts_sql.push_str(" OR ");
+                }
+                let ci = i * 2 + 1;
+                let ii = i * 2 + 2;
+                let _ = write!(sql, "(collection = ?{ci} AND id = ?{ii})");
+                let _ = write!(fts_sql, "(collection = ?{ci} AND id = ?{ii})");
+                param_values.push(collection.clone());
+                param_values.push(id.clone());
             }
+            fts_sql.push(')');
+            let param_slices: Vec<&dyn rusqlite::types::ToSql> = param_values
+                .iter()
+                .map(|s| s as &dyn rusqlite::types::ToSql)
+                .collect();
+
+            let deleted = transaction
+                .execute(&sql, param_slices.as_slice())
+                .map_err(ThingdError::from)?;
+            transaction
+                .execute(&fts_sql, param_slices.as_slice())
+                .map_err(ThingdError::from)?;
+            total_deleted += deleted as u64;
         }
 
         transaction.commit().map_err(ThingdError::from)?;
-        Ok(count)
+        Ok(total_deleted)
     }
 
     fn count_objects(&self) -> ThingdResult<u64> {
