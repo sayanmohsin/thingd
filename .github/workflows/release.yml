@@ -144,6 +144,27 @@ jobs:
           fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
+      - name: Download prebuilt native binaries
+        uses: actions/download-artifact@v8
+        with:
+          path: prebuild-artifacts
+          pattern: prebuild-*
+          merge-multiple: false
+
+      - name: Stage prebuilds for Docker
+        run: |
+          mkdir -p packages/thingd-native/prebuilds
+          for dir in prebuild-artifacts/*/; do
+            if [ -d "$dir" ]; then
+              platform=$(basename "$dir" | sed 's/^prebuild-//')
+              mkdir -p "packages/thingd-native/prebuilds/$platform"
+              cp -r "$dir". "packages/thingd-native/prebuilds/$platform/"
+              echo "Staged prebuild for $platform"
+            fi
+          done
+          echo "Prebuilds staged:"
+          ls -la packages/thingd-native/prebuilds/*/
+
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
 
