@@ -7,6 +7,7 @@
 use std::env;
 use std::error::Error;
 use std::hint::black_box;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use chrono as _;
@@ -47,17 +48,30 @@ fn main() -> Result<(), Box<dyn Error>> {
     println!("{}", "-".repeat(80));
 
     bench_store("in-memory", MemoryEngine::new(), iterations)?;
+    bench_concurrent("in-memory", || Ok(MemoryEngine::new()), iterations)?;
+
     bench_store(
         "sqlite-memory",
         SqliteThingStore::open_in_memory()?,
         iterations,
     )?;
+    bench_concurrent(
+        "sqlite-memory",
+        || Ok(SqliteThingStore::open_in_memory()?),
+        iterations,
+    )?;
 
     let directory = tempfile::tempdir()?;
     let database_path = directory.path().join("thingd-bench.db");
+    let conc_path = database_path.parent().unwrap().join("conc.db");
     bench_store(
         "sqlite-file",
-        SqliteThingStore::open(database_path)?,
+        SqliteThingStore::open(&database_path)?,
+        iterations,
+    )?;
+    bench_concurrent(
+        "sqlite-file",
+        || Ok(SqliteThingStore::open(&conc_path)?),
         iterations,
     )?;
 
@@ -189,6 +203,9 @@ where
     // ── Search ─────────────────────────────────────────────────────────────
     time_search_benchmarks(name, &store)?;
 
+    // ── Batch scaling ──────────────────────────────────────────────────────
+    time_batch_scale_benchmarks(name, &mut store)?;
+
     // ── Count ──────────────────────────────────────────────────────────────
     time_count_benchmarks(name, &store)?;
 
@@ -200,6 +217,42 @@ where
     Ok(())
 }
 
+fn bench_concurrent<S, F>(name: &str, factory: F, iterations: usize) -> Result<(), Box<dyn Error>>
+where
+    S: ObjectStore + Send + 'static,
+    F: Fn() -> Result<S, Box<dyn Error>>,
+{
+    // Populate a fresh store
+    let store = factory()?;
+    let shared = Arc::new(Mutex::new(store));
+
+    // Populate objects
+    {
+        let mut guard = shared.lock().unwrap();
+        for index in 0..iterations {
+            let body = OBJECT_BODY_ACTIVE;
+            let object = MemoryObject::new(COLLECTION, format!("object-{index}"), body);
+            guard.put_object(object)?;
+        }
+    }
+
+    // Concurrent reads at various thread counts
+    for &threads in &[1, 2, 4, 8] {
+        let (elapsed, actual) = measure_concurrent_reads(&shared, iterations, threads);
+        let label = format!("concurrent_read_{threads}t");
+        report(name, &label, actual, elapsed);
+    }
+
+    // Lock contention: 4 readers + 1 writer
+    let (elapsed, actual) = measure_lock_contention(&shared, iterations);
+    report(name, "contention_4r1w", actual, elapsed);
+
+    println!();
+    Ok(())
+}
+
+// ── Sequential benchmarks ────────────────────────────────────────────────
+
 fn time_object_puts<S>(store: &mut S, iterations: usize) -> Result<Duration, Box<dyn Error>>
 where
     S: ObjectStore,
@@ -207,7 +260,6 @@ where
     let started = Instant::now();
 
     for index in 0..iterations {
-        // Alternate active/inactive so filtered benchmarks have data on both sides.
         let body = if index % 2 == 0 {
             OBJECT_BODY_ACTIVE
         } else {
@@ -418,6 +470,108 @@ where
     report(name, "count_events", 1, elapsed);
 
     Ok(())
+}
+
+fn time_batch_scale_benchmarks<S>(name: &str, store: &mut S) -> Result<(), Box<dyn Error>>
+where
+    S: ObjectStore,
+{
+    let batch_sizes = [10usize, 100, 1000];
+
+    for &size in &batch_sizes {
+        let objects: Vec<MemoryObject> = (0..size)
+            .map(|i| MemoryObject::new("scale_batch", format!("s-{size}-{i}"), OBJECT_BODY_ACTIVE))
+            .collect();
+
+        let started = Instant::now();
+        let results = store.put_objects_batch(objects)?;
+        let elapsed = started.elapsed();
+        black_box(results.len());
+        let label = format!("put_batch_{size}");
+        report(name, &label, size, elapsed);
+    }
+
+    for &size in &batch_sizes {
+        let keys: Vec<(String, String)> = (0..size)
+            .map(|i| ("scale_batch".to_string(), format!("s-{size}-{i}")))
+            .collect();
+
+        let started = Instant::now();
+        let count = store.delete_objects_batch(&keys)?;
+        let elapsed = started.elapsed();
+        black_box(count);
+        let label = format!("delete_batch_{size}");
+        report(name, &label, size, elapsed);
+    }
+
+    Ok(())
+}
+
+// ── Concurrent benchmarks ───────────────────────────────────────────────
+
+fn measure_concurrent_reads<S>(
+    store: &Arc<Mutex<S>>,
+    total_ops: usize,
+    threads: usize,
+) -> (Duration, usize)
+where
+    S: ObjectStore + Send,
+{
+    let ops_per = total_ops / threads;
+    let started = Instant::now();
+
+    std::thread::scope(|scope| {
+        for t in 0..threads {
+            let store = Arc::clone(store);
+            scope.spawn(move || {
+                for i in 0..ops_per {
+                    let idx = t * ops_per + i;
+                    let id = format!("object-{idx}");
+                    let object = store.lock().unwrap().get_object(COLLECTION, &id).unwrap();
+                    black_box(object);
+                }
+            });
+        }
+    });
+
+    let actual = ops_per * threads;
+    (started.elapsed(), actual)
+}
+
+fn measure_lock_contention<S>(store: &Arc<Mutex<S>>, total_ops: usize) -> (Duration, usize)
+where
+    S: ObjectStore + Send,
+{
+    let reader_ops = total_ops / 5;
+    let writer_ops = total_ops / 5;
+    let started = Instant::now();
+
+    std::thread::scope(|scope| {
+        for t in 0..4 {
+            let store = Arc::clone(store);
+            scope.spawn(move || {
+                for i in 0..reader_ops {
+                    let idx = t * reader_ops + i;
+                    let id = format!("object-{idx}");
+                    let object = store.lock().unwrap().get_object(COLLECTION, &id).unwrap();
+                    black_box(object);
+                }
+            });
+        }
+
+        let store = Arc::clone(store);
+        scope.spawn(move || {
+            for i in 0..writer_ops {
+                let body = OBJECT_BODY_ACTIVE;
+                let object = MemoryObject::new(COLLECTION, format!("contention-{i}"), body);
+                let stored = store.lock().unwrap().put_object(object).unwrap();
+                black_box(stored.version);
+            }
+        });
+    });
+
+    let actual = reader_ops * 4 + writer_ops;
+    (started.elapsed(), actual)
 }
 
 fn report(store: &str, operation: &str, iterations: usize, elapsed: Duration) {

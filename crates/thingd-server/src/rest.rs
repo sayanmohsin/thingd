@@ -5,14 +5,9 @@ use axum::{
 use serde_json::{Value, json};
 use std::sync::Arc;
 use thingd::*;
-use tokio::sync::Mutex;
 
 use crate::engine::EnginePool;
 use crate::error::AppError;
-
-fn engine(pool: &EnginePool) -> std::sync::Arc<Mutex<Box<dyn ThingStore + Send>>> {
-    pool.get("")
-}
 
 fn ok<T: serde::Serialize>(data: T) -> Result<Json<Value>, AppError> {
     Ok(Json(json!({ "data": data })))
@@ -26,22 +21,21 @@ pub async fn health() -> Json<Value> {
 
 // ─── Counts ─────────────────────────────────────────────────────
 
-#[axum::debug_handler]
 pub async fn count_objects(State(pool): State<Arc<EnginePool>>) -> Result<Json<Value>, AppError> {
-    let e = engine(&pool);
-    let g = e.lock().await;
+    let e = pool.get("");
+    let g = e.lock();
     ok(json!({ "count": g.count_objects().map_err(|e| AppError::internal(e.to_string()))? }))
 }
 
 pub async fn count_events(State(pool): State<Arc<EnginePool>>) -> Result<Json<Value>, AppError> {
-    let e = engine(&pool);
-    let g = e.lock().await;
+    let e = pool.get("");
+    let g = e.lock();
     ok(json!({ "count": g.count_events().map_err(|e| AppError::internal(e.to_string()))? }))
 }
 
 pub async fn count_links(State(pool): State<Arc<EnginePool>>) -> Result<Json<Value>, AppError> {
-    let e = engine(&pool);
-    let g = e.lock().await;
+    let e = pool.get("");
+    let g = e.lock();
     ok(json!({ "count": g.count_links().map_err(|e| AppError::internal(e.to_string()))? }))
 }
 
@@ -50,22 +44,22 @@ pub async fn count_links(State(pool): State<Arc<EnginePool>>) -> Result<Json<Val
 pub async fn list_collections(
     State(pool): State<Arc<EnginePool>>,
 ) -> Result<Json<Value>, AppError> {
-    let e = engine(&pool);
-    let g = e.lock().await;
+    let e = pool.get("");
+    let g = e.lock();
     ok(g.list_collections()
         .map_err(|e| AppError::internal(e.to_string()))?)
 }
 
 pub async fn list_streams(State(pool): State<Arc<EnginePool>>) -> Result<Json<Value>, AppError> {
-    let e = engine(&pool);
-    let g = e.lock().await;
+    let e = pool.get("");
+    let g = e.lock();
     ok(g.list_streams()
         .map_err(|e| AppError::internal(e.to_string()))?)
 }
 
 pub async fn list_queues(State(pool): State<Arc<EnginePool>>) -> Result<Json<Value>, AppError> {
-    let e = engine(&pool);
-    let g = e.lock().await;
+    let e = pool.get("");
+    let g = e.lock();
     ok(g.list_queues()
         .map_err(|e| AppError::internal(e.to_string()))?)
 }
@@ -105,8 +99,8 @@ pub async fn list_objects(
         offset: params.get("offset").and_then(|v| v.as_u64()),
     };
 
-    let e = engine(&pool);
-    let g = e.lock().await;
+    let e = pool.get("");
+    let g = e.lock();
     let objects = g
         .list_objects(Some(&[collection.to_string()]), &opts)
         .map_err(|e| AppError::internal(e.to_string()))?;
@@ -123,8 +117,8 @@ pub async fn put_object(
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, AppError> {
     let obj = MemoryObject::new(collection, id, body.to_string());
-    let e = engine(&pool);
-    let mut g = e.lock().await;
+    let e = pool.get("");
+    let mut g = e.lock();
     let r = g
         .put_object(obj)
         .map_err(|e| AppError::internal(e.to_string()))?;
@@ -137,8 +131,8 @@ pub async fn get_object(
     State(pool): State<Arc<EnginePool>>,
     Path((collection, id)): Path<(String, String)>,
 ) -> Result<Json<Value>, AppError> {
-    let e = engine(&pool);
-    let g = e.lock().await;
+    let e = pool.get("");
+    let g = e.lock();
     match g
         .get_object(&collection, &id)
         .map_err(|e| AppError::internal(e.to_string()))?
@@ -154,8 +148,8 @@ pub async fn delete_object(
     State(pool): State<Arc<EnginePool>>,
     Path((collection, id)): Path<(String, String)>,
 ) -> Result<Json<Value>, AppError> {
-    let e = engine(&pool);
-    let mut g = e.lock().await;
+    let e = pool.get("");
+    let mut g = e.lock();
     ok(
         json!({ "deleted": g.delete_object(&collection, &id).map_err(|e| AppError::internal(e.to_string()))? }),
     )
@@ -181,8 +175,8 @@ pub async fn put_batch(
             )
         })
         .collect();
-    let e = engine(&pool);
-    let mut g = e.lock().await;
+    let e = pool.get("");
+    let mut g = e.lock();
     ok(g.put_objects_batch(objects)
         .map_err(|e| AppError::internal(e.to_string()))?)
 }
@@ -214,8 +208,8 @@ pub async fn delete_batch(
         .into_iter()
         .map(|id| (collection.to_string(), id))
         .collect();
-    let e = engine(&pool);
-    let mut g = e.lock().await;
+    let e = pool.get("");
+    let mut g = e.lock();
     ok(
         json!({ "deleted": g.delete_objects_batch(&keys).map_err(|e| AppError::internal(e.to_string()))? }),
     )
@@ -232,8 +226,8 @@ pub async fn append_event(
         .as_str()
         .ok_or_else(|| AppError::bad_request("Missing 'type'"))?;
     let event = MemoryEvent::new(stream, et, body.to_string());
-    let e = engine(&pool);
-    let mut g = e.lock().await;
+    let e = pool.get("");
+    let mut g = e.lock();
     let r = g
         .append_event(event)
         .map_err(|e| AppError::internal(e.to_string()))?;
@@ -251,8 +245,8 @@ pub async fn list_events(
         from_sequence: params.get("fromSequence").and_then(|v| v.as_u64()),
         limit: params.get("limit").and_then(|v| v.as_u64()),
     };
-    let e = engine(&pool);
-    let g = e.lock().await;
+    let e = pool.get("");
+    let g = e.lock();
     let events = g
         .list_events(stream, opts)
         .map_err(|e| AppError::internal(e.to_string()))?;
@@ -278,8 +272,8 @@ pub async fn push_job(
         payload.to_string(),
         max_at,
     );
-    let e = engine(&pool);
-    let mut g = e.lock().await;
+    let e = pool.get("");
+    let mut g = e.lock();
     ok(g.push_job(job)
         .map_err(|e| AppError::internal(e.to_string()))?)
 }
@@ -295,8 +289,8 @@ pub async fn claim_job(
             .and_then(|v| v.as_u64())
             .unwrap_or(30000),
     };
-    let e = engine(&pool);
-    let mut g = e.lock().await;
+    let e = pool.get("");
+    let mut g = e.lock();
     match g
         .claim_job_with_options(&queue, opts)
         .map_err(|e| AppError::internal(e.to_string()))?
@@ -314,8 +308,8 @@ pub async fn ack_job(
     let job_id = body["jobId"]
         .as_str()
         .ok_or_else(|| AppError::bad_request("Missing jobId"))?;
-    let e = engine(&pool);
-    let mut g = e.lock().await;
+    let e = pool.get("");
+    let mut g = e.lock();
     match g
         .ack_job(&queue, job_id)
         .map_err(|e| AppError::internal(e.to_string()))?
@@ -341,8 +335,8 @@ pub async fn nack_job(
             .unwrap_or("")
             .to_string(),
     };
-    let e = engine(&pool);
-    let mut g = e.lock().await;
+    let e = pool.get("");
+    let mut g = e.lock();
     match g
         .nack_job_with_options(&queue, job_id, opts)
         .map_err(|e| AppError::internal(e.to_string()))?
@@ -356,8 +350,8 @@ pub async fn list_jobs(
     State(pool): State<Arc<EnginePool>>,
     Path(queue): Path<String>,
 ) -> Result<Json<Value>, AppError> {
-    let e = engine(&pool);
-    let g = e.lock().await;
+    let e = pool.get("");
+    let g = e.lock();
     ok(g.list_jobs(&queue)
         .map_err(|e| AppError::internal(e.to_string()))?)
 }
@@ -366,8 +360,8 @@ pub async fn list_dead_jobs(
     State(pool): State<Arc<EnginePool>>,
     Path(queue): Path<String>,
 ) -> Result<Json<Value>, AppError> {
-    let e = engine(&pool);
-    let g = e.lock().await;
+    let e = pool.get("");
+    let g = e.lock();
     ok(g.list_dead_jobs(&queue)
         .map_err(|e| AppError::internal(e.to_string()))?)
 }
@@ -394,8 +388,8 @@ pub async fn create_link(
     if let Some(m) = body.get("metadataJson").and_then(|v| v.as_str()) {
         link.metadata_json = m.to_string();
     }
-    let e = engine(&pool);
-    let mut g = e.lock().await;
+    let e = pool.get("");
+    let mut g = e.lock();
     ok(g.create_link(link)
         .map_err(|e| AppError::internal(e.to_string()))?)
 }
@@ -424,8 +418,8 @@ pub async fn get_links(
                 .and_then(|v| v.as_u64())
                 .map(|v| v as usize),
         };
-        let e = engine(&pool);
-        let g = e.lock().await;
+        let e = pool.get("");
+        let g = e.lock();
         return ok(g
             .get_neighbors(reference, dir, opts)
             .map_err(|e| AppError::internal(e.to_string()))?);
@@ -437,8 +431,8 @@ pub async fn get_link_by_id(
     State(pool): State<Arc<EnginePool>>,
     Path(id): Path<String>,
 ) -> Result<Json<Value>, AppError> {
-    let e = engine(&pool);
-    let g = e.lock().await;
+    let e = pool.get("");
+    let g = e.lock();
     match g
         .get_link(&id)
         .map_err(|e| AppError::internal(e.to_string()))?
@@ -452,8 +446,8 @@ pub async fn delete_link(
     State(pool): State<Arc<EnginePool>>,
     Path(id): Path<String>,
 ) -> Result<Json<Value>, AppError> {
-    let e = engine(&pool);
-    let mut g = e.lock().await;
+    let e = pool.get("");
+    let mut g = e.lock();
     ok(json!({ "deleted": g.delete_link(&id).map_err(|e| AppError::internal(e.to_string()))? }))
 }
 
@@ -478,8 +472,354 @@ pub async fn search(
             .map(|v| v as usize),
         filter: body.get("filter").cloned(),
     };
-    let e = engine(&pool);
-    let g = e.lock().await;
+    let e = pool.get("");
+    let g = e.lock();
     ok(g.search(query, opts)
         .map_err(|e| AppError::internal(e.to_string()))?)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::body::Body;
+    use axum::http::{Request, StatusCode};
+    use tower::ServiceExt;
+
+    use crate::config::Config;
+
+    fn test_pool() -> Arc<EnginePool> {
+        Arc::new(EnginePool::new(":memory:".to_string()))
+    }
+
+    #[tokio::test]
+    async fn test_health() {
+        let pool = test_pool();
+        let app = crate::server::build_router(pool, &config_for_test());
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/healthz")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn test_v1_health() {
+        let pool = test_pool();
+        let app = crate::server::build_router(pool, &config_for_test());
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/v1/health")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn test_put_and_get_object() {
+        let pool = test_pool();
+        let app = crate::server::build_router(pool, &config_for_test());
+
+        let body = r#"{"id":"obj1","val":42}"#;
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("PUT")
+                    .uri("/v1/objects/test/obj1")
+                    .header("content-type", "application/json")
+                    .body(Body::from(body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/v1/objects/test/obj1")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn test_get_object_not_found() {
+        let pool = test_pool();
+        let app = crate::server::build_router(pool, &config_for_test());
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/v1/objects/test/nonexistent")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn test_delete_object() {
+        let pool = test_pool();
+        let app = crate::server::build_router(pool, &config_for_test());
+
+        let body = r#"{"id":"del1"}"#;
+        app.clone()
+            .oneshot(
+                Request::builder()
+                    .method("PUT")
+                    .uri("/v1/objects/test/del1")
+                    .header("content-type", "application/json")
+                    .body(Body::from(body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("DELETE")
+                    .uri("/v1/objects/test/del1")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn test_list_objects() {
+        let pool = test_pool();
+        let app = crate::server::build_router(pool, &config_for_test());
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/v1/objects?collection=test")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn test_list_objects_missing_collection() {
+        let pool = test_pool();
+        let app = crate::server::build_router(pool, &config_for_test());
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/v1/objects")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn test_search() {
+        let pool = test_pool();
+        let app = crate::server::build_router(pool, &config_for_test());
+
+        let body = r#"{"query":"test"}"#;
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/search")
+                    .header("content-type", "application/json")
+                    .body(Body::from(body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn test_search_missing_query() {
+        let pool = test_pool();
+        let app = crate::server::build_router(pool, &config_for_test());
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/search")
+                    .header("content-type", "application/json")
+                    .body(Body::from(r#"{}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn test_append_event() {
+        let pool = test_pool();
+        let app = crate::server::build_router(pool, &config_for_test());
+
+        let body = r#"{"type":"test.event","data":"hello"}"#;
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/events/mystream")
+                    .header("content-type", "application/json")
+                    .body(Body::from(body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn test_append_event_missing_type() {
+        let pool = test_pool();
+        let app = crate::server::build_router(pool, &config_for_test());
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/events/mystream")
+                    .header("content-type", "application/json")
+                    .body(Body::from(r#"{"data":"hello"}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn test_list_events() {
+        let pool = test_pool();
+        let app = crate::server::build_router(pool, &config_for_test());
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/v1/events?stream=mystream")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn test_queue_push_claim_ack() {
+        let pool = test_pool();
+        let app = crate::server::build_router(pool, &config_for_test());
+
+        let body = r#"{"payload":"test-job"}"#;
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/queues/myqueue/push")
+                    .header("content-type", "application/json")
+                    .body(Body::from(body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/queues/myqueue/claim")
+                    .header("content-type", "application/json")
+                    .body(Body::from(r#"{"leaseMs":30000}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/v1/queues/myqueue/jobs")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn test_create_link() {
+        let pool = test_pool();
+        let app = crate::server::build_router(pool, &config_for_test());
+
+        let body = r#"{"fromRef":"obj1","linkType":"references","toRef":"obj2"}"#;
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/links")
+                    .header("content-type", "application/json")
+                    .body(Body::from(body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn test_create_link_missing_fields() {
+        let pool = test_pool();
+        let app = crate::server::build_router(pool, &config_for_test());
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/links")
+                    .header("content-type", "application/json")
+                    .body(Body::from(r#"{}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    fn config_for_test() -> Config {
+        Config::default()
+    }
 }

@@ -97,49 +97,126 @@ Expected shape:
 
 ## Latest Local Baseline
 
-Run date: 2026-06-15
+Run date: 2026-06-22
 
 Environment:
 
 - Rust: `rustc 1.96.0`
 - Node: `v24.x`
-- Iterations: `1000`
+- Iterations: `100` (smoke)
 - Build: release
+- Platform: darwin (arm64)
 
-### Rust
+### Rust — In-Memory (100 iters)
 
-| Store | Operation | Elapsed | Ops/sec |
-| --- | --- | ---: | ---: |
-| `in-memory` | object put | `885µs` | `1,131,221` |
-| `in-memory` | object batch | `1.24ms` | `808,407` |
-| `in-memory` | object get | `511µs` | `1,960,784` |
-| `in-memory` | event append | `423µs` | `2,369,668` |
-| `in-memory` | event batch | `206µs` | `4,878,048` |
-| `in-memory` | event list | `183µs` | `10,989,010` |
-| `in-memory` | queue push | `1.59ms` | `630,517` |
-| `in-memory` | queue batch | `1.77ms` | `564,334` |
-| `in-memory` | queue claim+ack | `6.75ms` | `148,257` |
-| `in-memory` | queue claim+ack (optimized) | `7.04ms` | `142,085` |
-| `sqlite-memory` | object put | `109ms` | `9,189` |
-| `sqlite-memory` | object batch | `265ms` | `3,771` |
-| `sqlite-memory` | object get | `3.12ms` | `321,027` |
-| `sqlite-memory` | event append | `20.90ms` | `47,853` |
-| `sqlite-memory` | event batch | `7.68ms` | `130,208` |
-| `sqlite-memory` | event list | `544µs` | `3,676,470` |
-| `sqlite-memory` | queue push | `16.65ms` | `60,063` |
-| `sqlite-memory` | queue batch | `15.05ms` | `66,458` |
-| `sqlite-memory` | queue claim+ack | `32.36ms` | `30,901` |
-| `sqlite-memory` | queue claim+ack (optimized) | `24.41ms` | `40,968` |
-| `sqlite-file` | object put | `158ms` | `6,345` |
-| `sqlite-file` | object batch | `245ms` | `4,083` |
-| `sqlite-file` | object get | `4.29ms` | `233,045` |
-| `sqlite-file` | event append | `81.09ms` | `12,331` |
-| `sqlite-file` | event batch | `8.10ms` | `123,502` |
-| `sqlite-file` | event list | `512µs` | `3,913,894` |
-| `sqlite-file` | queue push | `47.69ms` | `20,966` |
-| `sqlite-file` | queue batch | `14.10ms` | `70,927` |
-| `sqlite-file` | queue claim+ack | `80.57ms` | `12,412` |
-| `sqlite-file` | queue claim+ack (optimized) | `52.46ms` | `19,061` |
+| Operation | Elapsed | Ops/sec |
+| --- | ---: | ---: |
+| object_put | 165µs | 606,060 |
+| object_batch | 49µs | 2,083,333 |
+| object_get | 35µs | 2,941,176 |
+| list_objects | 32µs | 6,250,000 |
+| list_objects_filter | 113µs | 884,955 |
+| list_objects_limit100 | 37µs | 2,702,702 |
+| list_objects_page | 31µs | 3,333,333 |
+| event_append | 40µs | 2,500,000 |
+| event_batch | 20µs | 5,000,000 |
+| event_list | 23µs | 8,695,652 |
+| event_list_from_seq | 10µs | 11,111,111 |
+| event_list_limit100 | 25µs | 4,000,000 |
+| queue_push | 41µs | 2,500,000 |
+| queue_batch | 34µs | 3,030,303 |
+| queue_claim_ack | 52µs | 1,923,076 |
+| queue_claim_ack2 | 55µs | 1,851,851 |
+| search | 160µs | 2,515,723 |
+| search_filtered | 88µs | 113,636 |
+| put_batch_10 | 6µs | 2,000,000 |
+| put_batch_100 | 55µs | 1,818,181 |
+| put_batch_1000 | 667µs | 1,499,250 |
+| delete_batch_10 | 4µs | 3,333,333 |
+| delete_batch_100 | 27µs | 3,846,153 |
+| delete_batch_1000 | 251µs | 4,000,000 |
+| count_objects | 0ns | 1,000,000 |
+| count_events | 0ns | 1,000,000 |
+| object_delete | 35µs | 2,941,176 |
+| concurrent_read_1t | 113µs | 884,955 |
+| concurrent_read_2t | 125µs | 800,000 |
+| concurrent_read_4t | 83µs | 1,219,512 |
+| concurrent_read_8t | 137µs | 705,882 |
+| contention_4r1w | 162µs | 617,283 |
+
+### Rust — SQLite (in-memory, 100 iters)
+
+| Operation | Elapsed | Ops/sec |
+| --- | ---: | ---: |
+| object_put | 4.09ms | 24,473 |
+| object_batch | 4.58ms | 21,819 |
+| object_get | 334µs | 300,300 |
+| list_objects | 88µs | 2,298,850 |
+| list_objects_filter | 101µs | 1,000,000 |
+| list_objects_limit100 | 47µs | 2,173,913 |
+| list_objects_page | 46µs | 2,173,913 |
+| event_append | 2.20ms | 45,495 |
+| event_batch | 1.90ms | 52,770 |
+| event_list | 86µs | 2,325,581 |
+| event_list_from_seq | 42µs | 2,380,952 |
+| event_list_limit100 | 35µs | 2,941,176 |
+| queue_push | 1.52ms | 65,659 |
+| queue_batch | 1.42ms | 70,671 |
+| queue_claim_ack | 3.13ms | 31,908 |
+| queue_claim_ack2 | 2.36ms | 42,337 |
+| search | 5.41ms | 73,978 |
+| search_filtered | 5.27ms | 1,896 |
+| put_batch_10 | 790µs | 12,674 |
+| put_batch_100 | 7.99ms | 12,518 |
+| put_batch_1000 | 154ms | 6,476 |
+| delete_batch_10 | 2.10ms | 4,759 |
+| delete_batch_100 | 20.5ms | 4,888 |
+| delete_batch_1000 | 128ms | 7,798 |
+| count_objects | 11µs | 90,909 |
+| count_events | 2µs | 500,000 |
+| object_delete | 6.42ms | 15,583 |
+| concurrent_read_1t | 382µs | 261,780 |
+| concurrent_read_2t | 512µs | 195,312 |
+| concurrent_read_4t | 766µs | 130,548 |
+| concurrent_read_8t | 616µs | 155,844 |
+| contention_4r1w | 1.55ms | 64,391 |
+
+### Rust — SQLite (file-backed, 100 iters)
+
+| Operation | Elapsed | Ops/sec |
+| --- | ---: | ---: |
+| object_put | 8.86ms | 11,291 |
+| object_batch | 4.58ms | 21,815 |
+| object_get | 424µs | 236,406 |
+| list_objects | 77µs | 2,597,402 |
+| list_objects_filter | 69µs | 1,449,275 |
+| list_objects_limit100 | 43µs | 2,380,952 |
+| list_objects_page | 43µs | 2,380,952 |
+| event_append | 8.96ms | 11,160 |
+| event_batch | 1.82ms | 54,884 |
+| event_list | 78µs | 2,597,402 |
+| event_list_from_seq | 38µs | 2,702,702 |
+| event_list_limit100 | 35µs | 2,941,176 |
+| queue_push | 4.71ms | 21,244 |
+| queue_batch | 1.40ms | 71,581 |
+| queue_claim_ack | 6.43ms | 15,544 |
+| queue_claim_ack2 | 5.74ms | 17,421 |
+| search | 5.13ms | 78,033 |
+| search_filtered | 5.18ms | 1,929 |
+| put_batch_10 | 827µs | 12,091 |
+| put_batch_100 | 7.79ms | 12,843 |
+| put_batch_1000 | 154ms | 6,477 |
+| delete_batch_10 | 2.29ms | 4,363 |
+| delete_batch_100 | 20.8ms | 4,797 |
+| delete_batch_1000 | 129ms | 7,757 |
+| count_objects | 18µs | 58,823 |
+| count_events | 4µs | 333,333 |
+| object_delete | 12.5ms | 7,998 |
+| concurrent_read_1t | 621µs | 161,030 |
+| concurrent_read_2t | 733µs | 136,612 |
+| concurrent_read_4t | 741µs | 134,952 |
+| concurrent_read_8t | 850µs | 113,074 |
+| contention_4r1w | 3.18ms | 31,456 |
 
 ### Batch API Improvements (sqlite-file)
 

@@ -326,7 +326,10 @@ impl Config {
         if self.server.port == 0 {
             return Err("server.port must be between 1 and 65535".into());
         }
-        if !self.auth.allow_unauthenticated && self.auth.token.len() < 16 {
+        if !self.auth.allow_unauthenticated
+            && !self.auth.token.is_empty()
+            && self.auth.token.len() < 16
+        {
             return Err(
                 "auth.token must be at least 16 characters when allow_unauthenticated is false"
                     .into(),
@@ -345,5 +348,97 @@ impl Config {
             return Err("hardening.max_payload_bytes must be greater than 0".into());
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn validates_port_range() {
+        let mut config = Config::default();
+        config.server.port = 0;
+        assert!(config.validate().is_err());
+        assert!(config.validate().unwrap_err().to_string().contains("port"));
+    }
+
+    #[test]
+    fn validates_token_length() {
+        let mut config = Config::default();
+        config.auth.allow_unauthenticated = false;
+        config.auth.token = "short".to_string();
+        assert!(config.validate().is_err(), "expected err for short token");
+        assert!(config.validate().unwrap_err().to_string().contains("token"));
+    }
+
+    #[test]
+    fn allows_empty_token() {
+        let mut config = Config::default();
+        config.auth.allow_unauthenticated = false;
+        config.auth.token = "".to_string();
+        assert!(
+            config.validate().is_ok(),
+            "expected ok for empty token, got: {:?}",
+            config.validate().err()
+        );
+    }
+
+    #[test]
+    fn allows_empty_token_when_unauthenticated() {
+        let mut config = Config::default();
+        config.auth.allow_unauthenticated = true;
+        config.auth.token = "".to_string();
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn requires_follower_leader_url() {
+        let mut config = Config::default();
+        config.cluster.mode = ClusterMode::Follower;
+        config.cluster.leader_url = "".to_string();
+        assert!(config.validate().is_err());
+        assert!(
+            config
+                .validate()
+                .unwrap_err()
+                .to_string()
+                .contains("leader_url")
+        );
+    }
+
+    #[test]
+    fn requires_leader_advertise_url() {
+        let mut config = Config::default();
+        config.cluster.mode = ClusterMode::Leader;
+        config.cluster.advertise_url = "".to_string();
+        assert!(config.validate().is_err());
+        assert!(
+            config
+                .validate()
+                .unwrap_err()
+                .to_string()
+                .contains("advertise_url")
+        );
+    }
+
+    #[test]
+    fn validates_mcp_payload_limit() {
+        let mut config = Config::default();
+        config.mcp.max_payload_bytes = 0;
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn validates_hardening_payload_limit() {
+        let mut config = Config::default();
+        config.hardening.max_payload_bytes = 0;
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn valid_default_config_passes() {
+        let config = Config::default();
+        assert!(config.validate().is_ok());
     }
 }
