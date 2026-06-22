@@ -1,16 +1,19 @@
 use axum::{
-    Router,
+    Router, middleware,
     routing::{get, post, put},
 };
 use std::sync::Arc;
 use tower_http::cors::CorsLayer;
 
+use crate::auth::auth_middleware;
+use crate::config::Config;
 use crate::engine::EnginePool;
 use crate::rest;
 
-pub fn build_router(pool: Arc<EnginePool>) -> Router {
-    Router::new()
+pub fn build_router(pool: Arc<EnginePool>, config: &Config) -> Router {
+    let mut router = Router::new()
         .route("/healthz", get(rest::health))
+        .route("/v1/health", get(rest::health))
         .route("/v1/counts/objects", get(rest::count_objects))
         .route("/v1/counts/events", get(rest::count_events))
         .route("/v1/counts/links", get(rest::count_links))
@@ -42,8 +45,20 @@ pub fn build_router(pool: Arc<EnginePool>) -> Router {
         // Cluster
         .route("/cluster/status", get(crate::cluster::cluster_status))
         .route("/cluster/peers", get(crate::cluster::cluster_peers))
-        // Health
-        .route("/healthz", get(rest::health))
         .layer(CorsLayer::permissive())
-        .with_state(pool)
+        .with_state(pool);
+
+    // Wire auth middleware when a token is configured and unauthenticated access is not allowed
+    if !config.auth.allow_unauthenticated && !config.auth.token.is_empty() {
+        router = router.layer(middleware::from_fn(auth_middleware));
+    }
+
+    // Apply hardening body size limit
+    if config.hardening.max_payload_bytes > 0 {
+        router = router.layer(axum::extract::DefaultBodyLimit::max(
+            config.hardening.max_payload_bytes,
+        ));
+    }
+
+    router
 }

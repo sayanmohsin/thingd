@@ -335,7 +335,11 @@ pub async fn nack_job(
         .ok_or_else(|| AppError::bad_request("Missing jobId"))?;
     let opts = QueueNackOptions {
         delay_ms: body.get("delayMs").and_then(|v| v.as_u64()).unwrap_or(0),
-        error: String::new(),
+        error: body
+            .get("error")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string(),
     };
     let e = engine(&pool);
     let mut g = e.lock().await;

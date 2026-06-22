@@ -21,9 +21,4 @@ tower-http = { version = "0.6", features = ["cors", "limit", "timeout", "set-hea
 tower = { version = "0.5", features = ["util"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
-chrono = "0.4"
 uuid = { version = "1", features = ["v4"] }
-parking_lot = "0.12"
-hyper = "1"
-http = "1"
-bytes = "1"

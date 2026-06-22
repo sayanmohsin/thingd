@@ -2,7 +2,7 @@ import { ThingD } from "@thingd/sdk";
 
 async function run() {
   const db = await ThingD.open({
-    path: "/Users/sayanmohsin/Space/Programming/personal/thingd/data.db",
+    path: "./data.db",
     driver: "native",
   });
 

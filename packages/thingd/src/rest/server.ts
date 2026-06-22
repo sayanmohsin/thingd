@@ -1,5 +1,6 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { ThingD } from "../thingd.js";
+import { SDK_VERSION } from "../version.js";
 import {
   parseFilter,
   parseIntParam,
@@ -61,7 +62,7 @@ export async function handleRestRequest(
       ]);
       sendData(res, {
         status: "ok",
-        version: "0.31.0",
+        version: SDK_VERSION,
         counts: {
           objects,
           events,

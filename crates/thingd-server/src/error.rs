@@ -11,7 +11,6 @@ pub struct AppError {
     pub error_type: &'static str,
 }
 
-#[allow(dead_code)]
 impl AppError {
     pub fn bad_request(detail: impl Into<String>) -> Self {
         Self {
@@ -37,33 +36,6 @@ impl AppError {
             title: "Unauthorized",
             detail: detail.into(),
             error_type: "unauthorized",
-        }
-    }
-
-    pub fn forbidden(detail: impl Into<String>) -> Self {
-        Self {
-            status: StatusCode::FORBIDDEN,
-            title: "Forbidden",
-            detail: detail.into(),
-            error_type: "forbidden",
-        }
-    }
-
-    pub fn too_large(detail: impl Into<String>) -> Self {
-        Self {
-            status: StatusCode::PAYLOAD_TOO_LARGE,
-            title: "Payload Too Large",
-            detail: detail.into(),
-            error_type: "payload_too_large",
-        }
-    }
-
-    pub fn too_many_requests(detail: impl Into<String>) -> Self {
-        Self {
-            status: StatusCode::TOO_MANY_REQUESTS,
-            title: "Too Many Requests",
-            detail: detail.into(),
-            error_type: "too_many_requests",
         }
     }
 
@@ -100,6 +72,22 @@ impl From<serde_json::Error> for AppError {
 impl<E: std::fmt::Display> From<AppErrorWrapper<E>> for AppError {
     fn from(w: AppErrorWrapper<E>) -> Self {
         AppError::internal(w.0.to_string())
+    }
+}
+
+impl From<thingd::ThingdError> for AppError {
+    fn from(e: thingd::ThingdError) -> Self {
+        match e {
+            thingd::ThingdError::InvalidInput(msg) => AppError::bad_request(msg),
+            thingd::ThingdError::NotFound(msg) => AppError::not_found(msg),
+            thingd::ThingdError::Conflict(msg) => AppError {
+                status: StatusCode::CONFLICT,
+                title: "Conflict",
+                detail: msg,
+                error_type: "conflict",
+            },
+            thingd::ThingdError::Storage(msg) => AppError::internal(msg),
+        }
     }
 }
 

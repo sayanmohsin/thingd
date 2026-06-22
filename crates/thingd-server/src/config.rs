@@ -326,14 +326,23 @@ impl Config {
         if self.server.port == 0 {
             return Err("server.port must be between 1 and 65535".into());
         }
-        if !self.auth.allow_unauthenticated
-            && self.auth.token.len() < 16
-            && self.auth.token.is_empty()
-        {
-            // Token can be empty when allow_unauthenticated is set
+        if !self.auth.allow_unauthenticated && self.auth.token.len() < 16 {
+            return Err(
+                "auth.token must be at least 16 characters when allow_unauthenticated is false"
+                    .into(),
+            );
         }
         if self.cluster.mode == ClusterMode::Follower && self.cluster.leader_url.is_empty() {
             return Err("cluster.leader_url is required when mode is 'follower'".into());
+        }
+        if self.cluster.mode == ClusterMode::Leader && self.cluster.advertise_url.is_empty() {
+            return Err("cluster.advertise_url is required when mode is 'leader'".into());
+        }
+        if self.mcp.max_payload_bytes == 0 {
+            return Err("mcp.max_payload_bytes must be greater than 0".into());
+        }
+        if self.hardening.max_payload_bytes == 0 {
+            return Err("hardening.max_payload_bytes must be greater than 0".into());
         }
         Ok(())
     }

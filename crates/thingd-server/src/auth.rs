@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 use crate::error::AppError;
 use axum::{extract::Request, http::header::AUTHORIZATION, middleware::Next, response::Response};
 

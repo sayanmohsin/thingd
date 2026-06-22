@@ -508,7 +508,7 @@ async function runTools(context: CliContext): Promise<void> {
 
   const client = new Client({
     name: "thingd-cli",
-    version: "0.1.0",
+    version: "0.33.0",
   });
   const transport = new StreamableHTTPClientTransport(
     new URL(resolveCloudMcpUrl(connection.path)),

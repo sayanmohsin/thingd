@@ -32,7 +32,7 @@ async fn main() {
     );
 
     let pool = Arc::new(engine::EnginePool::new(config.server.database.clone()));
-    let app = server::build_router(pool);
+    let app = server::build_router(pool, &config);
 
     let listener =
         tokio::net::TcpListener::bind(format!("{}:{}", config.server.host, config.server.port))

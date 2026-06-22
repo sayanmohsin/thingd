@@ -3,10 +3,17 @@ export class NativeThingStore {
 
   putObjectJson(collection: string, id: string, body: string): string;
   getObjectJson(collection: string, id: string): string | null;
-  listObjectsJson(collectionsJson?: string): string;
+  listObjectsJson(
+    collectionsJson?: string,
+    filterJson?: string,
+    limit?: number,
+    offset?: number,
+    sortField?: string,
+    sortDirection?: string
+  ): string;
   deleteObject(collection: string, id: string): boolean;
   appendEventJson(stream: string, body: string): string;
-  listEventsJson(stream?: string): string;
+  listEventsJson(stream?: string, fromSequence?: number, limit?: number): string;
   pushJobJson(
     queue: string,
     id: string,
@@ -16,13 +23,30 @@ export class NativeThingStore {
   ): string;
   claimJobJson(queue: string, leaseMs: number): string | null;
   ackJobJson(queue: string, id: string): string;
-  nackJobJson(queue: string, id: string, delayMs: number): string;
+  nackJobJson(queue: string, id: string, delayMs: number, error?: string): string;
   listJobsJson(queue: string): string;
   listDeadJobsJson(queue: string): string;
+  listQueuesJson(): string;
+  putObjectsBatchJson(objectsJson: string): string;
+  appendEventsBatchJson(eventsJson: string): string;
+  pushJobsBatchJson(jobsJson: string): string;
+  searchJson(query: string, collectionsJson?: string, limit?: number, filterJson?: string): string;
+  deleteObjectsBatchJson(keysJson: string): number;
+  createLinkJson(
+    fromRef: string,
+    linkType: string,
+    toRef: string,
+    weight?: number,
+    metadataJson?: string
+  ): string;
+  deleteLink(id: string): boolean;
+  getLinkJson(id: string): string | null;
+  getNeighborsJson(reference: string, direction: string, linkType?: string, limit?: number): string;
   countObjectsJson(): Promise<number>;
   countEventsJson(): Promise<number>;
   countActiveJobsJson(): Promise<number>;
   countDeadJobsJson(): Promise<number>;
+  countLinksJson(): Promise<number>;
   listCollectionsJson(): Promise<string>;
   listStreamsJson(): Promise<string>;
 }

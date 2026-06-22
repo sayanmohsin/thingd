@@ -38,18 +38,34 @@ impl EnginePool {
         };
         let path = path.to_string();
 
-        if let Some(engine) = self.engines.read().unwrap().get(&path) {
-            return engine.clone();
+        if let Ok(Some(engine)) = self.engines.read().map(|g| g.get(&path).cloned()) {
+            return engine;
         }
 
-        let mut engines = self.engines.write().unwrap();
-        if let Some(engine) = engines.get(&path) {
-            return engine.clone();
-        }
+        if let Ok(mut guard) = self.engines.write() {
+            if let Some(engine) = guard.get(&path) {
+                return engine.clone();
+            }
 
-        let engine = create_engine(&path).expect("Failed to create engine");
-        let shared = Arc::new(Mutex::new(engine));
-        engines.insert(path, shared.clone());
-        shared
+            match create_engine(&path) {
+                Ok(engine) => {
+                    let shared = Arc::new(Mutex::new(engine));
+                    guard.insert(path, shared.clone());
+                    shared
+                },
+                Err(e) => {
+                    tracing::error!("Failed to create engine at {path}: {e}");
+                    let memory = MemoryEngine::new();
+                    let shared =
+                        Arc::new(Mutex::new(Box::new(memory) as Box<dyn ThingStore + Send>));
+                    guard.insert(path, shared.clone());
+                    shared
+                },
+            }
+        } else {
+            tracing::error!("Engine pool lock poisoned, falling back to memory engine");
+            let memory = MemoryEngine::new();
+            Arc::new(Mutex::new(Box::new(memory) as Box<dyn ThingStore + Send>))
+        }
     }
 }
