@@ -1,3 +1,9 @@
+## [0.32.1](https://github.com/sayanmohsin/thingd/compare/v0.32.0...v0.32.1) (2026-06-22)
+
+### Bug Fixes
+
+* update stale package references across codebase and docs ([1829297](https://github.com/sayanmohsin/thingd/commit/1829297be26dac10b6f259a1c32a22ba95c05dcc))
+
 ## [0.32.0](https://github.com/sayanmohsin/thingd/compare/v0.31.0...v0.32.0) (2026-06-21)
 
 ### Features
