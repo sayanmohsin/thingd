@@ -1,3 +1,9 @@
+## [0.33.1](https://github.com/sayanmohsin/thingd/compare/v0.33.0...v0.33.1) (2026-06-22)
+
+### Bug Fixes
+
+* resolve all 24 audit issues across 4 phases ([1de3903](https://github.com/sayanmohsin/thingd/commit/1de3903efc521a1d65dcd8a5b5261e18aaef3342))
+
 ## [0.33.0](https://github.com/sayanmohsin/thingd/compare/v0.32.2...v0.33.0) (2026-06-22)
 
 ### Features
