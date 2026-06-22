@@ -113,7 +113,7 @@ Opens a live browser dashboard at `http://localhost:8758`.
 --url <url>          remote thingd URL. Defaults to THINGD_URL
 --auth-token <tok>   remote bearer token. Defaults to THINGD_AUTH_TOKEN
 --path <path>        local database path. Defaults to THINGD_PATH or ~/.thingd/data.db
---driver <driver>    memory, native, or remote
+--driver <driver>    memory, native, or cloud
 --pretty             pretty-print JSON output
 --limit <n>          result limit for search and list commands
 ```
@@ -131,7 +131,7 @@ THINGD_URL set:
   use local native Rust SQLite driver
 
 no URL and no native driver:
-  use in-memory proof store
+  use in-memory store
 ```
 
 ## Environment
@@ -140,7 +140,7 @@ no URL and no native driver:
 THINGD_URL=http://127.0.0.1:8757
 THINGD_AUTH_TOKEN=change-me
 THINGD_PATH=/data/thingd.db
-THINGD_DRIVER=native|memory|remote
+THINGD_DRIVER=native|memory|cloud
 ```
 
 Full env var reference: [runtime-env.md](./runtime-env.md)

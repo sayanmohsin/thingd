@@ -39,7 +39,7 @@ production-ready yet.
 The default public Node.js SDK path uses the TypeScript in-memory store for
 API exploration and local integration tests. The Rust core has SQLite-backed
 object, event, and queue persistence behind the `sqlite` feature. Node apps can
-use the remote driver to talk to a `thingd` sidecar through `THINGD_URL`.
+use the cloud driver to talk to a `thingd` sidecar through `THINGD_URL`.
 
 | Entry point | Default driver | Default path |
 | --- | --- | --- |
@@ -212,7 +212,7 @@ Or configure it explicitly:
 ```ts
 const db = await ThingD.open({
   url: "http://127.0.0.1:8757/mcp",
-  driver: "remote",
+  driver: "cloud",
   authToken: "change-me",
 });
 ```

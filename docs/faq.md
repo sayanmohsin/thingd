@@ -270,7 +270,7 @@ thingd-cloud is the managed hosted version of thingd. It provides project-scoped
 
 ### Will APIs differ between local and cloud?
 
-The SDK is designed to be driver-agnostic — the same `ThingD.open()` call works for in-memory, native, and remote drivers. The cloud API is expected to be the same MCP-based interface.
+The SDK is designed to be driver-agnostic — the same `ThingD.open()` call works for in-memory, native, and cloud drivers. The cloud API is expected to be the same MCP-based interface.
 
 ### Is multi-tenancy supported?
 

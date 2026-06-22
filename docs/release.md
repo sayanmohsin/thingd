@@ -1,6 +1,6 @@
 # Release Process
 
-`thingd` uses semantic-release to publish the npm package from `packages/thingd`.
+`thingd` uses semantic-release to publish three npm packages (`@thingd/sdk`, `@thingd/cli`, `@thingd/native`).
 
 ## Versioning
 

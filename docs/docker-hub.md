@@ -129,7 +129,7 @@ import { ThingD } from "@thingd/sdk";
 const db = await ThingD.open({
   url: "http://localhost:8757/mcp",
   authToken: "change-me",
-  driver: "remote",
+  driver: "cloud",
 });
 ```
 

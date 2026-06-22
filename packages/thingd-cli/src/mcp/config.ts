@@ -1,6 +1,6 @@
 import type { ThingDDriver, ThingdMcpAuditOptions } from "@thingd/sdk";
 
-export type ThingDStorageDriver = Exclude<ThingDDriver, "remote">;
+export type ThingDStorageDriver = Exclude<ThingDDriver, "cloud">;
 
 export type HttpRuntimeSafetyOptions = {
   host: string;

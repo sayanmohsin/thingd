@@ -129,4 +129,4 @@ crates/thingd
   durable engine traits and adapters
 ```
 
-The native binding package now has an initial private `napi-rs` bridge. The public SDK can opt into it with `driver: "native"` after the native package is built locally. The default SDK path remains the in-memory store until native prebuilds and release packaging are ready.
+The native binding package now has an initial private `napi-rs` bridge. The public SDK can opt into it with `driver: "native"` after the native package is built locally. The SDK opens native SQLite by default when the native addon is available, with automatic fallback to the in-memory store.

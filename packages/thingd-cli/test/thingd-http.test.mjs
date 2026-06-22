@@ -187,7 +187,7 @@ test("supports the Node SDK remote driver over Streamable HTTP", async () => {
   });
   const db = await ThingD.open({
     url: runtime.mcpUrl,
-    driver: "remote",
+    driver: "cloud",
     authToken: "test-token",
   });
 

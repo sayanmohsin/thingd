@@ -10,7 +10,7 @@ THINGD_URL=http://127.0.0.1:8757
 THINGD_AUTH_TOKEN=change-me
 ```
 
-When `THINGD_URL` is set, `ThingD.open()` uses the SDK remote driver and
+When `THINGD_URL` is set, `ThingD.open()` uses the SDK cloud driver and
 talks to the sidecar over Streamable HTTP MCP. If the URL has no path, `/mcp` is
 used automatically.
 

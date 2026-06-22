@@ -3,7 +3,7 @@ packages:
   - "packages/thingd-cli/src/dashboard/frontend"
 
 allowBuilds:
-  '@nestjs/core': set this to true or false
+  '@nestjs/core': false
   'esbuild': true
   lefthook: true
 

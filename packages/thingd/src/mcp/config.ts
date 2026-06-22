@@ -58,7 +58,7 @@ function parseBooleanFlag(value: string | undefined, name: string): boolean {
 }
 
 /**
- * Read all Phase-6 MCP hardening options from the environment.
+ * Read all MCP hardening options from the environment.
  */
 export function readMcpHardeningOptionsFromEnv(
   env: Record<string, string | undefined>

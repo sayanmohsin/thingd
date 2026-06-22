@@ -132,44 +132,18 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: pnpm/action-setup@v6
+      - uses: dtolnay/rust-toolchain@stable
 
-      - uses: actions/setup-node@v6
-        with:
-          node-version: 24
-          cache: pnpm
+      - uses: Swatinem/rust-cache@v2
 
-      - run: pnpm install --frozen-lockfile
+      - name: Build thingd-server binary
+        run: cargo build -p thingd-server --release
 
       - name: Get next version
         id: version
         run: |
-          VERSION=$(npx semantic-release --dry-run --no-ci 2>&1 | grep "next release version" | sed 's/.*next release version is //' || true)
-          if [ -z "$VERSION" ]; then
-            VERSION=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
-          fi
+          VERSION=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-
-      - name: Download prebuilt native binaries
-        uses: actions/download-artifact@v8
-        with:
-          path: prebuild-artifacts
-          pattern: prebuild-*
-          merge-multiple: false
-
-      - name: Stage prebuilds for Docker
-        run: |
-          mkdir -p packages/thingd-native/prebuilds
-          for dir in prebuild-artifacts/*/; do
-            if [ -d "$dir" ]; then
-              platform=$(basename "$dir" | sed 's/^prebuild-//')
-              mkdir -p "packages/thingd-native/prebuilds/$platform"
-              cp -r "$dir". "packages/thingd-native/prebuilds/$platform/"
-              echo "Staged prebuild for $platform"
-            fi
-          done
-          echo "Prebuilds staged:"
-          ls -la packages/thingd-native/prebuilds/*/
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3

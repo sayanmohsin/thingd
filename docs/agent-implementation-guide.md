@@ -6,15 +6,15 @@ Read this file before making integration changes. It explains the current projec
 
 ## Current State
 
-`thingd` is an early open source project. The public Node.js API is real enough to test locally, and the default path still uses the TypeScript in-memory proof store. The Rust core has durable storage with a feature-gated SQLite adapter for objects, events, and queues.
+`thingd` is an early open source project. The public Node.js API is real enough to test locally, and the default path still uses the TypeScript in-memory store. The Rust core has durable storage with a feature-gated SQLite adapter for objects, events, and queues.
 
 Current implementation:
 
 - `packages/thingd` exposes the Node.js SDK.
-- `packages/thingd/src/stores/in-memory-thing-store.ts` is the current proof store.
+- `packages/thingd/src/stores/in-memory-thing-store.ts` is the current in-memory store.
 - `crates/thingd` contains the Rust storage boundary, in-memory Rust engine, and `SqliteThingStore` behind the `sqlite` feature.
 - `packages/thingd-native` is a private N-API binding for local native driver testing.
-- `packages/thingd/src/stores/remote-thing-store.ts` lets the SDK talk to a sidecar over Streamable HTTP MCP.
+- `packages/thingd/src/stores/cloud-thing-store.ts` lets the SDK talk to a sidecar over Streamable HTTP MCP.
 - `packages/thingd-cli` exposes the visual TUI dashboard, non-interactive CLI commands, and integrated stdio and Streamable HTTP MCP servers.
 - the HTTP MCP runtime supports `single`, `leader`, and `follower` bridge modes.
 - `examples/nestjs-basic` demonstrates app integration shape.
@@ -49,7 +49,7 @@ cluster sidecar mode:
 
 Current Node.js code uses the TypeScript in-memory proof layer by default.
 The Rust crate includes `SqliteThingStore` for object, event, and queue persistence, including delayed jobs, configurable lease expiration, retry delay, dead-letter state, and schema migration guardrails. The SDK can opt into the private native bridge with `driver: "native"` after `thingd-native` is built locally.
-The SDK can opt into sidecar mode with `driver: "remote"` or automatically when
+The SDK can opt into sidecar mode with `driver: "cloud"` or automatically when
 `THINGD_URL` is set.
 The HTTP MCP runtime can run as a bridge follower and forward MCP traffic to a
 configured leader. It does not yet replicate local follower stores.
@@ -254,7 +254,7 @@ The public API should stay in `thingd`. Native support should be an implementati
 thingd
   ThingD public API
   ThingStore interface
-  in-memory proof store
+  in-memory store
   NativeThingStore adapter
 
 thingd-native

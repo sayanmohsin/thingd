@@ -89,7 +89,7 @@ Each language SDK wraps `thingd` via FFI and implements the API spec:
 
 | Language | FFI | Package |
 |----------|-----|---------|
-| Node.js | napi-rs | `@thingd/node` (this repo) |
+| Node.js | napi-rs | `@thingd/sdk` (this repo) |
 | Go | cgo | `thingd-go` (separate repo) |
 | Rust | direct crate | `thingd-rust` (separate repo) |
 | Flutter | dart:ffi | `thingd-flutter` (separate repo) |
