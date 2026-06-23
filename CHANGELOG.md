@@ -1,3 +1,16 @@
+## [0.34.0](https://github.com/sayanmohsin/thingd/compare/v0.33.2...v0.34.0) (2026-06-23)
+
+### Features
+
+* add thingd backup CLI command using VACUUM INTO ([1e908cf](https://github.com/sayanmohsin/thingd/commit/1e908cf26099d92023e93858c37330d503f6df45))
+* startup integrity check via PRAGMA quick_check ([fc451f3](https://github.com/sayanmohsin/thingd/commit/fc451f356cdadd046b6424dc5a11e3c357b7cce2))
+* WAL checkpoint management ([b9b2edc](https://github.com/sayanmohsin/thingd/commit/b9b2edc45d7e92f6cab397c909578911e4d805cb))
+
+### Bug Fixes
+
+* error sanitization with production mode ([6744d69](https://github.com/sayanmohsin/thingd/commit/6744d69db3bffe65e2fbe43d73aaf38d0318dd03))
+* input validation hardening and CORS lockdown ([e530256](https://github.com/sayanmohsin/thingd/commit/e5302563773ede7aaf4d820f0be97bdeb6e7ba95))
+
 ## [0.33.2](https://github.com/sayanmohsin/thingd/compare/v0.33.1...v0.33.2) (2026-06-22)
 
 ### Performance Improvements
