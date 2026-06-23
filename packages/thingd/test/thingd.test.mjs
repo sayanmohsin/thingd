@@ -607,6 +607,10 @@ function runThingDBehaviorSuite(label, openDb) {
     assert.equal(inactive.length, 1);
     assert.equal(inactive[0].id, "t2");
 
+    // Edge case: non-matching filter returns empty
+    const nonexistent = await db.listObjects("things", { filter: { status: "nonexistent" } });
+    assert.equal(nonexistent.length, 0, "non-matching filter should return empty array");
+
     await db.close();
   });
 
