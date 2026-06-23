@@ -259,6 +259,18 @@ const db = await ThingD.open();
 `ThingD.open()` appends `/mcp` automatically when `THINGD_URL` points at the
 runtime root.
 
+## Security
+
+The MCP server supports the same security features as the REST API:
+
+- **Authentication:** Bearer token via `THINGD_AUTH_TOKEN`. Required for non-loopback hosts.
+- **Hardening:** Collection allowlists (`THINGD_MCP_COLLECTIONS`), read-only mode (`THINGD_MCP_READ_ONLY`), payload limits (`THINGD_MCP_MAX_PAYLOAD_BYTES`)
+- **Audit:** All write operations are logged to the `__thingd:mcp:audit` event stream by default
+- **TLS:** Not built-in. Deploy behind nginx or Caddy for HTTPS termination
+- **Rate limiting:** Via `hardening.rate_limit_enabled` (REST sidecar only)
+
+See [Security](./security.md) for full documentation.
+
 ## ChatGPT And Remote MCP Access
 
 The Streamable HTTP server is remote-capable, but ChatGPT-style cloud usage

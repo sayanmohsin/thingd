@@ -1,10 +1,16 @@
 # REST API Reference
 
-thingd exposes a REST API on port 4100 (default) under the `/v1` prefix. All requests and responses use JSON. This document covers every endpoint with curl examples.
+thingd exposes a REST API on port 8757 (default) under the `/v1` prefix. All requests and responses use JSON.
 
-**Base URL:** `http://localhost:4100/v1`
+**Base URL:** `http://localhost:8757/v1`
 
-**Authentication:** `Authorization: Bearer <THINGD_TOKEN>` header. Required if `THINGD_TOKEN` is set on the server.
+**Authentication:** `Authorization: Bearer <token>` header. Required when `THINGD_AUTH_TOKEN` or `auth.token` is configured on the server.
+
+**CORS:** Configurable via `hardening.cors_allowed_origins`. Default: `http://localhost:8757`.
+
+**Rate Limiting:** Optional per-IP token bucket via `hardening.rate_limit_enabled` (default: disabled).
+
+**Error Mode:** In production mode (`server.production_mode: true`), internal error details are sanitized. See [Error Codes](#error-codes).
 
 ---
 
@@ -567,6 +573,47 @@ curl -X DELETE http://localhost:4100/v1/links/8d08a9c5-7ffa-44a9-8180-cf8dd179e6
 |------|-------------|---------|
 | `bad_request` | 400 | Missing required field or invalid input |
 | `not_found` | 404 | Resource does not exist |
-| `not_leased` | 400 | Queue job is not currently leased |
-| `terminal` | 400 | Queue job is already completed or dead |
+| `conflict` | 409 | Operation conflicts with current state |
+| `too_many_requests` | 429 | Rate limit exceeded (when rate limiting is enabled) |
 | `internal_error` | 500 | Unexpected server error |
+
+**Production mode:** When `server.production_mode` is `true`, `internal_error` responses return an empty detail field. Full error details are logged server-side only.
+
+## Server Configuration
+
+### TLS / HTTPS
+
+thingd does not serve HTTPS directly. Deploy behind a reverse proxy (nginx, Caddy) for TLS termination. See [Security](../security.md) for configuration examples.
+
+### CORS
+
+```yaml
+hardening:
+  cors_allowed_origins:
+    - "http://localhost:8757"
+  cors_max_age_secs: 86400
+```
+
+- Empty list = permissive (`Access-Control-Allow-Origin: *`)
+- Specific origins restrict access to listed domains
+- Methods: `GET, POST, PUT, DELETE, OPTIONS`
+- Headers: `Authorization, Content-Type, MCP-Protocol-Version`
+
+### Rate Limiting
+
+```yaml
+hardening:
+  rate_limit_enabled: true
+  rate_limit_requests_per_minute: 60
+```
+
+- Per-IP token bucket (keyed by `X-Forwarded-For` or connection address)
+- Returns `429 Too Many Requests` with `Retry-After` header when exceeded
+- Disabled by default
+
+### Input Validation
+
+- Filter keys for `json_extract` must match `[a-zA-Z0-9_.]+`
+- Collection, stream, and queue names are validated at the handler level
+- Payload size limited by `hardening.max_payload_bytes` (default 512KB)
+- LIMIT and OFFSET use bound SQL parameters (no injection)

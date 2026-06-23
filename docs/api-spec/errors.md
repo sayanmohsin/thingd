@@ -1,17 +1,21 @@
 # Error Taxonomy
 
-thingd uses structured error responses across all interfaces (MCP, REST, SDK). Every error has a machine-readable `code` and a human-readable `message`.
+thingd uses structured error responses across all interfaces (MCP, REST, SDK). Every error has a `type` (machine-readable), `title`, `status` (HTTP code), and `detail` (human-readable).
 
 ## REST Error Format
 
 ```json
 {
   "error": {
-    "code": "error_code",
-    "message": "Human-readable description"
+    "type": "error_code",
+    "title": "Human-readable title",
+    "status": 400,
+    "detail": "Detailed description"
   }
 }
 ```
+
+**Production mode:** When `server.production_mode` is `true`, the `detail` field is empty for `internal_error` responses. Full details are logged server-side.
 
 HTTP status codes map to error categories:
 
@@ -19,6 +23,8 @@ HTTP status codes map to error categories:
 |-------------|---------|
 | 400 | Bad request (invalid input, missing fields) |
 | 404 | Resource not found |
+| 409 | Conflict (duplicate, state mismatch) |
+| 429 | Too many requests (rate limit exceeded) |
 | 500 | Internal server error |
 
 ## MCP Error Format
@@ -85,8 +91,53 @@ try {
 ```json
 {
   "error": {
-    "code": "not_found",
-    "message": "Object 'nonexistent' not found in collection 'users'"
+    "type": "not_found",
+    "title": "Not Found",
+    "status": 404,
+    "detail": "Object 'nonexistent' not found in collection 'users'"
+  }
+}
+```
+
+---
+
+### `conflict`
+
+**HTTP 409** — Operation conflicts with current state.
+
+| Scenario | Example |
+|----------|---------|
+| Duplicate entry | Creating a resource that already exists |
+| State mismatch | Operation incompatible with current resource state |
+
+**Example response:**
+```json
+{
+  "error": {
+    "type": "conflict",
+    "title": "Conflict",
+    "status": 409,
+    "detail": "Resource already exists"
+  }
+}
+```
+
+---
+
+### `too_many_requests`
+
+**HTTP 429** — Rate limit exceeded.
+
+Returned when `hardening.rate_limit_enabled` is true and the client exceeds the configured rate limit.
+
+**Example response:**
+```json
+{
+  "error": {
+    "type": "too_many_requests",
+    "title": "Too Many Requests",
+    "status": 429,
+    "detail": "Rate limit exceeded. Try again later."
   }
 }
 ```
@@ -139,12 +190,26 @@ The job has reached a terminal state and cannot be acked or nacked again.
 | Unhandled exception | Unexpected null reference |
 | Store failure | Underlying storage backend error |
 
-**Example response:**
+**Example response (development mode):**
 ```json
 {
   "error": {
-    "code": "internal_error",
-    "message": "SQLITE_CONSTRAINT: UNIQUE constraint failed"
+    "type": "internal_error",
+    "title": "Internal Server Error",
+    "status": 500,
+    "detail": "storage error: disk I/O error"
+  }
+}
+```
+
+**Example response (production mode):**
+```json
+{
+  "error": {
+    "type": "internal_error",
+    "title": "Internal Server Error",
+    "status": 500,
+    "detail": ""
   }
 }
 ```

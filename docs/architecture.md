@@ -94,6 +94,10 @@ Kubernetes StatefulSets with ordered pod names).
 For the runtime API, environment, and Kubernetes deployment, see
 [docker-runtime.md](./docker-runtime.md) and [mcp-server.md](./mcp-server.md).
 
+## Security
+
+thingd supports Bearer token authentication, per-IP rate limiting, configurable CORS, and production-mode error sanitization. TLS is handled by a reverse proxy. See [Security](./security.md) for the full security reference.
+
 ## MCP Server
 
 `packages/thingd-cli` wraps the public SDK as MCP tools. It provides stdio for
@@ -112,6 +116,7 @@ local and remote access and can inspect objects, events, queues, dead jobs, MCP
 tools, and runtime status.
 
 For commands and runtime options, read [cli-reference.md](./cli-reference.md).
+For operations like backup, integrity checks, and WAL management, read [operations.md](./operations.md).
 
 ## Native Binding
 

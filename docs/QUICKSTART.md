@@ -182,15 +182,23 @@ Full tool reference: [api-spec/mcp-tools.md](./api-spec/mcp-tools.md)
 // → update it instead of creating a duplicate
 ```
 
-## 7. Add agent rules to your project
-
-Copy the provided `.cursorrules` to your project root to teach agents the memory conventions automatically:
+## 7. Secure your deployment (optional)
 
 ```bash
-cp node_modules/@thingd/cli/examples/cursor-agent-memory/.cursorrules .cursorrules
+# Set an auth token
+export THINGD_AUTH_TOKEN="your-secure-token-here-min-16-chars"
+
+# Create a backup
+thingd backup --out ./backups/thingd-$(date +%Y-%m-%d).db
+
+# Check database integrity
+thingd db integrity
+
+# Enable production mode (sanitizes error messages)
+# Set server.production_mode: true in config.yaml
 ```
 
-Or see the full example at [examples/cursor-agent-memory/](../examples/cursor-agent-memory/).
+See [Security](./security.md) and [Operations](./operations.md) for full documentation.
 
 ## What's next
 
@@ -198,5 +206,7 @@ Or see the full example at [examples/cursor-agent-memory/](../examples/cursor-ag
 - **Multi-agent blackboard** — coordinate agents via shared collections: [agent-patterns.md](./agent-patterns.md#pattern-6--multi-agent-blackboard-shared-state--facts)
 - **Sidecar mode** — share one store between your app and agents: [mcp-server.md](./mcp-server.md#bridge-mode)
 - **MCP hardening** — collection allowlists, read-only mode, payload limits: [mcp-server.md](./mcp-server.md)
+- **Security** — TLS, CORS, rate limiting, auth, production hardening: [security.md](./security.md)
+- **Operations** — backup, restore, integrity checks, WAL management: [operations.md](./operations.md)
 - **Why thingd?** — the full agent value proposition: [why-agents.md](./why-agents.md)
 - **API spec** — REST and MCP reference: [api-spec/](./api-spec/)

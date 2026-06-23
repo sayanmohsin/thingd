@@ -308,3 +308,51 @@ Both, but honestly: it prioritizes developer experience first. The infrastructur
 ### What's the long-term tradeoff of using thingd?
 
 The tradeoff is: simpler deployment + unified API vs. less operational maturity than specialized systems. If thingd's abstraction fits your data model, you save on integration complexity. If your requirements outgrow thingd's single-writer SQLite foundation, migration to a more scalable system will require architectural changes.
+
+## Security
+
+### How do I enable authentication?
+
+Set `THINGD_AUTH_TOKEN` env var or `auth.token` in config. Minimum 16 characters when `allow_unauthenticated` is false. See [Security](../security.md).
+
+### Does thingd support TLS?
+
+Not built-in. Deploy behind nginx or Caddy for TLS termination. See [Security](../security.md#tls--https).
+
+### What rate limiting is available?
+
+Per-IP token bucket via `hardening.rate_limit_enabled` (60 req/min default). Returns `429 Too Many Requests`.
+
+### Are errors sanitized in production?
+
+Yes. Set `server.production_mode: true` to strip internal details from 500 responses.
+
+## Operations
+
+### How do I back up my database?
+
+```bash
+thingd backup --out /path/to/backup.db
+```
+
+Uses `VACUUM INTO` for a consistent snapshot. See [Operations](../operations.md).
+
+### How do I check database integrity?
+
+```bash
+thingd db integrity
+```
+
+An integrity check also runs automatically on startup.
+
+### How do I manage the WAL file?
+
+```bash
+thingd db checkpoint
+```
+
+Runs `PRAGMA wal_checkpoint(TRUNCATE)`. Also runs automatically on database close.
+
+### Are schema migrations safe?
+
+Yes. Each migration runs in a transaction. A backup is auto-created before migration (`{path}.pre-v{version}`). Integrity check runs after migration.
