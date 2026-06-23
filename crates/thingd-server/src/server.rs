@@ -83,6 +83,16 @@ pub fn build_router(pool: Arc<EnginePool>, config: &Config) -> Router {
         router = router.layer(middleware::from_fn(auth_middleware));
     }
 
+    // Apply rate limiting
+    if config.hardening.rate_limit_enabled {
+        let limiter =
+            crate::rate_limit::RateLimiter::new(config.hardening.rate_limit_requests_per_minute);
+        router = router.layer(middleware::from_fn_with_state(
+            Arc::new(limiter),
+            crate::rate_limit::rate_limit_middleware,
+        ));
+    }
+
     // Apply hardening body size limit
     if config.hardening.max_payload_bytes > 0 {
         router = router.layer(axum::extract::DefaultBodyLimit::max(

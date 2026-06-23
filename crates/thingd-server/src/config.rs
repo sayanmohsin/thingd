@@ -132,6 +132,10 @@ pub struct HardeningConfig {
     pub cors_allowed_origins: Vec<String>,
     #[serde(default = "default_cors_max_age")]
     pub cors_max_age_secs: u64,
+    #[serde(default = "default_rate_limit_enabled")]
+    pub rate_limit_enabled: bool,
+    #[serde(default = "default_rate_limit_rpm")]
+    pub rate_limit_requests_per_minute: u64,
 }
 
 impl Default for ServerConfig {
@@ -197,6 +201,8 @@ impl Default for HardeningConfig {
             max_payload_bytes: default_payload_limit(),
             cors_allowed_origins: default_cors_origins(),
             cors_max_age_secs: default_cors_max_age(),
+            rate_limit_enabled: default_rate_limit_enabled(),
+            rate_limit_requests_per_minute: default_rate_limit_rpm(),
         }
     }
 }
@@ -248,6 +254,12 @@ fn default_cors_origins() -> Vec<String> {
 }
 fn default_cors_max_age() -> u64 {
     86400
+}
+fn default_rate_limit_enabled() -> bool {
+    false
+}
+fn default_rate_limit_rpm() -> u64 {
+    60
 }
 
 impl Config {

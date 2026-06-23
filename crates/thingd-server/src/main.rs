@@ -4,9 +4,11 @@ mod config;
 mod engine;
 mod error;
 mod mcp;
+mod rate_limit;
 mod rest;
 mod server;
 
+use std::net::SocketAddr;
 use std::sync::Arc;
 use tracing_subscriber::EnvFilter;
 
@@ -35,7 +37,8 @@ async fn main() {
     );
 
     let pool = Arc::new(engine::EnginePool::new(config.server.database.clone()));
-    let app = server::build_router(pool, &config);
+    let app =
+        server::build_router(pool, &config).into_make_service_with_connect_info::<SocketAddr>();
 
     let listener =
         tokio::net::TcpListener::bind(format!("{}:{}", config.server.host, config.server.port))
