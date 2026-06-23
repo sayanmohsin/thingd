@@ -405,7 +405,9 @@ export async function startDashboardServer(
             res.end(JSON.stringify({ ok: true, message: "Database is accessible" }));
           } catch (e) {
             res.writeHead(200, { "Content-Type": "application/json" });
-            res.end(JSON.stringify({ ok: false, message: e instanceof Error ? e.message : String(e) }));
+            res.end(
+              JSON.stringify({ ok: false, message: e instanceof Error ? e.message : String(e) })
+            );
           }
           return;
         }
@@ -414,7 +416,9 @@ export async function startDashboardServer(
         if (pathname === "/api/backup" && req.method === "POST") {
           try {
             let body = "";
-            for await (const chunk of req) body += chunk;
+            for await (const chunk of req) {
+              body += chunk;
+            }
             const { path: backupPath } = JSON.parse(body);
             if (!backupPath) {
               sendError(res, 400, "Missing 'path' in request body");

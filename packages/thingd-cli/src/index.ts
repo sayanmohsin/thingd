@@ -457,7 +457,11 @@ async function runDbIntegrity(context: CliContext): Promise<void> {
       console.log(JSON.stringify({ ok: true, message: "Database is accessible" }, null, 2));
     } catch (err) {
       console.log(
-        JSON.stringify({ ok: false, message: err instanceof Error ? err.message : String(err) }, null, 2)
+        JSON.stringify(
+          { ok: false, message: err instanceof Error ? err.message : String(err) },
+          null,
+          2
+        )
       );
     }
   });
