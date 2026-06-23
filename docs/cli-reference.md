@@ -83,6 +83,25 @@ thingd snapshot create --out snapshot.thingd.json
 thingd snapshot restore --in snapshot.thingd.json
 ```
 
+### Backup
+
+```txt
+thingd backup --out backup.db
+```
+
+Creates a consistent snapshot of the SQLite database using `VACUUM INTO`.
+The backup file is a standard SQLite database file.
+
+### Database Maintenance
+
+```txt
+thingd db checkpoint
+thingd db integrity
+```
+
+- `checkpoint` — Runs `PRAGMA wal_checkpoint(TRUNCATE)` to flush the WAL
+- `integrity` — Checks database accessibility and reports status
+
 ### MCP Server
 
 ```txt

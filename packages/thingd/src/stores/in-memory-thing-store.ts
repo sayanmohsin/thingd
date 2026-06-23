@@ -481,7 +481,11 @@ export class InMemoryThingStore implements ThingStore {
   }
 
   async close(): Promise<void> {
-    // no-op for in-memory store
+    // no-op for in-memory
+  }
+
+  walCheckpoint(): { framesBefore: number; framesAfter: number } {
+    throw new Error("WAL checkpoint is not supported for in-memory storage");
   }
 
   private getCollection(collection: string): Map<string, StoredMemoryObject> {

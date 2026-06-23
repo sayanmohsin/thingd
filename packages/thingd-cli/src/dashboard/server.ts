@@ -385,6 +385,59 @@ export async function startDashboardServer(
           return;
         }
 
+        // GET /api/db/checkpoint
+        if (pathname === "/api/db/checkpoint" && req.method === "GET") {
+          try {
+            const result = db.walCheckpoint();
+            res.writeHead(200, { "Content-Type": "application/json" });
+            res.end(JSON.stringify(result));
+          } catch (e) {
+            sendError(res, 400, e instanceof Error ? e.message : String(e));
+          }
+          return;
+        }
+
+        // GET /api/db/integrity
+        if (pathname === "/api/db/integrity" && req.method === "GET") {
+          try {
+            await db.countObjects();
+            res.writeHead(200, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({ ok: true, message: "Database is accessible" }));
+          } catch (e) {
+            res.writeHead(200, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({ ok: false, message: e instanceof Error ? e.message : String(e) }));
+          }
+          return;
+        }
+
+        // POST /api/backup
+        if (pathname === "/api/backup" && req.method === "POST") {
+          try {
+            let body = "";
+            for await (const chunk of req) body += chunk;
+            const { path: backupPath } = JSON.parse(body);
+            if (!backupPath) {
+              sendError(res, 400, "Missing 'path' in request body");
+              return;
+            }
+            db.backupTo(backupPath);
+            const { statSync } = await import("node:fs");
+            const stats = statSync(backupPath);
+            res.writeHead(200, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({ path: backupPath, sizeBytes: stats.size }));
+          } catch (e) {
+            sendError(res, 500, e instanceof Error ? e.message : String(e));
+          }
+          return;
+        }
+
+        // GET /api/config/error-mode
+        if (pathname === "/api/config/error-mode" && req.method === "GET") {
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ productionMode: false }));
+          return;
+        }
+
         sendError(res, 404, `Endpoint ${req.method} ${pathname} not found.`);
         return;
       }

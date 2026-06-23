@@ -148,6 +148,13 @@ export class ThingD implements ThingDConnection {
     }
   }
 
+  walCheckpoint(): { framesBefore: number; framesAfter: number } {
+    if ("walCheckpoint" in this.store && typeof (this.store as any).walCheckpoint === "function") {
+      return (this.store as any).walCheckpoint();
+    }
+    throw new Error("WAL checkpoint is only supported on the native (SQLite) storage driver");
+  }
+
   async countObjects(): Promise<number> {
     return this.store.countObjects?.() ?? 0;
   }

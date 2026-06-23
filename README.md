@@ -22,12 +22,12 @@ production-ready yet.
 
 ### Shipped
 
-- **Rust engine** (`thingd` — crates.io) — memory + SQLite adapters, FTS5 search, queue lifecycle, graph links, SQLite schema migrations
+- **Rust engine** (`thingd` — crates.io) — memory + SQLite adapters, FTS5 search, queue lifecycle, graph links, SQLite schema migrations, startup integrity check, auto‑backup before migrations
 - **Node.js SDK** (`@thingd/sdk`) — three drivers: memory (default in-memory TS store), native (napi-rs Rust SQLite), remote/cloud (Streamable HTTP MCP)
-- **CLI** (`@thingd/cli`) — TUI dashboard, 30+ subcommands (search, objects, events, queues, export/import/snapshot, doctor, bench, install for Cursor/Claude Desktop)
+- **CLI** (`@thingd/cli`) — TUI dashboard, 30+ subcommands (search, objects, events, queues, export/import/snapshot/backup, doctor, bench, db maintenance)
 - **MCP server** — 27 tools, stdio + Streamable HTTP, audit events, collection allowlists, read-only mode
 - **Docker** — multi-stage image, compose + K8s for leader/follower cluster
-- **CI/tooling** — semantic-release, biome, lefthook, doc tests
+- **CI/tooling** — semantic-release, biome, lefthook, doc tests, cargo audit, cargo deny, CodeQL
 
 ### What's next
 
@@ -35,6 +35,8 @@ production-ready yet.
 - Public native driver prebuilds
 - Vector search integration
 - Priority queues and advanced scheduling
+- Immutable audit trails and compliance reporting
+- TLS termination (roadmap — use reverse proxy for now)
 
 The default public Node.js SDK path uses the TypeScript in-memory store for
 API exploration and local integration tests. The Rust core has SQLite-backed

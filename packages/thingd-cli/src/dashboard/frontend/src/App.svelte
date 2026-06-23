@@ -11,6 +11,7 @@
   let dbPath = '-';
   let dbSize = 'N/A';
   let metrics = { objects: 0, events: 0, activeJobs: 0, deadJobs: 0 };
+  let dbHealth = { integrityOk: false, integrityMessage: 'Not checked', walMode: '-', walFrames: 0, backupPath: '', backupSize: 0 };
   let diagnosticLogs = [
     { time: new Date().toLocaleTimeString(), text: 'Svelte Dashboard loaded successfully.', type: 'muted' },
     { time: new Date().toLocaleTimeString(), text: 'Establishing database connections...', type: 'info' }
@@ -605,6 +606,41 @@
     return res;
   }
 
+  async function runIntegrityCheck() {
+    try {
+      const result = await request('/api/db/integrity');
+      dbHealth = { ...dbHealth, integrityOk: result.ok, integrityMessage: result.message };
+      showToast(result.ok ? 'Integrity check passed' : `Integrity check failed: ${result.message}`, result.ok ? 'success' : 'error');
+    } catch (err) {
+      showToast(`Integrity check failed: ${err.message}`, 'error');
+    }
+  }
+
+  async function runWalCheckpoint() {
+    try {
+      const result = await request('/api/db/checkpoint');
+      dbHealth = { ...dbHealth, walFrames: result.framesAfter || 0 };
+      showToast(`WAL checkpoint complete (${result.framesBefore || 0} frames before)`, 'success');
+    } catch (err) {
+      showToast(`WAL checkpoint failed: ${err.message}`, 'error');
+    }
+  }
+
+  async function createBackup() {
+    const backupPath = prompt('Enter backup file path:', `thingd-backup-${Date.now()}.db`);
+    if (!backupPath) return;
+    try {
+      const result = await request('/api/backup', {
+        method: 'POST',
+        body: JSON.stringify({ path: backupPath })
+      });
+      dbHealth = { ...dbHealth, backupPath: result.path, backupSize: result.sizeBytes };
+      showToast(`Backup created: ${result.path}`, 'success');
+    } catch (err) {
+      showToast(`Backup failed: ${err.message}`, 'error');
+    }
+  }
+
   // Connection settings
   function openConnSettingsModal() {
     connDriver = dbDriver.includes('In-Memory') ? 'memory' : dbDriver.includes('FTS5') ? 'native' : 'cloud';
@@ -727,6 +763,10 @@
         <svg class="nav-icon" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
         Stemming FTS5 Tester
       </button>
+      <button class="nav-item {currentTab === 'health' ? 'active' : ''}" on:click={() => selectTab('health')}>
+        <svg class="nav-icon" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
+        Database Health
+      </button>
     </nav>
 
     <div class="sidebar-footer" style="display: flex; flex-direction: column; gap: 10px;">
@@ -751,6 +791,7 @@
           {#if currentTab === 'events'}Event Log Stream{/if}
           {#if currentTab === 'queues'}Queues & Background Jobs{/if}
           {#if currentTab === 'search'}Stemming FTS5 Tester{/if}
+          {#if currentTab === 'health'}Database Health{/if}
         </h1>
       </div>
       <div class="topbar-right">
@@ -1247,6 +1288,47 @@
                 </div>
               </div>
 
+            </div>
+          </div>
+        </div>
+      {/if}
+
+      <!-- Database Health Tab -->
+      {#if currentTab === 'health'}
+        <div class="tab-panel active">
+          <div class="card glass fill-height flex-column">
+            <div class="card-header">
+              <h2>Database Health</h2>
+            </div>
+            <div class="card-body scroll-y">
+              <div class="metrics-grid">
+                <div class="metric-card glass">
+                  <div class="metric-value">{dbHealth.integrityOk ? '✓' : '✗'}</div>
+                  <div class="metric-label">Integrity Check</div>
+                  <div class="metric-detail">{dbHealth.integrityMessage}</div>
+                  <button class="btn btn-sm btn-secondary" on:click={runIntegrityCheck} style="margin-top: 8px;">
+                    Run Check
+                  </button>
+                </div>
+                <div class="metric-card glass">
+                  <div class="metric-value">{dbHealth.walMode}</div>
+                  <div class="metric-label">WAL Mode</div>
+                  <div class="metric-detail">Frames: {dbHealth.walFrames}</div>
+                  <button class="btn btn-sm btn-secondary" on:click={runWalCheckpoint} style="margin-top: 8px;">
+                    Run Checkpoint
+                  </button>
+                </div>
+                <div class="metric-card glass">
+                  <div class="metric-value">{dbHealth.backupPath || 'N/A'}</div>
+                  <div class="metric-label">Last Backup</div>
+                  <div class="metric-detail">
+                    {#if dbHealth.backupSize}<span>{(dbHealth.backupSize / 1024 / 1024).toFixed(2)} MB</span>{/if}
+                  </div>
+                  <button class="btn btn-sm btn-secondary" on:click={createBackup} style="margin-top: 8px;">
+                    Create Backup
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
         </div>

@@ -133,6 +133,8 @@ Usage:
   thingd snapshot create --out <path>
   thingd snapshot restore --in <path>
   thingd backup --out <path>
+  thingd db checkpoint [--path <path>]
+  thingd db integrity [--path <path>]
 
 Options:
   --url <url>          remote thingd URL. Defaults to THINGD_URL
@@ -351,6 +353,22 @@ async function runCommand(context: CliContext): Promise<void> {
     return;
   }
 
+  if (command === "db") {
+    const sub = context.parsed.tokens[1];
+    if (!sub) {
+      throw new Error("Expected db subcommand: checkpoint, integrity");
+    }
+    if (sub === "checkpoint") {
+      await runDbCheckpoint(context);
+      return;
+    }
+    if (sub === "integrity") {
+      await runDbIntegrity(context);
+      return;
+    }
+    throw new Error(`Unknown db subcommand: ${sub}. Expected: checkpoint, integrity`);
+  }
+
   throw new Error(`Unknown command: ${command}`);
 }
 
@@ -422,6 +440,27 @@ async function runBench(context: CliContext): Promise<void> {
   } catch (err) {
     throw new Error(`Failed to run benchmark: ${err instanceof Error ? err.message : String(err)}`);
   }
+}
+
+async function runDbCheckpoint(context: CliContext): Promise<void> {
+  await withDb(context, async (db) => {
+    const result = db.walCheckpoint();
+    console.log(JSON.stringify(result, null, 2));
+  });
+}
+
+async function runDbIntegrity(context: CliContext): Promise<void> {
+  await withDb(context, async (db) => {
+    // Basic integrity: attempt a simple query
+    try {
+      await db.countObjects();
+      console.log(JSON.stringify({ ok: true, message: "Database is accessible" }, null, 2));
+    } catch (err) {
+      console.log(
+        JSON.stringify({ ok: false, message: err instanceof Error ? err.message : String(err) }, null, 2)
+      );
+    }
+  });
 }
 
 async function runStatus(context: CliContext): Promise<void> {
