@@ -1,3 +1,9 @@
+## [0.36.0](https://github.com/sayanmohsin/thingd/compare/v0.35.0...v0.36.0) (2026-06-23)
+
+### Features
+
+* CLI db subcommand, dashboard health tab, security/operations docs ([7ae5970](https://github.com/sayanmohsin/thingd/commit/7ae597042fab33d08b4fdb7d599374e09e1044a8))
+
 ## [0.35.0](https://github.com/sayanmohsin/thingd/compare/v0.34.0...v0.35.0) (2026-06-23)
 
 ### Features
