@@ -120,6 +120,17 @@ impl SqliteThingStore {
             )));
         }
 
+        // Run integrity check after all migrations
+        let ok: String = self
+            .connection
+            .query_row("PRAGMA quick_check", [], |row| row.get(0))
+            .map_err(ThingdError::from)?;
+        if ok != "ok" {
+            return Err(ThingdError::Storage(format!(
+                "database integrity check failed: {ok}"
+            )));
+        }
+
         Ok(())
     }
 
@@ -1943,6 +1954,16 @@ mod tests {
         let store = SqliteThingStore::open_in_memory().unwrap();
 
         assert_eq!(store.schema_version().unwrap(), SQLITE_SCHEMA_VERSION);
+    }
+
+    #[test]
+    fn integrity_check_passes_on_fresh_store() {
+        let store = SqliteThingStore::open_in_memory().unwrap();
+        let ok: String = store
+            .connection
+            .query_row("PRAGMA quick_check", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(ok, "ok");
     }
 
     #[test]
