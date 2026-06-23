@@ -2,11 +2,11 @@ use axum::{Json, extract::State};
 use serde_json::{Value, json};
 use std::sync::Arc;
 
-use crate::engine::EnginePool;
 use crate::error::AppError;
+use crate::server::AppState;
 
 pub async fn handle_mcp_request(
-    State(pool): State<Arc<EnginePool>>,
+    State(state): State<Arc<AppState>>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, AppError> {
     let method = body.get("method").and_then(|v| v.as_str()).unwrap_or("");
@@ -45,9 +45,33 @@ pub async fn handle_mcp_request(
             let tool_name = params.get("name").and_then(|v| v.as_str()).unwrap_or("");
             let arguments = params.get("arguments").cloned().unwrap_or(json!({}));
 
+            // MCP hardening checks
+            let write_tools = ["thing_put", "thing_delete"];
+            if write_tools.contains(&tool_name) {
+                if state.mcp_config.read_only {
+                    return Ok(Json(json!({
+                        "jsonrpc": "2.0",
+                        "error": { "code": -32603, "message": "Server is in read-only mode" },
+                        "id": body.get("id")
+                    })));
+                }
+                #[allow(clippy::collapsible_if)]
+                if let Some(collection) = arguments.get("collection").and_then(|v| v.as_str()) {
+                    if !state.mcp_config.collection_allowlist.is_empty()
+                        && !state.mcp_config.collection_allowlist.contains(&collection.to_string())
+                    {
+                            return Ok(Json(json!({
+                                "jsonrpc": "2.0",
+                                "error": { "code": -32603, "message": format!("Collection '{collection}' is not in the allowlist") },
+                                "id": body.get("id")
+                            })));
+                        }
+                    }
+            }
+
             let result = match tool_name {
                 "thing_search" => {
-                    let e = pool.get("");
+                    let e = state.pool.get("");
                     let g = e.lock();
                     let query = arguments
                         .get("query")
@@ -72,7 +96,7 @@ pub async fn handle_mcp_request(
                         .map_err(|e| AppError::internal(e.to_string()))
                 },
                 "thing_get" => {
-                    let e = pool.get("");
+                    let e = state.pool.get("");
                     let g = e.lock();
                     let collection = arguments
                         .get("collection")
@@ -96,7 +120,7 @@ pub async fn handle_mcp_request(
                     }
                 },
                 "thing_put" => {
-                    let e = pool.get("");
+                    let e = state.pool.get("");
                     let mut g = e.lock();
                     let collection = arguments
                         .get("collection")
@@ -115,7 +139,7 @@ pub async fn handle_mcp_request(
                     Ok(result)
                 },
                 "thing_delete" => {
-                    let e = pool.get("");
+                    let e = state.pool.get("");
                     let mut g = e.lock();
                     let collection = arguments
                         .get("collection")
@@ -130,7 +154,7 @@ pub async fn handle_mcp_request(
                     )
                 },
                 "thing_objects_list" => {
-                    let e = pool.get("");
+                    let e = state.pool.get("");
                     let g = e.lock();
                     let collection = arguments
                         .get("collection")
@@ -188,15 +212,20 @@ mod tests {
     use tower::ServiceExt;
 
     use super::*;
+    use crate::config::Config;
     use crate::engine::EnginePool;
-    use crate::server;
+    use crate::server::{self, AppState};
 
-    fn test_pool() -> Arc<EnginePool> {
-        Arc::new(EnginePool::new(":memory:".to_string()))
+    fn test_state() -> Arc<AppState> {
+        let config = Config::default();
+        Arc::new(AppState {
+            pool: EnginePool::new(":memory:".to_string()),
+            mcp_config: config.mcp,
+        })
     }
 
-    async fn call_mcp_with(pool: &Arc<EnginePool>, body: Value) -> (StatusCode, Value) {
-        let app = server::build_router(pool.clone(), &crate::config::Config::default());
+    async fn call_mcp_with(state: &Arc<AppState>, body: Value) -> (StatusCode, Value) {
+        let app = server::build_router(Arc::clone(state), &Config::default());
         let response = app
             .oneshot(
                 Request::builder()
@@ -217,9 +246,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_mcp_initialize() {
-        let pool = test_pool();
+        let state = test_state();
         let (_status, result) = call_mcp_with(
-            &pool,
+            &state,
             json!({
                 "jsonrpc": "2.0",
                 "method": "initialize",
@@ -234,9 +263,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_mcp_tools_list() {
-        let pool = test_pool();
+        let state = test_state();
         let (_status, result) = call_mcp_with(
-            &pool,
+            &state,
             json!({
                 "jsonrpc": "2.0",
                 "method": "tools/list",
@@ -257,9 +286,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_mcp_tools_call_thing_get_not_found() {
-        let pool = test_pool();
+        let state = test_state();
         let (_status, result) = call_mcp_with(
-            &pool,
+            &state,
             json!({
                 "jsonrpc": "2.0",
                 "method": "tools/call",
@@ -276,9 +305,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_mcp_tools_call_thing_put_and_get() {
-        let pool = test_pool();
+        let state = test_state();
         let (_status, result) = call_mcp_with(
-            &pool,
+            &state,
             json!({
                 "jsonrpc": "2.0",
                 "method": "tools/call",
@@ -298,7 +327,7 @@ mod tests {
         );
 
         let (_status, result) = call_mcp_with(
-            &pool,
+            &state,
             json!({
                 "jsonrpc": "2.0",
                 "method": "tools/call",
@@ -315,8 +344,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_mcp_tools_call_thing_search() {
-        let pool = test_pool();
-        call_mcp_with(&pool, json!({
+        let state = test_state();
+        call_mcp_with(&state, json!({
             "jsonrpc": "2.0",
             "method": "tools/call",
             "params": {
@@ -328,7 +357,7 @@ mod tests {
         .await;
 
         let (_status, result) = call_mcp_with(
-            &pool,
+            &state,
             json!({
                 "jsonrpc": "2.0",
                 "method": "tools/call",
@@ -345,9 +374,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_mcp_tools_call_thing_delete() {
-        let pool = test_pool();
+        let state = test_state();
         call_mcp_with(
-            &pool,
+            &state,
             json!({
                 "jsonrpc": "2.0",
                 "method": "tools/call",
@@ -361,7 +390,7 @@ mod tests {
         .await;
 
         let (_status, result) = call_mcp_with(
-            &pool,
+            &state,
             json!({
                 "jsonrpc": "2.0",
                 "method": "tools/call",
@@ -383,9 +412,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_mcp_tools_call_thing_objects_list() {
-        let pool = test_pool();
+        let state = test_state();
         for i in 0..3 {
-            call_mcp_with(&pool, json!({
+            call_mcp_with(&state, json!({
                 "jsonrpc": "2.0",
                 "method": "tools/call",
                 "params": {
@@ -398,7 +427,7 @@ mod tests {
         }
 
         let (_status, result) = call_mcp_with(
-            &pool,
+            &state,
             json!({
                 "jsonrpc": "2.0",
                 "method": "tools/call",
@@ -415,9 +444,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_mcp_unknown_tool() {
-        let pool = test_pool();
+        let state = test_state();
         let (_status, result) = call_mcp_with(
-            &pool,
+            &state,
             json!({
                 "jsonrpc": "2.0",
                 "method": "tools/call",
@@ -434,9 +463,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_mcp_ping() {
-        let pool = test_pool();
+        let state = test_state();
         let (_status, result) = call_mcp_with(
-            &pool,
+            &state,
             json!({
                 "jsonrpc": "2.0",
                 "method": "ping",
@@ -449,9 +478,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_mcp_method_not_found() {
-        let pool = test_pool();
+        let state = test_state();
         let (_status, result) = call_mcp_with(
-            &pool,
+            &state,
             json!({
                 "jsonrpc": "2.0",
                 "method": "unknown_method",

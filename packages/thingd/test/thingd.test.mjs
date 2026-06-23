@@ -44,6 +44,32 @@ if (nativeAvailable) {
     assert.equal(stored?.text, "Native thingd writes to SQLite.");
     assert.equal(stored?.version, 1);
   });
+
+  test("native: backupTo creates a valid backup file", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "thingd-native-"));
+    const path = join(directory, "source.db");
+    const backupPath = join(directory, "backup.db");
+
+    const db = await ThingD.open({ path, driver: "native" });
+    await db.put("test", { id: "backup-obj", text: "backup test" });
+    db.backupTo(backupPath);
+    assert.ok(existsSync(backupPath));
+
+    // Verify backup is readable
+    const restored = await ThingD.open({ path: backupPath, driver: "native" });
+    const obj = await restored.get("test", "backup-obj");
+    assert.equal(obj?.text, "backup test");
+    await restored.close();
+    await db.close();
+  });
+
+  test("native: walCheckpoint returns frame counts", async () => {
+    const db = await ThingD.open({ path: ":memory:", driver: "native" });
+    const result = db.walCheckpoint();
+    assert.ok(typeof result.framesBefore === "number");
+    assert.ok(typeof result.framesAfter === "number");
+    await db.close();
+  });
 } else {
   test("native driver behavior suite", { skip: "native binary has not been built yet" }, () => {});
 }

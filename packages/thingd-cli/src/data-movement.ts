@@ -302,7 +302,32 @@ export async function runSnapshot(context: CliContext): Promise<void> {
 }
 
 export async function runBackup(context: CliContext): Promise<void> {
-  const outPath = requiredFlag(context.parsed, "out");
+  const inPath = stringFlag(context.parsed, "in");
+  const outPath = stringFlag(context.parsed, "out");
+
+  if (inPath) {
+    // Restore from backup file
+    const resolvedIn = resolve(inPath);
+    if (!existsSync(resolvedIn)) {
+      throw new Error(`Backup file not found: ${inPath}`);
+    }
+
+    await withDb(context, async (db) => {
+      if (db.path === ":memory:") {
+        throw new Error("Cannot restore an in-memory database. Use a file-based SQLite database.");
+      }
+      // Close current DB, copy backup over, reopen happens after callback
+      await db.close();
+      const { copyFileSync } = await import("node:fs");
+      copyFileSync(resolvedIn, db.path);
+      console.log(`Restored from: ${resolvedIn}`);
+    });
+    return;
+  }
+
+  if (!outPath) {
+    throw new Error("Expected --out <path> (backup) or --in <path> (restore).");
+  }
 
   await withDb(context, async (db) => {
     if (db.path === ":memory:") {

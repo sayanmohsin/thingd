@@ -36,9 +36,13 @@ async fn main() {
         config.server.database,
     );
 
-    let pool = Arc::new(engine::EnginePool::new(config.server.database.clone()));
+    let pool = engine::EnginePool::new(config.server.database.clone());
+    let app_state = Arc::new(server::AppState {
+        pool,
+        mcp_config: config.mcp.clone(),
+    });
     let app =
-        server::build_router(pool, &config).into_make_service_with_connect_info::<SocketAddr>();
+        server::build_router(Arc::clone(&app_state), &config).into_make_service_with_connect_info::<SocketAddr>();
 
     let listener =
         tokio::net::TcpListener::bind(format!("{}:{}", config.server.host, config.server.port))

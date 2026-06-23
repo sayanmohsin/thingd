@@ -1,0 +1,73 @@
+# thingd-server configuration
+# See https://github.com/sayanmohsin/thingd/blob/main/docs/runtime-env.md
+
+server:
+  # Bind address and port
+  host: "127.0.0.1"
+  port: 8757
+  # SQLite database path (":memory:" for in-memory)
+  database: "/data/thingd.db"
+  # Request timeout in seconds
+  request_timeout_secs: 30
+  # Maximum concurrent connections to SQLite
+  max_connections: 256
+  # When true, internal error details are stripped from 500 responses
+  production_mode: false
+
+auth:
+  # Bearer token for API authentication. Minimum 16 characters when
+  # allow_unauthenticated is false. Empty string = no auth.
+  token: ""
+  # When true, requests without a valid token are still allowed
+  allow_unauthenticated: true
+
+tenant:
+  # "single" or "multi-tenant"
+  mode: "single"
+  # HTTP header used to identify the tenant
+  header: "X-Tenant-Id"
+  # Database path prefix for multi-tenant mode
+  database_prefix: "/data/"
+
+mcp:
+  # MCP endpoint path
+  path: "/mcp"
+  # When true, all write tools return an error
+  read_only: false
+  # Maximum request body size in bytes (default 512KB)
+  max_payload_bytes: 524288
+  # When true, write operations are logged to the audit event stream
+  audit: true
+
+cluster:
+  # "single", "leader", or "follower"
+  mode: "single"
+  # Advertised URL for leader discovery (required when mode is "leader")
+  advertise_url: ""
+  # Leader URL for followers (required when mode is "follower")
+  leader_url: ""
+  # Fallback leader URL when primary is unreachable
+  fallback_leader_url: ""
+  # Comma-separated list of peer URLs
+  peers: []
+  # Discovery mechanism: "static" or "kubernetes"
+  discovery: "static"
+  # Auth token for forwarding requests between cluster nodes
+  forward_auth_token: ""
+  # Enable automatic leader election (static mode only)
+  leader_election: false
+  # Consecutive failures before promoting next peer
+  election_max_failures: 3
+
+hardening:
+  # Maximum request body size in bytes (default 512KB)
+  max_payload_bytes: 524288
+  # Allowed CORS origins. Empty list = permissive (*)
+  cors_allowed_origins:
+    - "http://localhost:8757"
+  # CORS max-age in seconds
+  cors_max_age_secs: 86400
+  # Enable per-IP rate limiting
+  rate_limit_enabled: false
+  # Maximum requests per minute per IP
+  rate_limit_requests_per_minute: 60

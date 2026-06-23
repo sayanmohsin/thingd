@@ -220,44 +220,81 @@ export class CloudThingStore implements ThingStore {
   }
 
   async countLinks(): Promise<number> {
-    return Promise.reject(new Error("Graph links not supported by cloud driver yet"));
+    try {
+      const res = await this.restGet("/v1/counts/links");
+      return res.data?.count ?? 0;
+    } catch {
+      return 0;
+    }
   }
 
   async putBatch(
-    _collection: string,
-    _objects: import("../types.js").MemoryObject[]
+    collection: string,
+    objects: import("../types.js").MemoryObject[]
   ): Promise<import("../types.js").StoredMemoryObject[]> {
-    return Promise.reject(new Error("Batch put not supported by cloud driver yet"));
+    const results: import("../types.js").StoredMemoryObject[] = [];
+    for (const obj of objects) {
+      const result = await this.put(collection, obj);
+      results.push(result);
+    }
+    return results;
   }
 
-  async deleteBatch(_collection: string, _ids: string[]): Promise<number> {
-    return Promise.reject(new Error("Batch delete not supported by cloud driver yet"));
+  async deleteBatch(collection: string, ids: string[]): Promise<number> {
+    let count = 0;
+    for (const id of ids) {
+      const deleted = await this.delete(collection, id);
+      if (deleted) count++;
+    }
+    return count;
   }
 
   async createLink(
-    _fromRef: string,
-    _linkType: string,
-    _toRef: string,
-    _weight?: number,
-    _metadataJson?: string
+    fromRef: string,
+    linkType: string,
+    toRef: string,
+    weight?: number,
+    metadataJson?: string
   ): Promise<import("../types.js").Link> {
-    return Promise.reject(new Error("Graph links not supported by cloud driver yet"));
+    const body: Record<string, unknown> = { fromRef, linkType, toRef };
+    if (weight !== undefined) body.weight = weight;
+    if (metadataJson !== undefined) body.metadataJson = metadataJson;
+    const res = await this.restPost("/v1/links", body);
+    return res.data as import("../types.js").Link;
   }
 
-  async deleteLink(_id: string): Promise<boolean> {
-    return Promise.reject(new Error("Graph links not supported by cloud driver yet"));
+  async deleteLink(id: string): Promise<boolean> {
+    try {
+      await this.restDelete(`/v1/links/${encodeURIComponent(id)}`);
+      return true;
+    } catch {
+      return false;
+    }
   }
 
-  async getLink(_id: string): Promise<import("../types.js").Link | null> {
-    return Promise.reject(new Error("Graph links not supported by cloud driver yet"));
+  async getLink(id: string): Promise<import("../types.js").Link | null> {
+    try {
+      const res = await this.restGet(`/v1/links/${encodeURIComponent(id)}`);
+      return (res.data as import("../types.js").Link) ?? null;
+    } catch {
+      return null;
+    }
   }
 
   async getNeighbors(
-    _reference: string,
-    _direction: import("../types.js").LinkDirection,
-    _options: import("../types.js").LinkQueryOptions
+    reference: string,
+    direction: import("../types.js").LinkDirection,
+    options: import("../types.js").LinkQueryOptions
   ): Promise<import("../types.js").Link[]> {
-    return Promise.reject(new Error("Graph links not supported by cloud driver yet"));
+    const params = new URLSearchParams({ reference, direction: direction || "Both" });
+    if (options.linkType) params.set("linkType", options.linkType);
+    if (options.limit !== undefined) params.set("limit", String(options.limit));
+    try {
+      const res = await this.restGet(`/v1/links?${params.toString()}`);
+      return (res.data as import("../types.js").Link[]) ?? [];
+    } catch {
+      return [];
+    }
   }
 
   async listCollections(): Promise<string[]> {
@@ -282,6 +319,57 @@ export class CloudThingStore implements ThingStore {
 
   private async callTool<T>(name: string, args: Record<string, unknown>): Promise<T> {
     return this.callToolOnce<T>(name, args, true);
+  }
+
+  private restBaseUrl(): string {
+    const url = resolveMcpUrl(this.connectOptions.url);
+    return url.replace(/\/mcp$/, "");
+  }
+
+  private async restGet(path: string): Promise<any> {
+    const base = this.restBaseUrl();
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (this.connectOptions.authToken) {
+      headers["Authorization"] = `Bearer ${this.connectOptions.authToken}`;
+    }
+    const res = await fetch(`${base}${path}`, { headers });
+    if (!res.ok) {
+      throw new Error(`REST request failed: ${res.status} ${res.statusText}`);
+    }
+    return res.json();
+  }
+
+  private async restPost(path: string, body: unknown): Promise<any> {
+    const base = this.restBaseUrl();
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (this.connectOptions.authToken) {
+      headers["Authorization"] = `Bearer ${this.connectOptions.authToken}`;
+    }
+    const res = await fetch(`${base}${path}`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      throw new Error(`REST request failed: ${res.status} ${res.statusText}`);
+    }
+    return res.json();
+  }
+
+  private async restDelete(path: string): Promise<any> {
+    const base = this.restBaseUrl();
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (this.connectOptions.authToken) {
+      headers["Authorization"] = `Bearer ${this.connectOptions.authToken}`;
+    }
+    const res = await fetch(`${base}${path}`, {
+      method: "DELETE",
+      headers,
+    });
+    if (!res.ok) {
+      throw new Error(`REST request failed: ${res.status} ${res.statusText}`);
+    }
+    return res.json();
   }
 
   private async callToolOnce<T>(

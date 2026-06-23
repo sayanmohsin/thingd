@@ -133,6 +133,7 @@ Usage:
   thingd snapshot create --out <path>
   thingd snapshot restore --in <path>
   thingd backup --out <path>
+  thingd backup --in <path>
   thingd db checkpoint [--path <path>]
   thingd db integrity [--path <path>]
 

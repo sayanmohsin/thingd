@@ -12,6 +12,7 @@
   let dbSize = 'N/A';
   let metrics = { objects: 0, events: 0, activeJobs: 0, deadJobs: 0 };
   let dbHealth = { integrityOk: false, integrityMessage: 'Not checked', walMode: '-', walFrames: 0, backupPath: '', backupSize: 0 };
+  let serverVersion = '';
   let diagnosticLogs = [
     { time: new Date().toLocaleTimeString(), text: 'Svelte Dashboard loaded successfully.', type: 'muted' },
     { time: new Date().toLocaleTimeString(), text: 'Establishing database connections...', type: 'info' }
@@ -158,7 +159,8 @@
       dbPath = res.path;
       dbSize = res.metrics.dbSize || 'N/A';
       metrics = res.metrics;
-      authGateActive = false; // Successfully authenticated
+      serverVersion = res.version || '';
+      authGateActive = false;
     } catch (err) {
       if (err.message !== 'Unauthorized') {
         dbStatus = 'Disconnected';
@@ -739,7 +741,7 @@
   <aside class="sidebar">
     <div class="sidebar-brand">
       <span class="brand-logo">tg</span>
-      <span class="brand-text">thingd<span class="version-badge">v0.3.0</span></span>
+      <span class="brand-text">thingd<span class="version-badge">{serverVersion || 'v0.3.0'}</span></span>
     </div>
     
     <nav class="sidebar-nav">

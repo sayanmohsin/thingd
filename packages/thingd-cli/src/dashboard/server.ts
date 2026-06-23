@@ -2,11 +2,15 @@ import { existsSync, promises as fs, statSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { dirname, extname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { createRequire } from "node:module";
 import { handleRestRequest, ThingD } from "@thingd/sdk";
 import type { ConnectionOptions } from "../index.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
+const _require = createRequire(__filename);
+const pkg = _require("../package.json");
+const pkgVersion: string = pkg.version || "0.0.0";
 
 // Candidate public folders to support both tsx dev and compiled dist packaging
 const publicDirCandidates = [
@@ -77,7 +81,13 @@ export async function startDashboardServer(
       const pathname = url.pathname;
 
       // Handle CORS for ease of developer integrations
-      res.setHeader("Access-Control-Allow-Origin", "*");
+      const allowedOrigins = ["http://localhost:8757", "http://localhost:8758"];
+      const origin = req.headers.origin;
+      if (origin && allowedOrigins.includes(origin)) {
+        res.setHeader("Access-Control-Allow-Origin", origin);
+      } else {
+        res.setHeader("Access-Control-Allow-Origin", "*");
+      }
       res.setHeader("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
       res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
 
@@ -159,6 +169,7 @@ export async function startDashboardServer(
           res.writeHead(200, { "Content-Type": "application/json" });
           res.end(
             JSON.stringify({
+              version: pkgVersion,
               mode: activeOptions.cloud ? "cloud" : "local",
               driver: activeOptions.driver || "memory",
               path: activeOptions.path,

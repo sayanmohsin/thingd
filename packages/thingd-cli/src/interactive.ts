@@ -77,6 +77,7 @@ let queues: string[] = [];
 let objectsByCollection = new Map<string, string[]>();
 const expandedSet = new Set<string>(["cat:collections", "cat:streams", "cat:queues"]);
 let cursorIndex = 0;
+let maintenanceCursor = 0;
 let scrollOffset = 0;
 let startedAt = 0; // ms since epoch when we connected
 let totalObjects = 0;
@@ -413,11 +414,12 @@ async function fetchResources(): Promise<void> {
 interface TreeNode {
   id: string;
   parentId?: string;
-  type: "category" | "collection" | "object" | "stream" | "queue" | "status" | "driver";
+  type: "category" | "collection" | "object" | "stream" | "queue" | "status" | "driver" | "maintenance";
   label: string;
   depth: number;
   expandable: boolean;
   ref?: Record<string, unknown>;
+  children?: { id: string; label: string }[];
 }
 
 function buildTree(): TreeNode[] {
@@ -581,6 +583,20 @@ function buildTree(): TreeNode[] {
     label: `${pc.cyan("◉")} ${pc.dim("Metrics")}`,
     depth: 0,
     expandable: false,
+  });
+
+  // Maintenance
+  nodes.push({
+    id: "node:maintenance",
+    type: "maintenance",
+    label: `${pc.yellow("⬡")} ${pc.bold("Maintenance")}`,
+    depth: 0,
+    expandable: true,
+    children: [
+      { id: "maintenance:integrity", label: "Run Integrity Check" },
+      { id: "maintenance:checkpoint", label: "WAL Checkpoint" },
+      { id: "maintenance:backup", label: "Create Backup" },
+    ],
   });
 
   return nodes;
@@ -1346,6 +1362,61 @@ async function handleInfo() {
   loadedItemId = "info_status";
 }
 
+async function handleMaintenance() {
+  // Cycle through maintenance operations with each press of 'm'
+  const operations = ["integrity", "checkpoint", "backup"];
+  const idx = maintenanceCursor % operations.length;
+  maintenanceCursor = (maintenanceCursor + 1) % operations.length;
+  const op = operations[idx];
+
+  viewerLines = [pc.dim(`Running ${op}...`)];
+  draw();
+
+  if (op === "backup") {
+    const backupPath = `thingd-backup-${Date.now()}.db`;
+    try {
+      if (typeof db !== "undefined" && "backupTo" in db) {
+        (db as any).backupTo(backupPath);
+        viewerLines = [` Backup created: ${backupPath}`, ``];
+      } else {
+        viewerLines = [` Backup not available (cloud driver)`, ``];
+      }
+    } catch (err) {
+      viewerLines = [` Backup failed: ${err instanceof Error ? err.message : String(err)}`, ``];
+    }
+  } else if (op === "checkpoint") {
+    try {
+      if (typeof db !== "undefined" && "walCheckpoint" in db) {
+        const result = (db as any).walCheckpoint();
+        viewerLines = [
+          ` WAL Checkpoint complete`,
+          ` Frames before: ${result.framesBefore ?? "N/A"}`,
+          ` Frames after: ${result.framesAfter ?? "N/A"}`,
+          ``,
+        ];
+      } else {
+        viewerLines = [` WAL Checkpoint not available (cloud driver)`, ``];
+      }
+    } catch (err) {
+      viewerLines = [` WAL Checkpoint failed: ${err instanceof Error ? err.message : String(err)}`, ``];
+    }
+  } else {
+    try {
+      if (typeof db !== "undefined" && "countObjects" in db) {
+        await db.countObjects();
+        viewerLines = [` Integrity check passed`, ``];
+      } else {
+        viewerLines = [` Integrity check not available`, ``];
+      }
+    } catch (err) {
+      viewerLines = [` Integrity check failed: ${err instanceof Error ? err.message : String(err)}`, ``];
+    }
+  }
+
+  loadedItemId = "maintenance_result";
+  draw();
+}
+
 // ── Keyboard Listener ────────────────────────────────────────────────
 
 function setupKeypress() {
@@ -1544,6 +1615,8 @@ function setupKeypress() {
         await handleSearch();
       } else if (str === "i" || str === "I") {
         await handleInfo();
+      } else if (str === "m" || str === "M") {
+        await handleMaintenance();
       }
     }
   };

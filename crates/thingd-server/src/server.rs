@@ -9,11 +9,17 @@ use std::time::Duration;
 use tower_http::cors::CorsLayer;
 
 use crate::auth::auth_middleware;
-use crate::config::Config;
+use crate::config::{Config, McpConfig};
 use crate::engine::EnginePool;
 use crate::rest;
 
-pub fn build_router(pool: Arc<EnginePool>, config: &Config) -> Router {
+/// Shared application state passed to all handlers via axum's State extractor.
+pub struct AppState {
+    pub pool: EnginePool,
+    pub mcp_config: McpConfig,
+}
+
+pub fn build_router(state: Arc<AppState>, config: &Config) -> Router {
     let mut router = Router::new()
         .route("/healthz", get(rest::health))
         .route("/v1/health", get(rest::health))
@@ -48,7 +54,7 @@ pub fn build_router(pool: Arc<EnginePool>, config: &Config) -> Router {
         // Cluster
         .route("/cluster/status", get(crate::cluster::cluster_status))
         .route("/cluster/peers", get(crate::cluster::cluster_peers))
-        .with_state(pool);
+        .with_state(state);
 
     // Configurable CORS — empty origins = permissive (backward compat)
     if config.hardening.cors_allowed_origins.is_empty() {
