@@ -230,58 +230,71 @@ export async function runSnapshot(context: CliContext): Promise<void> {
       throw new Error(`Unsupported snapshot version: ${snapshot.version}`);
     }
 
+    console.error("Restoring snapshot... (consider 'thingd backup --out pre-restore.db' first)");
+
     await withDb(context, async (db) => {
-      // 1. Restore Collections (clear existing first for true restore)
-      if (snapshot.collections) {
-        for (const [colName, objects] of Object.entries(snapshot.collections)) {
-          const currentObjs = await db.listObjects(colName);
-          for (const obj of currentObjs) {
-            await db.delete(colName, obj.id);
-          }
-          for (const obj of objects as StoredMemoryObject[]) {
-            const cleanObj = { ...obj } as Record<string, unknown>;
-            delete cleanObj.collection;
-            delete cleanObj.createdAt;
-            delete cleanObj.updatedAt;
-            delete cleanObj.version;
-            await db.put(colName, cleanObj as unknown as MemoryObject);
-          }
-        }
-      }
-
-      // 2. Restore Events
-      if (snapshot.events) {
-        for (const ev of snapshot.events as StoredMemoryEvent[]) {
-          const cleanEv = { ...ev } as Record<string, unknown>;
-          delete cleanEv.id;
-          delete cleanEv.createdAt;
-          delete cleanEv.stream;
-          await db.events.append(ev.stream, cleanEv as unknown as MemoryEvent);
-        }
-      }
-
-      // 3. Restore Queues
-      if (snapshot.queues) {
-        for (const [qName, jobsData] of Object.entries(snapshot.queues)) {
-          const queue = db.queue(qName);
-          const { active, dead } = jobsData as { active: QueueJob[]; dead: QueueJob[] };
-
-          for (const job of active) {
-            await queue.push(job.payload, {
-              idempotencyKey: job.id,
-              maxAttempts: job.maxAttempts,
-            });
-          }
-          for (const job of dead) {
-            await queue.push(job.payload, {
-              idempotencyKey: job.id,
-              maxAttempts: job.maxAttempts,
-            });
+      try {
+        // 1. Restore Collections (clear existing first for true restore)
+        if (snapshot.collections) {
+          for (const [colName, objects] of Object.entries(snapshot.collections)) {
+            const currentObjs = await db.listObjects(colName);
+            for (const obj of currentObjs) {
+              await db.delete(colName, obj.id);
+            }
+            for (const obj of objects as StoredMemoryObject[]) {
+              const cleanObj = { ...obj } as Record<string, unknown>;
+              delete cleanObj.collection;
+              delete cleanObj.createdAt;
+              delete cleanObj.updatedAt;
+              delete cleanObj.version;
+              await db.put(colName, cleanObj as unknown as MemoryObject);
+            }
           }
         }
-      }
 
-      writeJson(context.stdout, { success: true, in: inPath }, context.pretty);
+        // 2. Restore Events
+        if (snapshot.events) {
+          for (const ev of snapshot.events as StoredMemoryEvent[]) {
+            const cleanEv = { ...ev } as Record<string, unknown>;
+            delete cleanEv.id;
+            delete cleanEv.createdAt;
+            delete cleanEv.stream;
+            await db.events.append(ev.stream, cleanEv as unknown as MemoryEvent);
+          }
+        }
+
+        // 3. Restore Queues
+        if (snapshot.queues) {
+          for (const [qName, jobsData] of Object.entries(snapshot.queues)) {
+            const queue = db.queue(qName);
+            const { active, dead } = jobsData as { active: QueueJob[]; dead: QueueJob[] };
+
+            for (const job of active) {
+              await queue.push(job.payload, {
+                idempotencyKey: job.id,
+                maxAttempts: job.maxAttempts,
+              });
+            }
+            for (const job of dead) {
+              await queue.push(job.payload, {
+                idempotencyKey: job.id,
+                maxAttempts: job.maxAttempts,
+              });
+            }
+          }
+        }
+
+        writeJson(context.stdout, { success: true, in: inPath }, context.pretty);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        // Restore failed — recommend using backup for atomic recovery
+        console.error(
+          `Restore failed: ${message}. Data may be partially restored.\n` +
+            `For atomic restore, use 'thingd backup --out backup.db' before making changes\n` +
+            `and copy the backup file to restore.`
+        );
+        throw err;
+      }
     });
   } else {
     throw new Error(`Unknown snapshot command: ${subCommand}. Expected 'create' or 'restore'.`);

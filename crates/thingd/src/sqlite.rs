@@ -20,6 +20,7 @@ pub const SQLITE_SCHEMA_VERSION: u32 = 4;
 /// `SQLite`-backed memory store.
 pub struct SqliteThingStore {
     connection: Connection,
+    db_path: Option<String>,
 }
 
 impl SqliteThingStore {
@@ -29,11 +30,15 @@ impl SqliteThingStore {
     ///
     /// Returns an error when `SQLite` cannot open the path or initialize schema.
     pub fn open(path: impl AsRef<Path>) -> ThingdResult<Self> {
+        let path_str = path.as_ref().to_str().map(String::from);
         let connection = Connection::open(path).map_err(ThingdError::from)?;
         connection
             .busy_timeout(std::time::Duration::from_secs(5))
             .map_err(ThingdError::from)?;
-        let store = Self { connection };
+        let store = Self {
+            connection,
+            db_path: path_str,
+        };
         store.initialize()?;
         Ok(store)
     }
@@ -48,7 +53,10 @@ impl SqliteThingStore {
         connection
             .busy_timeout(std::time::Duration::from_secs(5))
             .map_err(ThingdError::from)?;
-        let store = Self { connection };
+        let store = Self {
+            connection,
+            db_path: None,
+        };
         store.initialize()?;
         Ok(store)
     }
@@ -91,6 +99,18 @@ impl SqliteThingStore {
             .map_err(ThingdError::from)?;
 
         let current_version = self.schema_version()?;
+
+        // Auto-backup before migration for file-based databases
+        if current_version > 0 && current_version < SQLITE_SCHEMA_VERSION {
+            #[allow(clippy::collapsible_if)]
+            if let Some(ref path) = self.db_path {
+                let backup_path = format!("{path}.pre-v{current_version}");
+                let escaped = backup_path.replace('\'', "''");
+                let _ = self
+                    .connection
+                    .execute_batch(&format!("VACUUM INTO '{escaped}'"));
+            }
+        }
 
         if current_version < 1 {
             self.apply_schema_v1()?;
