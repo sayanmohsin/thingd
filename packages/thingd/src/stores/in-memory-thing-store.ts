@@ -297,6 +297,7 @@ export class InMemoryThingStore implements ThingStore {
   async search(query: string, options: MemorySearchOptions = {}): Promise<MemorySearchResult[]> {
     const normalizedQuery = query.toLowerCase();
     const collections = options.collections ? new Set(options.collections) : null;
+    const filter = options.filter;
     const results: MemorySearchResult[] = [];
 
     for (const [collection, records] of this.collections) {
@@ -305,6 +306,9 @@ export class InMemoryThingStore implements ThingStore {
       }
 
       for (const record of records.values()) {
+        if (filter && !this.matchesFilter(filter, record)) {
+          continue;
+        }
         const haystack = JSON.stringify(record).toLowerCase();
         if (haystack.includes(normalizedQuery)) {
           results.push({
@@ -319,6 +323,9 @@ export class InMemoryThingStore implements ThingStore {
     }
 
     for (const event of this.events) {
+      if (filter && !this.matchesFilter(filter, event)) {
+        continue;
+      }
       const haystack = JSON.stringify(event).toLowerCase();
       if (haystack.includes(normalizedQuery)) {
         results.push({
@@ -332,6 +339,12 @@ export class InMemoryThingStore implements ThingStore {
     }
 
     return options.limit !== undefined ? results.slice(0, options.limit) : results;
+  }
+
+  private matchesFilter(filter: Record<string, unknown>, obj: Record<string, unknown>): boolean {
+    return Object.entries(filter).every(([key, expected]) => {
+      return key in obj && obj[key] === expected;
+    });
   }
 
   async countObjects(): Promise<number> {
