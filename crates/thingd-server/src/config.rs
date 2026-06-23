@@ -126,6 +126,10 @@ pub struct ClusterConfig {
 pub struct HardeningConfig {
     #[serde(default = "default_payload_limit")]
     pub max_payload_bytes: usize,
+    #[serde(default = "default_cors_origins")]
+    pub cors_allowed_origins: Vec<String>,
+    #[serde(default = "default_cors_max_age")]
+    pub cors_max_age_secs: u64,
 }
 
 impl Default for ServerConfig {
@@ -188,6 +192,8 @@ impl Default for HardeningConfig {
     fn default() -> Self {
         Self {
             max_payload_bytes: default_payload_limit(),
+            cors_allowed_origins: default_cors_origins(),
+            cors_max_age_secs: default_cors_max_age(),
         }
     }
 }
@@ -233,6 +239,12 @@ fn default_discovery() -> String {
 }
 fn default_election_failures() -> u32 {
     3
+}
+fn default_cors_origins() -> Vec<String> {
+    vec!["http://localhost:8757".to_string()]
+}
+fn default_cors_max_age() -> u64 {
+    86400
 }
 
 impl Config {
@@ -346,6 +358,9 @@ impl Config {
         }
         if self.hardening.max_payload_bytes == 0 {
             return Err("hardening.max_payload_bytes must be greater than 0".into());
+        }
+        if self.hardening.cors_max_age_secs == 0 {
+            return Err("hardening.cors_max_age_secs must be greater than 0".into());
         }
         Ok(())
     }

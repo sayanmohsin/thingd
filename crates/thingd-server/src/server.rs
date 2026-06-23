@@ -1,8 +1,11 @@
 use axum::{
-    Router, middleware,
+    Router,
+    http::{Method, header},
+    middleware,
     routing::{get, post, put},
 };
 use std::sync::Arc;
+use std::time::Duration;
 use tower_http::cors::CorsLayer;
 
 use crate::auth::auth_middleware;
@@ -45,8 +48,35 @@ pub fn build_router(pool: Arc<EnginePool>, config: &Config) -> Router {
         // Cluster
         .route("/cluster/status", get(crate::cluster::cluster_status))
         .route("/cluster/peers", get(crate::cluster::cluster_peers))
-        .layer(CorsLayer::permissive())
         .with_state(pool);
+
+    // Configurable CORS — empty origins = permissive (backward compat)
+    if config.hardening.cors_allowed_origins.is_empty() {
+        router = router.layer(CorsLayer::permissive());
+    } else {
+        let origins: Vec<axum::http::HeaderValue> = config
+            .hardening
+            .cors_allowed_origins
+            .iter()
+            .filter_map(|o| o.parse().ok())
+            .collect();
+        let cors = CorsLayer::new()
+            .allow_origin(origins)
+            .allow_methods([
+                Method::GET,
+                Method::POST,
+                Method::PUT,
+                Method::DELETE,
+                Method::OPTIONS,
+            ])
+            .allow_headers([
+                header::AUTHORIZATION,
+                header::CONTENT_TYPE,
+                header::HeaderName::from_static("mcp-protocol-version"),
+            ])
+            .max_age(Duration::from_secs(config.hardening.cors_max_age_secs));
+        router = router.layer(cors);
+    }
 
     // Wire auth middleware when a token is configured and unauthenticated access is not allowed
     if !config.auth.allow_unauthenticated && !config.auth.token.is_empty() {

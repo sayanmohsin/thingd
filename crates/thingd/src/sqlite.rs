@@ -566,6 +566,15 @@ impl ObjectStore for SqliteThingStore {
 
         // json_extract(...) = ? for each filter pair.
         for (key, value) in &options.filter {
+            // Validate filter key to prevent injection into json_extract path
+            if !key
+                .chars()
+                .all(|c| c.is_alphanumeric() || c == '_' || c == '.')
+            {
+                return Err(ThingdError::InvalidInput(format!(
+                    "Invalid filter key: '{key}'. Only alphanumeric, underscore, and dot characters are allowed."
+                )));
+            }
             conditions.push(format!("json_extract(body, '$.{key}') = ?"));
             let sql_val: Box<dyn rusqlite::types::ToSql> = match value {
                 serde_json::Value::String(s) => Box::new(s.clone()),
@@ -589,11 +598,22 @@ impl ObjectStore for SqliteThingStore {
             format!("WHERE {}", conditions.join(" AND "))
         };
 
+        // Use bound parameters for LIMIT/OFFSET
         let limit_clause = match (options.limit, options.offset) {
-            (Some(l), Some(o)) => format!("LIMIT {l} OFFSET {o}"),
-            (Some(l), None) => format!("LIMIT {l}"),
-            (None, Some(o)) => format!("LIMIT -1 OFFSET {o}"),
-            (None, None) => String::new(),
+            (Some(l), Some(o)) => {
+                bound_values.push(Box::new(i64::try_from(l).unwrap_or(i64::MAX)));
+                bound_values.push(Box::new(i64::try_from(o).unwrap_or(i64::MAX)));
+                " LIMIT ? OFFSET ?"
+            },
+            (Some(l), None) => {
+                bound_values.push(Box::new(i64::try_from(l).unwrap_or(i64::MAX)));
+                " LIMIT ?"
+            },
+            (None, Some(o)) => {
+                bound_values.push(Box::new(i64::try_from(o).unwrap_or(i64::MAX)));
+                " LIMIT -1 OFFSET ?"
+            },
+            (None, None) => "",
         };
 
         let order_clause = options.sort_by.as_ref().map_or_else(
@@ -826,7 +846,8 @@ impl EventLog for SqliteThingStore {
         sql.push_str(" ORDER BY sequence");
 
         if let Some(limit) = options.limit {
-            write!(sql, " LIMIT {limit}").unwrap();
+            sql.push_str(" LIMIT ?");
+            param_values.push(Box::new(limit.cast_signed()));
         }
 
         let mut statement = self.connection.prepare(&sql).map_err(ThingdError::from)?;
