@@ -1,3 +1,10 @@
+## [0.35.0](https://github.com/sayanmohsin/thingd/compare/v0.34.0...v0.35.0) (2026-06-23)
+
+### Features
+
+* atomic restore and backup-before-migration ([fd03859](https://github.com/sayanmohsin/thingd/commit/fd038591f5814c73135507b4e9fc022cb3ab48c4))
+* rate limiting with token bucket middleware ([328b974](https://github.com/sayanmohsin/thingd/commit/328b97484466084f8ecf9c516715ca67a2c1f5bb))
+
 ## [0.34.0](https://github.com/sayanmohsin/thingd/compare/v0.33.2...v0.34.0) (2026-06-23)
 
 ### Features
