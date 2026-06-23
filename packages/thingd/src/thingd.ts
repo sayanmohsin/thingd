@@ -139,6 +139,15 @@ export class ThingD implements ThingDConnection {
     await this.store.close?.();
   }
 
+  backupTo(path: string): void {
+    // Only supported on native (SQLite) stores
+    if ("backupTo" in this.store && typeof (this.store as any).backupTo === "function") {
+      (this.store as any).backupTo(path);
+    } else {
+      throw new Error("Backup is only supported on the native (SQLite) storage driver");
+    }
+  }
+
   async countObjects(): Promise<number> {
     return this.store.countObjects?.() ?? 0;
   }

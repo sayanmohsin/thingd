@@ -297,6 +297,12 @@ impl NativeThingStore {
         to_json(&serde_json::json!({ "framesBefore": frames_before, "framesAfter": frames_after }))
     }
 
+    #[napi(js_name = "backupTo")]
+    pub fn backup_to(&self, path: String) -> Result<()> {
+        let store = self.lock_store()?;
+        store.backup_to(&path).map_err(napi_error)
+    }
+
     #[napi(js_name = "putObjectsBatchJson")]
     pub fn put_objects_batch_json(&self, objects_json: String) -> Result<String> {
         let objects: Vec<BatchObjectInput> =

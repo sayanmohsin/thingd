@@ -69,6 +69,7 @@ type NativeThingStoreBinding = {
   pushJobsBatchJson(jobsJson: string): string;
   deleteObjectsBatchJson(keysJson: string): number;
   walCheckpoint(): string;
+  backupTo(path: string): void;
 };
 
 type NativeThingStoreConstructor = {
@@ -378,6 +379,10 @@ export class NativeThingStore implements ThingStore {
 
   walCheckpoint(): { framesBefore: number; framesAfter: number } {
     return JSON.parse(this.binding.walCheckpoint());
+  }
+
+  backupTo(path: string): void {
+    this.binding.backupTo(path);
   }
 
   async putBatch(collection: string, objects: MemoryObject[]): Promise<StoredMemoryObject[]> {

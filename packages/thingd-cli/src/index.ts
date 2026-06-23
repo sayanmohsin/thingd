@@ -132,6 +132,7 @@ Usage:
   thingd import --collection <name> --in <path>
   thingd snapshot create --out <path>
   thingd snapshot restore --in <path>
+  thingd backup --out <path>
 
 Options:
   --url <url>          remote thingd URL. Defaults to THINGD_URL
@@ -341,6 +342,12 @@ async function runCommand(context: CliContext): Promise<void> {
   if (command === "snapshot") {
     const { runSnapshot } = await import("./data-movement.js");
     await runSnapshot(context);
+    return;
+  }
+
+  if (command === "backup") {
+    const { runBackup } = await import("./data-movement.js");
+    await runBackup(context);
     return;
   }
 

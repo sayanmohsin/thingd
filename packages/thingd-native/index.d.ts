@@ -28,6 +28,7 @@ export class NativeThingStore {
   listDeadJobsJson(queue: string): string;
   listQueuesJson(): string;
   walCheckpoint(): string;
+  backupTo(path: string): void;
   putObjectsBatchJson(objectsJson: string): string;
   appendEventsBatchJson(eventsJson: string): string;
   pushJobsBatchJson(jobsJson: string): string;

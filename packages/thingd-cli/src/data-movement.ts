@@ -287,3 +287,21 @@ export async function runSnapshot(context: CliContext): Promise<void> {
     throw new Error(`Unknown snapshot command: ${subCommand}. Expected 'create' or 'restore'.`);
   }
 }
+
+export async function runBackup(context: CliContext): Promise<void> {
+  const outPath = requiredFlag(context.parsed, "out");
+
+  await withDb(context, async (db) => {
+    if (db.path === ":memory:") {
+      throw new Error("Cannot backup an in-memory database. Use a file-based SQLite database.");
+    }
+
+    db.backupTo(outPath);
+
+    const { statSync } = await import("node:fs");
+    const stats = statSync(outPath);
+    const sizeMb = (stats.size / (1024 * 1024)).toFixed(2);
+
+    console.log(`Backup created: ${outPath} (${sizeMb} MB)`);
+  });
+}
