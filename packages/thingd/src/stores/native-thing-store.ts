@@ -68,6 +68,7 @@ type NativeThingStoreBinding = {
   appendEventsBatchJson(eventsJson: string): string;
   pushJobsBatchJson(jobsJson: string): string;
   deleteObjectsBatchJson(keysJson: string): number;
+  walCheckpoint(): string;
 };
 
 type NativeThingStoreConstructor = {
@@ -373,6 +374,10 @@ export class NativeThingStore implements ThingStore {
 
   async countLinks(): Promise<number> {
     return this.binding.countLinksJson();
+  }
+
+  walCheckpoint(): { framesBefore: number; framesAfter: number } {
+    return JSON.parse(this.binding.walCheckpoint());
   }
 
   async putBatch(collection: string, objects: MemoryObject[]): Promise<StoredMemoryObject[]> {

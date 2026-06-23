@@ -152,6 +152,32 @@ impl SqliteThingStore {
         u32::try_from(version).map_err(|error| ThingdError::Storage(error.to_string()))
     }
 
+    /// Run `PRAGMA wal_checkpoint(TRUNCATE)` to flush the WAL into the main database.
+    ///
+    /// Returns `(frames_before, frames_after)` where `frames_after` should be 0
+    /// when the checkpoint fully succeeds.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when `SQLite` fails to run the checkpoint.
+    pub fn wal_checkpoint(&self) -> ThingdResult<(i32, i32)> {
+        self.connection
+            .query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |row| {
+                Ok((row.get::<_, i32>(0)?, row.get::<_, i32>(1)?))
+            })
+            .map_err(ThingdError::from)
+    }
+
+    /// Close the database connection after running a WAL checkpoint.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the checkpoint fails.
+    pub fn close(&self) -> ThingdResult<()> {
+        self.wal_checkpoint()?;
+        Ok(())
+    }
+
     fn apply_schema_v1(&self) -> ThingdResult<()> {
         self.connection
             .execute_batch(
@@ -1964,6 +1990,15 @@ mod tests {
             .query_row("PRAGMA quick_check", [], |row| row.get(0))
             .unwrap();
         assert_eq!(ok, "ok");
+    }
+
+    #[test]
+    fn wal_checkpoint_returns_zero_frames_on_in_memory() {
+        let store = SqliteThingStore::open_in_memory().unwrap();
+        let (busy, frames) = store.wal_checkpoint().unwrap();
+        // In-memory databases return busy=0 (no WAL mode available)
+        assert_eq!(busy, 0);
+        assert_eq!(frames, 0);
     }
 
     #[test]

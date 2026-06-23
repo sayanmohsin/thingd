@@ -290,6 +290,13 @@ impl NativeThingStore {
         to_json(&queues)
     }
 
+    #[napi(js_name = "walCheckpoint")]
+    pub fn wal_checkpoint(&self) -> Result<String> {
+        let store = self.lock_store()?;
+        let (frames_before, frames_after) = store.wal_checkpoint().map_err(napi_error)?;
+        to_json(&serde_json::json!({ "framesBefore": frames_before, "framesAfter": frames_after }))
+    }
+
     #[napi(js_name = "putObjectsBatchJson")]
     pub fn put_objects_batch_json(&self, objects_json: String) -> Result<String> {
         let objects: Vec<BatchObjectInput> =
