@@ -1,7 +1,19 @@
+use std::sync::atomic::{AtomicBool, Ordering};
+
 use axum::Json;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use serde_json::json;
+
+static PRODUCTION_MODE: AtomicBool = AtomicBool::new(false);
+
+pub fn set_production_mode(enabled: bool) {
+    PRODUCTION_MODE.store(enabled, Ordering::Relaxed);
+}
+
+pub fn is_production_mode() -> bool {
+    PRODUCTION_MODE.load(Ordering::Relaxed)
+}
 
 #[derive(Debug)]
 pub struct AppError {
@@ -51,12 +63,17 @@ impl AppError {
 
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {
+        let detail = if is_production_mode() && self.status == StatusCode::INTERNAL_SERVER_ERROR {
+            String::new()
+        } else {
+            self.detail
+        };
         let body = json!({
             "error": {
                 "type": self.error_type,
                 "title": self.title,
                 "status": self.status.as_u16(),
-                "detail": self.detail,
+                "detail": detail,
             }
         });
         (self.status, Json(body)).into_response()
@@ -86,7 +103,13 @@ impl From<thingd::ThingdError> for AppError {
                 detail: msg,
                 error_type: "conflict",
             },
-            thingd::ThingdError::Storage(msg) => AppError::internal(msg),
+            thingd::ThingdError::Storage(msg) => {
+                if is_production_mode() {
+                    AppError::internal(String::new())
+                } else {
+                    AppError::internal(msg)
+                }
+            },
         }
     }
 }

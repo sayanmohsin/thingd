@@ -24,6 +24,9 @@ async fn main() {
             std::process::exit(1);
         });
 
+    // Set global production mode for error sanitization
+    error::set_production_mode(config.server.production_mode);
+
     tracing::info!(
         "Starting thingd-server on {}:{} (database: {})",
         config.server.host,

@@ -31,6 +31,8 @@ pub struct ServerConfig {
     pub database: String,
     #[serde(default = "default_request_timeout")]
     pub request_timeout_secs: u64,
+    #[serde(default)]
+    pub production_mode: bool,
     #[serde(default = "default_max_connections")]
     pub max_connections: u32,
 }
@@ -140,6 +142,7 @@ impl Default for ServerConfig {
             database: default_db(),
             request_timeout_secs: default_request_timeout(),
             max_connections: default_max_connections(),
+            production_mode: false,
         }
     }
 }
@@ -361,6 +364,15 @@ impl Config {
         }
         if self.hardening.cors_max_age_secs == 0 {
             return Err("hardening.cors_max_age_secs must be greater than 0".into());
+        }
+        if self.server.production_mode
+            && std::env::var("THINGD_AUTH_TOKEN")
+                .ok()
+                .filter(|t| !t.is_empty())
+                .is_none()
+            && self.auth.token.is_empty()
+        {
+            return Err("auth.token is required when server.production_mode is true".into());
         }
         Ok(())
     }
