@@ -11,3 +11,5 @@ pre-push:
       run: cargo fmt --all --check
     rust-clippy:
       run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+    rust-deny:
+      run: cargo deny check
