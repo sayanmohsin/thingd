@@ -54,6 +54,7 @@ const config = {
           "packages/thingd-native/package.json",
           "crates/thingd/README.md",
         ],
+        gitArgs: ["--no-verify"],
       },
     ],
     "@semantic-release/github",
