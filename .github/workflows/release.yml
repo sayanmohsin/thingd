@@ -143,9 +143,10 @@ jobs:
 
       - name: Verify native filter works
         run: |
-          node -e "
+          node << 'EOF'
           const { NativeThingStore } = require('./packages/thingd-native');
-          const store = NativeThingStore.open(require('node:os').tmpdir() + '/thingd-filter-test.db');
+          const path = require('node:os').tmpdir() + '/thingd-filter-test.db';
+          const store = NativeThingStore.open(path);
           store.putObjectJson('test', '1', JSON.stringify({status:'active'}));
           const r1 = store.listObjectsJson('["test"]', '{"status":"nonexistent"}', null, null, null, null);
           const c1 = JSON.parse(r1).length;
@@ -154,8 +155,8 @@ jobs:
           const c2 = JSON.parse(r2).length;
           if (c2 !== 1) throw new Error('Matching filter returned ' + c2 + ' (expected 1)');
           console.log('Native filter test passed');
-          try { require('node:fs').unlinkSync(require('node:os').tmpdir() + '/thingd-filter-test.db'); } catch {}
-          "
+          try { require('node:fs').unlinkSync(path); } catch {}
+          EOF
 
       - name: Publish release
         id: version
