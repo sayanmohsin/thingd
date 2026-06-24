@@ -1,3 +1,9 @@
+## [0.37.5](https://github.com/sayanmohsin/thingd/compare/v0.37.4...v0.37.5) (2026-06-24)
+
+### Bug Fixes
+
+* rebuild native prebuild with correct filter (cache key + heredoc test) ([b474a59](https://github.com/sayanmohsin/thingd/commit/b474a59f15b0c1269073708dc26957d73ff5bf83))
+
 ## [0.37.4](https://github.com/sayanmohsin/thingd/compare/v0.37.3...v0.37.4) (2026-06-24)
 
 ### Bug Fixes
