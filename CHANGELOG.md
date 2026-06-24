@@ -1,3 +1,15 @@
+## [0.37.0](https://github.com/sayanmohsin/thingd/compare/v0.36.0...v0.37.0) (2026-06-24)
+
+### Features
+
+* implement all remaining improvements ([29a064f](https://github.com/sayanmohsin/thingd/commit/29a064f721899c905c82b5aff29c7a7ab0d93e4f))
+
+### Bug Fixes
+
+* cargo fmt, biome lint, and pre-existing warnings ([8acbb28](https://github.com/sayanmohsin/thingd/commit/8acbb288e832db9e723fbf0bcb908b454a4f0f97))
+* dashboard package.json path resolution + add test-node to pre-push ([35ee66c](https://github.com/sayanmohsin/thingd/commit/35ee66cf136373976f07a504db23cd90a7c29472))
+* InMemoryThingStore.search silently drops options.filter ([30b0fdd](https://github.com/sayanmohsin/thingd/commit/30b0fdd0e59f98e57554c0a83bff469c6f969f99)), closes [#39](https://github.com/sayanmohsin/thingd/issues/39)
+
 ## [0.36.0](https://github.com/sayanmohsin/thingd/compare/v0.35.0...v0.36.0) (2026-06-23)
 
 ### Features
