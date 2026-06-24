@@ -1383,8 +1383,8 @@ async function handleMaintenance() {
   if (op === "backup") {
     const backupPath = `thingd-backup-${Date.now()}.db`;
     try {
-      if (typeof db !== "undefined" && "backupTo" in db) {
-        (db as any).backupTo(backupPath);
+      if (db?.backupTo) {
+        db.backupTo(backupPath);
         viewerLines = [` Backup created: ${backupPath}`, ``];
       } else {
         viewerLines = [` Backup not available (cloud driver)`, ``];
@@ -1394,8 +1394,8 @@ async function handleMaintenance() {
     }
   } else if (op === "checkpoint") {
     try {
-      if (typeof db !== "undefined" && "walCheckpoint" in db) {
-        const result = (db as any).walCheckpoint();
+      if (db?.walCheckpoint) {
+        const result = db.walCheckpoint();
         viewerLines = [
           ` WAL Checkpoint complete`,
           ` Frames before: ${result.framesBefore ?? "N/A"}`,
@@ -1413,7 +1413,7 @@ async function handleMaintenance() {
     }
   } else {
     try {
-      if (typeof db !== "undefined" && "countObjects" in db) {
+      if (typeof db !== "undefined" && typeof db.countObjects === "function") {
         await db.countObjects();
         viewerLines = [` Integrity check passed`, ``];
       } else {

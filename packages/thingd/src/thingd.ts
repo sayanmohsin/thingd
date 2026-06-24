@@ -140,17 +140,16 @@ export class ThingD implements ThingDConnection {
   }
 
   backupTo(path: string): void {
-    // Only supported on native (SQLite) stores
-    if ("backupTo" in this.store && typeof (this.store as any).backupTo === "function") {
-      (this.store as any).backupTo(path);
+    if (this.store.backupTo) {
+      this.store.backupTo(path);
     } else {
       throw new Error("Backup is only supported on the native (SQLite) storage driver");
     }
   }
 
   walCheckpoint(): { framesBefore: number; framesAfter: number } {
-    if ("walCheckpoint" in this.store && typeof (this.store as any).walCheckpoint === "function") {
-      return (this.store as any).walCheckpoint();
+    if (this.store.walCheckpoint) {
+      return this.store.walCheckpoint();
     }
     throw new Error("WAL checkpoint is only supported on the native (SQLite) storage driver");
   }

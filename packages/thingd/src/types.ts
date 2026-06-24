@@ -234,5 +234,6 @@ export interface ThingStore {
   listStreams?(): Promise<string[]>;
   listQueues?(): Promise<string[]>;
   close?(): Promise<void>;
+  backupTo?(path: string): void;
   walCheckpoint?(): { framesBefore: number; framesAfter: number };
 }

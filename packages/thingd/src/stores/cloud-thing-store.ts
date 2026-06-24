@@ -221,7 +221,7 @@ export class CloudThingStore implements ThingStore {
 
   async countLinks(): Promise<number> {
     try {
-      const res = await this.restGet("/v1/counts/links");
+      const res = (await this.restGet("/v1/counts/links")) as { data?: { count?: number } };
       return res.data?.count ?? 0;
     } catch {
       return 0;
@@ -265,8 +265,8 @@ export class CloudThingStore implements ThingStore {
     if (metadataJson !== undefined) {
       body.metadataJson = metadataJson;
     }
-    const res = await this.restPost("/v1/links", body);
-    return res.data as import("../types.js").Link;
+    const res = (await this.restPost("/v1/links", body)) as { data: import("../types.js").Link };
+    return res.data;
   }
 
   async deleteLink(id: string): Promise<boolean> {
@@ -280,8 +280,10 @@ export class CloudThingStore implements ThingStore {
 
   async getLink(id: string): Promise<import("../types.js").Link | null> {
     try {
-      const res = await this.restGet(`/v1/links/${encodeURIComponent(id)}`);
-      return (res.data as import("../types.js").Link) ?? null;
+      const res = (await this.restGet(`/v1/links/${encodeURIComponent(id)}`)) as {
+        data?: import("../types.js").Link;
+      };
+      return res.data ?? null;
     } catch {
       return null;
     }
@@ -300,8 +302,10 @@ export class CloudThingStore implements ThingStore {
       params.set("limit", String(options.limit));
     }
     try {
-      const res = await this.restGet(`/v1/links?${params.toString()}`);
-      return (res.data as import("../types.js").Link[]) ?? [];
+      const res = (await this.restGet(`/v1/links?${params.toString()}`)) as {
+        data?: import("../types.js").Link[];
+      };
+      return res.data ?? [];
     } catch {
       return [];
     }
@@ -336,7 +340,7 @@ export class CloudThingStore implements ThingStore {
     return url.replace(/\/mcp$/, "");
   }
 
-  private async restGet(path: string): Promise<any> {
+  private async restGet(path: string): Promise<unknown> {
     const base = this.restBaseUrl();
     const headers: Record<string, string> = { "Content-Type": "application/json" };
     if (this.connectOptions.authToken) {
@@ -349,7 +353,7 @@ export class CloudThingStore implements ThingStore {
     return res.json();
   }
 
-  private async restPost(path: string, body: unknown): Promise<any> {
+  private async restPost(path: string, body: unknown): Promise<unknown> {
     const base = this.restBaseUrl();
     const headers: Record<string, string> = { "Content-Type": "application/json" };
     if (this.connectOptions.authToken) {
@@ -366,7 +370,7 @@ export class CloudThingStore implements ThingStore {
     return res.json();
   }
 
-  private async restDelete(path: string): Promise<any> {
+  private async restDelete(path: string): Promise<unknown> {
     const base = this.restBaseUrl();
     const headers: Record<string, string> = { "Content-Type": "application/json" };
     if (this.connectOptions.authToken) {
