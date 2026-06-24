@@ -1,3 +1,9 @@
+## [0.37.3](https://github.com/sayanmohsin/thingd/compare/v0.37.2...v0.37.3) (2026-06-24)
+
+### Bug Fixes
+
+* eliminate all biome noExplicitAny warnings ([7b392ce](https://github.com/sayanmohsin/thingd/commit/7b392ce5fcf0044f7042b39f7c0b416503d104c1))
+
 ## [0.37.2](https://github.com/sayanmohsin/thingd/compare/v0.37.1...v0.37.2) (2026-06-24)
 
 ### Bug Fixes
