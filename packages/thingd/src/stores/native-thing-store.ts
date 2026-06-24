@@ -609,13 +609,17 @@ function formatUnknownError(error: unknown): string {
 }
 
 function serializeFilter(filter: Record<string, unknown> | undefined): string | undefined {
-  if (!filter) return undefined;
+  if (!filter) {
+    return undefined;
+  }
   const cleaned: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(filter)) {
     if (value !== undefined) {
       cleaned[key] = value;
     }
   }
-  if (Object.keys(cleaned).length === 0) return undefined;
+  if (Object.keys(cleaned).length === 0) {
+    return undefined;
+  }
   return JSON.stringify(cleaned);
 }
