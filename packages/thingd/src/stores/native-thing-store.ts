@@ -201,7 +201,7 @@ export class NativeThingStore implements ThingStore {
     options?: ListObjectsOptions
   ): Promise<T[]> {
     const collectionsJson = JSON.stringify([collection]);
-    const filterJson = options?.filter ? JSON.stringify(options.filter) : undefined;
+    const filterJson = serializeFilter(options?.filter);
     const sortField = options?.sortBy?.field;
     const sortDirection = options?.sortBy?.direction;
     return parseJson<NativeObjectRecord[]>(
@@ -287,7 +287,7 @@ export class NativeThingStore implements ThingStore {
 
   async search(query: string, options: MemorySearchOptions = {}): Promise<MemorySearchResult[]> {
     const collectionsJson = options.collections ? JSON.stringify(options.collections) : undefined;
-    const filterJson = options.filter ? JSON.stringify(options.filter) : undefined;
+    const filterJson = serializeFilter(options.filter);
 
     const hits = parseJson<NativeSearchHit[]>(
       this.binding.searchJson(query, collectionsJson, options.limit, filterJson)
@@ -606,4 +606,16 @@ function formatUnknownError(error: unknown): string {
     return `Original error: ${error.message}`;
   }
   return `Original error: ${String(error)}`;
+}
+
+function serializeFilter(filter: Record<string, unknown> | undefined): string | undefined {
+  if (!filter) return undefined;
+  const cleaned: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(filter)) {
+    if (value !== undefined) {
+      cleaned[key] = value;
+    }
+  }
+  if (Object.keys(cleaned).length === 0) return undefined;
+  return JSON.stringify(cleaned);
 }
