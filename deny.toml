@@ -1,11 +1,7 @@
 [advisories]
-db-path = "~/.cargo/advisory-db"
-db-urls = ["https://github.com/rustsec/advisory-db"]
-vulnerability = "deny"
 ignore = []
 
 [licenses]
-unlicensed = "deny"
 allow = [
     "MIT",
     "Apache-2.0",
@@ -15,10 +11,6 @@ allow = [
     "Unlicense",
     "Zlib",
 ]
-deny = []
-copyleft = "warn"
-allow-osi-fsf-free = "neither"
-default = "deny"
 confidence-threshold = 0.8
 
 [bans]
@@ -26,11 +18,9 @@ multiple-versions = "deny"
 wildcards = "deny"
 highlight = "all"
 allow-wildcard-paths = false
-deny = []
 skip = [
     { name = "hashbrown", version = "0.14" },
 ]
-skip-tree = []
 
 [sources]
 unknown-registry = "deny"
