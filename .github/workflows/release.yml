@@ -18,9 +18,33 @@ permissions:
   id-token: write
 
 jobs:
+  check-release:
+    name: Check if release is needed
+    runs-on: ubuntu-latest
+    outputs:
+      needed: ${{ steps.check.outputs.needed }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Check for conventional commits since last tag
+        id: check
+        run: |
+          LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
+          echo "Last tag: $LAST_TAG"
+          COMMITS=$(git log "$LAST_TAG..HEAD" --oneline --no-decorate 2>/dev/null || echo "")
+          if echo "$COMMITS" | grep -qiE "^(feat|fix|BREAKING CHANGE|docs|perf|refactor|style|test|chore)"; then
+            echo "needed=true" >> "$GITHUB_OUTPUT"
+            echo "Release needed — found conventional commits since $LAST_TAG"
+          else
+            echo "needed=false" >> "$GITHUB_OUTPUT"
+            echo "No release needed — no conventional commits since $LAST_TAG"
+          fi
+
   build-native:
     name: Build native (${{ matrix.platform }}-${{ matrix.arch }})
-    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
+    needs: [check-release]
+    if: ${{ needs.check-release.outputs.needed == 'true' }}
     strategy:
       fail-fast: false
       matrix:
@@ -55,7 +79,8 @@ jobs:
 
   release:
     name: Publish to npm
-    needs: [build-native]
+    needs: [check-release, build-native]
+    if: ${{ needs.check-release.outputs.needed == 'true' }}
     runs-on: ubuntu-latest
     outputs:
       new_version: ${{ steps.version.outputs.new_version }}
@@ -119,13 +144,13 @@ jobs:
             echo "New release: $AFTER"
           else
             echo "released=false" >> "$GITHUB_OUTPUT"
-            echo "new_version=" >> "$GITHUB_OUTPUT"
             echo "No new release created"
           fi
 
   docker:
     name: Build and push Docker image
-    needs: [build-native]
+    needs: [check-release, build-native]
+    if: ${{ needs.check-release.outputs.needed == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -175,7 +200,7 @@ jobs:
   crates-publish:
     name: Publish to crates.io
     needs: [release]
-    if: needs.release.outputs.released == 'true'
+    if: ${{ needs.release.outputs.released == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6

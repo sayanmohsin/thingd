@@ -19,7 +19,8 @@ wildcards = "deny"
 highlight = "all"
 allow-wildcard-paths = false
 skip = [
-    { name = "hashbrown", version = "0.14" },
+    { name = "hashbrown", version = "0.16" },
+    { name = "hashbrown", version = "0.17" },
 ]
 
 [sources]
