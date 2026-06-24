@@ -32,8 +32,8 @@ jobs:
         run: |
           LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
           echo "Last tag: $LAST_TAG"
-          COMMITS=$(git log "$LAST_TAG..HEAD" --oneline --no-decorate 2>/dev/null || echo "")
-          if echo "$COMMITS" | grep -qiE "^(feat|fix|BREAKING CHANGE|docs|perf|refactor|style|test|chore)"; then
+          COMMITS=$(git log "$LAST_TAG..HEAD" --format="%s" --no-decorate 2>/dev/null || echo "")
+          if echo "$COMMITS" | grep -qiE "^(feat!?|fix!?|BREAKING CHANGE|docs!?|perf!?|refactor!?|style!?|test!?|chore!?)[:(]"; then
             echo "needed=true" >> "$GITHUB_OUTPUT"
             echo "Release needed — found conventional commits since $LAST_TAG"
           else
