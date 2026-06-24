@@ -4,7 +4,7 @@
 Streamable HTTP.
 
 This is the first remote-capable runtime shape. It is intended for local
-experiments, self-hosting, and the future `thingd-cloud` gateway.
+experiments, and self-hosting.
 
 ## Build
 

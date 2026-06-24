@@ -148,6 +148,6 @@ GET /cluster/status
 ## Links
 
 - [GitHub](https://github.com/sayanmohsin/thingd)
-- [npm (SDK)](https://www.npmjs.com/package/thingd)
+- [npm (SDK)](https://www.npmjs.com/package/@thingd/sdk)
 - [npm (CLI)](https://www.npmjs.com/package/@thingd/cli)
 - [Documentation](https://github.com/sayanmohsin/thingd/tree/main/docs)

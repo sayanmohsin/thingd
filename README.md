@@ -506,20 +506,20 @@ thingd also exposes a REST API on port 4100 under the `/v1` prefix, for apps tha
 
 ```bash
 # health check
-curl http://localhost:4100/v1/health
+curl http://localhost:8757/v1/health
 
 # put an object
-curl -X PUT http://localhost:4100/v1/objects/users/user-001 \
+curl -X PUT http://localhost:8757/v1/objects/users/user-001 \
   -H "Content-Type: application/json" \
   -d '{"name": "Alice", "role": "admin"}'
 
 # search
-curl -X POST http://localhost:4100/v1/search \
+curl -X POST http://localhost:8757/v1/search \
   -H "Content-Type: application/json" \
   -d '{"query": "alice"}'
 
 # list objects with filter and sort
-curl "http://localhost:4100/v1/objects?collection=users&filter.role=admin&sortBy=created_at&sortDir=desc"
+curl "http://localhost:8757/v1/objects?collection=users&filter.role=admin&sortBy=created_at&sortDir=desc"
 ```
 
 Full REST reference: [docs/api-spec/rest-api.md](./docs/api-spec/rest-api.md)

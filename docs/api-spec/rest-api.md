@@ -40,14 +40,14 @@ thingd exposes a REST API on port 8757 (default) under the `/v1` prefix. All req
 Health check with aggregate counts.
 
 ```bash
-curl http://localhost:4100/v1/health
+curl http://localhost:8757/v1/health
 ```
 
 ```json
 {
   "data": {
     "status": "ok",
-    "version": "0.31.0",
+    "version": "<current>",
     "counts": {
       "objects": 12,
       "events": 5,
@@ -67,7 +67,7 @@ curl http://localhost:4100/v1/health
 ### `GET /v1/counts/objects`
 
 ```bash
-curl http://localhost:4100/v1/counts/objects
+curl http://localhost:8757/v1/counts/objects
 ```
 
 ```json
@@ -77,7 +77,7 @@ curl http://localhost:4100/v1/counts/objects
 ### `GET /v1/counts/events`
 
 ```bash
-curl http://localhost:4100/v1/counts/events
+curl http://localhost:8757/v1/counts/events
 ```
 
 ```json
@@ -87,7 +87,7 @@ curl http://localhost:4100/v1/counts/events
 ### `GET /v1/counts/links`
 
 ```bash
-curl http://localhost:4100/v1/counts/links
+curl http://localhost:8757/v1/counts/links
 ```
 
 ```json
@@ -103,7 +103,7 @@ curl http://localhost:4100/v1/counts/links
 List all collection names that have at least one object.
 
 ```bash
-curl http://localhost:4100/v1/collections
+curl http://localhost:8757/v1/collections
 ```
 
 ```json
@@ -115,7 +115,7 @@ curl http://localhost:4100/v1/collections
 List all stream names that have at least one event.
 
 ```bash
-curl http://localhost:4100/v1/streams
+curl http://localhost:8757/v1/streams
 ```
 
 ```json
@@ -127,7 +127,7 @@ curl http://localhost:4100/v1/streams
 List all queue names that have at least one job.
 
 ```bash
-curl http://localhost:4100/v1/queues
+curl http://localhost:8757/v1/queues
 ```
 
 ```json
@@ -152,7 +152,7 @@ curl http://localhost:4100/v1/queues
 | `sortDir` | no | `asc` (default) or `desc` |
 
 ```bash
-curl "http://localhost:4100/v1/objects?collection=users&limit=2&sortBy=created_at&sortDir=desc"
+curl "http://localhost:8757/v1/objects?collection=users&limit=2&sortBy=created_at&sortDir=desc"
 ```
 
 ```json
@@ -183,7 +183,7 @@ curl "http://localhost:4100/v1/objects?collection=users&limit=2&sortBy=created_a
 ### `PUT /v1/objects/:collection/:id` — Upsert object
 
 ```bash
-curl -X PUT http://localhost:4100/v1/objects/users/user-001 \
+curl -X PUT http://localhost:8757/v1/objects/users/user-001 \
   -H "Content-Type: application/json" \
   -d '{"name": "Alice Chen", "email": "alice@example.com", "role": "admin"}'
 ```
@@ -206,7 +206,7 @@ curl -X PUT http://localhost:4100/v1/objects/users/user-001 \
 ### `GET /v1/objects/:collection/:id` — Get single object
 
 ```bash
-curl http://localhost:4100/v1/objects/users/user-001
+curl http://localhost:8757/v1/objects/users/user-001
 ```
 
 ```json
@@ -227,7 +227,7 @@ Returns 404 if not found.
 ### `DELETE /v1/objects/:collection/:id` — Delete object
 
 ```bash
-curl -X DELETE http://localhost:4100/v1/objects/users/user-001
+curl -X DELETE http://localhost:8757/v1/objects/users/user-001
 ```
 
 ```json
@@ -243,7 +243,7 @@ Returns `true` even if the object didn't exist (idempotent).
 **Body:** array of objects or `{ "objects": [...] }`
 
 ```bash
-curl -X PUT "http://localhost:4100/v1/objects/batch?collection=users" \
+curl -X PUT "http://localhost:8757/v1/objects/batch?collection=users" \
   -H "Content-Type: application/json" \
   -d '[
     {"id": "user-010", "name": "Zoe"},
@@ -267,7 +267,7 @@ curl -X PUT "http://localhost:4100/v1/objects/batch?collection=users" \
 **Body:** array of IDs or `{ "ids": [...] }`
 
 ```bash
-curl -X DELETE "http://localhost:4100/v1/objects/batch?collection=users" \
+curl -X DELETE "http://localhost:8757/v1/objects/batch?collection=users" \
   -H "Content-Type: application/json" \
   -d '["user-010", "user-011"]'
 ```
@@ -292,7 +292,7 @@ curl -X DELETE "http://localhost:4100/v1/objects/batch?collection=users" \
 | `filter` | no | Metadata key-value pairs to match |
 
 ```bash
-curl -X POST http://localhost:4100/v1/search \
+curl -X POST http://localhost:8757/v1/search \
   -H "Content-Type: application/json" \
   -d '{"query": "alice", "limit": 5}'
 ```
@@ -333,7 +333,7 @@ Results are sorted by relevance score (descending). Each result is either an obj
 | `text` | no | Free-text content |
 
 ```bash
-curl -X POST http://localhost:4100/v1/events/audit \
+curl -X POST http://localhost:8757/v1/events/audit \
   -H "Content-Type: application/json" \
   -d '{"type": "user.login", "text": "User logged in from 192.168.1.1"}'
 ```
@@ -362,7 +362,7 @@ curl -X POST http://localhost:4100/v1/events/audit \
 | `limit` | Max events to return |
 
 ```bash
-curl "http://localhost:4100/v1/events?stream=audit&limit=10"
+curl "http://localhost:8757/v1/events?stream=audit&limit=10"
 ```
 
 ```json
@@ -390,7 +390,7 @@ curl "http://localhost:4100/v1/events?stream=audit&limit=10"
 | `delayMs` | no | Delay before job becomes claimable |
 
 ```bash
-curl -X POST http://localhost:4100/v1/queues/email-queue/push \
+curl -X POST http://localhost:8757/v1/queues/email-queue/push \
   -H "Content-Type: application/json" \
   -d '{"payload": {"to": "alice@example.com", "subject": "Welcome"}}'
 ```
@@ -419,7 +419,7 @@ curl -X POST http://localhost:4100/v1/queues/email-queue/push \
 | `leaseMs` | no | Lease duration in ms (default: 30000) |
 
 ```bash
-curl -X POST http://localhost:4100/v1/queues/email-queue/claim \
+curl -X POST http://localhost:8757/v1/queues/email-queue/claim \
   -H "Content-Type: application/json" \
   -d '{}'
 ```
@@ -435,7 +435,7 @@ Returns the claimed job, or `null` if no jobs are available.
 | `jobId` | yes | ID of the job to ack |
 
 ```bash
-curl -X POST http://localhost:4100/v1/queues/email-queue/ack \
+curl -X POST http://localhost:8757/v1/queues/email-queue/ack \
   -H "Content-Type: application/json" \
   -d '{"jobId": "85a08f45-5deb-4021-a8da-72298cb999b7"}'
 ```
@@ -457,7 +457,7 @@ Returns 400 with `not_found`, `not_leased`, or `terminal` error code on failure.
 | `error` | no | Error message |
 
 ```bash
-curl -X POST http://localhost:4100/v1/queues/email-queue/nack \
+curl -X POST http://localhost:8757/v1/queues/email-queue/nack \
   -H "Content-Type: application/json" \
   -d '{"jobId": "85a08f45-...", "error": "SMTP connection failed"}'
 ```
@@ -465,7 +465,7 @@ curl -X POST http://localhost:4100/v1/queues/email-queue/nack \
 ### `GET /v1/queues/:queue/jobs` — List active jobs
 
 ```bash
-curl http://localhost:4100/v1/queues/email-queue/jobs
+curl http://localhost:8757/v1/queues/email-queue/jobs
 ```
 
 ```json
@@ -479,7 +479,7 @@ curl http://localhost:4100/v1/queues/email-queue/jobs
 ### `GET /v1/queues/:queue/dead` — List dead-lettered jobs
 
 ```bash
-curl http://localhost:4100/v1/queues/email-queue/dead
+curl http://localhost:8757/v1/queues/email-queue/dead
 ```
 
 ```json
@@ -507,7 +507,7 @@ curl http://localhost:4100/v1/queues/email-queue/dead
 | `metadataJson` | no | Metadata as JSON string |
 
 ```bash
-curl -X POST http://localhost:4100/v1/links \
+curl -X POST http://localhost:8757/v1/links \
   -H "Content-Type: application/json" \
   -d '{"fromRef": "users/alice", "linkType": "authored", "toRef": "memories/post-1"}'
 ```
@@ -529,7 +529,7 @@ curl -X POST http://localhost:4100/v1/links \
 ### `GET /v1/links?id=...` — Get link by ID
 
 ```bash
-curl "http://localhost:4100/v1/links?id=8d08a9c5-7ffa-44a9-8180-cf8dd179e61e"
+curl "http://localhost:8757/v1/links?id=8d08a9c5-7ffa-44a9-8180-cf8dd179e61e"
 ```
 
 ### `GET /v1/links?reference=...` — Get neighbors
@@ -544,7 +544,7 @@ curl "http://localhost:4100/v1/links?id=8d08a9c5-7ffa-44a9-8180-cf8dd179e61e"
 | `limit` | no | Max results |
 
 ```bash
-curl "http://localhost:4100/v1/links?reference=users/alice&direction=Outgoing"
+curl "http://localhost:8757/v1/links?reference=users/alice&direction=Outgoing"
 ```
 
 ```json
@@ -558,7 +558,7 @@ curl "http://localhost:4100/v1/links?reference=users/alice&direction=Outgoing"
 ### `DELETE /v1/links/:id` — Delete link
 
 ```bash
-curl -X DELETE http://localhost:4100/v1/links/8d08a9c5-7ffa-44a9-8180-cf8dd179e61e
+curl -X DELETE http://localhost:8757/v1/links/8d08a9c5-7ffa-44a9-8180-cf8dd179e61e
 ```
 
 ```json

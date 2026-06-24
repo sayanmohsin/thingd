@@ -271,7 +271,7 @@ crates/thingd
 
 Do not introduce a second app-facing API from the native package. The native path should pass the same SDK tests that the in-memory store passes.
 
-For storage decisions and the Rust/native binding direction, development planning is tracked in the private **thingd-cloud** repo.
+For storage decisions and the Rust/native binding direction, see the Rust crate docs and the native binding package.
 
 For CLI work, read [cli-reference.md](./cli-reference.md) before creating commands or package structure.
 For agent value and patterns, read [why-agents.md](./why-agents.md) and
@@ -290,7 +290,7 @@ For agent value and patterns, read [why-agents.md](./why-agents.md) and
 - Do not hide distributed-system tradeoffs. Multi-pod writes need server/sidecar or primary-writer mode.
 - Do not add multi-primary cluster behavior. Cluster mode uses leader-writer with forwarding and event replication.
 - Do not add generic textbook structures as public features unless they map to an AI-native workflow primitive.
-- Keep sidecar environment variables and Kubernetes examples aligned with the private **thingd-cloud** repo.
+- Keep sidecar environment variables and Kubernetes examples aligned with the deployed runtime configuration.
 - Keep package publish behavior in `release.config.mjs` and `docs/release.md` aligned.
 - For CLI work, create a dedicated package and use the public SDK instead of reaching into internal stores.
 - Keep CLI command behavior documented in [cli-reference.md](./cli-reference.md).

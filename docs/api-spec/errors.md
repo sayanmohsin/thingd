@@ -239,7 +239,7 @@ Queue operations (`ack`, `nack`) return a discriminated union instead of throwin
 ### REST
 
 ```javascript
-const res = await fetch("http://localhost:4100/v1/objects/users/user-001");
+const res = await fetch("http://localhost:8757/v1/objects/users/user-001");
 const json = await res.json();
 
 if (!res.ok) {

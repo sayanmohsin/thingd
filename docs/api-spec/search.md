@@ -106,7 +106,7 @@ This uses JSON equality matching (not FTS5), applied as a post-filter after full
 REST endpoints support `filter.key=value` query parameters for object listing:
 
 ```bash
-curl "http://localhost:4100/v1/objects?collection=users&filter.role=admin&filter.status=active"
+curl "http://localhost:8757/v1/objects?collection=users&filter.role=admin&filter.status=active"
 ```
 
 ## Collections
@@ -187,7 +187,7 @@ Each search result is either an object or an event:
 ### REST
 
 ```bash
-curl -X POST http://localhost:4100/v1/search \
+curl -X POST http://localhost:8757/v1/search \
   -H "Content-Type: application/json" \
   -d '{"query": "alice", "collections": ["users"], "limit": 5}'
 ```

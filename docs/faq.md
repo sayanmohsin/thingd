@@ -264,9 +264,7 @@ There is no Prometheus/metrics endpoint, no structured logging configuration, an
 
 ## thingd-cloud
 
-### What is thingd-cloud?
-
-thingd-cloud is the managed hosted version of thingd. It provides project-scoped MCP endpoints with API key auth (per-instance access control), tenant isolation, and a chat-first NLQ dashboard. See [thingd-cloud](https://github.com/sayanmohsin/thingd-cloud) for the private repo. For self-hosting, the sidecar on a VM or Kubernetes with `THINGD_URL` remains the supported path.
+thingd-cloud is the managed hosted version. See the [thingd-cloud](https://github.com/sayanmohsin/thingd-cloud) repo for details. For self-hosting, use the sidecar with `THINGD_URL`.
 
 ### Will APIs differ between local and cloud?
 

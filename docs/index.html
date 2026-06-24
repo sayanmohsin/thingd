@@ -672,7 +672,7 @@
     (async function fetchLiveData() {
       try {
         const [npmRes, ghRes, toolsRes] = await Promise.all([
-          fetch('https://registry.npmjs.org/thingd/latest'),
+          fetch('https://registry.npmjs.org/@thingd/sdk/latest'),
           fetch('https://api.github.com/repos/sayanmohsin/thingd/releases?per_page=1'),
           fetch('https://raw.githubusercontent.com/sayanmohsin/thingd/main/packages/thingd/src/mcp/tools.ts'),
         ]);
@@ -830,9 +830,7 @@
       const version = liveVersion ? liveVersion.replace(/^v/, '') : null;
       if (version) {
         for (const div of divs) {
-          if (div.textContent.includes('0.18.3')) {
-            div.innerHTML = div.innerHTML.replace('0.18.3', version);
-          }
+          div.innerHTML = div.innerHTML.replace(/[\d.]+/, version);
         }
       }
 
