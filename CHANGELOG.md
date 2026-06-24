@@ -1,3 +1,10 @@
+## [0.37.6](https://github.com/sayanmohsin/thingd/compare/v0.37.5...v0.37.6) (2026-06-24)
+
+### Bug Fixes
+
+* test native filter on every build-native matrix runner ([7f0b178](https://github.com/sayanmohsin/thingd/commit/7f0b1784aa6cb56e02f8e3ebde73bc883c10df2d))
+* use shell bash for native filter test on Windows runners ([10e916c](https://github.com/sayanmohsin/thingd/commit/10e916cf10f3d02551310b951b65a52df89fc282))
+
 ## [0.37.5](https://github.com/sayanmohsin/thingd/compare/v0.37.4...v0.37.5) (2026-06-24)
 
 ### Bug Fixes
