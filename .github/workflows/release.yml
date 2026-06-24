@@ -83,6 +83,7 @@ jobs:
         if: ${{ needs.check-release.outputs.needed == 'true' }}
       - name: Test native filter on ${{ matrix.platform }}-${{ matrix.arch }}
         if: ${{ needs.check-release.outputs.needed == 'true' }}
+        shell: bash
         run: |
           node << 'EOF'
           const { NativeThingStore } = require('./packages/thingd-native');
