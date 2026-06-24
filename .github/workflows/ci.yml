@@ -95,15 +95,16 @@ jobs:
         run: |
           node -e "
           const { NativeThingStore } = require('./packages/thingd-native');
-          const store = NativeThingStore.open('/tmp/test.db');
+          const store = NativeThingStore.open(require('node:os').tmpdir() + '/thingd-filter-test.db');
           store.putObjectJson('test', '1', JSON.stringify({status:'active'}));
-          const r1 = store.listObjectsJson('[\"test\"]', '{\"status\":\"nonexistent\"}', null, null, null, null);
+          const r1 = store.listObjectsJson('["test"]', '{"status":"nonexistent"}', null, null, null, null);
           const c1 = JSON.parse(r1).length;
           if (c1 !== 0) throw new Error('Non-matching filter returned ' + c1 + ' (expected 0)');
-          const r2 = store.listObjectsJson('[\"test\"]', '{\"status\":\"active\"}', null, null, null, null);
+          const r2 = store.listObjectsJson('["test"]', '{"status":"active"}', null, null, null, null);
           const c2 = JSON.parse(r2).length;
           if (c2 !== 1) throw new Error('Matching filter returned ' + c2 + ' (expected 1)');
           console.log('Native filter test passed');
+          try { require('node:fs').unlinkSync(require('node:os').tmpdir() + '/thingd-filter-test.db'); } catch {}
           "
       - run: pnpm test:cli
         if: matrix.run_cli_test == 'true'
@@ -134,15 +135,16 @@ jobs:
         run: |
           node -e "
           const { NativeThingStore } = require('./packages/thingd-native');
-          const store = NativeThingStore.open('/tmp/test.db');
+          const store = NativeThingStore.open(require('node:os').tmpdir() + '/thingd-filter-test.db');
           store.putObjectJson('test', '1', JSON.stringify({status:'active'}));
-          const r1 = store.listObjectsJson('[\"test\"]', '{\"status\":\"nonexistent\"}', null, null, null, null);
+          const r1 = store.listObjectsJson('["test"]', '{"status":"nonexistent"}', null, null, null, null);
           const c1 = JSON.parse(r1).length;
           if (c1 !== 0) throw new Error('Non-matching filter returned ' + c1 + ' (expected 0)');
-          const r2 = store.listObjectsJson('[\"test\"]', '{\"status\":\"active\"}', null, null, null, null);
+          const r2 = store.listObjectsJson('["test"]', '{"status":"active"}', null, null, null, null);
           const c2 = JSON.parse(r2).length;
           if (c2 !== 1) throw new Error('Matching filter returned ' + c2 + ' (expected 1)');
           console.log('Native filter test passed');
+          try { require('node:fs').unlinkSync(require('node:os').tmpdir() + '/thingd-filter-test.db'); } catch {}
           "
       - run: pnpm test:cli
       - run: pnpm test:package
