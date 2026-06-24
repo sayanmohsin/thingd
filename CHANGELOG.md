@@ -1,3 +1,10 @@
+## [0.37.4](https://github.com/sayanmohsin/thingd/compare/v0.37.3...v0.37.4) (2026-06-24)
+
+### Bug Fixes
+
+* replace node -e with heredoc in CI workflows ([7c5d347](https://github.com/sayanmohsin/thingd/commit/7c5d3470cae976637fd43ddbe9fbcf20045ab654))
+* use unique temp path for native filter test to avoid CI conflicts ([0a168b0](https://github.com/sayanmohsin/thingd/commit/0a168b0c94982b0ed7757f8f5f2c3a49bbf0a672))
+
 ## [0.37.3](https://github.com/sayanmohsin/thingd/compare/v0.37.2...v0.37.3) (2026-06-24)
 
 ### Bug Fixes
