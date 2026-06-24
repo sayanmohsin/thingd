@@ -42,7 +42,7 @@ jobs:
           fi
 
   build-native:
-    name: Build native (${{ matrix.platform }}-${{ matrix.arch }})
+    name: Build native binary
     needs: [check-release]
     if: ${{ needs.check-release.outputs.needed == 'true' }}
     strategy:
