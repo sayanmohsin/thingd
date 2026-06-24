@@ -42,9 +42,8 @@ jobs:
           fi
 
   build-native:
-    name: Build native binary
+    name: Build native (${{ matrix.platform }}-${{ matrix.arch }})
     needs: [check-release]
-    if: ${{ needs.check-release.outputs.needed == 'true' }}
     strategy:
       fail-fast: false
       matrix:
@@ -67,15 +66,21 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v6
+        if: ${{ needs.check-release.outputs.needed == 'true' }}
       - uses: dtolnay/rust-toolchain@stable
+        if: ${{ needs.check-release.outputs.needed == 'true' }}
       - uses: Swatinem/rust-cache@v2
+        if: ${{ needs.check-release.outputs.needed == 'true' }}
       - run: cargo build -p thingd-native --release
+        if: ${{ needs.check-release.outputs.needed == 'true' }}
       - run: node packages/thingd-native/scripts/copy-prebuild.mjs
+        if: ${{ needs.check-release.outputs.needed == 'true' }}
       - uses: actions/upload-artifact@v7
         with:
           name: prebuild-${{ matrix.platform }}-${{ matrix.arch }}
           path: packages/thingd-native/prebuilds/
           retention-days: 1
+        if: ${{ needs.check-release.outputs.needed == 'true' }}
 
   release:
     name: Publish to npm
