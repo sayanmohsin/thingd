@@ -414,7 +414,15 @@ async function fetchResources(): Promise<void> {
 interface TreeNode {
   id: string;
   parentId?: string;
-  type: "category" | "collection" | "object" | "stream" | "queue" | "status" | "driver" | "maintenance";
+  type:
+    | "category"
+    | "collection"
+    | "object"
+    | "stream"
+    | "queue"
+    | "status"
+    | "driver"
+    | "maintenance";
   label: string;
   depth: number;
   expandable: boolean;
@@ -1398,7 +1406,10 @@ async function handleMaintenance() {
         viewerLines = [` WAL Checkpoint not available (cloud driver)`, ``];
       }
     } catch (err) {
-      viewerLines = [` WAL Checkpoint failed: ${err instanceof Error ? err.message : String(err)}`, ``];
+      viewerLines = [
+        ` WAL Checkpoint failed: ${err instanceof Error ? err.message : String(err)}`,
+        ``,
+      ];
     }
   } else {
     try {
@@ -1409,7 +1420,10 @@ async function handleMaintenance() {
         viewerLines = [` Integrity check not available`, ``];
       }
     } catch (err) {
-      viewerLines = [` Integrity check failed: ${err instanceof Error ? err.message : String(err)}`, ``];
+      viewerLines = [
+        ` Integrity check failed: ${err instanceof Error ? err.message : String(err)}`,
+        ``,
+      ];
     }
   }
 

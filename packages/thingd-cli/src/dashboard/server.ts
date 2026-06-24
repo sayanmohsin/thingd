@@ -1,8 +1,8 @@
 import { existsSync, promises as fs, statSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { createRequire } from "node:module";
 import { dirname, extname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createRequire } from "node:module";
 import { handleRestRequest, ThingD } from "@thingd/sdk";
 import type { ConnectionOptions } from "../index.js";
 

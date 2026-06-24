@@ -41,9 +41,7 @@ pub async fn count_links(State(state): State<Arc<AppState>>) -> Result<Json<Valu
 
 // ─── Listings ───────────────────────────────────────────────────
 
-pub async fn list_collections(
-    State(state): State<Arc<AppState>>,
-) -> Result<Json<Value>, AppError> {
+pub async fn list_collections(State(state): State<Arc<AppState>>) -> Result<Json<Value>, AppError> {
     let e = state.pool.get("");
     let g = e.lock();
     ok(g.list_collections()

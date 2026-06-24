@@ -48,7 +48,6 @@ export class InMemoryThingStore implements ThingStore {
   private events = new Map<string, EventRow[]>();
   private jobs = new Map<string, JobRow[]>();
   private links = new Map<string, LinkRow>();
-  private linkCounter = 0;
 
   async put(collection: string, object: MemoryObject): Promise<StoredMemoryObject> {
     const key = `${collection}:${object.id}`;
@@ -194,7 +193,7 @@ export class InMemoryThingStore implements ThingStore {
       return null;
     }
 
-    const job = queueJobs[idx]!;
+    const job = queueJobs[idx] as JobRow;
     job.status = "leased";
     job.attempts += 1;
     job.leasedAt = now_.toISOString();
@@ -277,7 +276,6 @@ export class InMemoryThingStore implements ThingStore {
     weight?: number,
     metadataJson?: string
   ): Promise<Link> {
-    this.linkCounter++;
     const link: Link = {
       id: uid(),
       fromRef,

@@ -58,15 +58,18 @@ pub async fn handle_mcp_request(
                 #[allow(clippy::collapsible_if)]
                 if let Some(collection) = arguments.get("collection").and_then(|v| v.as_str()) {
                     if !state.mcp_config.collection_allowlist.is_empty()
-                        && !state.mcp_config.collection_allowlist.contains(&collection.to_string())
+                        && !state
+                            .mcp_config
+                            .collection_allowlist
+                            .contains(&collection.to_string())
                     {
-                            return Ok(Json(json!({
-                                "jsonrpc": "2.0",
-                                "error": { "code": -32603, "message": format!("Collection '{collection}' is not in the allowlist") },
-                                "id": body.get("id")
-                            })));
-                        }
+                        return Ok(Json(json!({
+                            "jsonrpc": "2.0",
+                            "error": { "code": -32603, "message": format!("Collection '{collection}' is not in the allowlist") },
+                            "id": body.get("id")
+                        })));
                     }
+                }
             }
 
             let result = match tool_name {

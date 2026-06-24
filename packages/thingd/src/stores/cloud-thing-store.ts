@@ -244,7 +244,9 @@ export class CloudThingStore implements ThingStore {
     let count = 0;
     for (const id of ids) {
       const deleted = await this.delete(collection, id);
-      if (deleted) count++;
+      if (deleted) {
+        count++;
+      }
     }
     return count;
   }
@@ -257,8 +259,12 @@ export class CloudThingStore implements ThingStore {
     metadataJson?: string
   ): Promise<import("../types.js").Link> {
     const body: Record<string, unknown> = { fromRef, linkType, toRef };
-    if (weight !== undefined) body.weight = weight;
-    if (metadataJson !== undefined) body.metadataJson = metadataJson;
+    if (weight !== undefined) {
+      body.weight = weight;
+    }
+    if (metadataJson !== undefined) {
+      body.metadataJson = metadataJson;
+    }
     const res = await this.restPost("/v1/links", body);
     return res.data as import("../types.js").Link;
   }
@@ -287,8 +293,12 @@ export class CloudThingStore implements ThingStore {
     options: import("../types.js").LinkQueryOptions
   ): Promise<import("../types.js").Link[]> {
     const params = new URLSearchParams({ reference, direction: direction || "Both" });
-    if (options.linkType) params.set("linkType", options.linkType);
-    if (options.limit !== undefined) params.set("limit", String(options.limit));
+    if (options.linkType) {
+      params.set("linkType", options.linkType);
+    }
+    if (options.limit !== undefined) {
+      params.set("limit", String(options.limit));
+    }
     try {
       const res = await this.restGet(`/v1/links?${params.toString()}`);
       return (res.data as import("../types.js").Link[]) ?? [];
@@ -330,7 +340,7 @@ export class CloudThingStore implements ThingStore {
     const base = this.restBaseUrl();
     const headers: Record<string, string> = { "Content-Type": "application/json" };
     if (this.connectOptions.authToken) {
-      headers["Authorization"] = `Bearer ${this.connectOptions.authToken}`;
+      headers.Authorization = `Bearer ${this.connectOptions.authToken}`;
     }
     const res = await fetch(`${base}${path}`, { headers });
     if (!res.ok) {
@@ -343,7 +353,7 @@ export class CloudThingStore implements ThingStore {
     const base = this.restBaseUrl();
     const headers: Record<string, string> = { "Content-Type": "application/json" };
     if (this.connectOptions.authToken) {
-      headers["Authorization"] = `Bearer ${this.connectOptions.authToken}`;
+      headers.Authorization = `Bearer ${this.connectOptions.authToken}`;
     }
     const res = await fetch(`${base}${path}`, {
       method: "POST",
@@ -360,7 +370,7 @@ export class CloudThingStore implements ThingStore {
     const base = this.restBaseUrl();
     const headers: Record<string, string> = { "Content-Type": "application/json" };
     if (this.connectOptions.authToken) {
-      headers["Authorization"] = `Bearer ${this.connectOptions.authToken}`;
+      headers.Authorization = `Bearer ${this.connectOptions.authToken}`;
     }
     const res = await fetch(`${base}${path}`, {
       method: "DELETE",

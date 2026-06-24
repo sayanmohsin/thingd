@@ -41,8 +41,8 @@ async fn main() {
         pool,
         mcp_config: config.mcp.clone(),
     });
-    let app =
-        server::build_router(Arc::clone(&app_state), &config).into_make_service_with_connect_info::<SocketAddr>();
+    let app = server::build_router(Arc::clone(&app_state), &config)
+        .into_make_service_with_connect_info::<SocketAddr>();
 
     let listener =
         tokio::net::TcpListener::bind(format!("{}:{}", config.server.host, config.server.port))
