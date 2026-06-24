@@ -5,6 +5,8 @@ pre-push:
       run: pnpm check
     build:
       run: pnpm build
+    test-node:
+      run: pnpm test:node
     rust-fmt:
       run: cargo fmt --all --check
     rust-clippy:

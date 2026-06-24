@@ -9,8 +9,19 @@ import type { ConnectionOptions } from "../index.js";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const _require = createRequire(__filename);
-const pkg = _require("../package.json");
-const pkgVersion: string = pkg.version || "0.0.0";
+let pkgVersion = "0.0.0";
+try {
+  const pkg = _require("../../package.json");
+  pkgVersion = pkg.version || "0.0.0";
+} catch {
+  // fallback — try relative to dist
+  try {
+    const pkg = _require("../package.json");
+    pkgVersion = pkg.version || "0.0.0";
+  } catch {
+    // leave default
+  }
+}
 
 // Candidate public folders to support both tsx dev and compiled dist packaging
 const publicDirCandidates = [
