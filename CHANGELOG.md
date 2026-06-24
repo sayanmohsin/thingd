@@ -1,3 +1,14 @@
+## [0.37.2](https://github.com/sayanmohsin/thingd/compare/v0.37.1...v0.37.2) (2026-06-24)
+
+### Bug Fixes
+
+* add ref:main to all release workflow checkouts ([42593f3](https://github.com/sayanmohsin/thingd/commit/42593f321a8dad6620717a0fe7298c6e3b824d90))
+* disable lefthook during release to prevent push failures ([23dbd06](https://github.com/sayanmohsin/thingd/commit/23dbd0636374bf7b1abc3850d96f77ed696c770a))
+* keep build-native dynamic name even when skipped ([5bbf0f2](https://github.com/sayanmohsin/thingd/commit/5bbf0f2c43fdf82ac412f911d85a11868e28a0d2))
+* release check-release uses --format=%s not --oneline ([19a587f](https://github.com/sayanmohsin/thingd/commit/19a587f01d6796ace7f0f47448bc1b32b0ec1a92))
+* skip pre-push hooks during semantic-release git push ([54d1b05](https://github.com/sayanmohsin/thingd/commit/54d1b055956856787120afc80e46a8026eff43ad))
+* use static job name for build-native to avoid raw template in skipped matrix jobs ([99c0ec3](https://github.com/sayanmohsin/thingd/commit/99c0ec3788611912f9f8ded36d688fe71a18e31e))
+
 ## [0.37.1](https://github.com/sayanmohsin/thingd/compare/v0.37.0...v0.37.1) (2026-06-24)
 
 ### Bug Fixes
