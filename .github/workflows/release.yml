@@ -95,6 +95,7 @@ jobs:
       new_version: ${{ steps.version.outputs.new_version }}
       released: ${{ steps.version.outputs.released }}
     env:
+      LEFTHOOK: "0"
       NPM_CONFIG_AUDIT: "false"
       NPM_CONFIG_FUND: "false"
     steps:
