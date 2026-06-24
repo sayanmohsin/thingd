@@ -1,3 +1,10 @@
+## [0.37.1](https://github.com/sayanmohsin/thingd/compare/v0.37.0...v0.37.1) (2026-06-24)
+
+### Bug Fixes
+
+* cargo-deny config format for v0.18+ ([bc1cedc](https://github.com/sayanmohsin/thingd/commit/bc1cedce904c1a70e148515030eac44e49538969))
+* NativeThingStore filter silently drops undefined values ([148d853](https://github.com/sayanmohsin/thingd/commit/148d853548b9984ae8dc3d7533e1d0a7b0a475df))
+
 ## [0.37.0](https://github.com/sayanmohsin/thingd/compare/v0.36.0...v0.37.0) (2026-06-24)
 
 ### Features
