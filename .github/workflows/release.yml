@@ -75,6 +75,8 @@ jobs:
         if: ${{ needs.check-release.outputs.needed == 'true' }}
       - uses: Swatinem/rust-cache@v2
         if: ${{ needs.check-release.outputs.needed == 'true' }}
+        with:
+          key: native-${{ hashFiles('packages/thingd-native/**/*.rs', 'crates/thingd/src/**/*.rs') }}
       - run: cargo build -p thingd-native --release
         if: ${{ needs.check-release.outputs.needed == 'true' }}
       - run: node packages/thingd-native/scripts/copy-prebuild.mjs
@@ -187,6 +189,8 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
 
       - uses: Swatinem/rust-cache@v2
+        with:
+          key: server-${{ hashFiles('crates/thingd-server/**/*.rs', 'crates/thingd/src/**/*.rs') }}
 
       - name: Build thingd-server binary
         run: |
