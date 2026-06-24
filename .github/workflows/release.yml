@@ -81,6 +81,21 @@ jobs:
         if: ${{ needs.check-release.outputs.needed == 'true' }}
       - run: node packages/thingd-native/scripts/copy-prebuild.mjs
         if: ${{ needs.check-release.outputs.needed == 'true' }}
+      - name: Test native filter on ${{ matrix.platform }}-${{ matrix.arch }}
+        if: ${{ needs.check-release.outputs.needed == 'true' }}
+        run: |
+          node << 'EOF'
+          const { NativeThingStore } = require('./packages/thingd-native');
+          const path = require('node:os').tmpdir() + '/thingd-filter-test.db';
+          const store = NativeThingStore.open(path);
+          store.putObjectJson('test', '1', JSON.stringify({status:'active'}));
+          const r1 = store.listObjectsJson('["test"]', '{"status":"nonexistent"}', null, null, null, null);
+          if (JSON.parse(r1).length !== 0) throw new Error('Non-matching filter returned non-empty');
+          const r2 = store.listObjectsJson('["test"]', '{"status":"active"}', null, null, null, null);
+          if (JSON.parse(r2).length !== 1) throw new Error('Matching filter returned wrong count');
+          console.log('Native filter test passed on', process.platform, process.arch);
+          try { require('node:fs').unlinkSync(path); } catch {}
+          EOF
       - uses: actions/upload-artifact@v7
         with:
           name: prebuild-${{ matrix.platform }}-${{ matrix.arch }}
@@ -140,23 +155,6 @@ jobs:
       - run: pnpm install --frozen-lockfile
 
       - run: pnpm --filter @thingd/sdk --filter @thingd/cli build
-
-      - name: Verify native filter works
-        run: |
-          node << 'EOF'
-          const { NativeThingStore } = require('./packages/thingd-native');
-          const path = require('node:os').tmpdir() + '/thingd-filter-test.db';
-          const store = NativeThingStore.open(path);
-          store.putObjectJson('test', '1', JSON.stringify({status:'active'}));
-          const r1 = store.listObjectsJson('["test"]', '{"status":"nonexistent"}', null, null, null, null);
-          const c1 = JSON.parse(r1).length;
-          if (c1 !== 0) throw new Error('Non-matching filter returned ' + c1 + ' (expected 0)');
-          const r2 = store.listObjectsJson('["test"]', '{"status":"active"}', null, null, null, null);
-          const c2 = JSON.parse(r2).length;
-          if (c2 !== 1) throw new Error('Matching filter returned ' + c2 + ' (expected 1)');
-          console.log('Native filter test passed');
-          try { require('node:fs').unlinkSync(path); } catch {}
-          EOF
 
       - name: Publish release
         id: version
