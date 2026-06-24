@@ -86,6 +86,21 @@ jobs:
       - run: pnpm --filter @thingd/sdk --filter @thingd/cli build
         if: matrix.build_native == 'false'
       - run: pnpm test:node
+      - name: Verify native filter
+        if: matrix.build_native == 'true'
+        run: |
+          node -e "
+          const { NativeThingStore } = require('./packages/thingd-native');
+          const store = NativeThingStore.open('/tmp/test.db');
+          store.putObjectJson('test', '1', JSON.stringify({status:'active'}));
+          const r1 = store.listObjectsJson('[\"test\"]', '{\"status\":\"nonexistent\"}', null, null, null, null);
+          const c1 = JSON.parse(r1).length;
+          if (c1 !== 0) throw new Error('Non-matching filter returned ' + c1 + ' (expected 0)');
+          const r2 = store.listObjectsJson('[\"test\"]', '{\"status\":\"active\"}', null, null, null, null);
+          const c2 = JSON.parse(r2).length;
+          if (c2 !== 1) throw new Error('Matching filter returned ' + c2 + ' (expected 1)');
+          console.log('Native filter test passed');
+          "
       - run: pnpm test:cli
         if: matrix.run_cli_test == 'true'
       - run: pnpm test:package
@@ -109,6 +124,20 @@ jobs:
       - run: pnpm check
       - run: pnpm --filter @thingd/sdk --filter @thingd/cli --filter @thingd/native build
       - run: pnpm test:node
+      - name: Verify native filter
+        run: |
+          node -e "
+          const { NativeThingStore } = require('./packages/thingd-native');
+          const store = NativeThingStore.open('/tmp/test.db');
+          store.putObjectJson('test', '1', JSON.stringify({status:'active'}));
+          const r1 = store.listObjectsJson('[\"test\"]', '{\"status\":\"nonexistent\"}', null, null, null, null);
+          const c1 = JSON.parse(r1).length;
+          if (c1 !== 0) throw new Error('Non-matching filter returned ' + c1 + ' (expected 0)');
+          const r2 = store.listObjectsJson('[\"test\"]', '{\"status\":\"active\"}', null, null, null, null);
+          const c2 = JSON.parse(r2).length;
+          if (c2 !== 1) throw new Error('Matching filter returned ' + c2 + ' (expected 1)');
+          console.log('Native filter test passed');
+          "
       - run: pnpm test:cli
       - run: pnpm test:package
 
