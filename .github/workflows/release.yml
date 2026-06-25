@@ -136,6 +136,10 @@ jobs:
         run: |
           echo "//registry.npmjs.org/:_authToken=${{ secrets.NPM_TOKEN }}" >> .npmrc
 
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm --filter @thingd/sdk --filter @thingd/cli build
+
       - name: Download prebuild artifacts
         uses: actions/download-artifact@v8
         with:
@@ -152,10 +156,6 @@ jobs:
           done
           echo "Prebuilds after merge:"
           ls -la packages/thingd-native/prebuilds/*/
-
-      - run: pnpm install --frozen-lockfile
-
-      - run: pnpm --filter @thingd/sdk --filter @thingd/cli build
 
       - name: Publish release
         id: version
