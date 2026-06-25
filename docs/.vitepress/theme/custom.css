@@ -64,6 +64,12 @@
   border-color: var(--vp-c-brand-1);
 }
 
+/* Navbar logo size */
+.VPNavBar .logo {
+  width: 120px;
+  height: 38px;
+}
+
 /* Code blocks */
 .dark .vp-code-group .vp-code-block {
   border-color: rgba(255, 255, 255, 0.06);
