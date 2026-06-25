@@ -23,18 +23,9 @@
     </filter>
   </defs>
 
-  <g transform="translate(15, 31)" font-size="22" font-weight="500">
-    <text x="0" fill="#e05316" filter="url(#main-orange)">{</text>
-    
-    <text x="13.2" fill="#00c4d4" filter="url(#main-cyan)">t</text>
-    <text x="26.4" fill="#00c4d4" filter="url(#main-cyan)">h</text>
-    <text x="39.6" fill="#00c4d4" filter="url(#main-cyan)">i</text>
-    <text x="52.8" fill="#00c4d4" filter="url(#main-cyan)">n</text>
-    <text x="66.0" fill="#00c4d4" filter="url(#main-cyan)">g</text>
-    
-    <text x="79.2" fill="#e05316" filter="url(#main-orange)">:</text>
-    <text x="88.0" fill="#e05316" filter="url(#main-orange)">d</text>
-    
-    <text x="98.0" fill="#e05316" filter="url(#main-orange)">}</text>
+  <g transform="translate(15, 33)" font-size="24" font-weight="600">
+    <tspan fill="#e05316" filter="url(#main-orange)">{</tspan>
+    <tspan fill="#00c4d4" filter="url(#main-cyan)">thing</tspan>
+    <tspan fill="#e05316" filter="url(#main-orange)">:d}</tspan>
   </g>
 </svg>

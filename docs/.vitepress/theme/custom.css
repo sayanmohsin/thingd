@@ -64,10 +64,10 @@
   border-color: var(--vp-c-brand-1);
 }
 
-/* Navbar logo — enough room for {thing:d} without clipping */
+/* Navbar logo — natural text flow, no hardcoded positions */
 .VPNavBar .logo {
-  width: 132px !important;
-  height: 42px !important;
+  width: 140px !important;
+  height: 44px !important;
 }
 
 /* Code blocks */
