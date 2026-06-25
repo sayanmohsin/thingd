@@ -5,9 +5,6 @@ hero:
   name: thingd
   text: Object-first data engine
   tagline: A fast, local-first engine for applications and AI agents. Persistent storage, durable queues, event streams, full-text search, and MCP-native access — in one package.
-  image:
-    src: /logo.svg
-    alt: thingd
   actions:
     - theme: brand
       text: Get started →
