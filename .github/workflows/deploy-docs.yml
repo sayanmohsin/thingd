@@ -31,7 +31,7 @@ jobs:
           cache-dependency-path: docs/pnpm-lock.yaml
 
       - name: Install dependencies
-        run: pnpm install --config.confirmModulesPurge=false
+        run: pnpm install --frozen-lockfile
         working-directory: docs
 
       - name: Build VitePress
