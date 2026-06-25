@@ -118,8 +118,8 @@ export default defineConfig({
     socialLinks: [{ icon: "github", link: "https://github.com/sayanmohsin/thingd" }],
 
     footer: {
-      message: "Apache-2.0 License",
-      copyright: "© 2024–present Sayan Mohsin",
+      message: "Built with Rust · Apache-2.0 License",
+      copyright: "© 2024–present <a href='https://github.com/sayanmohsin'>Sayan Mohsin</a>",
     },
   },
 });
