@@ -13,7 +13,7 @@ export default defineConfig({
 
   themeConfig: {
     logo: "/logo.svg",
-    siteTitle: "thingd",
+    siteTitle: "",
 
     search: {
       provider: "local",
