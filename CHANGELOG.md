@@ -1,3 +1,10 @@
+## [0.37.9](https://github.com/sayanmohsin/thingd/compare/v0.37.8...v0.37.9) (2026-06-25)
+
+### Bug Fixes
+
+* remove hardcoded pnpm version from deploy-docs workflow (use packageManager from package.json) ([ad6ce6d](https://github.com/sayanmohsin/thingd/commit/ad6ce6de3b926142882d36790f3b7a030411d9ef))
+* use pnpm install without --frozen-lockfile for docs deploy ([bce37ab](https://github.com/sayanmohsin/thingd/commit/bce37abcdf682bacda4a2c4ccc9361d9ad33e17f))
+
 ## [0.37.8](https://github.com/sayanmohsin/thingd/compare/v0.37.7...v0.37.8) (2026-06-25)
 
 ### Bug Fixes
