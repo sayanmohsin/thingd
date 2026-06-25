@@ -1,3 +1,9 @@
+## [0.37.8](https://github.com/sayanmohsin/thingd/compare/v0.37.7...v0.37.8) (2026-06-25)
+
+### Bug Fixes
+
+* biome lint in docs theme (hoisted h(), import order) ([02ee53f](https://github.com/sayanmohsin/thingd/commit/02ee53f43dac043f2e00e5ec196b8433e3316cca))
+
 ## [0.37.7](https://github.com/sayanmohsin/thingd/compare/v0.37.6...v0.37.7) (2026-06-25)
 
 ### Bug Fixes
