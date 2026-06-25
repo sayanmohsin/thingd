@@ -119,7 +119,7 @@ export default defineConfig({
 
     footer: {
       message: "Built with Rust · Apache-2.0 License",
-      copyright: "© 2024–present <a href='https://github.com/sayanmohsin'>Sayan Mohsin</a>",
+      copyright: "© 2026 <a href='https://github.com/sayanmohsin'>Sayan Mohsin</a>",
     },
   },
 });
