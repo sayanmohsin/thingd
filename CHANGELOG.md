@@ -1,3 +1,9 @@
+## [0.37.7](https://github.com/sayanmohsin/thingd/compare/v0.37.6...v0.37.7) (2026-06-25)
+
+### Bug Fixes
+
+* move prebuild merge after pnpm install in release workflow ([a45bae3](https://github.com/sayanmohsin/thingd/commit/a45bae31362b81ddd1a34519f127d9cd47410aed)), closes [#39](https://github.com/sayanmohsin/thingd/issues/39)
+
 ## [0.37.6](https://github.com/sayanmohsin/thingd/compare/v0.37.5...v0.37.6) (2026-06-24)
 
 ### Bug Fixes
