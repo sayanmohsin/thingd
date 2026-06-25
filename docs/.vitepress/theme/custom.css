@@ -64,9 +64,9 @@
   border-color: var(--vp-c-brand-1);
 }
 
-/* Navbar logo — slightly larger without distortion */
-.VPNavBar .logo img {
-  max-height: 36px;
+/* Navbar logo — proper size without clipping */
+.VPNavBar .logo {
+  width: 120px;
 }
 
 /* Code blocks */
