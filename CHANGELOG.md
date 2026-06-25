@@ -1,3 +1,11 @@
+## [0.37.11](https://github.com/sayanmohsin/thingd/compare/v0.37.10...v0.37.11) (2026-06-25)
+
+### Bug Fixes
+
+* inline particle component as h() function to prevent SSR hydration error ([98bcc60](https://github.com/sayanmohsin/thingd/commit/98bcc605ff9275b082dc52c0eac4ce5e73d5e235))
+* inline particle component to prevent SSR hydration crash ([810a75d](https://github.com/sayanmohsin/thingd/commit/810a75d872c9740d9cfbfda9f310d278f808be72))
+* remove duplicate hero logo, redesign SVG with gradients and better glow ([270b09f](https://github.com/sayanmohsin/thingd/commit/270b09ff0aa2e5cdbb51afa8d965f488dc83ef9e))
+
 ## [0.37.10](https://github.com/sayanmohsin/thingd/compare/v0.37.9...v0.37.10) (2026-06-25)
 
 ### Bug Fixes
