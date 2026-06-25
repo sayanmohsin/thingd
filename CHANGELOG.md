@@ -1,3 +1,9 @@
+## [0.37.10](https://github.com/sayanmohsin/thingd/compare/v0.37.9...v0.37.10) (2026-06-25)
+
+### Bug Fixes
+
+* use allowBuilds in pnpm-workspace.yaml for docs deploy (pnpm 11 migration) ([d6ce40d](https://github.com/sayanmohsin/thingd/commit/d6ce40d01be4247ec63b85a883b11d6a155a541c))
+
 ## [0.37.9](https://github.com/sayanmohsin/thingd/compare/v0.37.8...v0.37.9) (2026-06-25)
 
 ### Bug Fixes
