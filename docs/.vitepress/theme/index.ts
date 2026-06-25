@@ -1,5 +1,5 @@
-import { h } from "vue";
 import DefaultTheme from "vitepress/theme";
+import { h } from "vue";
 import ParticleBackground from "./components/ParticleBackground.vue";
 import "./custom.css";
 

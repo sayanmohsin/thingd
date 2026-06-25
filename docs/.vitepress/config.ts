@@ -2,8 +2,7 @@ import { defineConfig } from "vitepress";
 
 export default defineConfig({
   title: "thingd",
-  description:
-    "A fast object-first data engine for applications and AI agents",
+  description: "A fast object-first data engine for applications and AI agents",
   base: "/thingd/",
   ignoreDeadLinks: true,
 
@@ -116,9 +115,7 @@ export default defineConfig({
       },
     ],
 
-    socialLinks: [
-      { icon: "github", link: "https://github.com/sayanmohsin/thingd" },
-    ],
+    socialLinks: [{ icon: "github", link: "https://github.com/sayanmohsin/thingd" }],
 
     footer: {
       message: "Apache-2.0 License",
