@@ -1,0 +1,85 @@
+/* ── thingd theme overrides ── */
+
+:root {
+  --vp-c-brand-1: #e05316;
+  --vp-c-brand-2: #ff6a00;
+  --vp-c-brand-3: #ff9944;
+  --vp-c-brand-soft: rgba(224, 83, 22, 0.14);
+
+  --vp-button-brand-border: transparent;
+  --vp-button-brand-text: #fff;
+  --vp-button-brand-bg: #e05316;
+  --vp-button-brand-hover-border: transparent;
+  --vp-button-brand-hover-text: #fff;
+  --vp-button-brand-hover-bg: #ff6a00;
+  --vp-button-brand-active-border: transparent;
+  --vp-button-brand-active-text: #fff;
+  --vp-button-brand-active-bg: #cc4411;
+
+  --vp-home-hero-name-color: transparent;
+  --vp-home-hero-name-background: -webkit-linear-gradient(
+    120deg,
+    #e05316 30%,
+    #ff9944
+  );
+
+  --vp-home-hero-image-background-image: linear-gradient(
+    -45deg,
+    #e0531650 50%,
+    #00c4d450 50%
+  );
+  --vp-home-hero-image-filter: blur(44px);
+}
+
+.dark {
+  --vp-c-brand-1: #ff6a00;
+  --vp-c-brand-2: #ff9944;
+  --vp-c-brand-3: #e05316;
+  --vp-c-brand-soft: rgba(255, 106, 0, 0.14);
+
+  --vp-button-brand-bg: #e05316;
+  --vp-button-brand-hover-bg: #ff6a00;
+}
+
+/* Hero gradient text */
+.VPHero .name .clip {
+  background: linear-gradient(135deg, #e05316, #ff9944);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Feature card hover */
+.VPFeature {
+  transition: border-color 0.25s, box-shadow 0.25s;
+}
+
+.VPFeature:hover {
+  border-color: var(--vp-c-brand-1);
+  box-shadow: 0 0 24px rgba(224, 83, 22, 0.12);
+}
+
+/* Badge style */
+.VPBadge.status {
+  border-color: var(--vp-c-brand-1);
+}
+
+/* Code blocks */
+.dark .vp-code-group .vp-code-block {
+  border-color: rgba(255, 255, 255, 0.06);
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+}
+::-webkit-scrollbar-track {
+  background: var(--vp-c-bg);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--vp-c-divider);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--vp-c-gray-3);
+}
