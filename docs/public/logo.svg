@@ -17,5 +17,10 @@
       <feComposite in="SourceGraphic" in2="blur" operator="over"/>
     </filter>
   </defs>
+  <!--
+    Keep the three <tspan> tags on a single line with no whitespace between
+    them. Newlines/indentation between tspans are rendered as visible spaces,
+    which breaks the `{thing:d}` spacing.
+  -->
   <text x="6" y="36" font-family="ui-monospace, 'Cascadia Code', 'Fira Code', 'JetBrains Mono', Menlo, Consolas, monospace" font-size="30" font-weight="700"><tspan fill="url(#orange)" filter="url(#glow-orange)">{</tspan><tspan fill="url(#cyan)" filter="url(#glow-cyan)">thing</tspan><tspan fill="url(#orange)" filter="url(#glow-orange)">:d}</tspan></text>
 </svg>

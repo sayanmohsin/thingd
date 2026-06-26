@@ -64,7 +64,12 @@
   border-color: var(--vp-c-brand-1);
 }
 
-/* Navbar logo */
+/*
+  Navbar logo
+  - object-fit: contain keeps the SVG from being stretched or clipped.
+  - max-width gives the `{thing:d}` logo enough room without breaking the
+    navbar layout on smaller screens.
+*/
 .VPNavBar .logo {
   width: auto !important;
   height: 34px !important;
