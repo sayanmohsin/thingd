@@ -7,7 +7,7 @@ export default defineConfig({
   ignoreDeadLinks: true,
 
   head: [
-    ["link", { rel: "icon", type: "image/svg+xml", href: "/favicon.svg" }],
+    ["link", { rel: "icon", type: "image/svg+xml", href: "/thingd/favicon.svg" }],
     ["meta", { name: "theme-color", content: "#07090b" }],
   ],
 
