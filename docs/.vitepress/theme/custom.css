@@ -66,8 +66,10 @@
 
 /* Navbar logo */
 .VPNavBar .logo {
-  width: 120px !important;
+  width: auto !important;
   height: 34px !important;
+  max-width: 160px !important;
+  object-fit: contain !important;
 }
 
 /* Code blocks */
