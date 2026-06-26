@@ -11,9 +11,9 @@
       </feMerge>
     </filter>
   </defs>
-  <text x="0" y="32" font-size="26" font-weight="600" font-family="Inter, system-ui, sans-serif" filter="url(#glow)">
-    <tspan fill="#e05316">{</tspan>
-    <tspan fill="#00c4d4">thing</tspan>
-    <tspan fill="#e05316">:d}</tspan>
-  </text>
+  <g filter="url(#glow)">
+    <text x="0" y="32" font-size="26" font-weight="600" font-family="Inter, system-ui, sans-serif" fill="#e05316">{</text>
+    <text x="18" y="32" font-size="26" font-weight="600" font-family="Inter, system-ui, sans-serif" fill="#00c4d4">thing</text>
+    <text x="92" y="32" font-size="26" font-weight="600" font-family="Inter, system-ui, sans-serif" fill="#e05316">:d}</text>
+  </g>
 </svg>
