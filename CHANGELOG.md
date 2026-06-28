@@ -1,3 +1,9 @@
+## [0.39.0](https://github.com/sayanmohsin/thingd/compare/v0.38.2...v0.39.0) (2026-06-28)
+
+### Features
+
+* **skill:** add audit-after-change skill — doc cross-ref, thingd-cloud sync, test gap check ([0958e12](https://github.com/sayanmohsin/thingd/commit/0958e12818a1e3f6bbd1fcb9fae02df0907677ee))
+
 ## [0.38.2](https://github.com/sayanmohsin/thingd/compare/v0.38.1...v0.38.2) (2026-06-28)
 
 ### Bug Fixes
