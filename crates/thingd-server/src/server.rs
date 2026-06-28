@@ -1,11 +1,14 @@
 use axum::{
     Router,
-    http::{Method, header},
+    error_handling::HandleErrorLayer,
+    http::{Method, StatusCode, header},
     middleware,
     routing::{get, post, put},
 };
 use std::sync::Arc;
 use std::time::Duration;
+use tower::ServiceBuilder;
+use tower::timeout::TimeoutLayer;
 use tower_http::cors::CorsLayer;
 
 use crate::auth::auth_middleware;
@@ -83,6 +86,25 @@ pub fn build_router(state: Arc<AppState>, config: &Config) -> Router {
             .max_age(Duration::from_secs(config.hardening.cors_max_age_secs));
         router = router.layer(cors);
     }
+
+    // Apply request timeout
+    // Apply request timeout (ServiceBuilder composes HandleErrorLayer + TimeoutLayer
+    // into a single layer so the error type is Infallible)
+    router = router.layer(
+        ServiceBuilder::new()
+            .layer(HandleErrorLayer::new(
+                |_: Box<dyn std::error::Error + Send + Sync>| async {
+                    (
+                        StatusCode::REQUEST_TIMEOUT,
+                        "Request timed out".to_string(),
+                    )
+                },
+            ))
+            .layer(TimeoutLayer::new(Duration::from_secs(
+                config.server.request_timeout_secs,
+            )))
+            .into_inner(),
+    );
 
     // Wire auth middleware when a token is configured and unauthenticated access is not allowed
     if !config.auth.allow_unauthenticated && !config.auth.token.is_empty() {
