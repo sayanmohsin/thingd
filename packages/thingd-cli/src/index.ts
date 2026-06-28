@@ -446,23 +446,20 @@ async function runBench(context: CliContext): Promise<void> {
 async function runDbCheckpoint(context: CliContext): Promise<void> {
   await withDb(context, async (db) => {
     const result = db.walCheckpoint();
-    console.log(JSON.stringify(result, null, 2));
+    writeJson(context.stdout, result, context.pretty);
   });
 }
 
 async function runDbIntegrity(context: CliContext): Promise<void> {
   await withDb(context, async (db) => {
-    // Basic integrity: attempt a simple query
     try {
       await db.countObjects();
-      console.log(JSON.stringify({ ok: true, message: "Database is accessible" }, null, 2));
+      writeJson(context.stdout, { ok: true, message: "Database is accessible" }, context.pretty);
     } catch (err) {
-      console.log(
-        JSON.stringify(
-          { ok: false, message: err instanceof Error ? err.message : String(err) },
-          null,
-          2
-        )
+      writeJson(
+        context.stdout,
+        { ok: false, message: err instanceof Error ? err.message : String(err) },
+        context.pretty
       );
     }
   });

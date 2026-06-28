@@ -268,12 +268,8 @@ async function fetchResourcesFallback() {
 
   // Queues
   try {
-    const store = (db as unknown as { store?: { queues?: Map<string, unknown> } }).store;
-    if (store?.queues) {
-      queues = (Array.from(store.queues.keys()) as string[]).sort();
-    } else {
-      queues = ["embed", "load-queue", "worker-queue"];
-    }
+    const listed = await db.listQueues();
+    queues = (listed ?? []).sort();
   } catch {
     queues = ["embed", "load-queue", "worker-queue"];
   }
@@ -396,7 +392,9 @@ async function fetchResources(): Promise<void> {
   if (driver === "native" && dbPath) {
     try {
       sizeKb = Math.round(fs.statSync(dbPath).size / 1024);
-    } catch {}
+    } catch {
+      sizeKb = 0;
+    }
   }
 
   if (dbSizeHistory.length === 0) {
@@ -728,7 +726,9 @@ async function loadContent(node: TreeNode): Promise<void> {
       if (driver === "native" && dbPath) {
         try {
           sizeKb = Math.round(fs.statSync(dbPath).size / 1024);
-        } catch {}
+        } catch {
+          sizeKb = 0;
+        }
       }
       const dbSizeStr = driver === "native" ? `${sizeKb} KB` : "--";
 
