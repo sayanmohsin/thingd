@@ -177,3 +177,4 @@ cargo publish -p thingd --features sqlite
 ## Skills
 
 - `/skill upgrade-deps-and-benchmark` — audit all deps, bump to latest, run benchmarks
+- `/skill audit-after-change` — cross-reference docs vs code, find stale content, sync thingd-cloud planning docs, check test gaps and version pins
