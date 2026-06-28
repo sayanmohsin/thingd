@@ -1,3 +1,9 @@
+## [0.38.2](https://github.com/sayanmohsin/thingd/compare/v0.38.1...v0.38.2) (2026-06-28)
+
+### Bug Fixes
+
+* **cli:** writeJson for db subcommands, remove fragile internal state access in TUI ([7a7376e](https://github.com/sayanmohsin/thingd/commit/7a7376ef813acedcd399cfa1d5cfed4725f36519))
+
 ## [0.38.1](https://github.com/sayanmohsin/thingd/compare/v0.38.0...v0.38.1) (2026-06-28)
 
 ### Bug Fixes
