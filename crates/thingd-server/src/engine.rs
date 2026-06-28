@@ -20,6 +20,7 @@ pub fn create_engine(
 pub struct EnginePool {
     engines: RwLock<HashMap<String, SharedEngine>>,
     default_path: String,
+    has_fallback: parking_lot::Mutex<bool>,
 }
 
 impl EnginePool {
@@ -27,7 +28,13 @@ impl EnginePool {
         Self {
             engines: RwLock::new(HashMap::new()),
             default_path,
+            has_fallback: parking_lot::Mutex::new(false),
         }
+    }
+
+    #[expect(dead_code)]
+    pub fn has_fallback(&self) -> bool {
+        *self.has_fallback.lock()
     }
 
     /// Get the raw shared engine for a path.
@@ -63,7 +70,12 @@ impl EnginePool {
                 shared
             },
             Err(e) => {
-                tracing::error!("Failed to create engine at {path}: {e}");
+                tracing::error!(
+                    "CRITICAL: Failed to open database at {path}: {e}. \
+                     Falling back to in-memory storage. ALL DATA WILL BE LOST ON RESTART. \
+                     This may be a permissions issue, corrupt database, or disk-full condition."
+                );
+                *self.has_fallback.lock() = true;
                 let memory = MemoryEngine::new();
                 let shared = Arc::new(Mutex::new(Box::new(memory) as Box<dyn ThingStore + Send>));
                 guard.insert(path, shared.clone());
