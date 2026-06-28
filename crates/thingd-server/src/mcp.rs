@@ -2,7 +2,7 @@ use axum::{Json, extract::State};
 use serde_json::{Value, json};
 use std::sync::Arc;
 
-use crate::error::AppError;
+use crate::error::{self, AppError};
 use crate::server::AppState;
 
 pub async fn handle_mcp_request(
@@ -45,10 +45,13 @@ pub async fn handle_mcp_request(
             let tool_name = params.get("name").and_then(|v| v.as_str()).unwrap_or("");
             let arguments = params.get("arguments").cloned().unwrap_or(json!({}));
 
-            // MCP hardening checks
-            let write_tools = ["thing_put", "thing_delete"];
-            if write_tools.contains(&tool_name) {
-                if state.mcp_config.read_only {
+            // MCP hardening checks — all tools that access collections are gated
+            let collection_tools = [
+                "thing_put", "thing_delete", "thing_get", "thing_search",
+                "thing_objects_list",
+            ];
+            if collection_tools.contains(&tool_name) {
+                if state.mcp_config.read_only && (tool_name == "thing_put" || tool_name == "thing_delete") {
                     return Ok(Json(json!({
                         "jsonrpc": "2.0",
                         "error": { "code": -32603, "message": "Server is in read-only mode" },
@@ -187,11 +190,18 @@ pub async fn handle_mcp_request(
                     "result": content,
                     "id": body.get("id")
                 }))),
-                Err(e) => Ok(Json(json!({
-                    "jsonrpc": "2.0",
-                    "error": { "code": -32603, "message": e.detail },
-                    "id": body.get("id")
-                }))),
+                Err(e) => {
+                    let detail = if error::is_production_mode() && e.status.as_u16() == 500 {
+                        "Internal server error".to_string()
+                    } else {
+                        e.detail.clone()
+                    };
+                    Ok(Json(json!({
+                        "jsonrpc": "2.0",
+                        "error": { "code": -32603, "message": detail },
+                        "id": body.get("id")
+                    })))
+                },
             }
         },
         "ping" => Ok(Json(json!({
@@ -224,6 +234,8 @@ mod tests {
         Arc::new(AppState {
             pool: EnginePool::new(":memory:".to_string()),
             mcp_config: config.mcp,
+            auth_token: config.auth.token,
+            allow_unauthenticated: config.auth.allow_unauthenticated,
         })
     }
 

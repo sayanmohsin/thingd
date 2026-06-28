@@ -20,9 +20,12 @@ use crate::rest;
 pub struct AppState {
     pub pool: EnginePool,
     pub mcp_config: McpConfig,
+    pub auth_token: String,
+    pub allow_unauthenticated: bool,
 }
 
 pub fn build_router(state: Arc<AppState>, config: &Config) -> Router {
+    let state_for_auth = Arc::clone(&state);
     let mut router = Router::new()
         .route("/healthz", get(rest::health))
         .route("/v1/health", get(rest::health))
@@ -108,7 +111,10 @@ pub fn build_router(state: Arc<AppState>, config: &Config) -> Router {
 
     // Wire auth middleware when a token is configured and unauthenticated access is not allowed
     if !config.auth.allow_unauthenticated && !config.auth.token.is_empty() {
-        router = router.layer(middleware::from_fn(auth_middleware));
+        router = router.layer(middleware::from_fn_with_state(
+            state_for_auth,
+            auth_middleware,
+        ));
     }
 
     // Apply rate limiting

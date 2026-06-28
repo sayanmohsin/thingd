@@ -60,6 +60,8 @@ async fn main() {
     let app_state = Arc::new(server::AppState {
         pool,
         mcp_config: config.mcp.clone(),
+        auth_token: config.auth.token.clone(),
+        allow_unauthenticated: config.auth.allow_unauthenticated,
     });
     let app = server::build_router(Arc::clone(&app_state), &config)
         .into_make_service_with_connect_info::<SocketAddr>();
