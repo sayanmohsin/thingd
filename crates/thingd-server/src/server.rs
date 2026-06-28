@@ -97,10 +97,7 @@ pub fn build_router(state: Arc<AppState>, config: &Config) -> Router {
         ServiceBuilder::new()
             .layer(HandleErrorLayer::new(
                 |_: Box<dyn std::error::Error + Send + Sync>| async {
-                    (
-                        StatusCode::REQUEST_TIMEOUT,
-                        "Request timed out".to_string(),
-                    )
+                    (StatusCode::REQUEST_TIMEOUT, "Request timed out".to_string())
                 },
             ))
             .layer(TimeoutLayer::new(Duration::from_secs(

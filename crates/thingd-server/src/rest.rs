@@ -137,8 +137,10 @@ pub async fn get_object(
     {
         Some(obj) => {
             let body: Value = serde_json::from_str(&obj.body).unwrap_or(Value::Null);
-            ok(json!({ "id": obj.key.id, "collection": obj.key.collection, "body": body, "version": obj.version, "createdAt": obj.created_at, "updatedAt": obj.updated_at }))
-        }
+            ok(
+                json!({ "id": obj.key.id, "collection": obj.key.collection, "body": body, "version": obj.version, "createdAt": obj.created_at, "updatedAt": obj.updated_at }),
+            )
+        },
         None => Err(AppError::not_found("Object not found")),
     }
 }
