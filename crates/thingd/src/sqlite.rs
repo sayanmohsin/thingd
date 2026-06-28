@@ -980,34 +980,15 @@ impl EventLog for SqliteThingStore {
             .optional()
             .map_err(ThingdError::from)?;
 
-        if result.is_some() {
+        if let Some(ref event) = result {
+            // Delete the single FTS entry for this event instead of re-indexing the entire stream
+            let seq_str = event.sequence.to_string();
             transaction
                 .execute(
-                    "DELETE FROM search_index WHERE collection = ?1 AND kind = 'event'",
-                    params![stream],
+                    "DELETE FROM search_index WHERE collection = ?1 AND kind = 'event' AND id = ?2",
+                    params![stream, seq_str],
                 )
                 .map_err(ThingdError::from)?;
-            // Re-index remaining events in the stream
-            let remaining: Vec<(i64, String)> = transaction
-                .prepare("SELECT sequence, body FROM events WHERE stream = ?1 ORDER BY sequence")
-                .map_err(ThingdError::from)?
-                .query_map(params![stream], |row| {
-                    Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
-                })
-                .map_err(ThingdError::from)?
-                .collect::<Result<Vec<_>, _>>()
-                .map_err(ThingdError::from)?;
-
-            for (seq, body) in &remaining {
-                let text = extract_text_from_json(body);
-                let seq_str = seq.to_string();
-                transaction
-                    .execute(
-                        "INSERT INTO search_index (collection, id, kind, text) VALUES (?1, ?2, 'event', ?3)",
-                        params![stream, seq_str, text],
-                    )
-                    .map_err(ThingdError::from)?;
-            }
         }
 
         transaction.commit().map_err(ThingdError::from)?;
@@ -1542,7 +1523,7 @@ impl crate::store::Searcher for SqliteThingStore {
             return Ok(Vec::new());
         }
 
-        let mut statement = self.connection.prepare(
+        let mut sql = String::from(
             r"
             SELECT 
                 s.kind,
@@ -1562,11 +1543,47 @@ impl crate::store::Searcher for SqliteThingStore {
             LEFT JOIN objects o ON s.kind = 'object' AND s.collection = o.collection AND s.id = o.id
             LEFT JOIN events e ON s.kind = 'event' AND s.collection = e.stream AND s.id = CAST(e.sequence AS TEXT)
             WHERE search_index MATCH ?1
-            "
-        ).map_err(ThingdError::from)?;
+            ",
+        );
+
+        let mut params: Vec<Box<dyn rusqlite::types::ToSql>> =
+            vec![Box::new(sanitized)];
+
+        // Push collection filter to SQL WHERE clause
+        if let Some(ref collections) = options.collections
+            && !collections.is_empty()
+        {
+            let placeholders: Vec<String> = (0..collections.len())
+                .map(|i| format!("?{}", params.len() + i + 1))
+                .collect();
+            write!(sql, " AND s.collection IN ({})", placeholders.join(",")).unwrap();
+            for coll in collections {
+                params.push(Box::new(coll.clone()));
+            }
+        }
+
+        sql.push_str(" ORDER BY bm25_score");
+
+        // Push LIMIT to SQL (approximate — may fetch extra for post-filter)
+        if let Some(limit) = options.limit
+            && options.filter.is_none()
+        {
+            write!(sql, " LIMIT ?{}", params.len() + 1).unwrap();
+            params.push(Box::new(i64::try_from(limit).unwrap_or(100)));
+        } else if let Some(limit) = options.limit {
+            // With metadata filter, fetch extra to compensate for post-filter drops
+            let fetch_limit = (limit * 3).min(1000);
+            write!(sql, " LIMIT ?{}", params.len() + 1).unwrap();
+            params.push(Box::new(i64::try_from(fetch_limit).unwrap_or(1000)));
+        }
+
+        let mut statement = self.connection.prepare(&sql).map_err(ThingdError::from)?;
+
+        let param_refs: Vec<&dyn rusqlite::types::ToSql> =
+            params.iter().map(AsRef::as_ref).collect();
 
         let rows = statement
-            .query_map(params![sanitized], |row| {
+            .query_map(param_refs.as_slice(), |row| {
                 let kind: String = row.get(0)?;
                 let collection: String = row.get(1)?;
                 let id: String = row.get(2)?;
@@ -1624,14 +1641,7 @@ impl crate::store::Searcher for SqliteThingStore {
         for row in rows {
             let hit = row.map_err(ThingdError::from)?;
 
-            // Apply collection filter
-            if let Some(ref collections) = options.collections
-                && !collections.contains(&hit.collection)
-            {
-                continue;
-            }
-
-            // Apply metadata filter
+            // Apply metadata filter (must remain in Rust — JSON key-value matching)
             if let Some(ref filter) = options.filter
                 && !matches_filter(&hit.body, filter)
             {
