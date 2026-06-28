@@ -1,3 +1,34 @@
+## [0.38.0](https://github.com/sayanmohsin/thingd/compare/v0.37.11...v0.38.0) (2026-06-28)
+
+### Features
+
+* **sidecar:** implement all 27 MCP tools (was 5 stubs) ([e6f45e9](https://github.com/sayanmohsin/thingd/commit/e6f45e97fc32811f39a29e3cb3729dffbc783718))
+
+### Bug Fixes
+
+* add missing colon to docs site logo ([73e7ace](https://github.com/sayanmohsin/thingd/commit/73e7ace22fbba0726f7315a3ca1d095eb29a27aa))
+* correct favicon href to include base path ([d8134aa](https://github.com/sayanmohsin/thingd/commit/d8134aae9ef5726038f06594d1e03432f5d68745))
+* logo character spacing, navbar sizing, and copyright year ([e494f05](https://github.com/sayanmohsin/thingd/commit/e494f05e23a9d0fffb2e7fc784faa5579be605f1))
+* match logo style to thingd-cloud (sans-serif, explicit sizing) ([ba03e24](https://github.com/sayanmohsin/thingd/commit/ba03e2482f327dfee46bdebc4c13b0d727c5777f))
+* navbar logo size and aspect ratio ([e22508b](https://github.com/sayanmohsin/thingd/commit/e22508b1950f070b4efed85ef84a13e1cea8acd3))
+* navbar logo width to prevent right-side clipping ([2ef3059](https://github.com/sayanmohsin/thingd/commit/2ef305955ba61ac0d5d3e0d299e80d71d75f3c89))
+* prevent docs logo from clipping in navbar ([06b18cd](https://github.com/sayanmohsin/thingd/commit/06b18cd1fdffb9a350efc261659b3279e79554ce))
+* remove extra spacing around docs logo braces ([2a4b157](https://github.com/sayanmohsin/thingd/commit/2a4b157350cda50e45a1c12817151c9ea94c5a07))
+* remove whitespace between docs logo tspans ([4e83d39](https://github.com/sayanmohsin/thingd/commit/4e83d39a24679097dbde75bf0b268ab68f7c6cd4))
+* rename QUICKSTART.md to quickstart.md (case-sensitive GitHub Pages), hide nav text, enlarge logo ([817ed0b](https://github.com/sayanmohsin/thingd/commit/817ed0bebf7af5c4637ddd6c44084781cd53f82a))
+* rename QUICKSTART.md to quickstart.md for case-sensitive FS ([3c5102f](https://github.com/sayanmohsin/thingd/commit/3c5102fa3ec469b767039abe7902a6d2045cc2e1))
+* rename QUICKSTART.md to quickstart.md, enlarge navbar logo ([a69f0f5](https://github.com/sayanmohsin/thingd/commit/a69f0f5218d08a7bc209274e6c1193377fe5463c))
+* restore original logo sizing, update footer style ([857571b](https://github.com/sayanmohsin/thingd/commit/857571be80df5a3b769376314ca50067d415f1dc))
+* **sdk:** concurrent batch ops, timeout, body size limit, error propagation ([1d802fe](https://github.com/sayanmohsin/thingd/commit/1d802fe5a3203d1c9f9c452a2dcf060efdd61954))
+* **sidecar:** add graceful shutdown handler for SIGINT and SIGTERM ([1093989](https://github.com/sayanmohsin/thingd/commit/109398938db526a347d6e59223e98d3b32ee9a20))
+* **sidecar:** constant-time auth, AppState token, production-mode MCP sanitization ([9a92d81](https://github.com/sayanmohsin/thingd/commit/9a92d81914edc17de0f9f652ec4b46c86746f6a6))
+* **sidecar:** include object body in GET /v1/objects response ([e8557ed](https://github.com/sayanmohsin/thingd/commit/e8557ed9b7f50efb68680cf6c870ac134abcb807))
+* **sidecar:** loud fallback on SQLite failure + track has_fallback status ([d16419e](https://github.com/sayanmohsin/thingd/commit/d16419e366e965c537d99fafe776a697a36ef285))
+* **sidecar:** wire request_timeout_secs into tower timeout middleware ([96c6a9a](https://github.com/sayanmohsin/thingd/commit/96c6a9a84e6ce9be6c4cb4882a4d4372601b3e43))
+* use monospace for even docs logo character spacing ([dc1326d](https://github.com/sayanmohsin/thingd/commit/dc1326d0baffb910e8b822fe04787cdcf9048922))
+* use separate <text> elements to avoid } overlap in logo ([e0a53d1](https://github.com/sayanmohsin/thingd/commit/e0a53d18ab8d8a54169e26bc1e5cee5fd9cbb3c7))
+* use tspan for logo text (no hardcoded x positions) ([6414fd4](https://github.com/sayanmohsin/thingd/commit/6414fd4be7c0c6a6cc54852e2e1922195e66d5e2))
+
 ## [0.37.11](https://github.com/sayanmohsin/thingd/compare/v0.37.10...v0.37.11) (2026-06-25)
 
 ### Bug Fixes
