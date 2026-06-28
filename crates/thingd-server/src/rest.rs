@@ -135,9 +135,10 @@ pub async fn get_object(
         .get_object(&collection, &id)
         .map_err(|e| AppError::internal(e.to_string()))?
     {
-        Some(obj) => ok(
-            json!({ "id": obj.key.id, "collection": obj.key.collection, "version": obj.version, "createdAt": obj.created_at, "updatedAt": obj.updated_at }),
-        ),
+        Some(obj) => {
+            let body: Value = serde_json::from_str(&obj.body).unwrap_or(Value::Null);
+            ok(json!({ "id": obj.key.id, "collection": obj.key.collection, "body": body, "version": obj.version, "createdAt": obj.created_at, "updatedAt": obj.updated_at }))
+        }
         None => Err(AppError::not_found("Object not found")),
     }
 }
@@ -481,6 +482,7 @@ mod tests {
     use super::*;
     use axum::body::Body;
     use axum::http::{Request, StatusCode};
+    use http_body_util::BodyExt;
     use tower::ServiceExt;
 
     use crate::config::Config;
@@ -532,7 +534,6 @@ mod tests {
         let (state, config) = test_state_and_config();
         let app = crate::server::build_router(state, &config);
 
-        let body = r#"{"id":"obj1","val":42}"#;
         let response = app
             .clone()
             .oneshot(
@@ -540,7 +541,7 @@ mod tests {
                     .method("PUT")
                     .uri("/v1/objects/test/obj1")
                     .header("content-type", "application/json")
-                    .body(Body::from(body))
+                    .body(Body::from(r#"{"name":"Alice","val":42}"#))
                     .unwrap(),
             )
             .await
@@ -558,6 +559,17 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::OK);
+
+        let bytes = response.into_body().collect().await.unwrap().to_bytes();
+        let json: Value = serde_json::from_slice(&bytes).unwrap();
+        let data = json.get("data").unwrap();
+        assert_eq!(data["id"], "obj1");
+        assert_eq!(data["collection"], "test");
+        assert_eq!(data["body"]["name"], "Alice");
+        assert_eq!(data["body"]["val"], 42);
+        assert!(data.get("version").is_some());
+        assert!(data.get("createdAt").is_some());
+        assert!(data.get("updatedAt").is_some());
     }
 
     #[tokio::test]
