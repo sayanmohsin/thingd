@@ -84,10 +84,20 @@ All four must pass before push completes. If clippy or fmt fails, fix and amend.
 
 - **TypeScript**: ESM only (`"type": "module"`), no CJS (biome `noCommonJs: error`)
 - **Formatting**: double quotes, semicolons always, trailing commas es5, line width 100
-- **Braces**: all if/for/while must use `{}` (even single-line bodies, biome `useBlockStatements: error`)
+- **Braces**: all if/for/while must use `{}` (even single-body lines, biome `useBlockStatements: error`)
 - **Imports**: no unused imports (error)
 - **Rust**: edition 2024, `cargo fmt` must pass
 - **Commits**: conventionalcommits (`fix:`, `feat:`, `refactor:`, `BREAKING CHANGE:`) for semantic-release
+
+## Keeping AGENTS.md healthy
+
+This file should stay useful but not become a dump. Rules:
+
+1. **Update alongside code** — add learnings in the same commit as the change, not later.
+2. **Prune aggressively** — when a section drifts from "hard-won lesson" to "encyclopedia reference", extract it into its own doc and link to it.
+3. **Use small sections** — if a section exceeds 15-20 lines, it needs its own doc file.
+4. **No binary files** — paths to screenshots/diagrams go elsewhere (issue comments, design docs).
+5. **Delete stale entries** — when you upgrade deps or fix a workaround, remove the old guidance.
 
 ## Common miss patterns
 
