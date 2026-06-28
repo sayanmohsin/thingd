@@ -8,11 +8,17 @@ type LocalSortBy = {
   direction?: SortDirection;
 };
 
-export function readBody(req: IncomingMessage): Promise<string> {
+const MAX_BODY_SIZE = 524_288; // 512KB
+
+export function readBody(req: IncomingMessage, maxSize = MAX_BODY_SIZE): Promise<string> {
   return new Promise((resolve, reject) => {
     let body = "";
     req.on("data", (chunk: Buffer) => {
       body += chunk.toString();
+      if (body.length > maxSize) {
+        req.destroy(new Error(`Request body exceeds ${maxSize} bytes`));
+        reject(new Error(`Request body exceeds ${maxSize} bytes`));
+      }
     });
     req.on("end", () => resolve(body));
     req.on("error", reject);

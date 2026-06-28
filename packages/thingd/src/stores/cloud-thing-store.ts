@@ -220,35 +220,20 @@ export class CloudThingStore implements ThingStore {
   }
 
   async countLinks(): Promise<number> {
-    try {
-      const res = (await this.restGet("/v1/counts/links")) as { data?: { count?: number } };
-      return res.data?.count ?? 0;
-    } catch {
-      return 0;
-    }
+    const res = (await this.restGet("/v1/counts/links")) as { data?: { count?: number } };
+    return res.data?.count ?? 0;
   }
 
   async putBatch(
     collection: string,
     objects: import("../types.js").MemoryObject[]
   ): Promise<import("../types.js").StoredMemoryObject[]> {
-    const results: import("../types.js").StoredMemoryObject[] = [];
-    for (const obj of objects) {
-      const result = await this.put(collection, obj);
-      results.push(result);
-    }
-    return results;
+    return Promise.all(objects.map((obj) => this.put(collection, obj)));
   }
 
   async deleteBatch(collection: string, ids: string[]): Promise<number> {
-    let count = 0;
-    for (const id of ids) {
-      const deleted = await this.delete(collection, id);
-      if (deleted) {
-        count++;
-      }
-    }
-    return count;
+    const results = await Promise.all(ids.map((id) => this.delete(collection, id)));
+    return results.filter(Boolean).length;
   }
 
   async createLink(
@@ -273,8 +258,11 @@ export class CloudThingStore implements ThingStore {
     try {
       await this.restDelete(`/v1/links/${encodeURIComponent(id)}`);
       return true;
-    } catch {
-      return false;
+    } catch (err) {
+      if (err instanceof Error && err.message.includes("404")) {
+        return false;
+      }
+      throw err;
     }
   }
 
@@ -284,8 +272,11 @@ export class CloudThingStore implements ThingStore {
         data?: import("../types.js").Link;
       };
       return res.data ?? null;
-    } catch {
-      return null;
+    } catch (err) {
+      if (err instanceof Error && err.message.includes("404")) {
+        return null;
+      }
+      throw err;
     }
   }
 
@@ -301,14 +292,10 @@ export class CloudThingStore implements ThingStore {
     if (options.limit !== undefined) {
       params.set("limit", String(options.limit));
     }
-    try {
-      const res = (await this.restGet(`/v1/links?${params.toString()}`)) as {
-        data?: import("../types.js").Link[];
-      };
-      return res.data ?? [];
-    } catch {
-      return [];
-    }
+    const res = (await this.restGet(`/v1/links?${params.toString()}`)) as {
+      data?: import("../types.js").Link[];
+    };
+    return res.data ?? [];
   }
 
   async listCollections(): Promise<string[]> {
@@ -340,50 +327,69 @@ export class CloudThingStore implements ThingStore {
     return url.replace(/\/mcp$/, "");
   }
 
+  private authHeaders(): Record<string, string> {
+    if (this.connectOptions.authToken) {
+      return { Authorization: `Bearer ${this.connectOptions.authToken}` };
+    }
+    return {};
+  }
+
   private async restGet(path: string): Promise<unknown> {
     const base = this.restBaseUrl();
-    const headers: Record<string, string> = { "Content-Type": "application/json" };
-    if (this.connectOptions.authToken) {
-      headers.Authorization = `Bearer ${this.connectOptions.authToken}`;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30_000);
+    try {
+      const res = await fetch(`${base}${path}`, {
+        headers: this.authHeaders(),
+        signal: controller.signal,
+      });
+      if (!res.ok) {
+        throw new Error(`REST request failed: ${res.status} ${res.statusText}`);
+      }
+      return res.json();
+    } finally {
+      clearTimeout(timeout);
     }
-    const res = await fetch(`${base}${path}`, { headers });
-    if (!res.ok) {
-      throw new Error(`REST request failed: ${res.status} ${res.statusText}`);
-    }
-    return res.json();
   }
 
   private async restPost(path: string, body: unknown): Promise<unknown> {
     const base = this.restBaseUrl();
-    const headers: Record<string, string> = { "Content-Type": "application/json" };
-    if (this.connectOptions.authToken) {
-      headers.Authorization = `Bearer ${this.connectOptions.authToken}`;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30_000);
+    try {
+      const res = await fetch(`${base}${path}`, {
+        method: "POST",
+        headers: { ...this.authHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
+      if (!res.ok) {
+        throw new Error(`REST request failed: ${res.status} ${res.statusText}`);
+      }
+      return res.json();
+    } finally {
+      clearTimeout(timeout);
     }
-    const res = await fetch(`${base}${path}`, {
-      method: "POST",
-      headers,
-      body: JSON.stringify(body),
-    });
-    if (!res.ok) {
-      throw new Error(`REST request failed: ${res.status} ${res.statusText}`);
-    }
-    return res.json();
   }
 
   private async restDelete(path: string): Promise<unknown> {
     const base = this.restBaseUrl();
-    const headers: Record<string, string> = { "Content-Type": "application/json" };
-    if (this.connectOptions.authToken) {
-      headers.Authorization = `Bearer ${this.connectOptions.authToken}`;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30_000);
+    try {
+      const res = await fetch(`${base}${path}`, {
+        method: "DELETE",
+        headers: this.authHeaders(),
+        signal: controller.signal,
+      });
+      if (!res.ok) {
+        throw new Error(`REST request failed: ${res.status} ${res.statusText}`);
+      }
+      const text = await res.text();
+      return text ? JSON.parse(text) : null;
+    } finally {
+      clearTimeout(timeout);
     }
-    const res = await fetch(`${base}${path}`, {
-      method: "DELETE",
-      headers,
-    });
-    if (!res.ok) {
-      throw new Error(`REST request failed: ${res.status} ${res.statusText}`);
-    }
-    return res.json();
   }
 
   private async callToolOnce<T>(
@@ -396,8 +402,8 @@ export class CloudThingStore implements ThingStore {
       result = (await this.client.callTool({ name, arguments: args })) as CallToolResult;
     } catch (error) {
       // Transport-level error (connection dropped, ECONNRESET, etc.).
-      // Attempt one reconnect and retry before propagating.
-      if (retryOnTransportError) {
+      // Only reconnect+retry for network errors, not API errors.
+      if (retryOnTransportError && isTransportError(error)) {
         try {
           await this.reconnect();
         } catch (reconnectError) {
@@ -445,4 +451,23 @@ function parseJsonToolResult<T>(result: CallToolResult): T {
   }
 
   return JSON.parse(text) as T;
+}
+
+function isTransportError(error: unknown): boolean {
+  if (error instanceof TypeError) {
+    return true;
+  }
+  if (error instanceof Error) {
+    const msg = error.message.toLowerCase();
+    return (
+      msg.includes("econnreset") ||
+      msg.includes("econnrefused") ||
+      msg.includes("eof") ||
+      msg.includes("fetch failed") ||
+      msg.includes("network") ||
+      msg.includes("timed out") ||
+      msg.includes("abort")
+    );
+  }
+  return false;
 }
