@@ -97,9 +97,60 @@ All four must pass before push completes. If clippy or fmt fails, fix and amend.
 - **Native binding type** — update `NativeThingStoreBinding` in `native-thing-store.ts` when adding napi methods
 - **Sort/filter params** — Rust `ListObjectsOptions` changes must propagate to native binding `list_objects_json` and TypeScript `listObjects`
 
-## Docker
+## Lessons from sidecar hardening session (June 2026)
 
-The Docker image is built from `docker-context/Dockerfile` using a prebuilt `thingd-server` binary. No pnpm, no Node.js in the image — just a static Rust binary on `scratch`. The binary is compiled on the CI runner and copied into the build context before `docker buildx`.
+### Doc audit after every change
+
+After any implementation, audit ALL public docs for staleness. This session found:
+- **AGENTS.md** claimed sidecar MCP was a "stub with 5 tools" (already 27 tools)
+- **rest-api.md** had wrong error format, missing `body` field in GET response, wrong links endpoint
+- **mcp-tools.md** had incorrect tool breakdown (claimed 12/12/3, actual 16 read-only / 11 write of which 3 destructive)
+- **errors.md** referenced non-existent `ThingDError` class (SDK throws plain `Error`)
+
+Checklist of files to audit:
+- `AGENTS.md` — remove stale claims about stubs or incomplete features
+- `docs/api-spec/rest-api.md` — response shapes, error format, endpoint paths
+- `docs/api-spec/mcp-tools.md` — tool count, breakdown, schemas
+- `docs/api-spec/errors.md` — error codes, SDK error types
+- `docs/api-spec/search.md` — search behavior and syntax
+- `docs/api-spec/data-model.md` — entity shapes
+- `README.md` — tool count badge, feature descriptions
+- `docs/mcp-server.md` — status, tool descriptions
+- `docs/faq.md` — tool count, feature questions
+
+### Cross-repo sync checklist
+
+After completing thingd work, always check thingd-cloud planning docs:
+- `thingd-cloud/docs/thingd/roadmap.md` — phase completion status, deliverables checkboxes
+- `thingd-cloud/docs/thingd/sidecar-cluster.md` — phase checkboxes, route lists, feature status
+- `thingd-cloud/docs/thingd/handoff.md` — update recommended next phase if changed
+
+### Version specifier propagation
+
+When `[workspace.package].version` bumps in `Cargo.toml`, path deps with exact version specs must follow:
+```
+crates/thingd-server/Cargo.toml: thingd = { path = "../thingd", version = "0.37" }
+packages/thingd-native/Cargo.toml: thingd = { path = "../../crates/thingd", version = "0.37" }
+```
+Search with `rg 'version = "0\.xx"' crates/ packages/` after every version bump.
+
+### Rust patterns learned
+
+| Pattern | Do this | Not this |
+|---------|---------|----------|
+| Static data with `json!()` | `static FOO: LazyLock<Vec<T>> = LazyLock::new(\|\| vec![...])` | `const FOO: &[T] = &[...]` — `json!()` is not const-compatible |
+| Auth middleware | Read token from `AppState` (set once at startup from config) | `std::env::var("THINGD_AUTH_TOKEN")` per request (TOCTOU race) |
+| Middleware using `State` | `middleware::from_fn_with_state(Arc::clone(&state), handler)` | `middleware::from_fn(handler)` — won't compile with State extractor |
+| Request timeout in axum 0.8 | `ServiceBuilder::new().layer(HandleErrorLayer::new(...)).layer(TimeoutLayer::new(...)).into_inner()` | Bare `TimeoutLayer` — error type is incompatible with axum's Router |
+| CI pre-push fix | `cargo fmt --all && git add -A && git commit --amend --no-edit && git push --force-with-lease` | Using `--no-verify` skips important checks |
+
+### CLI testability
+
+- All commands must use `writeJson(context.stdout, data, context.pretty)` not `console.log()`
+- TUI should call `db.listQueues()` instead of accessing `store.queues` via `as unknown as` casts
+- The `call_mcp_with()` test helper pattern in `mcp.rs` is reusable for new MCP tool tests
+
+## Docker No pnpm, no Node.js in the image — just a static Rust binary on `scratch`. The binary is compiled on the CI runner and copied into the build context before `docker buildx`.
 
 ## Publishing
 
