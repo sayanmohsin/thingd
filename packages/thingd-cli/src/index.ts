@@ -290,6 +290,12 @@ async function runCommand(context: CliContext): Promise<void> {
     return;
   }
 
+  if (command === "cloud") {
+    const { runCloud } = await import("./commands/cloud.js");
+    await runCloud(context);
+    return;
+  }
+
   if (command === "objects") {
     await runObjects(context);
     return;
