@@ -12,6 +12,26 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use tracing_subscriber::EnvFilter;
 
+#[cfg(unix)]
+async fn shutdown_signal() {
+    let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+        .expect("failed to install SIGTERM handler");
+    tokio::select! {
+        _ = tokio::signal::ctrl_c() => {
+            tracing::info!("Received SIGINT, starting graceful shutdown...");
+        }
+        _ = sigterm.recv() => {
+            tracing::info!("Received SIGTERM, starting graceful shutdown...");
+        }
+    }
+}
+
+#[cfg(not(unix))]
+async fn shutdown_signal() {
+    tokio::signal::ctrl_c().await.ok();
+    tracing::info!("Received SIGINT, starting graceful shutdown...");
+}
+
 #[tokio::main]
 async fn main() {
     tracing_subscriber::fmt()
@@ -53,8 +73,13 @@ async fn main() {
             });
 
     tracing::info!("Listening on {}", listener.local_addr().unwrap());
-    axum::serve(listener, app).await.unwrap_or_else(|e| {
-        eprintln!("Server error: {}", e);
-        std::process::exit(1);
-    });
+    axum::serve(listener, app)
+        .with_graceful_shutdown(shutdown_signal())
+        .await
+        .unwrap_or_else(|e| {
+            eprintln!("Server error: {}", e);
+            std::process::exit(1);
+        });
+
+    tracing::info!("Shutdown complete");
 }
