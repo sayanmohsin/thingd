@@ -50,9 +50,9 @@ packages/
 | CLI | `packages/thingd-cli/src/index.ts` |
 | Tests | `packages/thingd/test/`, `packages/thingd-cli/test/`, `crates/thingd/` |
 
-**Sidecar MCP is a stub** — only handles initialize, tools/list (5 tools), ping. tools/call returns error. The real MCP implementation is in the Node.js SDK (`packages/thingd/src/mcp/tools.ts`).
+**Sidecar MCP** implements all 27 tools natively (`crates/thingd-server/src/mcp.rs`) via a registry-based dispatch. The Node.js SDK MCP (`packages/thingd/src/mcp/tools.ts`) remains the primary reference and adds auth gating.
 
-**Sidecar cluster is a stub** — always returns mode=single. Real cluster logic is in `packages/thingd-cli/src/mcp/cluster.ts`.
+**Sidecar cluster** returns real config (mode, peers, discovery). Real cluster forwarding/leader election logic is in `packages/thingd-cli/src/mcp/cluster.ts`.
 
 **MCP layer is independent** — no imports from REST. The stdio MCP server (`thingd mcp`) runs standalone without the REST layer.
 

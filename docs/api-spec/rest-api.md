@@ -25,11 +25,15 @@ thingd exposes a REST API on port 8757 (default) under the `/v1` prefix. All req
 ```json
 {
   "error": {
-    "code": "error_code",
-    "message": "Human-readable description"
+    "type": "error_code",
+    "title": "Error Title",
+    "status": 400,
+    "detail": "Human-readable description"
   }
 }
 ```
+
+(Internal error details are sanitized in production mode — `detail` is empty for 500 errors.)
 
 ---
 
@@ -160,16 +164,16 @@ curl "http://localhost:8757/v1/objects?collection=users&limit=2&sortBy=created_a
   "data": [
     {
       "id": "user-002",
-      "name": "Bob",
       "collection": "users",
+      "body": { "name": "Bob" },
       "version": 1,
       "createdAt": "2026-06-21T04:54:50.475Z",
       "updatedAt": "2026-06-21T04:54:50.475Z"
     },
     {
       "id": "user-001",
-      "name": "Alice",
       "collection": "users",
+      "body": { "name": "Alice" },
       "version": 1,
       "createdAt": "2026-06-21T04:54:49.475Z",
       "updatedAt": "2026-06-21T04:54:49.475Z"
@@ -192,9 +196,6 @@ curl -X PUT http://localhost:8757/v1/objects/users/user-001 \
 {
   "data": {
     "id": "user-001",
-    "name": "Alice Chen",
-    "email": "alice@example.com",
-    "role": "admin",
     "collection": "users",
     "version": 2,
     "createdAt": "2026-06-21T04:54:49.475Z",
@@ -213,8 +214,8 @@ curl http://localhost:8757/v1/objects/users/user-001
 {
   "data": {
     "id": "user-001",
-    "name": "Alice Chen",
     "collection": "users",
+    "body": { "name": "Alice Chen", "email": "alice@example.com", "role": "admin" },
     "version": 2,
     "createdAt": "2026-06-21T04:54:49.475Z",
     "updatedAt": "2026-06-21T04:55:01.014Z"
@@ -526,10 +527,10 @@ curl -X POST http://localhost:8757/v1/links \
 }
 ```
 
-### `GET /v1/links?id=...` — Get link by ID
+### `GET /v1/links/:id` — Get link by ID
 
 ```bash
-curl "http://localhost:8757/v1/links?id=8d08a9c5-7ffa-44a9-8180-cf8dd179e61e"
+curl http://localhost:8757/v1/links/8d08a9c5-7ffa-44a9-8180-cf8dd179e61e
 ```
 
 ### `GET /v1/links?reference=...` — Get neighbors
