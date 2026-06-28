@@ -1546,8 +1546,7 @@ impl crate::store::Searcher for SqliteThingStore {
             ",
         );
 
-        let mut params: Vec<Box<dyn rusqlite::types::ToSql>> =
-            vec![Box::new(sanitized)];
+        let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = vec![Box::new(sanitized)];
 
         // Push collection filter to SQL WHERE clause
         if let Some(ref collections) = options.collections

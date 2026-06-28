@@ -6,7 +6,9 @@ use crate::{u64_to_i64, unix_timestamp_millis};
 pub const DEFAULT_QUEUE_LEASE_MS: u64 = 30_000;
 
 /// Stable object key inside a collection.
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, serde::Serialize, serde::Deserialize,
+)]
 #[serde(rename_all = "camelCase")]
 pub struct ObjectKey {
     /// Collection name, such as `decisions`, `documents`, or `customers`.

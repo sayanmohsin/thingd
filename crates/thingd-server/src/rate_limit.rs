@@ -3,10 +3,11 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use axum::Json;
 use axum::extract::{ConnectInfo, State};
-use axum::http::StatusCode;
+use axum::http::{HeaderMap, StatusCode, header};
 use axum::middleware::Next;
-use axum::response::Response;
+use axum::response::{IntoResponse, Response};
 
 use parking_lot::Mutex;
 
@@ -21,7 +22,7 @@ struct Bucket {
 pub struct RateLimiter {
     max_tokens: u64,
     refill_interval: Duration,
-    buckets: Mutex<HashMap<SocketAddr, Bucket>>,
+    buckets: Mutex<HashMap<String, Bucket>>,
 }
 
 impl RateLimiter {
@@ -34,10 +35,17 @@ impl RateLimiter {
     }
 
     /// Returns `true` if the request is allowed, `false` if rate-limited.
-    pub fn check(&self, addr: SocketAddr) -> bool {
+    pub fn check(&self, key: &str) -> bool {
         let mut buckets = self.buckets.lock();
         let now = Instant::now();
-        let bucket = buckets.entry(addr).or_insert(Bucket {
+
+        // Prune stale entries if the map grows large
+        if buckets.len() > 10_000 {
+            let cutoff = now - Duration::from_secs(120);
+            buckets.retain(|_, b| b.last_refill > cutoff);
+        }
+
+        let bucket = buckets.entry(key.to_string()).or_insert(Bucket {
             tokens: self.max_tokens,
             last_refill: now,
         });
@@ -47,7 +55,7 @@ impl RateLimiter {
         let tokens_to_add =
             (elapsed.as_secs_f64() / self.refill_interval.as_secs_f64()) * self.max_tokens as f64;
         if tokens_to_add >= 1.0 {
-            bucket.tokens = (bucket.tokens + tokens_to_add as u64).min(self.max_tokens);
+            bucket.tokens = (bucket.tokens + tokens_to_add.floor() as u64).min(self.max_tokens);
             bucket.last_refill = now;
         }
 
@@ -60,20 +68,42 @@ impl RateLimiter {
     }
 }
 
+/// Extract the client IP from `X-Forwarded-For`, falling back to the socket address.
+fn client_key(headers: &HeaderMap, addr: SocketAddr) -> String {
+    if let Some(forwarded) = headers
+        .get("x-forwarded-for")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.split(',').next().map(|s| s.trim().to_string()))
+    {
+        return forwarded;
+    }
+    addr.ip().to_string()
+}
+
 pub async fn rate_limit_middleware(
     State(limiter): State<Arc<RateLimiter>>,
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
     req: axum::extract::Request,
     next: Next,
 ) -> Result<Response, AppError> {
-    if limiter.check(addr) {
+    let key = client_key(req.headers(), addr);
+    if limiter.check(&key) {
         Ok(next.run(req).await)
     } else {
-        Err(AppError {
-            status: StatusCode::TOO_MANY_REQUESTS,
-            title: "Too Many Requests",
-            detail: "Rate limit exceeded. Try again later.".to_string(),
-            error_type: "too_many_requests",
-        })
+        let body = Json(serde_json::json!({
+            "error": {
+                "type": "too_many_requests",
+                "title": "Too Many Requests",
+                "status": 429,
+                "detail": "Rate limit exceeded. Try again later."
+            }
+        }));
+        let response = (
+            StatusCode::TOO_MANY_REQUESTS,
+            [(header::RETRY_AFTER, "60")],
+            body,
+        )
+            .into_response();
+        Ok(response)
     }
 }

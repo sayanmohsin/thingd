@@ -955,6 +955,7 @@ mod tests {
             mcp_config: config.mcp,
             auth_token: config.auth.token,
             allow_unauthenticated: config.auth.allow_unauthenticated,
+            cluster_config: config.cluster,
         })
     }
 

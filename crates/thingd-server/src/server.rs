@@ -12,7 +12,7 @@ use tower::timeout::TimeoutLayer;
 use tower_http::cors::CorsLayer;
 
 use crate::auth::auth_middleware;
-use crate::config::{Config, McpConfig};
+use crate::config::{ClusterConfig, Config, McpConfig};
 use crate::engine::EnginePool;
 use crate::rest;
 
@@ -22,6 +22,7 @@ pub struct AppState {
     pub mcp_config: McpConfig,
     pub auth_token: String,
     pub allow_unauthenticated: bool,
+    pub cluster_config: ClusterConfig,
 }
 
 pub fn build_router(state: Arc<AppState>, config: &Config) -> Router {

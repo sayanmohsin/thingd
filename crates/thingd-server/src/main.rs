@@ -62,6 +62,7 @@ async fn main() {
         mcp_config: config.mcp.clone(),
         auth_token: config.auth.token.clone(),
         allow_unauthenticated: config.auth.allow_unauthenticated,
+        cluster_config: config.cluster.clone(),
     });
     let app = server::build_router(Arc::clone(&app_state), &config)
         .into_make_service_with_connect_info::<SocketAddr>();
