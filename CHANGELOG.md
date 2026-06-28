@@ -1,3 +1,15 @@
+## [0.38.1](https://github.com/sayanmohsin/thingd/compare/v0.38.0...v0.38.1) (2026-06-28)
+
+### Bug Fixes
+
+* bump thingd version specifiers from 0.37 to 0.38 ([e3876f4](https://github.com/sayanmohsin/thingd/commit/e3876f45634c3b3844700ab1a3e7591ecf808fc0))
+* **engine:** panic on clock error in debug, add Hash derives to model types ([d7321fd](https://github.com/sayanmohsin/thingd/commit/d7321fd115d60c53d06e5012fc6c19eaf3e8a14b))
+* **sidecar:** rate limiter hardening and cluster status from real config ([1f9ba9c](https://github.com/sayanmohsin/thingd/commit/1f9ba9c9648d50e46cd415193ab6926e849fc0e9))
+
+### Performance Improvements
+
+* **engine:** push FTS collection filter and LIMIT to SQL, optimize delete_last_event ([8ef0e75](https://github.com/sayanmohsin/thingd/commit/8ef0e7550a21834609183c6c9649156a7f0626da))
+
 ## [0.38.0](https://github.com/sayanmohsin/thingd/compare/v0.37.11...v0.38.0) (2026-06-28)
 
 ### Features
