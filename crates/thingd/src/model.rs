@@ -6,7 +6,7 @@ use crate::{u64_to_i64, unix_timestamp_millis};
 pub const DEFAULT_QUEUE_LEASE_MS: u64 = 30_000;
 
 /// Stable object key inside a collection.
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ObjectKey {
     /// Collection name, such as `decisions`, `documents`, or `customers`.
@@ -26,7 +26,7 @@ impl ObjectKey {
 }
 
 /// An object stored in a thingd collection.
-#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MemoryObject {
     /// Stable object key.
@@ -59,7 +59,7 @@ impl MemoryObject {
 }
 
 /// An append-only event stored in a thingd stream.
-#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MemoryEvent {
     /// Stream name, such as `project:thingd` or `customer:cus_123`.
@@ -92,7 +92,7 @@ impl MemoryEvent {
 }
 
 /// Queue job lifecycle state.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum QueueJobStatus {
     /// Ready to be claimed by a worker.

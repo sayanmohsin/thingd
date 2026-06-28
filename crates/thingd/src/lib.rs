@@ -76,7 +76,12 @@ pub use store::{EventLog, LinkStore, ObjectStore, QueueStore, Searcher, ThingSto
 
 pub(crate) fn unix_timestamp_millis() -> i64 {
     let Ok(duration) = SystemTime::now().duration_since(UNIX_EPOCH) else {
-        return 0;
+        #[cfg(debug_assertions)]
+        panic!("SystemTime::now is before UNIX epoch — clock is broken");
+        #[cfg(not(debug_assertions))]
+        {
+            return 0;
+        }
     };
 
     i64::try_from(duration.as_millis()).unwrap_or(i64::MAX)
