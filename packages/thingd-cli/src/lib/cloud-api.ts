@@ -1,4 +1,4 @@
-import { CloudConfig } from "./cloud-config.js";
+import type { CloudConfig } from "./cloud-config.js";
 
 const DEFAULT_API_URL = "https://api.thingd.cloud";
 
@@ -40,11 +40,7 @@ export class CloudApiError extends Error {
   }
 }
 
-async function request<T>(
-  config: CloudConfig,
-  path: string,
-  opts: ApiOptions = {}
-): Promise<T> {
+async function request<T>(config: CloudConfig, path: string, opts: ApiOptions = {}): Promise<T> {
   const url = `${config.url ?? DEFAULT_API_URL}${path}`;
   const headers: Record<string, string> = {
     authorization: `Bearer ${config.token}`,
@@ -68,7 +64,9 @@ async function request<T>(
   return res.json() as Promise<T>;
 }
 
-export async function getMe(config: CloudConfig): Promise<{ user: { id: string; email: string; name: string; role: string } }> {
+export async function getMe(
+  config: CloudConfig
+): Promise<{ user: { id: string; email: string; name: string; role: string } }> {
   return request(config, "/api/users/me");
 }
 
@@ -76,7 +74,10 @@ export async function listProjects(config: CloudConfig): Promise<{ projects: Clo
   return request(config, "/api/projects");
 }
 
-export async function createProject(config: CloudConfig, name: string): Promise<{ project: CloudProject }> {
+export async function createProject(
+  config: CloudConfig,
+  name: string
+): Promise<{ project: CloudProject }> {
   return request(config, "/api/projects", { method: "POST", body: { name } });
 }
 

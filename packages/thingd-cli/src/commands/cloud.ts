@@ -1,15 +1,20 @@
-import { readCloudConfig, writeCloudConfig, removeCloudConfig, type CloudConfig } from "../lib/cloud-config.js";
-import {
-  getMe,
-  listProjects,
-  createProject,
-  listInstances,
-  createInstance,
-  createApiKey,
-  CloudApiError,
-} from "../lib/cloud-api.js";
-import { requiredToken, requiredFlag, stringFlag, type CliContext } from "../index.js";
 import pc from "picocolors";
+import { type CliContext, requiredFlag, requiredToken, stringFlag } from "../index.js";
+import {
+  CloudApiError,
+  createApiKey,
+  createInstance,
+  createProject,
+  getMe,
+  listInstances,
+  listProjects,
+} from "../lib/cloud-api.js";
+import {
+  type CloudConfig,
+  readCloudConfig,
+  removeCloudConfig,
+  writeCloudConfig,
+} from "../lib/cloud-config.js";
 
 export async function runCloud(context: CliContext): Promise<void> {
   const sub = requiredToken(context.parsed, 1, "subcommand");
@@ -36,7 +41,7 @@ export async function runCloud(context: CliContext): Promise<void> {
     default:
       context.stderr.write(
         `Unknown cloud subcommand: ${sub}\n` +
-        "Available: login, logout, status, project, instance, api-key\n"
+          "Available: login, logout, status, project, instance, api-key\n"
       );
   }
 }
@@ -48,9 +53,9 @@ async function runLogin(context: CliContext): Promise<void> {
   if (!token) {
     context.stdout.write(
       `First, open this URL in your browser:\n\n` +
-      `  ${pc.cyan(`https://thingd.cloud/cli/auth?code=${code}`)}\n\n` +
-      `Then paste the token shown after logging in:\n\n` +
-      `  ${pc.dim("$ thingd cloud login --code <code> --token <token>")}\n`
+        `  ${pc.cyan(`https://thingd.cloud/cli/auth?code=${code}`)}\n\n` +
+        `Then paste the token shown after logging in:\n\n` +
+        `  ${pc.dim("$ thingd cloud login --code <code> --token <token>")}\n`
     );
     return;
   }
@@ -78,7 +83,7 @@ async function runLogout(context: CliContext): Promise<void> {
 async function runCloudStatus(context: CliContext): Promise<void> {
   const config = readCloudConfig();
   if (!config) {
-    context.stdout.write("Not logged in. Run " + pc.cyan("thingd cloud login") + "\n");
+    context.stdout.write(`Not logged in. Run ${pc.cyan("thingd cloud login")}\n`);
     return;
   }
 
@@ -86,17 +91,17 @@ async function runCloudStatus(context: CliContext): Promise<void> {
     const { user } = await getMe(config);
     context.stdout.write(
       `Logged in as ${pc.green(user.email)} (${user.role})\n` +
-      `API: ${config.url ?? "https://api.thingd.cloud"}\n`
+        `API: ${config.url ?? "https://api.thingd.cloud"}\n`
     );
   } catch {
-    context.stdout.write("Token expired. Run " + pc.cyan("thingd cloud login") + "\n");
+    context.stdout.write(`Token expired. Run ${pc.cyan("thingd cloud login")}\n`);
   }
 }
 
 async function requireConfig(context: CliContext): Promise<CloudConfig> {
   const config = readCloudConfig();
   if (!config) {
-    context.stderr.write("Not logged in. Run " + pc.cyan("thingd cloud login") + " first.\n");
+    context.stderr.write(`Not logged in. Run ${pc.cyan("thingd cloud login")} first.\n`);
     throw new Error("not_logged_in");
   }
   return config;
@@ -187,8 +192,8 @@ async function runApiKey(context: CliContext): Promise<void> {
     const { key } = await createApiKey(config, project.id, name);
     context.stdout.write(
       pc.green(`✓ Created API key: ${key.prefix}\n`) +
-      `${pc.yellow("Save this token — it won't be shown again:")}\n` +
-      `${pc.bold(key.token ?? "(token not returned)")}\n`
+        `${pc.yellow("Save this token — it won't be shown again:")}\n` +
+        `${pc.bold(key.token ?? "(token not returned)")}\n`
     );
     return;
   }
