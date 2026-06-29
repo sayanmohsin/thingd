@@ -1,3 +1,9 @@
+## [0.40.3](https://github.com/sayanmohsin/thingd/compare/v0.40.2...v0.40.3) (2026-06-29)
+
+### Bug Fixes
+
+* add pnpm test:cli and pnpm test:rust to pre-push hook (was missing, causing CI failures) ([65a100b](https://github.com/sayanmohsin/thingd/commit/65a100b28b4bca0a352be1368e82cb175c7ae28d))
+
 ## [0.40.2](https://github.com/sayanmohsin/thingd/compare/v0.40.1...v0.40.2) (2026-06-29)
 
 ### Bug Fixes
