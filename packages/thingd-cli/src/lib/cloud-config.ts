@@ -8,6 +8,8 @@ export type CloudConfig = {
   token: string;
   email?: string;
   url?: string;
+  /** Currently active organization context (set by `thingd cloud org use`). */
+  organizationId?: string;
 };
 
 export function cloudConfigPath(): string {

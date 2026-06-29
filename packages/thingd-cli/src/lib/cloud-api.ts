@@ -30,6 +30,22 @@ export type CloudApiKey = {
   createdAt: string;
 };
 
+export type CloudOrganization = {
+  id: string;
+  name: string;
+  slug: string;
+  createdAt: string;
+};
+
+export type CloudOrganizationMember = {
+  id: string;
+  organizationId: string;
+  userId: string;
+  role: string;
+  invitedBy: string;
+  joinedAt: string;
+};
+
 export class CloudApiError extends Error {
   status: number;
 
@@ -76,9 +92,14 @@ export async function listProjects(config: CloudConfig): Promise<{ projects: Clo
 
 export async function createProject(
   config: CloudConfig,
-  name: string
+  name: string,
+  organizationId?: string
 ): Promise<{ project: CloudProject }> {
-  return request(config, "/api/projects", { method: "POST", body: { name } });
+  const body: Record<string, string> = { name };
+  if (organizationId) {
+    body.organizationId = organizationId;
+  }
+  return request(config, "/api/projects", { method: "POST", body });
 }
 
 export async function listInstances(
@@ -107,6 +128,57 @@ export async function createApiKey(
   return request(config, `/api/projects/${projectId}/api-keys`, {
     method: "POST",
     body: { name: name ?? "CLI key" },
+  });
+}
+
+// ── Organization API ─────────────────────────────────────────────────
+
+export async function createOrganization(
+  config: CloudConfig,
+  name: string
+): Promise<{ organization: CloudOrganization }> {
+  return request(config, "/api/organizations", { method: "POST", body: { name } });
+}
+
+export async function listOrganizations(
+  config: CloudConfig
+): Promise<{ organizations: CloudOrganization[] }> {
+  return request(config, "/api/organizations");
+}
+
+export async function getOrganization(
+  config: CloudConfig,
+  orgId: string
+): Promise<{ organization: CloudOrganization; role: string }> {
+  return request(config, `/api/organizations/${orgId}`);
+}
+
+export async function listOrganizationMembers(
+  config: CloudConfig,
+  orgId: string
+): Promise<{ members: CloudOrganizationMember[] }> {
+  return request(config, `/api/organizations/${orgId}/members`);
+}
+
+export async function addOrganizationMember(
+  config: CloudConfig,
+  orgId: string,
+  userId: string,
+  role: string = "member"
+): Promise<{ member: CloudOrganizationMember }> {
+  return request(config, `/api/organizations/${orgId}/members`, {
+    method: "POST",
+    body: { userId, role },
+  });
+}
+
+export async function removeOrganizationMember(
+  config: CloudConfig,
+  orgId: string,
+  userId: string
+): Promise<{ ok: boolean }> {
+  return request(config, `/api/organizations/${orgId}/members/${userId}`, {
+    method: "DELETE",
   });
 }
 

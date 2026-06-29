@@ -4,13 +4,19 @@ import pc from "picocolors";
 import { type CliContext, requiredToken, stringFlag } from "../index.js";
 import {
   CloudApiError,
+  addOrganizationMember,
   createApiKey,
   createInstance,
+  createOrganization,
   createProject,
   getMe,
+  getOrganization,
   listInstances,
+  listOrganizationMembers,
+  listOrganizations,
   listProjects,
   pollCliAuth,
+  removeOrganizationMember,
   startCliAuth,
 } from "../lib/cloud-api.js";
 import {
@@ -78,10 +84,13 @@ export async function runCloud(context: CliContext): Promise<void> {
     case "api-key":
       await runApiKey(context);
       return;
+    case "org":
+      await runOrg(context);
+      return;
     default:
       context.stderr.write(
         `Unknown cloud subcommand: ${sub}\n` +
-          "Available: login, logout, status, project, instance, api-key\n"
+          "Available: login, logout, status, org, project, instance, api-key\n"
       );
   }
 }
@@ -187,9 +196,127 @@ async function runCloudStatus(context: CliContext): Promise<void> {
       `Logged in as ${pc.green(user.email)} (${user.role})\n` +
         `API: ${config.url ?? "https://api.thingd.cloud"}\n`
     );
+    if (config.organizationId) {
+      try {
+        const { organization, role } = await getOrganization(config, config.organizationId);
+        context.stdout.write(
+          `Org: ${pc.cyan(organization.name)} (${pc.dim(organization.slug)}) — ${role}\n`
+        );
+      } catch {
+        context.stdout.write(`Org: ${pc.dim("unreachable")}\n`);
+      }
+    } else {
+      context.stdout.write(`Org: ${pc.dim("none — set with thingd cloud org use <slug>")}\n`);
+    }
   } catch {
     context.stdout.write(`Token expired. Run ${pc.cyan("thingd cloud login")}\n`);
   }
+}
+
+// ── Org helpers ──────────────────────────────────────────────────────
+
+async function resolveOrg(
+  config: CloudConfig,
+  slugOrId: string
+): Promise<{ id: string; name: string; slug: string }> {
+  // Try direct ID lookup first, then assume it's a slug and list
+  try {
+    const { organization } = await getOrganization(config, slugOrId);
+    return organization;
+  } catch {
+    // Fall through to slug resolution
+  }
+
+  const { organizations } = await listOrganizations(config);
+  const found = organizations.find((o) => o.slug === slugOrId);
+  if (!found) {
+    throw new Error(`Organization not found: ${slugOrId}`);
+  }
+  return found;
+}
+
+async function runOrg(context: CliContext): Promise<void> {
+  const config = await requireConfig(context);
+  const action = context.parsed.tokens[2];
+
+  if (!action || action === "list") {
+    const { organizations } = await listOrganizations(config);
+    if (organizations.length === 0) {
+      context.stdout.write("No organizations found.\n");
+      return;
+    }
+    for (const org of organizations) {
+      const active = org.id === config.organizationId ? pc.green(" ●") : "";
+      context.stdout.write(`${pc.cyan(org.slug)}  ${org.name}${active}\n`);
+    }
+    return;
+  }
+
+  if (action === "create") {
+    const name = requiredToken(context.parsed, 3, "name");
+    const { organization } = await createOrganization(config, name);
+    context.stdout.write(pc.green(`✓ Created organization: ${organization.slug}\n`));
+    return;
+  }
+
+  if (action === "use") {
+    const slugOrId = requiredToken(context.parsed, 3, "organization");
+    const org = await resolveOrg(config, slugOrId);
+    config.organizationId = org.id;
+    writeCloudConfig(config);
+    context.stdout.write(pc.green(`✓ Active organization: ${org.slug}\n`));
+    return;
+  }
+
+  if (action === "members") {
+    await runOrgMembers(context, config);
+    return;
+  }
+
+  context.stderr.write(
+    `Unknown org action: ${action}. Available: list, create, use, members\n`
+  );
+}
+
+async function runOrgMembers(context: CliContext, config: CloudConfig): Promise<void> {
+  const sub = context.parsed.tokens[3];
+
+  if (!sub || sub === "list") {
+    const orgSlug = requiredToken(context.parsed, 4, "organization");
+    const org = await resolveOrg(config, orgSlug);
+    const { members } = await listOrganizationMembers(config, org.id);
+    if (members.length === 0) {
+      context.stdout.write("No members found.\n");
+      return;
+    }
+    for (const m of members) {
+      context.stdout.write(`${pc.cyan(m.userId)}  ${m.role}\n`);
+    }
+    return;
+  }
+
+  if (sub === "add") {
+    const orgSlug = requiredToken(context.parsed, 4, "organization");
+    const userId = requiredToken(context.parsed, 5, "user-id");
+    const role = stringFlag(context.parsed, "role") ?? "member";
+    const org = await resolveOrg(config, orgSlug);
+    const { member } = await addOrganizationMember(config, org.id, userId, role);
+    context.stdout.write(pc.green(`✓ Added ${member.userId} as ${member.role}\n`));
+    return;
+  }
+
+  if (sub === "remove") {
+    const orgSlug = requiredToken(context.parsed, 4, "organization");
+    const userId = requiredToken(context.parsed, 5, "user-id");
+    const org = await resolveOrg(config, orgSlug);
+    await removeOrganizationMember(config, org.id, userId);
+    context.stdout.write(pc.green(`✓ Removed ${userId}\n`));
+    return;
+  }
+
+  context.stderr.write(
+    `Unknown members action: ${sub}. Available: list, add, remove\n`
+  );
 }
 
 async function requireConfig(context: CliContext): Promise<CloudConfig> {
@@ -219,8 +346,18 @@ async function runProject(context: CliContext): Promise<void> {
 
   if (action === "create") {
     const name = requiredToken(context.parsed, 3, "name");
-    const { project } = await createProject(config, name);
-    context.stdout.write(pc.green(`✓ Created project: ${project.slug}\n`));
+
+    // Optional --org flag for team projects
+    let organizationId: string | undefined;
+    const orgSlug = stringFlag(context.parsed, "org");
+    if (orgSlug) {
+      const org = await resolveOrg(config, orgSlug);
+      organizationId = org.id;
+    }
+
+    const { project } = await createProject(config, name, organizationId);
+    const ctxNote = organizationId ? ` (under org ${orgSlug})` : "";
+    context.stdout.write(pc.green(`✓ Created project: ${project.slug}${ctxNote}\n`));
     return;
   }
 
