@@ -1,3 +1,9 @@
+## [0.41.0](https://github.com/sayanmohsin/thingd/compare/v0.40.3...v0.41.0) (2026-06-29)
+
+### Features
+
+* **cli:** add organization subcommands to cloud module ([e9fc5cb](https://github.com/sayanmohsin/thingd/commit/e9fc5cb048c4c6967aafa8e6e38ec8de7db72033))
+
 ## [0.40.3](https://github.com/sayanmohsin/thingd/compare/v0.40.2...v0.40.3) (2026-06-29)
 
 ### Bug Fixes
