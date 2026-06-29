@@ -1,3 +1,9 @@
+## [0.40.2](https://github.com/sayanmohsin/thingd/compare/v0.40.1...v0.40.2) (2026-06-29)
+
+### Bug Fixes
+
+* change VitePress base from /thingd/ to / for custom domain ([3308cc3](https://github.com/sayanmohsin/thingd/commit/3308cc3c41d586ac29740aa9a4280ec4ebda7756))
+
 ## [0.40.1](https://github.com/sayanmohsin/thingd/compare/v0.40.0...v0.40.1) (2026-06-29)
 
 ### Bug Fixes
