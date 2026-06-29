@@ -1,3 +1,13 @@
+## [0.40.0](https://github.com/sayanmohsin/thingd/compare/v0.39.0...v0.40.0) (2026-06-29)
+
+### Features
+
+* cloud CLI commands with login, project, instance, api-key management ([828e979](https://github.com/sayanmohsin/thingd/commit/828e9790fa11d26849047afea5643dc25092b8ef))
+
+### Bug Fixes
+
+* update Cargo dependency version from 0.38 to 0.39 ([b037656](https://github.com/sayanmohsin/thingd/commit/b03765603ceb2d07fe82be6e91ddc193374c1f4a))
+
 ## [0.39.0](https://github.com/sayanmohsin/thingd/compare/v0.38.2...v0.39.0) (2026-06-28)
 
 ### Features
