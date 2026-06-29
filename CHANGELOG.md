@@ -1,3 +1,9 @@
+## [0.40.1](https://github.com/sayanmohsin/thingd/compare/v0.40.0...v0.40.1) (2026-06-29)
+
+### Bug Fixes
+
+* lint errors in thingd-cli — template literals, import type, import ordering ([9680888](https://github.com/sayanmohsin/thingd/commit/96808889f115659f5f2a5cca780ae8a84920a06a))
+
 ## [0.40.0](https://github.com/sayanmohsin/thingd/compare/v0.39.0...v0.40.0) (2026-06-29)
 
 ### Features
