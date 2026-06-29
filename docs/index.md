@@ -1,10 +1,12 @@
 ---
 layout: home
+title: thingd — Open-Source Rust Data Engine for AI Agents
+description: thingd is an open-source Rust data engine for AI agents. Object-shaped storage, durable queues, event streams, full-text search, and 27 MCP tools — all in one binary. Built by Sayan Mohsin.
 
 hero:
   name: thingd
-  text: Object-first data engine
-  tagline: A fast, local-first engine for applications and AI agents. Persistent storage, durable queues, event streams, full-text search, and MCP-native access — in one package.
+  text: Open-source Rust data engine for AI agents
+  tagline: Object-shaped storage, durable queues, event streams, full-text search, graph links, and 27 MCP-native tools — all in one static binary. No stitching together separate infrastructure.
   actions:
     - theme: brand
       text: Get started →

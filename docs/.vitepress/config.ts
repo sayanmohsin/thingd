@@ -1,14 +1,27 @@
 import { defineConfig } from "vitepress";
 
 export default defineConfig({
-  title: "thingd",
-  description: "A fast object-first data engine for applications and AI agents",
+  title: "thingd — Open-Source Rust Data Engine for AI Agents",
+  description:
+    "thingd is an open-source Rust data engine for AI agents. Object-shaped storage, durable queues, event streams, full-text search, and 27 MCP tools — all in one binary. Deploy via Docker, embed in Node.js, or run as a sidecar. Built by Sayan Mohsin.",
   base: "/thingd/",
   ignoreDeadLinks: true,
+  lang: "en-US",
 
   head: [
     ["link", { rel: "icon", type: "image/svg+xml", href: "/thingd/favicon.svg" }],
     ["meta", { name: "theme-color", content: "#07090b" }],
+    ["meta", { property: "og:title", content: "thingd — Open-Source Rust Data Engine for AI Agents" }],
+    [
+      "meta",
+      {
+        property: "og:description",
+        content:
+          "Object-shaped storage, durable queues, event streams, full-text search, and 27 MCP tools — all in one open-source Rust binary. Built by Sayan Mohsin.",
+      },
+    ],
+    ["meta", { name: "twitter:card", content: "summary_large_image" }],
+    ["link", { rel: "canonical", href: "https://docs.thingd.cloud/" }],
   ],
 
   themeConfig: {
@@ -118,8 +131,9 @@ export default defineConfig({
     socialLinks: [{ icon: "github", link: "https://github.com/sayanmohsin/thingd" }],
 
     footer: {
-      message: "Built with Rust · Apache-2.0 License",
-      copyright: "© 2026 <a href='https://github.com/sayanmohsin'>Sayan Mohsin</a>",
+      message: "Built by <a href='https://github.com/sayanmohsin'>Sayan Mohsin</a> · Rust core · Apache-2.0",
+      copyright:
+        "© 2026 Sayan Mohsin. <a href='https://thingd.cloud'>thingd Cloud</a> — managed hosting for thingd.",
     },
   },
 });
