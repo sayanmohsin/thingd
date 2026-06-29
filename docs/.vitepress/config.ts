@@ -21,7 +21,7 @@ export default defineConfig({
       },
     ],
     ["meta", { name: "twitter:card", content: "summary_large_image" }],
-    ["link", { rel: "canonical", href: "https://docs.thingd.cloud/" }],
+    ["link", { rel: "canonical", href: "https://engine.thingd.cloud/" }],
   ],
 
   themeConfig: {

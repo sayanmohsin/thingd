@@ -3,6 +3,7 @@
   "version": "0.40.1",
   "description": "CLI, Interactive TUI Dashboard, and MCP server for thingd — a fast object-first data engine for applications and AI agents.",
   "type": "module",
+  "homepage": "https://engine.thingd.cloud",
   "author": "Sayan Mohsin",
   "license": "Apache-2.0",
   "keywords": [
