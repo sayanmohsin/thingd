@@ -4,12 +4,12 @@ export default defineConfig({
   title: "thingd — Open-Source Rust Data Engine for AI Agents",
   description:
     "thingd is an open-source Rust data engine for AI agents. Object-shaped storage, durable queues, event streams, full-text search, and 27 MCP tools — all in one binary. Deploy via Docker, embed in Node.js, or run as a sidecar. Built by Sayan Mohsin.",
-  base: "/thingd/",
+  base: "/",
   ignoreDeadLinks: true,
   lang: "en-US",
 
   head: [
-    ["link", { rel: "icon", type: "image/svg+xml", href: "/thingd/favicon.svg" }],
+    ["link", { rel: "icon", type: "image/svg+xml", href: "/favicon.svg" }],
     ["meta", { name: "theme-color", content: "#07090b" }],
     ["meta", { property: "og:title", content: "thingd — Open-Source Rust Data Engine for AI Agents" }],
     [

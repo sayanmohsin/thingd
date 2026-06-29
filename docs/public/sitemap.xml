@@ -1,8 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url>
-    <loc>https://sayanmohsin.github.io/thingd/</loc>
-    <lastmod>2026-06-09</lastmod>
+    <loc>https://engine.thingd.cloud/</loc>
     <changefreq>weekly</changefreq>
     <priority>1.0</priority>
   </url>
