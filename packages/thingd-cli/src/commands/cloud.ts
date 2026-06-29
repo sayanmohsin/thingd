@@ -124,8 +124,8 @@ async function runLogin(context: CliContext): Promise<void> {
 
   context.stdout.write(
     `\n  ${pc.cyan("Opening browser...")}\n` +
-    `  ${pc.dim("If the browser doesn't open, visit:")}\n` +
-    `  ${pc.dim(authUrl)}\n\n`
+      `  ${pc.dim("If the browser doesn't open, visit:")}\n` +
+      `  ${pc.dim(authUrl)}\n\n`
   );
 
   openBrowser(authUrl);
@@ -155,7 +155,9 @@ async function runLogin(context: CliContext): Promise<void> {
 
       // Show spinner
       dots = (dots + 1) % 4;
-      context.stdout.write(`\r  ${pc.dim("Waiting for browser login" + ".".repeat(dots) + " ".repeat(3 - dots))}`);
+      context.stdout.write(
+        `\r  ${pc.dim(`Waiting for browser login${".".repeat(dots)}${" ".repeat(3 - dots)}`)}`
+      );
     } catch (err) {
       if (err instanceof CloudApiError && err.status === 410) {
         context.stderr.write(pc.red("\nCode expired. Run `thingd cloud login` again.\n"));

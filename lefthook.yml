@@ -7,6 +7,10 @@ pre-push:
       run: pnpm build
     test-node:
       run: pnpm test:node
+    test-cli:
+      run: pnpm test:cli
+    test-rust:
+      run: pnpm test:rust
     rust-fmt:
       run: cargo fmt --all --check
     rust-clippy:

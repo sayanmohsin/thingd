@@ -11,7 +11,10 @@ export default defineConfig({
   head: [
     ["link", { rel: "icon", type: "image/svg+xml", href: "/favicon.svg" }],
     ["meta", { name: "theme-color", content: "#07090b" }],
-    ["meta", { property: "og:title", content: "thingd — Open-Source Rust Data Engine for AI Agents" }],
+    [
+      "meta",
+      { property: "og:title", content: "thingd — Open-Source Rust Data Engine for AI Agents" },
+    ],
     [
       "meta",
       {
@@ -139,7 +142,8 @@ export default defineConfig({
     socialLinks: [{ icon: "github", link: "https://github.com/sayanmohsin/thingd" }],
 
     footer: {
-      message: "Built by <a href='https://github.com/sayanmohsin'>Sayan Mohsin</a> · Rust core · Apache-2.0",
+      message:
+        "Built by <a href='https://github.com/sayanmohsin'>Sayan Mohsin</a> · Rust core · Apache-2.0",
       copyright:
         "© 2026 Sayan Mohsin. <a href='https://thingd.cloud'>thingd Cloud</a> — managed hosting for thingd.",
     },

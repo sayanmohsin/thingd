@@ -112,11 +112,7 @@ export async function createApiKey(
 
 // ── CLI device code auth (unauthenticated) ──────────────────────────
 
-async function requestUnauthenticated<T>(
-  apiUrl: string,
-  path: string,
-  body: unknown
-): Promise<T> {
+async function requestUnauthenticated<T>(apiUrl: string, path: string, body: unknown): Promise<T> {
   const url = `${apiUrl}${path}`;
   const res = await fetch(url, {
     method: "POST",
@@ -130,23 +126,13 @@ async function requestUnauthenticated<T>(
   return res.json() as Promise<T>;
 }
 
-export async function startCliAuth(
-  config: CloudConfig
-): Promise<{ code: string }> {
-  return requestUnauthenticated(
-    config.url ?? DEFAULT_API_URL,
-    "/api/auth/cli/start",
-    {}
-  );
+export async function startCliAuth(config: CloudConfig): Promise<{ code: string }> {
+  return requestUnauthenticated(config.url ?? DEFAULT_API_URL, "/api/auth/cli/start", {});
 }
 
 export async function pollCliAuth(
   config: CloudConfig,
   code: string
 ): Promise<{ token: string } | { status: string }> {
-  return requestUnauthenticated(
-    config.url ?? DEFAULT_API_URL,
-    "/api/auth/cli/poll",
-    { code }
-  );
+  return requestUnauthenticated(config.url ?? DEFAULT_API_URL, "/api/auth/cli/poll", { code });
 }
