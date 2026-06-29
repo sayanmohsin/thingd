@@ -354,3 +354,11 @@ Runs `PRAGMA wal_checkpoint(TRUNCATE)`. Also runs automatically on database clos
 ### Are schema migrations safe?
 
 Yes. Each migration runs in a transaction. A backup is auto-created before migration (`{path}.pre-v{version}`). Integrity check runs after migration.
+
+## Hosted version
+
+### Is there a hosted version of thingd?
+
+Yes. [thingd Cloud](https://thingd.cloud) is the managed version of thingd — it runs the same engine but handles all the infrastructure: hosted MCP endpoints, API key management, team dashboard, tenant isolation, backups, and rate limiting.
+
+It's the easiest way to get a production thingd instance without managing servers, Docker containers, or storage. [thingd.cloud](https://thingd.cloud)

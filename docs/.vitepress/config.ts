@@ -62,6 +62,10 @@ export default defineConfig({
             text: "Docker Hub",
             link: "https://hub.docker.com/r/sayanmohsin/thingd",
           },
+          {
+            text: "thingd Cloud",
+            link: "https://thingd.cloud",
+          },
         ],
       },
     ],
@@ -125,6 +129,10 @@ export default defineConfig({
           { text: "Architecture", link: "/architecture" },
           { text: "Benchmarks", link: "/benchmarks" },
         ],
+      },
+      {
+        text: "thingd Cloud",
+        link: "https://thingd.cloud",
       },
     ],
 

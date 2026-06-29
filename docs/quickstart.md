@@ -200,6 +200,8 @@ thingd db integrity
 
 See [Security](./security.md) and [Operations](./operations.md) for full documentation.
 
+> **☁️ Prefer hosted?** [thingd Cloud](https://thingd.cloud) runs thingd for you — get a managed MCP endpoint, API key management, team dashboard, and backups without the ops overhead. [Sign up →](https://thingd.cloud)
+
 ## What's next
 
 - **Scheduler pattern** — background recurring jobs without a cron daemon: [agent-patterns.md](./agent-patterns.md#pattern-2--scheduler-no-built-in-cron)
@@ -210,3 +212,4 @@ See [Security](./security.md) and [Operations](./operations.md) for full documen
 - **Operations** — backup, restore, integrity checks, WAL management: [operations.md](./operations.md)
 - **Why thingd?** — the full agent value proposition: [why-agents.md](./why-agents.md)
 - **API spec** — REST and MCP reference: [api-spec/](./api-spec/)
+- **thingd Cloud** — managed hosting for thingd: [thingd.cloud](https://thingd.cloud)

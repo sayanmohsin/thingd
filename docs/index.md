@@ -37,4 +37,11 @@ features:
   - icon: ⚡
     title: Multi-mode
     details: Embedded, sidecar, or cluster. In-memory or persistent SQLite. Same API everywhere.
+
+---
+
+### ☁️ Need managed hosting?
+
+[**thingd Cloud**](https://thingd.cloud) runs thingd for you — hosted MCP endpoints, API key management, team dashboard, tenant isolation, and backups.
+
 ---
