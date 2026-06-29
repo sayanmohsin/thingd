@@ -11,7 +11,7 @@ keywords = ["mcp", "database", "server", "sidecar", "thingd"]
 categories = ["database-implementations", "web-programming::http-server"]
 
 [dependencies]
-thingd = { path = "../thingd", version = "0.39", features = ["sqlite"] }
+thingd = { path = "../thingd", version = "0.40", features = ["sqlite"] }
 axum = { version = "0.8", features = ["json", "macros"] }
 tokio = { version = "1", features = ["full"] }
 serde = { version = "1", features = ["derive"] }
