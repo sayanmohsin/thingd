@@ -1,3 +1,12 @@
+## [0.41.1](https://github.com/sayanmohsin/thingd/compare/v0.41.0...v0.41.1) (2026-06-30)
+
+### Bug Fixes
+
+* auto-fix biome lint errors in cloud.ts ([afaae7a](https://github.com/sayanmohsin/thingd/commit/afaae7a44eadb35c3bd084d54b2bd51d0a565326))
+* mock cloud API in CLI tests to prevent real HTTP calls ([9748e53](https://github.com/sayanmohsin/thingd/commit/9748e530c3ed51007cf6f6608c5e737ecbca12ad))
+* **release:** sync path dep version pins on version bump ([96b1e24](https://github.com/sayanmohsin/thingd/commit/96b1e2441cb5303cb663c6fa1d77bb754f8e8856))
+* sync version pins after 0.41.0 release bump ([6fb48e1](https://github.com/sayanmohsin/thingd/commit/6fb48e163d6672f4585e6f6cca1d5a96f9412aed))
+
 ## [0.41.0](https://github.com/sayanmohsin/thingd/compare/v0.40.3...v0.41.0) (2026-06-29)
 
 ### Features
