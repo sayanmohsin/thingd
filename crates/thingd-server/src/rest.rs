@@ -1,6 +1,8 @@
 use axum::{
     Json,
     extract::{Path, Query, State},
+    http::header,
+    response::IntoResponse,
 };
 use serde_json::{Value, json};
 use std::sync::Arc;
@@ -17,6 +19,46 @@ fn ok<T: serde::Serialize>(data: T) -> Result<Json<Value>, AppError> {
 
 pub async fn health() -> Json<Value> {
     Json(json!({ "data": { "status": "ok" } }))
+}
+
+pub async fn metrics(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    let e = state.pool.get("");
+    let g = e.lock();
+    let objects = g.count_objects().unwrap_or(0);
+    let events = g.count_events().unwrap_or(0);
+    let links = g.count_links().unwrap_or(0);
+    let queue_count = g.list_queues().unwrap_or_default().len() as u64;
+    let active_jobs = g.count_active_jobs().unwrap_or(0);
+    let dead_jobs = g.count_dead_jobs().unwrap_or(0);
+
+    let body = format!(
+        "# HELP thingd_objects_total Total number of objects.\n\
+         # TYPE thingd_objects_total gauge\n\
+         thingd_objects_total {objects}\n\
+         # HELP thingd_events_total Total number of events.\n\
+         # TYPE thingd_events_total gauge\n\
+         thingd_events_total {events}\n\
+         # HELP thingd_links_total Total number of links.\n\
+         # TYPE thingd_links_total gauge\n\
+         thingd_links_total {links}\n\
+         # HELP thingd_queues_total Total number of queues.\n\
+         # TYPE thingd_queues_total gauge\n\
+         thingd_queues_total {queue_count}\n\
+         # HELP thingd_active_jobs_total Total active queue jobs.\n\
+         # TYPE thingd_active_jobs_total gauge\n\
+         thingd_active_jobs_total {active_jobs}\n\
+         # HELP thingd_dead_jobs_total Total dead-letter queue jobs.\n\
+         # TYPE thingd_dead_jobs_total gauge\n\
+         thingd_dead_jobs_total {dead_jobs}\n",
+        objects = objects,
+        events = events,
+        links = links,
+        queue_count = queue_count,
+        active_jobs = active_jobs,
+        dead_jobs = dead_jobs,
+    );
+
+    ([(header::CONTENT_TYPE, "text/plain; charset=utf-8")], body)
 }
 
 // ─── Counts ─────────────────────────────────────────────────────
@@ -528,6 +570,28 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn test_metrics() {
+        let (state, config) = test_state_and_config();
+        let app = crate::server::build_router(state, &config);
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/metrics")
+                    .body(Body::default())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let text = String::from_utf8_lossy(&body);
+        assert!(text.contains("thingd_objects_total"));
+        assert!(text.contains("thingd_events_total"));
+        assert!(text.contains("thingd_queues_total"));
     }
 
     #[tokio::test]

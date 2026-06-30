@@ -29,6 +29,7 @@ pub fn build_router(state: Arc<AppState>, config: &Config) -> Router {
     let state_for_auth = Arc::clone(&state);
     let mut router = Router::new()
         .route("/healthz", get(rest::health))
+        .route("/metrics", get(rest::metrics))
         .route("/v1/health", get(rest::health))
         .route("/v1/counts/objects", get(rest::count_objects))
         .route("/v1/counts/events", get(rest::count_events))
