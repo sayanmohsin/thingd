@@ -649,4 +649,69 @@ function runThingDBehaviorSuite(label, openDb) {
 
     await db.close();
   });
+
+  // ── End-to-end workflow tests ─────────────────────────────────
+
+  test(`${label}: end-to-end workflow: create, search, delete, verify consistency`, async () => {
+    const db = await openDb();
+
+    await db.put("docs", { id: "doc-1", title: "Alice in Wonderland", author: "Alice" });
+    await db.put("docs", { id: "doc-2", title: "Bob's Build Guide", author: "Bob" });
+    await db.put("docs", { id: "doc-3", title: "Charlie's Cookbook", author: "Charlie" });
+
+    // Search before delete
+    const before = await db.search("Alice");
+    assert.equal(before.length, 1);
+    assert.equal(before[0].id, "doc-1");
+
+    // Delete and verify
+    await db.delete("docs", "doc-1");
+    const got = await db.get("docs", "doc-1");
+    assert.strictEqual(got, null);
+
+    // Search should no longer return it
+    const after = await db.search("Alice");
+    assert.equal(after.length, 0);
+
+    await db.close();
+  });
+
+  test(`${label}: end-to-end workflow: batch operations with search`, async () => {
+    const db = await openDb();
+
+    await db.put("col", { id: "a", text: "alpha" });
+    await db.put("col", { id: "b", text: "beta" });
+    await db.put("col", { id: "c", text: "gamma" });
+
+    assert.equal((await db.listObjects("col")).length, 3);
+    assert.equal((await db.search("alpha")).length, 1);
+
+    await db.deleteBatch("col", ["a", "b"]);
+
+    assert.equal((await db.listObjects("col")).length, 1);
+    assert.equal((await db.search("alpha")).length, 0);
+    assert.equal((await db.search("gamma")).length, 1);
+
+    await db.close();
+  });
+
+  test(`${label}: end-to-end workflow: event append and stream listing`, async () => {
+    const db = await openDb();
+
+    for (let i = 1; i <= 5; i++) {
+      await db.events.append("stream", { type: "event", seq: i });
+    }
+
+    const all = await db.events.list("stream");
+    assert.equal(all.length, 5);
+
+    const limited = await db.events.list("stream", { limit: 3 });
+    assert.equal(limited.length, 3);
+
+    const fromSeq = await db.events.list("stream", { fromSequence: 4 });
+    assert.equal(fromSeq.length, 1);
+    assert.equal(fromSeq[0].seq, 5);
+
+    await db.close();
+  });
 }
