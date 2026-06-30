@@ -1,3 +1,9 @@
+## [0.44.1](https://github.com/sayanmohsin/thingd/compare/v0.44.0...v0.44.1) (2026-06-30)
+
+### Bug Fixes
+
+* security and performance audit fixes ([fc81b34](https://github.com/sayanmohsin/thingd/commit/fc81b3450996669a274c4052d8b87fb822bbbb8b))
+
 ## [0.44.0](https://github.com/sayanmohsin/thingd/compare/v0.43.0...v0.44.0) (2026-06-30)
 
 ### Features
