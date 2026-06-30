@@ -516,44 +516,74 @@ impl ObjectStore for SqliteThingStore {
     }
 
     fn put_objects_batch(&mut self, objects: Vec<MemoryObject>) -> ThingdResult<Vec<MemoryObject>> {
+        if objects.is_empty() {
+            return Ok(Vec::new());
+        }
+
         let transaction = self.connection.transaction().map_err(ThingdError::from)?;
 
         let mut fts_updates: Vec<(String, String, String)> = Vec::with_capacity(objects.len());
         let mut results = Vec::with_capacity(objects.len());
-        for mut object in objects {
-            // Use UPSERT with automatic version increment — no SELECT needed
-            let row = transaction
-                .query_row(
-                    r"
-                    INSERT INTO objects (collection, id, body, version, created_at, updated_at)
-                    VALUES (?1, ?2, ?3, 1, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
-                    ON CONFLICT(collection, id) DO UPDATE SET
-                        body = excluded.body,
-                        version = version + 1,
-                        updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-                    RETURNING version, created_at, updated_at
-                    ",
-                    params![&object.key.collection, &object.key.id, &object.body],
-                    |row| {
-                        Ok((
-                            row.get::<_, i64>(0)?,
-                            row.get::<_, String>(1)?,
-                            row.get::<_, String>(2)?,
-                        ))
-                    },
-                )
-                .map_err(ThingdError::from)?;
-            object.version =
-                u64::try_from(row.0).map_err(|e| ThingdError::Storage(e.to_string()))?;
-            object.created_at = row.1;
-            object.updated_at = row.2;
+        let mut param_values: Vec<String> = Vec::new();
+        let mut value_sql = String::new();
 
+        for (i, object) in objects.into_iter().enumerate() {
+            if i > 0 {
+                value_sql.push_str(", ");
+            }
+            let ci = i * 3 + 1;
+            let ii = i * 3 + 2;
+            let bi = i * 3 + 3;
+            let _ = std::fmt::Write::write_fmt(
+                &mut value_sql,
+                format_args!(
+                    "(?{ci}, ?{ii}, ?{bi}, 1, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))"
+                ),
+            );
             let text = extract_text_from_json(&object.body);
             fts_updates.push((object.key.collection.clone(), object.key.id.clone(), text));
+
+            param_values.push(object.key.collection.clone());
+            param_values.push(object.key.id.clone());
+            param_values.push(object.body.clone());
 
             results.push(object);
         }
 
+        let sql = format!(
+            "INSERT INTO objects (collection, id, body, version, created_at, updated_at) VALUES {value_sql} \
+             ON CONFLICT(collection, id) DO UPDATE SET \
+             body = excluded.body, version = version + 1, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') \
+             RETURNING version, created_at, updated_at"
+        );
+
+        let param_slices: Vec<&dyn rusqlite::types::ToSql> = param_values
+            .iter()
+            .map(|s| s as &dyn rusqlite::types::ToSql)
+            .collect();
+
+        let mut statement = transaction.prepare(&sql).map_err(ThingdError::from)?;
+        let rows = statement
+            .query_map(param_slices.as_slice(), |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
+            })
+            .map_err(ThingdError::from)?;
+
+        for (result, row) in results.iter_mut().zip(rows) {
+            let (version, created_at, updated_at) = row.map_err(ThingdError::from)?;
+            result.version =
+                u64::try_from(version).map_err(|e| ThingdError::Storage(e.to_string()))?;
+            result.created_at = created_at;
+            result.updated_at = updated_at;
+        }
+
+        drop(statement);
+
+        // Batch FTS updates
         for (collection, id, text) in &fts_updates {
             transaction
                 .execute(
@@ -963,23 +993,52 @@ impl EventLog for SqliteThingStore {
     }
 
     fn append_events_batch(&mut self, events: Vec<MemoryEvent>) -> ThingdResult<Vec<MemoryEvent>> {
+        if events.is_empty() {
+            return Ok(Vec::new());
+        }
+
         let transaction = self.connection.transaction().map_err(ThingdError::from)?;
 
-        let mut results = Vec::with_capacity(events.len());
-        for event in events {
-            let (sequence, created_at): (i64, String) = transaction
-                .query_row(
-                    r"
-                    INSERT INTO events (stream, event_type, body, created_at)
-                    VALUES (?1, ?2, ?3, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
-                    RETURNING sequence, created_at
-                    ",
-                    params![&event.stream, &event.event_type, &event.body],
-                    |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?)),
-                )
-                .map_err(ThingdError::from)?;
+        let mut param_values: Vec<String> = Vec::new();
+        let mut value_sql = String::new();
+        let mut results: Vec<MemoryEvent> = Vec::with_capacity(events.len());
 
-            let mut result = event;
+        for (i, event) in events.into_iter().enumerate() {
+            if i > 0 {
+                value_sql.push_str(", ");
+            }
+            let si = i * 3 + 1;
+            let ti = i * 3 + 2;
+            let bi = i * 3 + 3;
+            let _ = std::fmt::Write::write_fmt(
+                &mut value_sql,
+                format_args!("(?{si}, ?{ti}, ?{bi}, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))"),
+            );
+            param_values.push(event.stream.clone());
+            param_values.push(event.event_type.clone());
+            param_values.push(event.body.clone());
+            results.push(event);
+        }
+
+        let sql = format!(
+            "INSERT INTO events (stream, event_type, body, created_at) VALUES {value_sql} \
+             RETURNING sequence, created_at"
+        );
+
+        let param_slices: Vec<&dyn rusqlite::types::ToSql> = param_values
+            .iter()
+            .map(|s| s as &dyn rusqlite::types::ToSql)
+            .collect();
+
+        let mut statement = transaction.prepare(&sql).map_err(ThingdError::from)?;
+        let rows = statement
+            .query_map(param_slices.as_slice(), |row| {
+                Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+            })
+            .map_err(ThingdError::from)?;
+
+        for (result, row) in results.iter_mut().zip(rows) {
+            let (sequence, created_at) = row.map_err(ThingdError::from)?;
             result.sequence =
                 u64::try_from(sequence).map_err(|error| ThingdError::Storage(error.to_string()))?;
             result.created_at = created_at;
@@ -992,10 +1051,9 @@ impl EventLog for SqliteThingStore {
                     params![&result.stream, seq_str, text],
                 )
                 .map_err(ThingdError::from)?;
-
-            results.push(result);
         }
 
+        drop(statement);
         transaction.commit().map_err(ThingdError::from)?;
 
         Ok(results)
