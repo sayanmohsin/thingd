@@ -106,6 +106,8 @@ This file should stay useful but not become a dump. Rules:
 
 ## Common miss patterns
 
+- **AGENTS.md test counts** — `pnpm test:node`/`:cli`/`:rust` counts in the Commands section must match `package.json` test scripts. Run each to verify before committing.
+- **AGENTS.md version examples** — `Version specifier propagation` examples must match the current workspace `[workspace.package].version` in `Cargo.toml`.
 - **MCP tool count** — update in `README.md` badge, `docs/mcp-server.md` Current Status, `docs/faq.md`
 - **Sidecar REST gap** — every REST endpoint in `docs/api-spec/rest-api.md` must exist in `crates/thingd-server/src/rest.rs`
 - **Sidecar MCP gap** — every MCP tool in `docs/api-spec/mcp-tools.md` must exist in `crates/thingd-server/src/mcp.rs`
