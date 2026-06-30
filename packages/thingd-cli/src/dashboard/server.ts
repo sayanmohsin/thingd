@@ -93,7 +93,7 @@ export async function startDashboardServer(
       const pathname = url.pathname;
 
       // Handle CORS for ease of developer integrations
-      const allowedOrigins = ["http://localhost:8757", "http://localhost:8758"];
+      const allowedOrigins = ["http://localhost:8757", "http://localhost:8758", "http://127.0.0.1:8757", "http://127.0.0.1:8758"];
       const origin = req.headers.origin;
       if (origin && allowedOrigins.includes(origin)) {
         res.setHeader("Access-Control-Allow-Origin", origin);
@@ -107,6 +107,15 @@ export async function startDashboardServer(
         res.writeHead(204);
         res.end();
         return;
+      }
+
+      // CSRF protection: state-changing requests must come from a known origin
+      if (req.method !== "GET" && req.method !== "OPTIONS" && req.method !== "HEAD") {
+        const requestOrigin = req.headers.origin;
+        if (requestOrigin && !allowedOrigins.includes(requestOrigin)) {
+          sendError(res, 403, "Cross-origin state-changing requests are not allowed");
+          return;
+        }
       }
 
       // Security Gate middleware for API endpoints

@@ -1632,6 +1632,10 @@ impl crate::store::Searcher for SqliteThingStore {
         if sanitized.is_empty() {
             return Ok(Vec::new());
         }
+        // Reject single-character queries to prevent FTS5 prefix explosion
+        if query.chars().filter(|c| c.is_alphanumeric()).count() < 2 {
+            return Ok(Vec::new());
+        }
 
         let mut sql = String::from(
             r"

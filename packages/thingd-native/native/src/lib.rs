@@ -313,8 +313,14 @@ impl NativeThingStore {
     #[napi(js_name = "walCheckpoint")]
     pub fn wal_checkpoint(&self) -> Result<String> {
         let store = self.lock_store()?;
-        let (frames_before, frames_after) = store.wal_checkpoint().map_err(napi_error)?;
-        to_json(&serde_json::json!({ "framesBefore": frames_before, "framesAfter": frames_after }))
+        let (frames, pages) = store.wal_checkpoint().map_err(napi_error)?;
+        to_json(&serde_json::json!({ "frames": frames, "pages": pages }))
+    }
+
+    #[napi(js_name = "optimizeSearchIndex")]
+    pub fn optimize_search_index(&self) -> Result<()> {
+        let store = self.lock_store()?;
+        store.optimize_search_index().map_err(napi_error)
     }
 
     #[napi(js_name = "backupTo")]

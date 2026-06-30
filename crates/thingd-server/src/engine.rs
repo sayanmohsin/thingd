@@ -75,6 +75,10 @@ impl EnginePool {
                      Falling back to in-memory storage. ALL DATA WILL BE LOST ON RESTART. \
                      This may be a permissions issue, corrupt database, or disk-full condition."
                 );
+                eprintln!(
+                    "CRITICAL: Failed to open database at {path}: {e}. \
+                     Falling back to in-memory storage. ALL DATA WILL BE LOST ON RESTART."
+                );
                 *self.has_fallback.lock() = true;
                 let memory = MemoryEngine::new();
                 let shared = Arc::new(Mutex::new(Box::new(memory) as Box<dyn ThingStore + Send>));

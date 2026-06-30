@@ -22,6 +22,7 @@ import type {
 
 type NativeThingStoreBinding = {
   putObjectJson(collection: string, id: string, body: string, expectedVersion?: number): string;
+  optimizeSearchIndex(): void;
   getObjectJson(collection: string, id: string): string | null;
   listObjectsJson(
     collectionsJson?: string,
