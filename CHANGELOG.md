@@ -1,3 +1,9 @@
+## [0.41.2](https://github.com/sayanmohsin/thingd/compare/v0.41.1...v0.41.2) (2026-06-30)
+
+### Bug Fixes
+
+* **sidecar:** align MCP tools with SDK — audit events, annotations, validation, optional stream ([a7f5007](https://github.com/sayanmohsin/thingd/commit/a7f5007391dd4e0c9ece19f280446f0859efe2e0))
+
 ## [0.41.1](https://github.com/sayanmohsin/thingd/compare/v0.41.0...v0.41.1) (2026-06-30)
 
 ### Bug Fixes
