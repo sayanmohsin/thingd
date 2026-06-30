@@ -9,7 +9,7 @@ knowing SQL or internal storage details.
 
 ## Current Status
 
-**27 MCP tools** exposed via stdio and Streamable HTTP.
+**{{ $themeConfig.mcpToolCount }} MCP tools** exposed via stdio and Streamable HTTP.
 
 The package implements the local stdio server plus a remote-capable Streamable
 HTTP runtime.
@@ -39,7 +39,7 @@ Implemented:
 
 ## Tool Surface
 
-All 27 tools are documented in the [API spec — MCP tools reference](api-spec/mcp-tools.md)
+All {{ $themeConfig.mcpToolCount }} tools are documented in the [API spec — MCP tools reference](api-spec/mcp-tools.md)
 with JSON schemas, input/output types, and return formats.
 
 ### Categories

@@ -145,6 +145,12 @@ GET /healthz
 GET /cluster/status
 ```
 
+## Managed hosting
+
+Don't want to run your own server? [thingd.cloud](https://thingd.cloud)
+hosts thingd for you — managed MCP endpoints, API key management, team
+dashboard, tenant isolation, and backups.
+
 ## Links
 
 - [GitHub](https://github.com/sayanmohsin/thingd)

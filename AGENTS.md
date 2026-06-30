@@ -1,5 +1,16 @@
 # Agent Notes
 
+## Product
+
+**thingd** is a fast object-first data engine for applications and AI agents.
+It provides object storage, durable queues, event streams, full-text search,
+graph links, and 27 MCP tools — all in one binary. Runs embedded (Rust/Node),
+as a sidecar MCP server, in Docker, or in Kubernetes.
+
+**thingd Cloud** (at [thingd.cloud](https://thingd.cloud), private repo
+`sayanmohsin/thingd-cloud`) is the managed hosted version — same engine, zero
+infrastructure. See `AGENTS.md` in that repo for cloud-specific docs.
+
 ## Repo boundaries
 
 thingd (this repo, public): Rust engine + Node.js SDK + CLI + Rust sidecar + public docs.
@@ -108,7 +119,7 @@ This file should stay useful but not become a dump. Rules:
 
 - **AGENTS.md test counts** — `pnpm test:node`/`:cli`/`:rust` counts in the Commands section must match `package.json` test scripts. Run each to verify before committing.
 - **AGENTS.md version examples** — `Version specifier propagation` examples must match the current workspace `[workspace.package].version` in `Cargo.toml`.
-- **MCP tool count** — update in `README.md` badge, `docs/mcp-server.md` Current Status, `docs/faq.md`
+- **MCP tool count** — update in `packages/thingd/src/constants.ts` only; VitePress docs use `{{ $themeConfig.mcpToolCount }}` from `docs/.vitepress/config.ts`
 - **Sidecar REST gap** — every REST endpoint in `docs/api-spec/rest-api.md` must exist in `crates/thingd-server/src/rest.rs`
 - **Sidecar MCP gap** — every MCP tool in `docs/api-spec/mcp-tools.md` must exist in `crates/thingd-server/src/mcp.rs`
 - **Native binding type** — update `NativeThingStoreBinding` in `native-thing-store.ts` when adding napi methods

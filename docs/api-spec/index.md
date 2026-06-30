@@ -32,7 +32,7 @@ thingd is a fast, object-first data engine for applications and AI agents. It su
           ▼            ▼            ▼            ▼
     ┌─────────────────────────────────────────────────┐
     │           Protocol Adapters (per-language)       │
-    │  REST API (/v1/*)  │  MCP Server (27 tools)     │
+    │  REST API (/v1/*)  │  MCP Server ({{ $themeConfig.mcpToolCount }} tools)     │
     └─────────────────────┬───────────────────────────┘
                           │
               ┌───────────┼───────────┐

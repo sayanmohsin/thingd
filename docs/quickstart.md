@@ -150,7 +150,7 @@ await db.close();
 
 ## 6. Use memory tools from your agent (MCP)
 
-Once the MCP server is registered, Cursor and Claude can call these 27 tools directly:
+Once the MCP server is registered, Cursor and Claude can call these {{ $themeConfig.mcpToolCount }} tools directly:
 
 ```txt
 thing_search          — full-text + metadata filter search

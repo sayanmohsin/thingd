@@ -9,6 +9,7 @@
 A fast object-first data engine for applications and AI agents.
 
 🌐 [sayanmohsin.github.io/thingd](https://sayanmohsin.github.io/thingd) — landing page
+☁️ [thingd.cloud](https://thingd.cloud) — managed cloud
 
 thingd is a high-performance object-first data engine built for modern applications and AI agents. It combines persistent storage, durable queues, event streams, full-text search, and MCP-native access into a single system that can run embedded, standalone, or in a cluster.
 
@@ -25,7 +26,7 @@ production-ready yet.
 - **Rust engine** (`thingd` — crates.io) — memory + SQLite adapters, FTS5 search, queue lifecycle, graph links, SQLite schema migrations, startup integrity check, auto‑backup before migrations
 - **Node.js SDK** (`@thingd/sdk`) — three drivers: memory (default in-memory TS store), native (napi-rs Rust SQLite), remote/cloud (Streamable HTTP MCP)
 - **CLI** (`@thingd/cli`) — TUI dashboard, 30+ subcommands (search, objects, events, queues, export/import/snapshot/backup, doctor, bench, db maintenance)
-- **MCP server** — 27 tools, stdio + Streamable HTTP, audit events, collection allowlists, read-only mode
+- **MCP server** — 27 tools, stdio + Streamable HTTP, audit events, collection allowlists, read-only mode (tool count defined in packages/thingd/src/constants.ts)
 - **Docker** — multi-stage image, compose + K8s for leader/follower cluster
 - **CI/tooling** — semantic-release, biome, lefthook, doc tests, cargo audit, cargo deny, CodeQL
 
@@ -92,6 +93,13 @@ It is not:
 - a finished production system today
 
 The goal is a practical local-first engine for small and medium apps, devtools, internal tools, edge deployments, and persistent memory systems.
+
+## thingd Cloud
+
+[thingd.cloud](https://thingd.cloud) is the managed hosted version of
+thingd. Create projects, issue API keys, and connect agents to hosted thingd
+instances through an HTTPS MCP endpoint with audit logging, scoped access
+control, and tenant isolation. Same engine, zero infrastructure to run.
 
 ## Core primitives
 

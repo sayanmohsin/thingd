@@ -93,7 +93,12 @@ export async function startDashboardServer(
       const pathname = url.pathname;
 
       // Handle CORS for ease of developer integrations
-      const allowedOrigins = ["http://localhost:8757", "http://localhost:8758", "http://127.0.0.1:8757", "http://127.0.0.1:8758"];
+      const allowedOrigins = [
+        "http://localhost:8757",
+        "http://localhost:8758",
+        "http://127.0.0.1:8757",
+        "http://127.0.0.1:8758",
+      ];
       const origin = req.headers.origin;
       if (origin && allowedOrigins.includes(origin)) {
         res.setHeader("Access-Control-Allow-Origin", origin);

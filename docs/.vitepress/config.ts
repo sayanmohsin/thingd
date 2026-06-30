@@ -1,9 +1,10 @@
 import { defineConfig } from "vitepress";
 
+const mcpToolCount = 27;
+
 export default defineConfig({
   title: "thingd — Open-Source Rust Data Engine for AI Agents",
-  description:
-    "thingd is an open-source Rust data engine for AI agents. Object-shaped storage, durable queues, event streams, full-text search, and 27 MCP tools — all in one binary. Deploy via Docker, embed in Node.js, or run as a sidecar. Built by Sayan Mohsin.",
+  description: `thingd is an open-source Rust data engine for AI agents. Object-shaped storage, durable queues, event streams, full-text search, and ${mcpToolCount} MCP tools — all in one binary. Deploy via Docker, embed in Node.js, or run as a sidecar. Built by Sayan Mohsin.`,
   base: "/",
   ignoreDeadLinks: true,
   lang: "en-US",
@@ -19,8 +20,7 @@ export default defineConfig({
       "meta",
       {
         property: "og:description",
-        content:
-          "Object-shaped storage, durable queues, event streams, full-text search, and 27 MCP tools — all in one open-source Rust binary. Built by Sayan Mohsin.",
+        content: `Object-shaped storage, durable queues, event streams, full-text search, and ${mcpToolCount} MCP tools — all in one open-source Rust binary. Built by Sayan Mohsin.`,
       },
     ],
     ["meta", { name: "twitter:card", content: "summary_large_image" }],
@@ -28,6 +28,7 @@ export default defineConfig({
   ],
 
   themeConfig: {
+    mcpToolCount,
     logo: "/logo.svg",
     siteTitle: "",
 

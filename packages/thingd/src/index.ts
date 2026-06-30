@@ -1,4 +1,6 @@
 // MCP server (tool handlers + factory)
+
+export { MCP_TOOL_COUNT } from "./constants.js";
 export {
   appendMcpAuditEvent,
   createThingdMcpServer,
