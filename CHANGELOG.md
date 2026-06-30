@@ -1,3 +1,17 @@
+## [0.45.0](https://github.com/sayanmohsin/thingd/compare/v0.44.3...v0.45.0) (2026-06-30)
+
+### Features
+
+* centralize MCP tool count in constants.ts, add to VitePress theme config, update docs ([20eb79b](https://github.com/sayanmohsin/thingd/commit/20eb79b2adcdfde730b69fd33e2d848b977a7cfa))
+
+### Bug Fixes
+
+* product description inconsistencies in docs ([900eaa3](https://github.com/sayanmohsin/thingd/commit/900eaa34bfdb2929427210f1919f5673fb2d4fbd))
+
+### Performance Improvements
+
+* **engine:** batch multi-row INSERT for put_objects_batch and append_events_batch ([c4cfd13](https://github.com/sayanmohsin/thingd/commit/c4cfd134e18a6649dce5fe6249fa6ab6f829f1a0))
+
 ## [0.44.3](https://github.com/sayanmohsin/thingd/compare/v0.44.2...v0.44.3) (2026-06-30)
 
 ### Bug Fixes
