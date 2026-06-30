@@ -1,3 +1,9 @@
+## [0.44.2](https://github.com/sayanmohsin/thingd/compare/v0.44.1...v0.44.2) (2026-06-30)
+
+### Bug Fixes
+
+* production readiness — security hardening and performance fixes ([4e401ca](https://github.com/sayanmohsin/thingd/commit/4e401caab90ac5ef6b5db91156ed10c76a90f9f4))
+
 ## [0.44.1](https://github.com/sayanmohsin/thingd/compare/v0.44.0...v0.44.1) (2026-06-30)
 
 ### Bug Fixes
