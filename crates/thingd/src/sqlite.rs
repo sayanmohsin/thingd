@@ -1543,6 +1543,8 @@ impl crate::store::Searcher for SqliteThingStore {
             LEFT JOIN objects o ON s.kind = 'object' AND s.collection = o.collection AND s.id = o.id
             LEFT JOIN events e ON s.kind = 'event' AND s.collection = e.stream AND s.id = CAST(e.sequence AS TEXT)
             WHERE search_index MATCH ?1
+              AND (s.kind != 'object' OR o.collection IS NOT NULL)
+              AND (s.kind != 'event'  OR e.stream IS NOT NULL)
             ",
         );
 
@@ -2392,6 +2394,66 @@ mod tests {
             .unwrap();
         assert_eq!(results_after_del.len(), 1);
         assert_eq!(results_after_del[0].id, "choice-2");
+    }
+
+    #[test]
+    fn search_consistent_after_batch_delete() {
+        let mut store = SqliteThingStore::open_in_memory().unwrap();
+
+        store
+            .put_object(MemoryObject::new(
+                "col",
+                "a",
+                r#"{"label":"target","name":"alpha"}"#,
+            ))
+            .unwrap();
+        store
+            .put_object(MemoryObject::new(
+                "col",
+                "b",
+                r#"{"label":"target","name":"bravo"}"#,
+            ))
+            .unwrap();
+        store
+            .put_object(MemoryObject::new(
+                "col",
+                "c",
+                r#"{"label":"target","name":"charlie"}"#,
+            ))
+            .unwrap();
+
+        let results = store
+            .search("target", crate::SearchOptions::default())
+            .unwrap();
+        assert_eq!(results.len(), 3);
+
+        store
+            .delete_objects_batch(&[("col".into(), "a".into()), ("col".into(), "b".into())])
+            .unwrap();
+
+        let results = store
+            .search("target", crate::SearchOptions::default())
+            .unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].id, "c");
+    }
+
+    #[test]
+    fn search_does_not_return_orphaned_fts_entries() {
+        let store = SqliteThingStore::open_in_memory().unwrap();
+
+        store
+            .connection
+            .execute(
+                "INSERT INTO search_index (collection, id, kind, text) VALUES (?1, ?2, 'object', ?3)",
+                rusqlite::params!["orphan", "ghost", "this object does not exist"],
+            )
+            .unwrap();
+
+        let results = store
+            .search("object", crate::SearchOptions::default())
+            .unwrap();
+        assert_eq!(results.len(), 0);
     }
 
     #[test]
