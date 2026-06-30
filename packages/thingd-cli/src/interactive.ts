@@ -6,6 +6,7 @@ import * as path from "node:path";
 import readline from "node:readline";
 import { type MemorySearchOptions, ThingD, type ThingDDriver } from "@thingd/sdk";
 import pc from "picocolors";
+import { readCloudConfig } from "./lib/cloud-config.js";
 import { logoText } from "./logo.js";
 
 // ── Helpers ──────────────────────────────────────────────────────────
@@ -1671,13 +1672,23 @@ async function handleConnect(node: TreeNode) {
   const selectedDriver = node.ref.driver as ThingDDriver;
 
   if (selectedDriver === "native" || selectedDriver === "cloud") {
+    const cloudCfg = selectedDriver === "cloud" ? readCloudConfig() : null;
     openForm(
       `Connect to ${selectedDriver}`,
       [
         ...(selectedDriver === "cloud"
           ? [
-              { id: "url", label: "Cloud URL", value: "http://localhost:3000" },
-              { id: "token", label: "Bearer Token (optional)", isSecret: true },
+              {
+                id: "url",
+                label: "Cloud URL",
+                value: cloudCfg?.url ?? "http://localhost:3000",
+              },
+              {
+                id: "token",
+                label: "Bearer Token (optional)",
+                isSecret: true,
+                value: cloudCfg?.token ?? "",
+              },
             ]
           : [
               {

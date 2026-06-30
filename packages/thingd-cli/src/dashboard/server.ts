@@ -5,6 +5,7 @@ import { dirname, extname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { handleRestRequest, ThingD } from "@thingd/sdk";
 import type { ConnectionOptions } from "../index.js";
+import { readCloudConfig } from "../lib/cloud-config.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -135,22 +136,25 @@ export async function startDashboardServer(
             return;
           }
 
+          const cloudMode = isCloudPath(path);
+          const resolvedToken = authToken || (cloudMode ? readCloudConfig()?.token : undefined);
+
           // Safely shut down the old db instance
           await db.close();
 
           // Spawn new db connection dynamically
           db = await ThingD.open({
             path,
-            url: isCloudPath(path) ? path : undefined,
+            url: cloudMode ? path : undefined,
             driver,
-            authToken,
+            authToken: resolvedToken,
           });
 
           activeOptions = {
             path,
             driver,
-            authToken,
-            cloud: isCloudPath(path),
+            authToken: resolvedToken,
+            cloud: cloudMode,
           };
 
           res.writeHead(200, { "Content-Type": "application/json" });

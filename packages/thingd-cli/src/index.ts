@@ -20,6 +20,7 @@ import {
 } from "@thingd/sdk";
 import pc from "picocolors";
 import { runInteractiveCli } from "./interactive.js";
+import { readCloudConfig } from "./lib/cloud-config.js";
 import { logoLine } from "./logo.js";
 import { runMcp } from "./mcp.js";
 import { defaultThingdDbPath, ensureThingdDir } from "./paths.js";
@@ -1144,10 +1145,15 @@ export function resolveConnection(context: CliContext): ConnectionOptions {
     ensureThingdDir();
   }
 
+  // Fall back to saved cloud config when no explicit URL/token is provided
+  const cloudCfg = cloud && !url ? readCloudConfig() : null;
+  const resolvedAuthToken =
+    stringFlag(context.parsed, "auth-token") ?? context.env.THINGD_AUTH_TOKEN ?? cloudCfg?.token;
+
   return {
-    path,
+    path: cloudCfg?.url && !url ? cloudCfg.url : path,
     driver,
-    authToken: stringFlag(context.parsed, "auth-token") ?? context.env.THINGD_AUTH_TOKEN,
+    authToken: resolvedAuthToken,
     cloud,
   };
 }
