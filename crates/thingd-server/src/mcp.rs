@@ -327,7 +327,14 @@ fn handle_thing_events_append(
         .get("type")
         .and_then(|v| v.as_str())
         .unwrap_or("event");
-    let memory_event = thingd::MemoryEvent::new(stream, event_type, event.to_string());
+    let idempotency_key = event
+        .get("idempotencyKey")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let mut memory_event = thingd::MemoryEvent::new(stream, event_type, event.to_string());
+    if !idempotency_key.is_empty() {
+        memory_event.idempotency_key = idempotency_key.to_string();
+    }
     let r = g.append_event(memory_event)?;
     emit_audit_event(&mut g, _tool_name, args, "success");
     Ok(

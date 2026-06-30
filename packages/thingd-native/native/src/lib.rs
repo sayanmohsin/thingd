@@ -153,11 +153,14 @@ impl NativeThingStore {
 
     #[napi(js_name = "appendEventJson")]
     pub fn append_event_json(&self, stream: String, body: String) -> Result<String> {
-        let event_type = event_type_from_body(&body);
         let mut store = self.lock_store()?;
-        let event = store
-            .append_event(MemoryEvent::new(stream, event_type, body))
-            .map_err(napi_error)?;
+        let event_type = event_type_from_body(&body);
+        let idempotency_key = extract_idempotency_key(&body);
+        let mut event = MemoryEvent::new(stream, event_type, body);
+        if let Some(key) = idempotency_key {
+            event.idempotency_key = key;
+        }
+        let event = store.append_event(event).map_err(napi_error)?;
 
         to_json(&event_record(event))
     }
@@ -876,6 +879,18 @@ fn event_type_from_body(body: &str) -> String {
                 .map(ToOwned::to_owned)
         })
         .unwrap_or_else(|| "event".to_string())
+}
+
+fn extract_idempotency_key(body: &str) -> Option<String> {
+    serde_json::from_str::<Value>(body)
+        .ok()
+        .and_then(|value| {
+            value
+                .get("idempotencyKey")
+                .and_then(Value::as_str)
+                .map(ToOwned::to_owned)
+        })
+        .filter(|key| !key.is_empty())
 }
 
 fn parse_optional_string_array(value: Option<String>) -> Result<Option<Vec<String>>> {

@@ -21,6 +21,7 @@ export type StoredMemoryEvent = MemoryEvent & {
   stream: string;
   sequence: number;
   createdAt: string;
+  idempotencyKey?: string;
 };
 
 export type QueueJobPayload = Record<string, unknown>;

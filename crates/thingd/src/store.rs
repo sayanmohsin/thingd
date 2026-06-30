@@ -34,7 +34,7 @@ pub trait ObjectStore {
     /// This is significantly faster than calling `put_object` in a loop
     /// because it avoids per-object transaction overhead.
     ///
-    /// **Atomicity:** The SQLite adapter wraps all writes in a single
+    /// **Atomicity:** The `SQLite` adapter wraps all writes in a single
     /// transaction — a failure rolls back all changes. The in-memory
     /// default implementation loops calling `put_object` without a
     /// transaction, so a partial failure may leave some objects written.
@@ -105,7 +105,7 @@ pub trait ObjectStore {
     /// `DELETE` statement in one transaction. The default implementation loops
     /// calling `delete_object`.
     ///
-    /// **Atomicity:** The SQLite adapter wraps all deletes in a single
+    /// **Atomicity:** The `SQLite` adapter wraps all deletes in a single
     /// transaction — a failure rolls back all deletions. The in-memory
     /// default implementation loops calling `delete_object` without a
     /// transaction, so a partial failure may leave some objects deleted

@@ -2,6 +2,7 @@
 //!
 //! This adapter implements durable object, event, and queue storage.
 
+use std::collections::HashMap;
 use std::fmt::Write as _;
 use std::path::Path;
 
@@ -21,6 +22,7 @@ pub const SQLITE_SCHEMA_VERSION: u32 = 4;
 pub struct SqliteThingStore {
     connection: Connection,
     db_path: Option<String>,
+    event_idempotency_keys: HashMap<(String, String), u64>,
 }
 
 impl SqliteThingStore {
@@ -38,6 +40,7 @@ impl SqliteThingStore {
         let store = Self {
             connection,
             db_path: path_str,
+            event_idempotency_keys: HashMap::new(),
         };
         store.initialize()?;
         Ok(store)
@@ -56,6 +59,7 @@ impl SqliteThingStore {
         let store = Self {
             connection,
             db_path: None,
+            event_idempotency_keys: HashMap::new(),
         };
         store.initialize()?;
         Ok(store)
@@ -840,6 +844,29 @@ impl ObjectStore for SqliteThingStore {
 
 impl EventLog for SqliteThingStore {
     fn append_event(&mut self, mut event: MemoryEvent) -> ThingdResult<MemoryEvent> {
+        // Idempotency check: if idempotency_key is set and known, return existing event
+        if !event.idempotency_key.is_empty()
+            && let Some(&existing_seq) = self
+                .event_idempotency_keys
+                .get(&(event.stream.clone(), event.idempotency_key.clone()))
+        {
+            let existing = self.connection.query_row(
+                "SELECT stream, event_type, body, sequence, created_at FROM events WHERE stream = ?1 AND sequence = ?2",
+                params![&event.stream, existing_seq.cast_signed()],
+                |row| {
+                    Ok(MemoryEvent {
+                        stream: row.get(0)?,
+                        event_type: row.get(1)?,
+                        body: row.get(2)?,
+                        sequence: row.get::<_, i64>(3)?.cast_unsigned(),
+                        created_at: row.get(4)?,
+                        idempotency_key: event.idempotency_key.clone(),
+                    })
+                },
+            ).map_err(ThingdError::from)?;
+            return Ok(existing);
+        }
+
         let transaction = self.connection.transaction().map_err(ThingdError::from)?;
 
         let (sequence, created_at): (i64, String) = transaction
@@ -857,6 +884,14 @@ impl EventLog for SqliteThingStore {
         event.sequence =
             u64::try_from(sequence).map_err(|error| ThingdError::Storage(error.to_string()))?;
         event.created_at = created_at;
+
+        // Track idempotency key
+        if !event.idempotency_key.is_empty() {
+            self.event_idempotency_keys.insert(
+                (event.stream.clone(), event.idempotency_key.clone()),
+                event.sequence,
+            );
+        }
 
         let text = extract_text_from_json(&event.body);
         let seq_str = sequence.to_string();
@@ -1852,6 +1887,7 @@ fn row_to_event(row: &rusqlite::Row<'_>) -> rusqlite::Result<MemoryEvent> {
             )
         })?,
         created_at: row.get::<_, String>(4).unwrap_or_default(),
+        idempotency_key: String::new(),
     })
 }
 
@@ -3015,10 +3051,7 @@ mod tests {
         assert_eq!(store.count_objects().unwrap(), 3);
 
         let deleted = store
-            .delete_objects_batch(&[
-                ("col".into(), "a".into()),
-                ("col".into(), "b".into()),
-            ])
+            .delete_objects_batch(&[("col".into(), "a".into()), ("col".into(), "b".into())])
             .unwrap();
         assert_eq!(deleted, 2);
         assert_eq!(store.count_objects().unwrap(), 1);
@@ -3033,9 +3066,40 @@ mod tests {
         let results = store.put_objects_batch(vec![]).unwrap();
         assert!(results.is_empty());
 
-        let deleted = store
-            .delete_objects_batch(&[])
-            .unwrap();
+        let deleted = store.delete_objects_batch(&[]).unwrap();
         assert_eq!(deleted, 0);
+    }
+
+    // ── event idempotency ─────────────────────────────────────────
+
+    #[test]
+    fn event_idempotency_returns_existing_event() {
+        let mut store = SqliteThingStore::open_in_memory().unwrap();
+
+        let mut event = MemoryEvent::new("stream", "test", r#"{"key":"val"}"#);
+        event.idempotency_key = "idem-1".to_string();
+
+        let first = store.append_event(event.clone()).unwrap();
+        assert_eq!(first.sequence, 1);
+
+        let second = store.append_event(event).unwrap();
+        assert_eq!(second.sequence, first.sequence);
+        assert_eq!(second.body, first.body);
+    }
+
+    #[test]
+    fn event_idempotency_different_keys_are_distinct() {
+        let mut store = SqliteThingStore::open_in_memory().unwrap();
+
+        let mut event_a = MemoryEvent::new("stream", "test", r#"{"key":"a"}"#);
+        event_a.idempotency_key = "idem-a".to_string();
+
+        let mut event_b = MemoryEvent::new("stream", "test", r#"{"key":"b"}"#);
+        event_b.idempotency_key = "idem-b".to_string();
+
+        let first = store.append_event(event_a).unwrap();
+        let second = store.append_event(event_b).unwrap();
+        assert_eq!(first.sequence, 1);
+        assert_eq!(second.sequence, 2);
     }
 }

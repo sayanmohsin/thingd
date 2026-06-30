@@ -55,6 +55,7 @@ export class InMemoryThingStore implements ThingStore {
   private readonly queues = new Map<string, QueueJob[]>();
   private readonly links = new Map<string, import("../types.js").Link>();
   private readonly mutex = new Mutex();
+  private readonly eventIdempotencyKeys = new Map<string, number>();
 
   private async withLock<T>(fn: () => T): Promise<T> {
     const release = await this.mutex.acquire();
@@ -155,6 +156,18 @@ export class InMemoryThingStore implements ThingStore {
 
   async appendEvent(stream: string, event: MemoryEvent): Promise<StoredMemoryEvent> {
     return this.withLock(() => {
+      // Idempotency check
+      const idempotencyKey = event.idempotencyKey as string | undefined;
+      if (idempotencyKey) {
+        const existing = this.eventIdempotencyKeys.get(`${stream}:${idempotencyKey}`);
+        if (existing !== undefined) {
+          const found = this.events.find((e) => e.sequence === existing);
+          if (found) {
+            return found;
+          }
+        }
+      }
+
       this.nextEventSequence += 1;
       const record: StoredMemoryEvent = {
         ...event,
@@ -163,6 +176,12 @@ export class InMemoryThingStore implements ThingStore {
         sequence: this.nextEventSequence,
         createdAt: new Date().toISOString(),
       };
+
+      // Track idempotency key
+      if (idempotencyKey) {
+        this.eventIdempotencyKeys.set(`${stream}:${idempotencyKey}`, record.sequence);
+      }
+
       this.events.push(record);
       return record;
     });

@@ -74,6 +74,10 @@ pub struct MemoryEvent {
     pub sequence: u64,
     /// ISO 8601 creation timestamp. Empty if not set.
     pub created_at: String,
+    /// Optional idempotency key for deduplication on retry.
+    /// When set, appending an event with the same (stream, `idempotency_key`)
+    /// pair returns the existing event instead of creating a duplicate.
+    pub idempotency_key: String,
 }
 
 impl MemoryEvent {
@@ -89,6 +93,7 @@ impl MemoryEvent {
             body: body.into(),
             sequence: 0,
             created_at: String::new(),
+            idempotency_key: String::new(),
         }
     }
 }

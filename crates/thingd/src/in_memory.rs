@@ -1,6 +1,6 @@
 //! In-memory storage adapter used for API design and tests.
 
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::{BTreeMap, HashMap, VecDeque};
 
 use crate::model::{ListEventsOptions, ListObjectsOptions};
 use crate::{
@@ -32,6 +32,7 @@ pub struct MemoryEngine {
     links: Vec<Link>,
     next_event_sequence: u64,
     next_link_id: u64,
+    event_idempotency_keys: HashMap<(String, String), u64>,
 }
 
 impl MemoryEngine {
@@ -160,13 +161,33 @@ impl ObjectStore for MemoryEngine {
 
 impl EventLog for MemoryEngine {
     fn append_event(&mut self, mut event: MemoryEvent) -> ThingdResult<MemoryEvent> {
+        // Idempotency check: if idempotency_key is set and known, return existing event
+        if !event.idempotency_key.is_empty()
+            && let Some(&existing_seq) = self
+                .event_idempotency_keys
+                .get(&(event.stream.clone(), event.idempotency_key.clone()))
+        {
+            // Find and return the existing event with this sequence
+            if let Some(existing) = self.events.iter().find(|e| e.sequence == existing_seq) {
+                return Ok(existing.clone());
+            }
+        }
+
         self.next_event_sequence += 1;
         event.sequence = self.next_event_sequence;
         if event.created_at.is_empty() {
             event.created_at = now_iso_string();
         }
-        self.events.push(event.clone());
 
+        // Track idempotency key
+        if !event.idempotency_key.is_empty() {
+            self.event_idempotency_keys.insert(
+                (event.stream.clone(), event.idempotency_key.clone()),
+                event.sequence,
+            );
+        }
+
+        self.events.push(event.clone());
         Ok(event)
     }
 
@@ -1249,5 +1270,38 @@ mod tests {
             )
             .unwrap();
         assert_eq!(stored.version, 1);
+    }
+
+    // ── event idempotency ─────────────────────────────────────────
+
+    #[test]
+    fn event_idempotency_returns_existing_event() {
+        let mut engine = MemoryEngine::new();
+
+        let mut event = MemoryEvent::new("stream", "test", r#"{"key":"val"}"#);
+        event.idempotency_key = "idem-1".to_string();
+
+        let first = engine.append_event(event.clone()).unwrap();
+        assert_eq!(first.sequence, 1);
+
+        let second = engine.append_event(event).unwrap();
+        assert_eq!(second.sequence, first.sequence);
+        assert_eq!(second.body, first.body);
+    }
+
+    #[test]
+    fn event_idempotency_different_keys_are_distinct() {
+        let mut engine = MemoryEngine::new();
+
+        let mut event_a = MemoryEvent::new("stream", "test", r#"{"key":"a"}"#);
+        event_a.idempotency_key = "idem-a".to_string();
+
+        let mut event_b = MemoryEvent::new("stream", "test", r#"{"key":"b"}"#);
+        event_b.idempotency_key = "idem-b".to_string();
+
+        let first = engine.append_event(event_a).unwrap();
+        let second = engine.append_event(event_b).unwrap();
+        assert_eq!(first.sequence, 1);
+        assert_eq!(second.sequence, 2);
     }
 }
