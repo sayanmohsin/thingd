@@ -21,7 +21,7 @@ npx thingd <command>
 ```txt
 thingd status              show runtime status (local or remote)
 thingd tools                list MCP tools when connected remotely
-thingd install              zero-config setup for Cursor / Claude Desktop
+thingd install [--raw] [--claude] [--cursor] [--antigravity]    zero-config local setup for Cursor / Claude Desktop / Antigravity IDE
 thingd doctor               diagnose installation and connectivity
 thingd search <query>       full-text search across collections
 ```
@@ -106,6 +106,7 @@ thingd db integrity
 
 ```txt
 thingd mcp [--path <path>] [--driver <driver>]
+thingd mcp connect
 thingd mcp-http [--path <path>] [--driver <driver>] [--host <host>] [--port <port>] [--auth-token <token>] [--allow-unauthenticated]
 ```
 
@@ -152,6 +153,20 @@ THINGD_URL set:
 no URL and no native driver:
   use in-memory store
 ```
+## Cloud
+
+`thingd cloud login [--code <code> --token <token>]`
+  Authenticate with thingd Cloud (opens browser for device-code flow).
+
+`thingd cloud api-key create <project> <name>`
+  Create a persistent API key for MCP or SDK access. Returns the key once.
+  The key survives cloud deployments (unlike ephemeral test tokens).
+
+`thingd cloud project list`
+  List projects in your thingd Cloud account.
+
+`thingd cloud instance list <project>`
+  List instances and their MCP URLs for a project.
 
 ## Environment
 

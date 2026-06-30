@@ -55,6 +55,35 @@ Manual entry:
 }
 ```
 
+### Cloud setup (thingd Cloud)
+
+```bash
+npx thingd cloud login
+npx thingd mcp connect
+```
+
+Follow the prompts to select your project and instance. The config is written to Claude Desktop (on macOS) or printed for Cursor.
+
+### VS Code (GitHub Copilot / Cline)
+
+In `~/.config/Code/User/mcp.json` (macOS/Linux) or `%APPDATA%\Code\User\mcp.json` (Windows), or in
+`.vscode/mcp.json` at your project root:
+
+```json
+{
+  "servers": {
+    "thingd": {
+      "type": "stdio",
+      "command": "thingd",
+      "args": ["mcp", "--driver", "native"]
+    }
+  }
+}
+```
+
+See the **[MCP server docs](mcp-server.md#vs-code-github-copilot--cline)** for VS Code cloud setup
+with persistent API keys.
+
 ## 3. Verify the connection
 
 ```bash
@@ -197,6 +226,10 @@ thingd db integrity
 # Enable production mode (sanitizes error messages)
 # Set server.production_mode: true in config.yaml
 ```
+
+> **Note for cloud users:** Test tokens (`md_test_...`) are ephemeral and expire on
+> every cloud deployment. Create a persistent API key with `thingd cloud api-key create` —
+> it survives redeploys and won't break your editor MCP connection.
 
 See [Security](./security.md) and [Operations](./operations.md) for full documentation.
 

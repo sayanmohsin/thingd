@@ -134,7 +134,8 @@ thingd ships with 27 MCP tools out of the box. Every MCP client (Claude,
 Cursor, Cline, etc.) can connect and use it immediately.
 
 Try it with Claude Desktop:
-  npx thingd install
+  npx thingd install           # Local setup
+  npx thingd mcp connect       # Cloud setup (after thingd cloud login)
 
 Or via Docker:
   docker run -p 8757:8757 sayanmohsin/thingd

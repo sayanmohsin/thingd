@@ -1,21 +1,17 @@
-import { existsSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
-import { homedir, platform } from "node:os";
+import { existsSync, realpathSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { fileURLToPath } from "node:url";
 import { NativeThingStore } from "@thingd/sdk";
 import pc from "picocolors";
 import type { CliContext } from "./index.js";
+import {
+  type McpServerConfig,
+  printMcpConfigJson,
+  updateAntigravityConfig,
+  updateClaudeDesktopConfig,
+} from "./lib/mcp-config-writer.js";
 import { defaultThingdDbPath, ensureThingdDir } from "./paths.js";
-
-type McpServerConfig = {
-  command: string;
-  args: string[];
-};
-
-type McpServersBlock = {
-  mcpServers: Record<string, McpServerConfig>;
-};
 
 async function askQuestion(query: string): Promise<string> {
   const rl = createInterface({
@@ -163,23 +159,11 @@ export async function runInstall(context: CliContext): Promise<void> {
       `    Paste this into Cursor Settings → Features → MCP → Add New MCP Server:\n\n`
     );
 
-    const fullConfig: McpServersBlock = {
-      mcpServers: {
-        thingd: config,
-      },
-    };
-
-    context.stdout.write(`${JSON.stringify(fullConfig, null, 2)}\n`);
+    context.stdout.write(`${printMcpConfigJson(config)}\n`);
   }
 
   if (showRaw) {
-    const fullConfig: McpServersBlock = {
-      mcpServers: {
-        thingd: config,
-      },
-    };
-
-    context.stdout.write(`${JSON.stringify(fullConfig, null, 2)}\n`);
+    context.stdout.write(`${printMcpConfigJson(config)}\n`);
   }
 
   if (choice === "1") {
@@ -275,100 +259,5 @@ function generateMcpConfig(
   return {
     command: nodePath,
     args: [cliPath, "mcp", "--path", dbPath, "--driver", driver],
-  };
-}
-
-type ClaudeUpdateResult =
-  | { updated: true; path: string; skipped?: undefined; reason?: undefined }
-  | { updated?: undefined; skipped: true; reason: string; path?: undefined };
-
-function updateClaudeDesktopConfig(config: McpServerConfig): ClaudeUpdateResult {
-  if (platform() !== "darwin") {
-    return { skipped: true, reason: "Claude Desktop auto-config is only supported on macOS." };
-  }
-
-  const configPath = join(
-    homedir(),
-    "Library",
-    "Application Support",
-    "Claude",
-    "claude_desktop_config.json"
-  );
-
-  if (!existsSync(configPath)) {
-    return {
-      skipped: true,
-      reason: `Config file not found at ${configPath}. Is Claude Desktop installed?`,
-    };
-  }
-
-  try {
-    const raw = readFileSync(configPath, "utf-8");
-    const existing = JSON.parse(raw) as Record<string, unknown>;
-
-    const mcpServers = (existing.mcpServers ?? {}) as Record<string, unknown>;
-    mcpServers.thingd = config;
-    existing.mcpServers = mcpServers;
-
-    writeFileSync(configPath, `${JSON.stringify(existing, null, 2)}\n`, "utf-8");
-
-    return { updated: true, path: configPath };
-  } catch (error) {
-    return {
-      skipped: true,
-      reason: `Failed to update config: ${error instanceof Error ? error.message : String(error)}`,
-    };
-  }
-}
-
-function updateAntigravityConfig(config: McpServerConfig): ClaudeUpdateResult {
-  const candidates = [
-    join(homedir(), ".gemini", "config", "mcp_config.json"),
-    join(homedir(), ".gemini", "antigravity-ide", "mcp_config.json"),
-  ];
-
-  let updatedAny = false;
-  const pathsUpdated: string[] = [];
-  let lastError: Error | null = null;
-
-  for (const configPath of candidates) {
-    const dir = dirname(configPath);
-    if (existsSync(dir)) {
-      try {
-        let existing: Record<string, unknown> = {};
-        if (existsSync(configPath)) {
-          const raw = readFileSync(configPath, "utf-8").trim();
-          if (raw) {
-            existing = JSON.parse(raw) as Record<string, unknown>;
-          }
-        }
-
-        const mcpServers = (existing.mcpServers ?? {}) as Record<string, unknown>;
-        mcpServers.thingd = config;
-        existing.mcpServers = mcpServers;
-
-        writeFileSync(configPath, `${JSON.stringify(existing, null, 2)}\n`, "utf-8");
-        updatedAny = true;
-        pathsUpdated.push(configPath);
-      } catch (error) {
-        lastError = error instanceof Error ? error : new Error(String(error));
-      }
-    }
-  }
-
-  if (updatedAny) {
-    return { updated: true, path: pathsUpdated.join(" & ") };
-  }
-
-  if (lastError) {
-    return {
-      skipped: true,
-      reason: `Failed to update config: ${lastError.message}`,
-    };
-  }
-
-  return {
-    skipped: true,
-    reason: `Antigravity directory not found in ${candidates.map((c) => dirname(c)).join(" or ")}.`,
   };
 }

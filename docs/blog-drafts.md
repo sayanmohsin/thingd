@@ -99,7 +99,8 @@ Run it three ways:
 ### Try it
 
 ```bash
-npx thingd install    # Set up MCP for your agent
+npx thingd install           # Set up MCP for your agent (local)
+npx thingd mcp connect  # Set up MCP for your agent (cloud)
 thingd dashboard      # Open the TUI inspector
 ```
 
@@ -289,8 +290,9 @@ All four primitives are exposed via MCP (Model Context Protocol). Any
 MCP-compatible agent gets 27 tools automatically:
 
 ```bash
-npx thingd install    # Configure MCP
-thingd mcp            # Start MCP server
+npx thingd install           # Configure MCP (local)
+npx thingd mcp connect       # Configure MCP (cloud)
+thingd mcp                   # Start MCP server
 ```
 
 ### Try it

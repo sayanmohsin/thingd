@@ -183,6 +183,10 @@ Yes. Every write tool call appends an audit event to the `__thingd:mcp:audit` ev
 
 Yes. Queues use leases for safe multi-worker coordination. Each agent claims a job with a lease, processes it, and acks. If the agent crashes, the lease expires and the job becomes available to another agent.
 
+### How do I configure agents for thingd Cloud?
+
+Run `thingd mcp connect` after logging in with `thingd cloud login`. It fetches your projects and instances, pre-fills the MCP URL and auth token, and writes the config to Claude Desktop (on macOS), Antigravity IDE, or prints it for Cursor.
+
 ### What prevents prompt injection from mutating data?
 
 thingd does not currently have MCP-level prompt injection defenses. The application should treat MCP tool access as a privileged API boundary — control which agents have access, use read-only mode when agents only need to search, and validate tool arguments at the application level.
@@ -362,3 +366,76 @@ Yes. Each migration runs in a transaction. A backup is auto-created before migra
 Yes. [thingd Cloud](https://thingd.cloud) is the managed version of thingd — it runs the same engine but handles all the infrastructure: hosted MCP endpoints, API key management, team dashboard, tenant isolation, backups, and rate limiting.
 
 It's the easiest way to get a production thingd instance without managing servers, Docker containers, or storage. [thingd.cloud](https://thingd.cloud)
+
+### Why does my VS Code MCP stop working after a cloud deployment?
+
+Your MCP config most likely uses a **test token** (`md_test_...`). These tokens are
+ephemeral and are regenerated on every cloud deployment. When thingd Cloud redeploys,
+the old test token is invalidated and your editor loses connection.
+
+**Fix:** Use a persistent API key instead:
+
+```bash
+thingd cloud login
+thingd cloud api-key create <project-slug> my-dev-key
+```
+
+Then update your editor's `mcp.json` with the returned key:
+
+```json
+{
+  "servers": {
+    "thingd": {
+      "type": "http",
+      "url": "https://api.thingd.cloud/mcp/<project-slug>/<instance-name>",
+      "headers": {
+        "Authorization": "Bearer <persistent-key>"
+      }
+    }
+  }
+}
+```
+
+The API key is stored in the cloud database and survives redeploys.
+
+**Pro tip:** Add a local stdio MCP server as a fallback in the same `mcp.json` —
+it keeps working even when the cloud is down or deploying.
+
+```json
+{
+  "servers": {
+    "thingd-local": {
+      "type": "stdio",
+      "command": "thingd",
+      "args": ["mcp", "--driver", "native"]
+    },
+    "thingd-cloud": {
+      "type": "http",
+      "url": "https://api.thingd.cloud/mcp/<project-slug>/<instance-name>",
+      "headers": {
+        "Authorization": "Bearer <persistent-key>"
+      }
+    }
+  }
+}
+```
+
+### How do I create a persistent API key?
+
+```bash
+thingd cloud login
+thingd cloud api-key create <project> <name>
+```
+
+This returns a token once. Save it — it will not be shown again. The key persists
+across cloud deployments and can be revoked via the cloud dashboard.
+
+### What's the difference between a test token and an API key?
+
+| | Test token (`md_test_...`) | API key |
+|---|---|---|
+| Created by | Automatic on instance creation | `thingd cloud api-key create` |
+| Survives deploy? | ❌ regenerated | ✅ persists |
+| Visible in config? | Yes, in cloud-config.json | Shown once on creation |
+| Use case | Quick testing | Development, CI, production |
+| Revocable? | ❌ (auto-regenerated) | ✅ via cloud dashboard |

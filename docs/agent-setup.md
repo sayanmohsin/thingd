@@ -5,11 +5,12 @@ memory store with search, events, and queues.
 
 ## Which mode for which agent
 
-| Agent | stdio MCP | HTTP MCP (Docker) | HTTP MCP (remote) |
-|---|---|---|---|
-| Cursor | ✅ recommended | ✅ | ❌ localhost only |
-| Claude Desktop | ✅ recommended | ✅ | ❌ localhost only |
-| ChatGPT | ❌ | ❌ | ✅ needs public URL |
+| Agent | stdio MCP | HTTP MCP (Docker) | Cloud MCP (thingd Cloud) | HTTP MCP (remote) |
+|---|---|---|---|---|
+| Cursor | ✅ recommended | ✅ | ✅ `thingd mcp connect` | ❌ localhost only |
+| Claude Desktop | ✅ recommended | ✅ | ✅ `thingd mcp connect` | ❌ localhost only |
+| Antigravity IDE | ✅ | ✅ | ✅ `thingd mcp connect` | ❌ localhost only |
+| ChatGPT | ❌ | ❌ | ❌ | ✅ needs public URL |
 
 ---
 
@@ -27,6 +28,23 @@ npx thingd install
 Your agent can then call all 27 `thing_*` tools (search, objects, events, queues,
 links, counts, discovery). See the [MCP tools reference](api-spec/mcp-tools.md)
 for the full list.
+
+### 1b. Cloud MCP (Cursor / Claude Desktop / Antigravity IDE)
+
+For thingd Cloud users, generate agent config for your hosted MCP endpoint:
+
+```bash
+thingd cloud login       # one-time auth
+thingd mcp connect       # pick project, pick instance, write config
+```
+
+You'll be prompted to:
+1. Select a project
+2. Select an instance
+3. Review the pre-filled MCP URL and auth token (editable)
+4. Choose a destination: Claude Desktop, Antigravity IDE, or print for Cursor
+
+The config uses `url` + `Authorization` header instead of `command`/`args`.
 
 ---
 

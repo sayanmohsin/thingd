@@ -67,6 +67,101 @@ This command will:
 
 See the **[5-minute quickstart](./QUICKSTART.md)** for a full walkthrough including Cursor, Claude Desktop, Node SDK, and MCP tool usage.
 
+### Cloud MCP Connect
+
+If you use thingd Cloud, generate agent config pointing at your hosted MCP endpoint:
+
+```bash
+thingd cloud login          # authenticate
+thingd mcp connect          # pick project/instance → writes config
+```
+
+This command:
+1. Fetches your projects and instances from thingd Cloud
+2. Pre-fills the MCP URL from your instance's endpoint
+3. Pre-fills the auth token from your login session
+4. Lets you edit URL and token before writing
+5. Writes to Claude Desktop, Antigravity IDE, or prints Cursor-compatible JSON
+
+Requires `thingd cloud login` first.
+
+### VS Code (GitHub Copilot / Cline)
+
+VS Code supports MCP servers via the `github.copilot.chat.mcpServers` setting in your
+VS Code `settings.json` (per-user) or `mcp.json` (per-project).
+
+**Option A — Local stdio (recommended for development):**
+
+Run thingd as a local stdio MCP server. This never breaks on cloud deploys.
+
+In `~/.config/Code/User/mcp.json` (macOS/Linux) or `%APPDATA%\Code\User\mcp.json` (Windows):
+
+```json
+{
+  "servers": {
+    "thingd": {
+      "type": "stdio",
+      "command": "thingd",
+      "args": ["mcp", "--driver", "native"]
+    }
+  }
+}
+```
+
+**Option B — Cloud HTTP endpoint (use a persistent API key):**
+
+Connect to your thingd Cloud instance. Create an API key with:
+
+```bash
+thingd cloud login
+thingd cloud api-key create <project-id> my-api-key
+```
+
+Then add to `mcp.json`:
+
+```json
+{
+  "servers": {
+    "thingd-cloud": {
+      "type": "http",
+      "url": "https://api.thingd.cloud/mcp/<project-id>/<instance-name>",
+      "headers": {
+        "Authorization": "Bearer <api-key>"
+      }
+    }
+  }
+}
+```
+
+> **Warning:** Test tokens (`md_test_...`) are ephemeral and expire on cloud
+> deployments. Always use a persistent API key for production or development
+> that must survive redeploys.
+
+**Option C — Both (redundant fallback):**
+
+Add both servers. When the cloud endpoint is unreachable (e.g., during deploy),
+VS Code falls back to the local stdio server automatically for tools that
+support it.
+
+```json
+{
+  "servers": {
+    "thingd-local": {
+      "type": "stdio",
+      "command": "thingd",
+      "args": ["mcp", "--driver", "native"]
+    },
+    "thingd-cloud": {
+      "type": "http",
+      "url": "https://api.thingd.cloud/mcp/<project-id>/<instance-name>",
+      "headers": {
+        "Authorization": "Bearer <api-key>"
+      }
+    }
+  }
+}
+```
+
 ---
 
 ## Local Usage

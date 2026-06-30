@@ -4,6 +4,13 @@ import { type CliContext, resolveConnection, withDb } from "./index.js";
 import { readMcpAuditOptionsFromEnv } from "./mcp/config.js";
 
 export async function runMcp(context: CliContext): Promise<void> {
+  const sub = context.parsed.tokens[1];
+  if (sub === "connect") {
+    const { runMcpConnect } = await import("./commands/mcp-connect.js");
+    await runMcpConnect(context);
+    return;
+  }
+
   const connection = resolveConnection(context);
   await withDb(context, async (db) => {
     const server = createThingdMcpServer(db, {

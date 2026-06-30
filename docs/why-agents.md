@@ -98,7 +98,7 @@ enough, teams that already expose Postgres + workers via MCP.
 
 ## Quickstart
 
-1. `thingd install` — configure Cursor / Claude Desktop
+1. `thingd install` — local agent config; or `thingd mcp connect` for cloud
 2. `thingd mcp --driver native` — persistent `~/.thingd/data.db`
 3. Put records → search → enqueue → claim/ack
 

@@ -102,6 +102,7 @@ Usage:
   thingd install [--raw] [--claude] [--cursor] [--antigravity]
   thingd doctor
   thingd mcp [--path <path>] [--driver <driver>]
+  thingd mcp connect
   thingd mcp-http [--path <path>] [--driver <driver>] [--host <host>] [--port <port>] [--auth-token <tok>] [--allow-unauthenticated]
   thingd search <query> [--collection <name>] [--limit <n>] [--filter <json>]
   thingd objects list <collection> [--limit <n>] [--offset <n>] [--sort-by <field>] [--sort-dir <asc|desc>] [--filter <json>]

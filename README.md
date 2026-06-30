@@ -421,11 +421,14 @@ MCP is a core part of the design. The database ships with stdio and Streamable H
 
 Current tools: see the [MCP tools reference](docs/api-spec/mcp-tools.md) for all 27 tools with schemas and examples.
 
-Run the automatic zero-config setup for Claude Desktop and Cursor:
+Run automatic setup for local or cloud MCP:
 
 ```bash
-# Installs/updates Claude Desktop config automatically and prints Cursor configuration
+# Local — configures Claude Desktop / Cursor / Antigravity IDE for a local sidecar
 thingd install
+
+# Cloud — configures agents for your thingd Cloud MCP endpoint (requires thingd cloud login)
+thingd mcp connect
 ```
 
 Or run the stdio MCP server manually (which automatically persists to `~/.thingd/data.db` by default):
