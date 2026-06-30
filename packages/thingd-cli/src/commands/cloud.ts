@@ -3,8 +3,8 @@ import { setTimeout as sleep } from "node:timers/promises";
 import pc from "picocolors";
 import { type CliContext, requiredToken, stringFlag } from "../index.js";
 import {
-  CloudApiError,
   addOrganizationMember,
+  CloudApiError,
   createApiKey,
   createInstance,
   createOrganization,
@@ -273,9 +273,7 @@ async function runOrg(context: CliContext): Promise<void> {
     return;
   }
 
-  context.stderr.write(
-    `Unknown org action: ${action}. Available: list, create, use, members\n`
-  );
+  context.stderr.write(`Unknown org action: ${action}. Available: list, create, use, members\n`);
 }
 
 async function runOrgMembers(context: CliContext, config: CloudConfig): Promise<void> {
@@ -314,9 +312,7 @@ async function runOrgMembers(context: CliContext, config: CloudConfig): Promise<
     return;
   }
 
-  context.stderr.write(
-    `Unknown members action: ${sub}. Available: list, add, remove\n`
-  );
+  context.stderr.write(`Unknown members action: ${sub}. Available: list, add, remove\n`);
 }
 
 async function requireConfig(context: CliContext): Promise<CloudConfig> {
