@@ -1,3 +1,9 @@
+## [0.44.3](https://github.com/sayanmohsin/thingd/compare/v0.44.2...v0.44.3) (2026-06-30)
+
+### Bug Fixes
+
+* remaining audit items — query length, CSRF, fallback warning, FTS5 optimize ([2f48ac6](https://github.com/sayanmohsin/thingd/commit/2f48ac6910352058c11a75603a778038432c376d))
+
 ## [0.44.2](https://github.com/sayanmohsin/thingd/compare/v0.44.1...v0.44.2) (2026-06-30)
 
 ### Bug Fixes
