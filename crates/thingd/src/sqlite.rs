@@ -2972,4 +2972,70 @@ mod tests {
             .unwrap();
         assert_eq!(stored.version, 1);
     }
+
+    // ── batch atomicity ───────────────────────────────────────────────
+
+    #[test]
+    fn put_objects_batch_atomicity() {
+        let mut store = SqliteThingStore::open_in_memory().unwrap();
+
+        // Insert 2 objects, then batch-insert a mix of new and existing keys
+        store
+            .put_object(MemoryObject::new("col", "a", r#"{"name":"old-a"}"#))
+            .unwrap();
+        store
+            .put_object(MemoryObject::new("col", "b", r#"{"name":"old-b"}"#))
+            .unwrap();
+
+        // Batch upsert: update 'a', insert 'c' — both should succeed
+        let results = store
+            .put_objects_batch(vec![
+                MemoryObject::new("col", "a", r#"{"name":"new-a"}"#),
+                MemoryObject::new("col", "c", r#"{"name":"new-c"}"#),
+            ])
+            .unwrap();
+        assert_eq!(results.len(), 2);
+        assert_eq!(results[0].version, 2); // 'a' updated
+        assert_eq!(results[1].version, 1); // 'c' new
+
+        // Verify both were persisted
+        assert_eq!(store.count_objects().unwrap(), 3);
+    }
+
+    #[test]
+    fn delete_objects_batch_atomicity() {
+        let mut store = SqliteThingStore::open_in_memory().unwrap();
+
+        for c in ["a", "b", "c"] {
+            store
+                .put_object(MemoryObject::new("col", c, r#"{"name":"x"}"#))
+                .unwrap();
+        }
+
+        assert_eq!(store.count_objects().unwrap(), 3);
+
+        let deleted = store
+            .delete_objects_batch(&[
+                ("col".into(), "a".into()),
+                ("col".into(), "b".into()),
+            ])
+            .unwrap();
+        assert_eq!(deleted, 2);
+        assert_eq!(store.count_objects().unwrap(), 1);
+        assert!(store.get_object("col", "a").unwrap().is_none());
+        assert!(store.get_object("col", "c").unwrap().is_some());
+    }
+
+    #[test]
+    fn batch_operations_empty_input() {
+        let mut store = SqliteThingStore::open_in_memory().unwrap();
+
+        let results = store.put_objects_batch(vec![]).unwrap();
+        assert!(results.is_empty());
+
+        let deleted = store
+            .delete_objects_batch(&[])
+            .unwrap();
+        assert_eq!(deleted, 0);
+    }
 }
