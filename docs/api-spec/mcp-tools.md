@@ -10,7 +10,7 @@ thingd exposes 27 MCP tools for AI agents. All tools are available via the stdio
 
 ### `thing_search`
 
-Full-text search across objects and events using SQLite FTS5 with Porter stemming.
+Full-text search across objects and events using SQLite FTS5 with Porter stemming. `limit` defaults to 10, max 100.
 
 ```json
 {
@@ -50,21 +50,13 @@ Create or replace an object. Object must have an `id` field. Emits audit event `
 }
 ```
 
-**Returns:** `StoredMemoryObject`
-
----
-
-### `thing_delete`
-
 Delete an object. Emits audit event `objects.delete`.
 
 ```json
-{ "collection": "users", "id": "user-001" }
+{ "collection": "users", "id": "user-001", "actor": "optional", "source": "optional" }
 ```
 
-**Returns:** `{ deleted: boolean }`
-
----
+**Returns:** `{ deleted: boolean }`---
 
 ### `thing_objects_list`
 
@@ -131,13 +123,11 @@ Append an event to a named stream. Events are append-only with auto-incremented 
 }
 ```
 
-**Returns:** `StoredMemoryEvent`
-
 ---
 
 ### `thing_events_list`
 
-List events from a stream, optionally starting from a specific sequence.
+List events from a stream, optionally filtered by stream name, starting from a specific sequence.
 
 ```json
 {
@@ -147,7 +137,7 @@ List events from a stream, optionally starting from a specific sequence.
 }
 ```
 
-**Returns:** `StoredMemoryEvent[]`
+If `stream` is omitted, events from all streams are returned.
 
 ---
 
@@ -178,7 +168,7 @@ Push a durable job onto a named queue. Emits audit event `queue.push`.
 Claim the next ready job from a queue. Job is leased for `leaseMs` (default 30s). Emits audit event `queue.claim`.
 
 ```json
-{ "queue": "email-queue", "leaseMs": 30000 }
+{ "queue": "email-queue", "leaseMs": 30000, "actor": "optional", "source": "optional" }
 ```
 
 **Returns:** `QueueJob | null`
@@ -190,7 +180,7 @@ Claim the next ready job from a queue. Job is leased for `leaseMs` (default 30s)
 Mark a leased job as completed. Emits audit event `queue.ack`.
 
 ```json
-{ "queue": "email-queue", "id": "job-uuid" }
+{ "queue": "email-queue", "id": "job-uuid", "actor": "optional", "source": "optional" }
 ```
 
 **Returns:** `QueueJobResult` — `{ ok: true, job }` or `{ ok: false, reason }`
@@ -206,7 +196,9 @@ Reject a leased job for retry or dead-letter routing. Emits audit event `queue.n
   "queue": "email-queue",
   "id": "job-uuid",
   "delayMs": 5000,
-  "error": "SMTP connection failed"
+  "error": "SMTP connection failed",
+  "actor": "optional",
+  "source": "optional"
 }
 ```
 
@@ -416,9 +408,29 @@ All write operations emit audit events to the `__thingd:mcp:audit` stream. Each 
 | Field | Description |
 |-------|-------------|
 | `tool` | Tool name (e.g. `thing_put`) |
-| `actor` | Who performed the action (if provided) |
-| `source` | Where the action originated (if provided) |
-| `timestamp` | ISO 8601 timestamp |
+| `actor` | Who performed the action (if provided via optional `actor` parameter) |
+| `source` | Where the action originated (if provided via optional `source` parameter) |
+| `timestamp` | Unix timestamp (seconds since epoch) |
 | `result` | `success` or `error` |
 
 Audit events are append-only and不可变 (immutable). They can be queried via `thing_events_list` with `stream: "__thingd:mcp:audit"`.
+
+## Annotations
+
+All MCP tools include annotations in the `tools/list` response:
+
+| Annotation | Meaning |
+|------------|---------|
+| `readOnlyHint` | Tool does not modify state |
+| `destructiveHint` | Tool permanently removes data |
+| `idempotentHint` | Same call with same args produces same result |
+| `openWorldHint` | Tool may interact with the outside world |
+
+## Validation Bounds
+
+| Tool | Parameter | Bound |
+|------|-----------|-------|
+| `thing_search` | `limit` | Max 100 |
+| `thing_queue_push` | `maxAttempts` | Max 100 |
+| `thing_objects_put_batch` | `objects` | Min 1, max 1000 |
+| `thing_objects_delete_batch` | `ids` | Min 1, max 1000 |

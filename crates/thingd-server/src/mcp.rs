@@ -47,14 +47,20 @@ fn arg_f64(args: &Value, key: &str) -> Option<f64> {
     args.get(key).and_then(|v| v.as_f64())
 }
 
-fn tool_def(name: &str, description: &str, properties: Value, required: &[&str]) -> Value {
+fn tool_def(entry: &ToolEntry) -> Value {
     json!({
-        "name": name,
-        "description": description,
+        "name": entry.name,
+        "description": entry.description,
         "inputSchema": {
             "type": "object",
-            "properties": properties,
-            "required": required,
+            "properties": entry.properties,
+            "required": entry.required,
+        },
+        "annotations": {
+            "readOnlyHint": !entry.is_write,
+            "destructiveHint": entry.destructive,
+            "idempotentHint": !entry.is_write || entry.destructive,
+            "openWorldHint": false,
         }
     })
 }
@@ -79,6 +85,34 @@ fn num_prop(description: &str) -> Value {
     json!({ "type": "number", "description": description })
 }
 
+fn emit_audit_event(
+    g: &mut Box<dyn thingd::ThingStore + Send>,
+    tool_name: &str,
+    args: &Value,
+    result: &str,
+) {
+    let actor = args.get("actor").and_then(|v| v.as_str()).unwrap_or("mcp-client");
+    let source = args.get("source").and_then(|v| v.as_str()).unwrap_or("thingd-server");
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let body = json!({
+        "tool": tool_name,
+        "actor": actor,
+        "source": source,
+        "timestamp": now,
+        "result": result,
+    });
+    if let Err(e) = g.append_event(thingd::MemoryEvent::new(
+        "__thingd:mcp:audit",
+        "audit",
+        body.to_string(),
+    )) {
+        tracing::warn!("Failed to emit audit event: {e}");
+    }
+}
+
 // ─── Object tools ────────────────────────────────────────────────
 
 fn handle_thing_search(
@@ -89,13 +123,14 @@ fn handle_thing_search(
     let e = _state.pool.get("");
     let g = e.lock();
     let query = arg_str(args, "query");
+    let limit = arg_usize(args, "limit").map(|v| v.min(100));
     let opts = thingd::SearchOptions {
         collections: args.get("collections").and_then(|v| v.as_array()).map(|a| {
             a.iter()
                 .filter_map(|v| v.as_str().map(String::from))
                 .collect()
         }),
-        limit: arg_usize(args, "limit"),
+        limit,
         filter: args.get("filter").cloned(),
     };
     let hits = g.search(&query, opts)?;
@@ -130,6 +165,7 @@ fn handle_thing_put(_state: &AppState, _tool_name: &str, args: &Value) -> Result
     let id = obj.get("id").and_then(|v| v.as_str()).unwrap_or("new");
     let memory_obj = thingd::MemoryObject::new(collection, id.to_string(), obj.to_string());
     let r = g.put_object(memory_obj)?;
+    emit_audit_event(&mut *g, _tool_name, args, "success");
     Ok(
         json!({ "content": [{ "type": "text", "text": format!("Created/updated: {}/{}", r.key.collection, r.key.id) }] }),
     )
@@ -145,6 +181,7 @@ fn handle_thing_delete(
     let collection = arg_str(args, "collection");
     let id = arg_str(args, "id");
     let deleted = g.delete_object(&collection, &id)?;
+    emit_audit_event(&mut *g, _tool_name, args, "success");
     Ok(json!({ "content": [{ "type": "text", "text": format!("Deleted: {deleted}") }] }))
 }
 
@@ -199,6 +236,11 @@ fn handle_thing_objects_put_batch(
         .and_then(|v| v.as_array())
         .cloned()
         .unwrap_or_default();
+    if objects.is_empty() || objects.len() > 1000 {
+        return Err(AppError::bad_request(
+            "objects must contain between 1 and 1000 items"
+        ));
+    }
     let memory_objects: Vec<thingd::MemoryObject> = objects
         .iter()
         .map(|obj| {
@@ -225,6 +267,11 @@ fn handle_thing_objects_delete_batch(
         .and_then(|v| v.as_array())
         .cloned()
         .unwrap_or_default();
+    if ids.is_empty() || ids.len() > 1000 {
+        return Err(AppError::bad_request(
+            "ids must contain between 1 and 1000 items"
+        ));
+    }
     let keys: Vec<(String, String)> = ids
         .iter()
         .filter_map(|v| v.as_str().map(|s| (collection.clone(), s.to_string())))
@@ -250,6 +297,7 @@ fn handle_thing_events_append(
         .unwrap_or("event");
     let memory_event = thingd::MemoryEvent::new(stream, event_type, event.to_string());
     let r = g.append_event(memory_event)?;
+    emit_audit_event(&mut *g, _tool_name, args, "success");
     Ok(
         json!({ "content": [{ "type": "text", "text": format!("Event appended: {} seq={}", r.event_type, r.sequence) }] }),
     )
@@ -263,11 +311,12 @@ fn handle_thing_events_list(
     let e = _state.pool.get("");
     let g = e.lock();
     let stream = arg_str(args, "stream");
+    let stream_opt = if stream.is_empty() { None } else { Some(stream.as_str()) };
     let opts = thingd::ListEventsOptions {
         from_sequence: arg_u64(args, "fromSequence"),
         limit: arg_u64(args, "limit"),
     };
-    let events = g.list_events(Some(&stream), opts)?;
+    let events = g.list_events(stream_opt, opts)?;
     Ok(
         json!({ "content": [{ "type": "text", "text": serde_json::to_string(&events).unwrap_or_default() }] }),
     )
@@ -287,6 +336,7 @@ fn handle_thing_queue_push(
     let max_attempts = args
         .get("maxAttempts")
         .and_then(|v| v.as_u64())
+        .map(|v| v.min(100))
         .unwrap_or(3) as u32;
     let job = thingd::QueueJob::new(
         &queue,
@@ -295,6 +345,7 @@ fn handle_thing_queue_push(
         max_attempts,
     );
     let result = g.push_job(job)?;
+    emit_audit_event(&mut *g, _tool_name, args, "success");
     Ok(
         json!({ "content": [{ "type": "text", "text": serde_json::to_string(&result).unwrap_or_default() }] }),
     )
@@ -315,9 +366,12 @@ fn handle_thing_queue_claim(
             .unwrap_or(30000),
     };
     match g.claim_job_with_options(&queue, opts)? {
-        Some(job) => Ok(
-            json!({ "content": [{ "type": "text", "text": serde_json::to_string(&job).unwrap_or_default() }] }),
-        ),
+        Some(job) => {
+            emit_audit_event(&mut *g, _tool_name, args, "success");
+            Ok(
+                json!({ "content": [{ "type": "text", "text": serde_json::to_string(&job).unwrap_or_default() }] }),
+            )
+        },
         None => Ok(json!({ "content": [{ "type": "text", "text": "No job available" }] })),
     }
 }
@@ -332,9 +386,12 @@ fn handle_thing_queue_ack(
     let queue = arg_str(args, "queue");
     let id = arg_str(args, "id");
     match g.ack_job(&queue, &id)? {
-        Some(job) => Ok(
-            json!({ "content": [{ "type": "text", "text": serde_json::to_string(&job).unwrap_or_default() }] }),
-        ),
+        Some(job) => {
+            emit_audit_event(&mut *g, _tool_name, args, "success");
+            Ok(
+                json!({ "content": [{ "type": "text", "text": serde_json::to_string(&job).unwrap_or_default() }] }),
+            )
+        },
         None => {
             Ok(json!({ "content": [{ "type": "text", "text": "Ack failed" }], "isError": true }))
         },
@@ -355,9 +412,12 @@ fn handle_thing_queue_nack(
         error: arg_str(args, "error"),
     };
     match g.nack_job_with_options(&queue, &id, opts)? {
-        Some(job) => Ok(
-            json!({ "content": [{ "type": "text", "text": serde_json::to_string(&job).unwrap_or_default() }] }),
-        ),
+        Some(job) => {
+            emit_audit_event(&mut *g, _tool_name, args, "success");
+            Ok(
+                json!({ "content": [{ "type": "text", "text": serde_json::to_string(&job).unwrap_or_default() }] }),
+            )
+        },
         None => {
             Ok(json!({ "content": [{ "type": "text", "text": "Nack failed" }], "isError": true }))
         },
@@ -592,14 +652,12 @@ struct ToolEntry {
     required: &'static [&'static str],
     handler: ToolHandler,
     is_write: bool,
+    destructive: bool,
     needs_collection: bool,
 }
 
 fn all_tool_defs() -> Vec<Value> {
-    ALL_TOOLS
-        .iter()
-        .map(|t| tool_def(t.name, t.description, t.properties.clone(), t.required))
-        .collect()
+    ALL_TOOLS.iter().map(tool_def).collect()
 }
 
 static ALL_TOOLS: LazyLock<Vec<ToolEntry>> = LazyLock::new(|| {
@@ -608,10 +666,11 @@ static ALL_TOOLS: LazyLock<Vec<ToolEntry>> = LazyLock::new(|| {
         ToolEntry {
             name: "thing_search",
             description: "Search objects and events using FTS5",
-            properties: json!({ "query": str_prop("Search query"), "collections": arr_prop("Optional collection filter"), "limit": int_prop("Max results (default 10)"), "filter": obj_prop("Metadata filter") }),
+            properties: json!({ "query": str_prop("Search query"), "collections": arr_prop("Optional collection filter"), "limit": int_prop("Max results (max 100, default 10)"), "filter": obj_prop("Metadata filter") }),
             required: &["query"],
             handler: handle_thing_search,
             is_write: false,
+            destructive: false,
             needs_collection: false,
         },
         ToolEntry {
@@ -621,24 +680,27 @@ static ALL_TOOLS: LazyLock<Vec<ToolEntry>> = LazyLock::new(|| {
             required: &["collection", "id"],
             handler: handle_thing_get,
             is_write: false,
+            destructive: false,
             needs_collection: true,
         },
         ToolEntry {
             name: "thing_put",
             description: "Create or update an object",
-            properties: json!({ "collection": str_prop("Collection name"), "object": obj_prop("Object data, must include 'id' field") }),
+            properties: json!({ "collection": str_prop("Collection name"), "object": obj_prop("Object data, must include 'id' field"), "actor": str_prop("Who performed the action"), "source": str_prop("Where the action originated") }),
             required: &["collection", "object"],
             handler: handle_thing_put,
             is_write: true,
+            destructive: false,
             needs_collection: true,
         },
         ToolEntry {
             name: "thing_delete",
             description: "Delete an object",
-            properties: json!({ "collection": str_prop("Collection name"), "id": str_prop("Object ID") }),
+            properties: json!({ "collection": str_prop("Collection name"), "id": str_prop("Object ID"), "actor": str_prop("Who performed the action"), "source": str_prop("Where the action originated") }),
             required: &["collection", "id"],
             handler: handle_thing_delete,
             is_write: true,
+            destructive: true,
             needs_collection: true,
         },
         ToolEntry {
@@ -648,80 +710,89 @@ static ALL_TOOLS: LazyLock<Vec<ToolEntry>> = LazyLock::new(|| {
             required: &["collection"],
             handler: handle_thing_objects_list,
             is_write: false,
+            destructive: false,
             needs_collection: true,
         },
         ToolEntry {
             name: "thing_objects_put_batch",
             description: "Batch create or update up to 1000 objects",
-            properties: json!({ "collection": str_prop("Collection name"), "objects": arr_prop("Array of objects") }),
+            properties: json!({ "collection": str_prop("Collection name"), "objects": arr_prop("Array of objects (1-1000)") }),
             required: &["collection", "objects"],
             handler: handle_thing_objects_put_batch,
             is_write: true,
+            destructive: false,
             needs_collection: true,
         },
         ToolEntry {
             name: "thing_objects_delete_batch",
             description: "Batch delete up to 1000 objects by ID",
-            properties: json!({ "collection": str_prop("Collection name"), "ids": arr_prop("Array of object IDs") }),
+            properties: json!({ "collection": str_prop("Collection name"), "ids": arr_prop("Array of object IDs (1-1000)") }),
             required: &["collection", "ids"],
             handler: handle_thing_objects_delete_batch,
             is_write: true,
+            destructive: true,
             needs_collection: true,
         },
         // Event tools (2)
         ToolEntry {
             name: "thing_events_append",
             description: "Append an event to a stream",
-            properties: json!({ "stream": str_prop("Stream name"), "event": obj_prop("Event data with 'type' field") }),
+            properties: json!({ "stream": str_prop("Stream name"), "event": obj_prop("Event data with 'type' field"), "actor": str_prop("Who performed the action"), "source": str_prop("Where the action originated") }),
             required: &["stream", "event"],
             handler: handle_thing_events_append,
             is_write: true,
+            destructive: false,
             needs_collection: false,
         },
         ToolEntry {
             name: "thing_events_list",
             description: "List events in a stream",
-            properties: json!({ "stream": str_prop("Stream name"), "fromSequence": int_prop("Starting sequence"), "limit": int_prop("Max results") }),
-            required: &["stream"],
+            properties: json!({ "stream": str_prop("Optional stream name (lists all if omitted)"), "fromSequence": int_prop("Starting sequence"), "limit": int_prop("Max results") }),
+            required: &[],
             handler: handle_thing_events_list,
             is_write: false,
+            destructive: false,
             needs_collection: false,
         },
         // Queue tools (6)
         ToolEntry {
             name: "thing_queue_push",
             description: "Push a job to a queue",
-            properties: json!({ "queue": str_prop("Queue name"), "payload": obj_prop("Job payload"), "idempotencyKey": str_prop("Idempotency key"), "maxAttempts": int_prop("Max retry attempts (default 3)"), "delayMs": int_prop("Delay in ms before job is available") }),
+            properties: json!({ "queue": str_prop("Queue name"), "payload": obj_prop("Job payload"), "idempotencyKey": str_prop("Idempotency key"), "maxAttempts": int_prop("Max retry attempts (default 3, max 100)"), "delayMs": int_prop("Delay in ms before job is available"), "actor": str_prop("Who performed the action"), "source": str_prop("Where the action originated") }),
             required: &["queue", "payload"],
             handler: handle_thing_queue_push,
             is_write: true,
+            destructive: false,
             needs_collection: false,
         },
         ToolEntry {
             name: "thing_queue_claim",
             description: "Claim a job from a queue",
-            properties: json!({ "queue": str_prop("Queue name"), "leaseMs": int_prop("Lease duration in ms (default 30000)") }),
+            properties: json!({ "queue": str_prop("Queue name"), "leaseMs": int_prop("Lease duration in ms (default 30000)"), "actor": str_prop("Who performed the action"), "source": str_prop("Where the action originated") }),
             required: &["queue"],
             handler: handle_thing_queue_claim,
             is_write: true,
+            destructive: false,
             needs_collection: false,
         },
         ToolEntry {
             name: "thing_queue_ack",
             description: "Acknowledge a job as completed",
-            properties: json!({ "queue": str_prop("Queue name"), "id": str_prop("Job ID") }),
+            properties: json!({ "queue": str_prop("Queue name"), "id": str_prop("Job ID"), "actor": str_prop("Who performed the action"), "source": str_prop("Where the action originated") }),
             required: &["queue", "id"],
             handler: handle_thing_queue_ack,
             is_write: true,
+            destructive: false,
             needs_collection: false,
         },
         ToolEntry {
             name: "thing_queue_nack",
             description: "Mark a job as failed (retry or dead letter)",
-            properties: json!({ "queue": str_prop("Queue name"), "id": str_prop("Job ID"), "delayMs": int_prop("Retry delay in ms"), "error": str_prop("Error description") }),
+            properties: json!({ "queue": str_prop("Queue name"), "id": str_prop("Job ID"), "delayMs": int_prop("Retry delay in ms"), "error": str_prop("Error description"), "actor": str_prop("Who performed the action"), "source": str_prop("Where the action originated") }),
             required: &["queue", "id"],
             handler: handle_thing_queue_nack,
             is_write: true,
+            destructive: false,
             needs_collection: false,
         },
         ToolEntry {
@@ -731,6 +802,7 @@ static ALL_TOOLS: LazyLock<Vec<ToolEntry>> = LazyLock::new(|| {
             required: &["queue"],
             handler: handle_thing_queue_list,
             is_write: false,
+            destructive: false,
             needs_collection: false,
         },
         ToolEntry {
@@ -740,6 +812,7 @@ static ALL_TOOLS: LazyLock<Vec<ToolEntry>> = LazyLock::new(|| {
             required: &["queue"],
             handler: handle_thing_queue_dead,
             is_write: false,
+            destructive: false,
             needs_collection: false,
         },
         // Count tools (4)
@@ -750,6 +823,7 @@ static ALL_TOOLS: LazyLock<Vec<ToolEntry>> = LazyLock::new(|| {
             required: &[],
             handler: handle_thing_count_objects,
             is_write: false,
+            destructive: false,
             needs_collection: false,
         },
         ToolEntry {
@@ -759,6 +833,7 @@ static ALL_TOOLS: LazyLock<Vec<ToolEntry>> = LazyLock::new(|| {
             required: &[],
             handler: handle_thing_count_events,
             is_write: false,
+            destructive: false,
             needs_collection: false,
         },
         ToolEntry {
@@ -768,6 +843,7 @@ static ALL_TOOLS: LazyLock<Vec<ToolEntry>> = LazyLock::new(|| {
             required: &[],
             handler: handle_thing_count_active_jobs,
             is_write: false,
+            destructive: false,
             needs_collection: false,
         },
         ToolEntry {
@@ -777,6 +853,7 @@ static ALL_TOOLS: LazyLock<Vec<ToolEntry>> = LazyLock::new(|| {
             required: &[],
             handler: handle_thing_count_dead_jobs,
             is_write: false,
+            destructive: false,
             needs_collection: false,
         },
         // Discovery tools (3)
@@ -787,6 +864,7 @@ static ALL_TOOLS: LazyLock<Vec<ToolEntry>> = LazyLock::new(|| {
             required: &[],
             handler: handle_thing_list_collections,
             is_write: false,
+            destructive: false,
             needs_collection: false,
         },
         ToolEntry {
@@ -796,6 +874,7 @@ static ALL_TOOLS: LazyLock<Vec<ToolEntry>> = LazyLock::new(|| {
             required: &[],
             handler: handle_thing_list_streams,
             is_write: false,
+            destructive: false,
             needs_collection: false,
         },
         ToolEntry {
@@ -805,6 +884,7 @@ static ALL_TOOLS: LazyLock<Vec<ToolEntry>> = LazyLock::new(|| {
             required: &[],
             handler: handle_thing_list_queues,
             is_write: false,
+            destructive: false,
             needs_collection: false,
         },
         // Link tools (5)
@@ -815,6 +895,7 @@ static ALL_TOOLS: LazyLock<Vec<ToolEntry>> = LazyLock::new(|| {
             required: &["fromRef", "linkType", "toRef"],
             handler: handle_thing_link_create,
             is_write: true,
+            destructive: false,
             needs_collection: false,
         },
         ToolEntry {
@@ -824,6 +905,7 @@ static ALL_TOOLS: LazyLock<Vec<ToolEntry>> = LazyLock::new(|| {
             required: &["id"],
             handler: handle_thing_link_get,
             is_write: false,
+            destructive: false,
             needs_collection: false,
         },
         ToolEntry {
@@ -833,6 +915,7 @@ static ALL_TOOLS: LazyLock<Vec<ToolEntry>> = LazyLock::new(|| {
             required: &["id"],
             handler: handle_thing_link_delete,
             is_write: true,
+            destructive: true,
             needs_collection: false,
         },
         ToolEntry {
@@ -842,6 +925,7 @@ static ALL_TOOLS: LazyLock<Vec<ToolEntry>> = LazyLock::new(|| {
             required: &["reference"],
             handler: handle_thing_link_neighbors,
             is_write: false,
+            destructive: false,
             needs_collection: false,
         },
         ToolEntry {
@@ -851,6 +935,7 @@ static ALL_TOOLS: LazyLock<Vec<ToolEntry>> = LazyLock::new(|| {
             required: &[],
             handler: handle_thing_link_count,
             is_write: false,
+            destructive: false,
             needs_collection: false,
         },
     ]
