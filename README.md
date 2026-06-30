@@ -513,7 +513,7 @@ The MCP layer should continue to enforce:
 
 ## REST API
 
-thingd also exposes a REST API on port 4100 under the `/v1` prefix, for apps that prefer HTTP over MCP:
+thingd also exposes a REST API under the `/v1` prefix on the same port, for apps that prefer HTTP over MCP:
 
 ```bash
 # health check

@@ -4,7 +4,7 @@
 
 The MCP server wraps the public `thingd` SDK and exposes
 model-friendly tools for objects, events, search, and queues. This lets MCP
-clients and agents use `thingd` as an AI-readable memory database without
+clients and agents use `thingd` as an AI-readable data engine without
 knowing SQL or internal storage details.
 
 ## Current Status
