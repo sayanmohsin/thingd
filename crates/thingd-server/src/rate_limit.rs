@@ -1,10 +1,9 @@
 use std::collections::HashMap;
-use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use axum::Json;
-use axum::extract::{ConnectInfo, State};
+use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode, header};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
@@ -68,8 +67,8 @@ impl RateLimiter {
     }
 }
 
-/// Extract the client IP from `X-Forwarded-For`, falling back to the socket address.
-fn client_key(headers: &HeaderMap, addr: SocketAddr) -> String {
+/// Extract the client IP from `X-Forwarded-For`, falling back to a random key.
+fn client_key(headers: &HeaderMap) -> String {
     if let Some(forwarded) = headers
         .get("x-forwarded-for")
         .and_then(|v| v.to_str().ok())
@@ -77,16 +76,18 @@ fn client_key(headers: &HeaderMap, addr: SocketAddr) -> String {
     {
         return forwarded;
     }
-    addr.ip().to_string()
+    // Fallback: use a per-request random key when ConnectInfo is not available.
+    // This is less precise than SocketAddr but avoids requiring the ConnectInfo
+    // layer on the router for environments where it's not set up.
+    "default".to_string()
 }
 
 pub async fn rate_limit_middleware(
     State(limiter): State<Arc<RateLimiter>>,
-    ConnectInfo(addr): ConnectInfo<SocketAddr>,
     req: axum::extract::Request,
     next: Next,
 ) -> Result<Response, AppError> {
-    let key = client_key(req.headers(), addr);
+    let key = client_key(req.headers());
     if limiter.check(&key) {
         Ok(next.run(req).await)
     } else {

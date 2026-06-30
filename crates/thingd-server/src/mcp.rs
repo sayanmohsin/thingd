@@ -28,19 +28,27 @@ fn sanitize_detail(e: &AppError) -> String {
     }
 }
 
+const MAX_STRING_LEN: usize = 256;
+const MAX_QUERY_LEN: usize = 4096;
+
 fn arg_str(args: &Value, key: &str) -> String {
     args.get(key)
         .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .to_string()
+        .map(|s| {
+            let cap = if key == "query" || key == "text" || key == "payload" { MAX_QUERY_LEN } else { MAX_STRING_LEN };
+            let mut truncated = s.chars().take(cap).collect::<String>();
+            truncated.shrink_to_fit();
+            truncated
+        })
+        .unwrap_or_default()
 }
 
 fn arg_u64(args: &Value, key: &str) -> Option<u64> {
-    args.get(key).and_then(|v| v.as_u64())
+    args.get(key).and_then(|v| v.as_u64()).map(|v| v.min(10_000))
 }
 
 fn arg_usize(args: &Value, key: &str) -> Option<usize> {
-    args.get(key).and_then(|v| v.as_u64()).map(|v| v as usize)
+    args.get(key).and_then(|v| v.as_u64()).map(|v| v.min(10_000) as usize)
 }
 
 fn arg_f64(args: &Value, key: &str) -> Option<f64> {
@@ -412,6 +420,7 @@ fn handle_thing_queue_claim(
         lease_ms: args
             .get("leaseMs")
             .and_then(|v| v.as_u64())
+            .map(|v| v.min(86_400_000))
             .unwrap_or(30000),
     };
     match g.claim_job_with_options(&queue, opts)? {

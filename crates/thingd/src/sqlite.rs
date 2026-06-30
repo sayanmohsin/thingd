@@ -16,7 +16,7 @@ use crate::{
 };
 
 /// Current `SQLite` schema version.
-pub const SQLITE_SCHEMA_VERSION: u32 = 4;
+pub const SQLITE_SCHEMA_VERSION: u32 = 5;
 
 /// `SQLite`-backed memory store.
 pub struct SqliteThingStore {
@@ -138,6 +138,12 @@ impl SqliteThingStore {
             self.apply_schema_v4()?;
         }
 
+        let current_version = self.schema_version()?;
+
+        if current_version < 5 {
+            self.apply_schema_v5()?;
+        }
+
         if current_version > SQLITE_SCHEMA_VERSION {
             return Err(ThingdError::Storage(format!(
                 "database schema version {current_version} is newer than supported version {SQLITE_SCHEMA_VERSION}"
@@ -192,6 +198,20 @@ impl SqliteThingStore {
             .map_err(ThingdError::from)
     }
 
+    /// Optimize the FTS5 search index to merge segments and reclaim space.
+    ///
+    /// Run periodically on long-lived databases to prevent search performance
+    /// degradation from index fragmentation.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the merge command fails.
+    pub fn optimize_search_index(&self) -> ThingdResult<()> {
+        self.connection
+            .execute_batch("INSERT INTO search_index(search_index) VALUES('optimize')")
+            .map_err(ThingdError::from)
+    }
+
     /// Close the database connection after running a WAL checkpoint.
     ///
     /// # Errors
@@ -209,8 +229,23 @@ impl SqliteThingStore {
     ///
     /// # Errors
     ///
-    /// Returns an error when the destination path cannot be written.
+    /// Returns an error when the destination path cannot be written or contains
+    /// path traversal components (`..`).
     pub fn backup_to(&self, path: &str) -> ThingdResult<()> {
+        // Reject path traversal attempts
+        if Path::new(path)
+            .components()
+            .filter_map(|c| match c {
+                std::path::Component::Normal(s) => Some(s.to_str().unwrap_or("")),
+                std::path::Component::ParentDir => Some(".."),
+                _ => None,
+            })
+            .any(|x| x == "..")
+        {
+            return Err(ThingdError::InvalidInput(
+                "Backup path must not contain '..' (path traversal)".to_string(),
+            ));
+        }
         let escaped = path.replace('\'', "''");
         self.connection
             .execute_batch(&format!("VACUUM INTO '{escaped}'"))
@@ -350,6 +385,26 @@ impl SqliteThingStore {
             .execute(
                 "INSERT OR IGNORE INTO thingd_schema_migrations (version, name, applied_at)
                  VALUES (4, 'graph_links', strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))",
+                [],
+            )
+            .map_err(ThingdError::from)?;
+        Ok(())
+    }
+
+    fn apply_schema_v5(&self) -> ThingdResult<()> {
+        self.connection
+            .execute_batch(
+                r"
+                CREATE INDEX IF NOT EXISTS idx_objects_collection ON objects (collection);
+                CREATE INDEX IF NOT EXISTS idx_objects_created_at ON objects (created_at);
+                CREATE INDEX IF NOT EXISTS idx_events_stream ON events (stream);
+                ",
+            )
+            .map_err(ThingdError::from)?;
+        self.connection
+            .execute(
+                "INSERT OR IGNORE INTO thingd_schema_migrations (version, name, applied_at)
+                 VALUES (5, 'performance_indexes', strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))",
                 [],
             )
             .map_err(ThingdError::from)?;
@@ -1491,7 +1546,7 @@ impl QueueStore for SqliteThingStore {
         let mut statement = self
             .connection
             .prepare(&queue_job_select_sql(
-                "WHERE queue = ?1 ORDER BY created_at",
+                "WHERE queue = ?1 ORDER BY created_at LIMIT 1000",
             ))
             .map_err(ThingdError::from)?;
         let rows = statement
@@ -1510,7 +1565,7 @@ impl QueueStore for SqliteThingStore {
         let mut statement = self
             .connection
             .prepare(&queue_job_select_sql(
-                "WHERE queue = ?1 AND status = 'dead' ORDER BY created_at",
+                "WHERE queue = ?1 AND status = 'dead' ORDER BY created_at LIMIT 1000",
             ))
             .map_err(ThingdError::from)?;
         let rows = statement
@@ -1618,17 +1673,19 @@ impl crate::store::Searcher for SqliteThingStore {
             }
         }
 
+        // Enforce hard upper bound on search results (no LIMIT clause makes
+        // the query scan the entire FTS index)
+        let effective_limit = options.limit.map_or(100, |l| l.min(1000));
+
         sql.push_str(" ORDER BY bm25_score");
 
         // Push LIMIT to SQL (approximate — may fetch extra for post-filter)
-        if let Some(limit) = options.limit
-            && options.filter.is_none()
-        {
+        if options.filter.is_none() {
             write!(sql, " LIMIT ?{}", params.len() + 1).unwrap();
-            params.push(Box::new(i64::try_from(limit).unwrap_or(100)));
-        } else if let Some(limit) = options.limit {
+            params.push(Box::new(i64::try_from(effective_limit).unwrap_or(100)));
+        } else {
             // With metadata filter, fetch extra to compensate for post-filter drops
-            let fetch_limit = (limit * 3).min(1000);
+            let fetch_limit = (effective_limit * 3).min(1000);
             write!(sql, " LIMIT ?{}", params.len() + 1).unwrap();
             params.push(Box::new(i64::try_from(fetch_limit).unwrap_or(1000)));
         }
@@ -1803,10 +1860,16 @@ impl crate::store::LinkStore for SqliteThingStore {
             |t| (" AND type = ?2".to_string(), Some(t.clone())),
         );
 
-        let limit_clause = options
-            .limit
-            .map(|l| format!(" LIMIT {l}"))
-            .unwrap_or_default();
+        let limit_clause = options.limit.map_or_else(String::new, |_| " LIMIT ?".to_string());
+
+        let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+        params.push(Box::new(param_value));
+        if let Some(ref t) = type_param {
+            params.push(Box::new(t.clone()));
+        }
+        if let Some(l) = options.limit {
+            params.push(Box::new(i64::try_from(l).unwrap_or(1000)));
+        }
 
         let sql = format!(
             "SELECT id, from_ref, type, to_ref, weight, metadata_json, created_at FROM links {where_clause}{type_filter_sql}{limit_clause}"
@@ -1814,16 +1877,12 @@ impl crate::store::LinkStore for SqliteThingStore {
 
         let mut statement = self.connection.prepare(&sql).map_err(ThingdError::from)?;
 
-        // Use parameterized queries for both reference and type
-        let rows = if let Some(ref type_val) = type_param {
-            statement
-                .query_map(params![param_value, type_val], row_to_link)
-                .map_err(ThingdError::from)?
-        } else {
-            statement
-                .query_map(params![param_value], row_to_link)
-                .map_err(ThingdError::from)?
-        };
+        let param_refs: Vec<&dyn rusqlite::types::ToSql> =
+            params.iter().map(AsRef::as_ref).collect();
+
+        let rows = statement
+            .query_map(param_refs.as_slice(), row_to_link)
+            .map_err(ThingdError::from)?;
 
         let mut links = Vec::new();
         for row in rows {

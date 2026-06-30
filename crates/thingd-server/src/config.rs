@@ -256,10 +256,10 @@ fn default_cors_max_age() -> u64 {
     86400
 }
 fn default_rate_limit_enabled() -> bool {
-    false
+    true
 }
 fn default_rate_limit_rpm() -> u64 {
-    60
+    300
 }
 
 impl Config {
@@ -360,6 +360,13 @@ impl Config {
             return Err(
                 "auth.token must be at least 16 characters when allow_unauthenticated is false"
                     .into(),
+            );
+        }
+        if (self.server.host == "0.0.0.0" || self.server.host == "::")
+            && self.auth.token.is_empty()
+        {
+            return Err(
+                "binding to 0.0.0.0 requires an auth token (set THINGD_AUTH_TOKEN)".into(),
             );
         }
         if self.cluster.mode == ClusterMode::Follower && self.cluster.leader_url.is_empty() {
