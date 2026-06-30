@@ -79,9 +79,14 @@ export default defineConfig({
         text: "Getting Started",
         items: [
           { text: "Quick Start", link: "/quickstart" },
+          { text: "Why thingd?", link: "/why-thingd" },
           { text: "FAQ", link: "/faq" },
           { text: "Release Notes", link: "/release" },
         ],
+      },
+      {
+        text: "Guides",
+        items: [{ text: "Queue Deep Dive", link: "/guides/queues" }],
       },
       {
         text: "API Reference",

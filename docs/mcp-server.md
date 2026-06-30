@@ -366,6 +366,45 @@ The MCP server supports the same security features as the REST API:
 
 See [Security](./security.md) for full documentation.
 
+### Audit environment variables
+
+```txt
+THINGD_MCP_AUDIT=true
+THINGD_MCP_ACTOR=mcp-client
+THINGD_MCP_SOURCE=thingd-mcp
+THINGD_MCP_AUDIT_STREAM=__thingd:mcp:audit
+```
+
+### Cluster bridge mode
+
+Bridge mode is env-driven:
+
+```txt
+THINGD_CLUSTER_MODE=single|leader|follower
+THINGD_CLUSTER_LEADER_URL=http://thingd-leader:8757
+THINGD_CLUSTER_FORWARD_AUTH_TOKEN=change-me
+THINGD_CLUSTER_DISCOVERY=none|static|kubernetes
+THINGD_CLUSTER_PEERS=http://thingd-0:8757,http://thingd-1:8757
+THINGD_CLUSTER_LEADER_ELECTION=false
+THINGD_CLUSTER_LEADER_ELECTION_MAX_FAILURES=3
+```
+
+Followers automatically forward MCP write traffic to the configured leader and
+run a background pull catch-up replication thread to keep their local read
+replicas in sync. With `THINGD_CLUSTER_LEADER_ELECTION=true`, followers
+auto-promote the next peer in the ordered peer list when the current leader
+becomes unreachable.
+
+### MCP enforcement
+
+The MCP layer enforces:
+
+- allowed collections
+- read/write permissions
+- tool-level validation
+- safe mutation boundaries
+- source and actor attribution
+
 ## ChatGPT And Remote MCP Access
 
 The Streamable HTTP server is remote-capable, but ChatGPT-style cloud usage

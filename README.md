@@ -66,6 +66,9 @@ Modern app workflows commonly need to:
 
 `thingd` aims to provide those primitives as a tiny local runtime.
 
+See [docs/why-thingd.md](./docs/why-thingd.md) for the full rationale, use
+cases, and when to skip.
+
 ## What thingd is
 
 `thingd` is intended to be:
@@ -425,91 +428,28 @@ const hits = await db.search("customers who upgraded after a failed deployment",
 
 ## MCP-native access
 
-MCP is a core part of the design. The database ships with stdio and Streamable HTTP MCP server entrypoints so tools can read and write through explicit operations instead of guessing internal schemas.
-
-Current tools: see the [MCP tools reference](docs/api-spec/mcp-tools.md) for all 27 tools with schemas and examples.
-
-Run automatic setup for local or cloud MCP:
+thingd ships with {{ $themeConfig.mcpToolCount }} built-in MCP tools (search,
+objects, events, queues, links). Every primitive is accessible through stdio
+or Streamable HTTP — see the [MCP tools reference](docs/api-spec/mcp-tools.md)
+for all tools with schemas and examples.
 
 ```bash
-# Local — configures Claude Desktop / Cursor / Antigravity IDE for a local sidecar
+# Auto-configure Claude Desktop / Cursor for local sidecar
 thingd install
 
-# Cloud — configures agents for your thingd Cloud MCP endpoint (requires thingd cloud login)
+# Connect to a remote thingd instance
+thingd mcp --driver native
+
+# Connect to thingd Cloud
 thingd mcp connect
 ```
 
-Or run the stdio MCP server manually (which automatically persists to `~/.thingd/data.db` by default):
+MCP is one access layer — not the product. You can use thingd entirely through
+the [Node.js SDK](#node-js-sdk), [CLI](#cli), or [REST API](#rest-api) without
+ever touching MCP.
 
-```bash
-thingd mcp --driver native
-```
-
-To bridge Claude to a remote `thingd` cluster:
-
-```bash
-thingd mcp --url https://your-thingd.com/mcp --auth-token your-secret
-```
-
-Run the HTTP runtime:
-
-```bash
-pnpm build
-THINGD_AUTH_TOKEN=change-me pnpm serve:mcp
-```
-
-
-
-Build the Docker runtime:
-
-```bash
-docker build -t thingd:local .
-```
-
-See [docs/mcp-server.md](./docs/mcp-server.md) and [docs/docker-runtime.md](./docs/docker-runtime.md) for the current MCP boundary and runtime details.
-
-Smoke-test the Docker runtime:
-
-```bash
-pnpm smoke:docker
-```
-
-The MCP layer now appends audit events for write tools to
-`__thingd:mcp:audit`. Tool callers can pass optional `actor` and `source`
-fields, and runtime defaults can be set with:
-
-```txt
-THINGD_MCP_AUDIT=true
-THINGD_MCP_ACTOR=mcp-client
-THINGD_MCP_SOURCE=thingd-mcp
-THINGD_MCP_AUDIT_STREAM=__thingd:mcp:audit
-```
-
-The HTTP runtime refuses to bind to non-loopback hosts without
-`THINGD_AUTH_TOKEN`, unless `THINGD_ALLOW_UNAUTHENTICATED=true` is set for a
-local experiment.
-
-Bridge mode is env-driven:
-
-```txt
-THINGD_CLUSTER_MODE=single|leader|follower
-THINGD_CLUSTER_LEADER_URL=http://thingd-leader:8757
-THINGD_CLUSTER_FORWARD_AUTH_TOKEN=change-me
-THINGD_CLUSTER_DISCOVERY=none|static|kubernetes
-THINGD_CLUSTER_PEERS=http://thingd-0:8757,http://thingd-1:8757
-THINGD_CLUSTER_LEADER_ELECTION=false
-THINGD_CLUSTER_LEADER_ELECTION_MAX_FAILURES=3
-```
-
-Followers automatically forward MCP write traffic to the configured leader and run a background pull catch-up replication thread to keep their local read replicas in sync. With `THINGD_CLUSTER_LEADER_ELECTION=true`, followers auto-promote the next peer in the ordered peer list to leader when the current leader becomes unreachable for `THINGD_CLUSTER_LEADER_ELECTION_MAX_FAILURES` consecutive replication cycles.
-
-The MCP layer should continue to enforce:
-
-- allowed collections
-- read/write permissions
-- tool-level validation
-- safe mutation boundaries
-- source and actor attribution
+See [docs/mcp-server.md](./docs/mcp-server.md) for hardening, env vars, cluster
+bridge, and the full MCP reference.
 
 ## REST API
 
