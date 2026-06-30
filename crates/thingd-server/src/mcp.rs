@@ -91,8 +91,14 @@ fn emit_audit_event(
     args: &Value,
     result: &str,
 ) {
-    let actor = args.get("actor").and_then(|v| v.as_str()).unwrap_or("mcp-client");
-    let source = args.get("source").and_then(|v| v.as_str()).unwrap_or("thingd-server");
+    let actor = args
+        .get("actor")
+        .and_then(|v| v.as_str())
+        .unwrap_or("mcp-client");
+    let source = args
+        .get("source")
+        .and_then(|v| v.as_str())
+        .unwrap_or("thingd-mcp");
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs())
@@ -116,11 +122,28 @@ fn emit_audit_event(
 // ─── Object tools ────────────────────────────────────────────────
 
 fn handle_thing_search(
-    _state: &AppState,
+    state: &AppState,
     _tool_name: &str,
     args: &Value,
 ) -> Result<Value, AppError> {
-    let e = _state.pool.get("");
+    // Allowlist check for thing_search's collections array
+    if !state.mcp_config.collection_allowlist.is_empty()
+        && let Some(collections) = args.get("collections").and_then(|v| v.as_array())
+    {
+        for c in collections {
+            if let Some(name) = c.as_str()
+                && !state
+                    .mcp_config
+                    .collection_allowlist
+                    .contains(&name.to_string())
+            {
+                return Err(AppError::bad_request(format!(
+                    "Collection '{name}' is not in the allowlist"
+                )));
+            }
+        }
+    }
+    let e = state.pool.get("");
     let g = e.lock();
     let query = arg_str(args, "query");
     let limit = arg_usize(args, "limit").map(|v| v.min(100));
@@ -165,7 +188,7 @@ fn handle_thing_put(_state: &AppState, _tool_name: &str, args: &Value) -> Result
     let id = obj.get("id").and_then(|v| v.as_str()).unwrap_or("new");
     let memory_obj = thingd::MemoryObject::new(collection, id.to_string(), obj.to_string());
     let r = g.put_object(memory_obj)?;
-    emit_audit_event(&mut *g, _tool_name, args, "success");
+    emit_audit_event(&mut g, _tool_name, args, "success");
     Ok(
         json!({ "content": [{ "type": "text", "text": format!("Created/updated: {}/{}", r.key.collection, r.key.id) }] }),
     )
@@ -181,7 +204,7 @@ fn handle_thing_delete(
     let collection = arg_str(args, "collection");
     let id = arg_str(args, "id");
     let deleted = g.delete_object(&collection, &id)?;
-    emit_audit_event(&mut *g, _tool_name, args, "success");
+    emit_audit_event(&mut g, _tool_name, args, "success");
     Ok(json!({ "content": [{ "type": "text", "text": format!("Deleted: {deleted}") }] }))
 }
 
@@ -238,7 +261,7 @@ fn handle_thing_objects_put_batch(
         .unwrap_or_default();
     if objects.is_empty() || objects.len() > 1000 {
         return Err(AppError::bad_request(
-            "objects must contain between 1 and 1000 items"
+            "objects must contain between 1 and 1000 items",
         ));
     }
     let memory_objects: Vec<thingd::MemoryObject> = objects
@@ -269,7 +292,7 @@ fn handle_thing_objects_delete_batch(
         .unwrap_or_default();
     if ids.is_empty() || ids.len() > 1000 {
         return Err(AppError::bad_request(
-            "ids must contain between 1 and 1000 items"
+            "ids must contain between 1 and 1000 items",
         ));
     }
     let keys: Vec<(String, String)> = ids
@@ -297,7 +320,7 @@ fn handle_thing_events_append(
         .unwrap_or("event");
     let memory_event = thingd::MemoryEvent::new(stream, event_type, event.to_string());
     let r = g.append_event(memory_event)?;
-    emit_audit_event(&mut *g, _tool_name, args, "success");
+    emit_audit_event(&mut g, _tool_name, args, "success");
     Ok(
         json!({ "content": [{ "type": "text", "text": format!("Event appended: {} seq={}", r.event_type, r.sequence) }] }),
     )
@@ -311,7 +334,11 @@ fn handle_thing_events_list(
     let e = _state.pool.get("");
     let g = e.lock();
     let stream = arg_str(args, "stream");
-    let stream_opt = if stream.is_empty() { None } else { Some(stream.as_str()) };
+    let stream_opt = if stream.is_empty() {
+        None
+    } else {
+        Some(stream.as_str())
+    };
     let opts = thingd::ListEventsOptions {
         from_sequence: arg_u64(args, "fromSequence"),
         limit: arg_u64(args, "limit"),
@@ -338,14 +365,20 @@ fn handle_thing_queue_push(
         .and_then(|v| v.as_u64())
         .map(|v| v.min(100))
         .unwrap_or(3) as u32;
-    let job = thingd::QueueJob::new(
-        &queue,
-        uuid::Uuid::new_v4().to_string(),
-        payload.to_string(),
-        max_attempts,
-    );
+    let job_id = arg_str(args, "idempotencyKey");
+    let job_id = if job_id.is_empty() {
+        uuid::Uuid::new_v4().to_string()
+    } else {
+        job_id
+    };
+    let mut job = thingd::QueueJob::new(&queue, job_id, payload.to_string(), max_attempts);
+    if let Some(delay) = args.get("delayMs").and_then(|v| v.as_u64())
+        && delay > 0
+    {
+        job = job.delay_by_ms(delay);
+    }
     let result = g.push_job(job)?;
-    emit_audit_event(&mut *g, _tool_name, args, "success");
+    emit_audit_event(&mut g, _tool_name, args, "success");
     Ok(
         json!({ "content": [{ "type": "text", "text": serde_json::to_string(&result).unwrap_or_default() }] }),
     )
@@ -367,7 +400,7 @@ fn handle_thing_queue_claim(
     };
     match g.claim_job_with_options(&queue, opts)? {
         Some(job) => {
-            emit_audit_event(&mut *g, _tool_name, args, "success");
+            emit_audit_event(&mut g, _tool_name, args, "success");
             Ok(
                 json!({ "content": [{ "type": "text", "text": serde_json::to_string(&job).unwrap_or_default() }] }),
             )
@@ -387,7 +420,7 @@ fn handle_thing_queue_ack(
     let id = arg_str(args, "id");
     match g.ack_job(&queue, &id)? {
         Some(job) => {
-            emit_audit_event(&mut *g, _tool_name, args, "success");
+            emit_audit_event(&mut g, _tool_name, args, "success");
             Ok(
                 json!({ "content": [{ "type": "text", "text": serde_json::to_string(&job).unwrap_or_default() }] }),
             )
@@ -413,7 +446,7 @@ fn handle_thing_queue_nack(
     };
     match g.nack_job_with_options(&queue, &id, opts)? {
         Some(job) => {
-            emit_audit_event(&mut *g, _tool_name, args, "success");
+            emit_audit_event(&mut g, _tool_name, args, "success");
             Ok(
                 json!({ "content": [{ "type": "text", "text": serde_json::to_string(&job).unwrap_or_default() }] }),
             )

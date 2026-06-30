@@ -165,7 +165,7 @@ CLI commands: `thingd queues dead <queue>` lists dead jobs. To replay, delete an
 
 ### Can agents bypass allowlists accidentally?
 
-No. The MCP layer enforces collection allowlists at the tool level. Write operations to collections not in `THINGD_MCP_COLLECTIONS` are rejected with a tool-level error before reaching the store.
+No. The MCP layer enforces collection allowlists at the tool level. Write operations and `thing_search` calls referencing collections not in `THINGD_MCP_COLLECTIONS` are rejected with a tool-level error before reaching the store.
 
 ### How are write operations from agents secured?
 
