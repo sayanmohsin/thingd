@@ -134,6 +134,9 @@ Checklist of files to audit:
 - `README.md` — tool count badge, feature descriptions
 - `docs/mcp-server.md` — status, tool descriptions
 - `docs/faq.md` — tool count, feature questions
+- `docs/cli-reference.md` — CLI commands and flags (`thingd mcp connect`, `install --antigravity`)
+- `docs/agent-setup.md` — cloud MCP setup path
+- `docs/quickstart.md` — cloud setup path
 
 ### Cross-repo sync checklist
 
