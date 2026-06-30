@@ -1,3 +1,9 @@
+## [0.42.0](https://github.com/sayanmohsin/thingd/compare/v0.41.3...v0.42.0) (2026-06-30)
+
+### Features
+
+* **cli:** use cloud login credentials for TUI, dashboard, and CLI ([13b2e7f](https://github.com/sayanmohsin/thingd/commit/13b2e7fe1c510e8d4a19d013760a59d5bf7806e6))
+
 ## [0.41.3](https://github.com/sayanmohsin/thingd/compare/v0.41.2...v0.41.3) (2026-06-30)
 
 ### Bug Fixes
