@@ -2457,6 +2457,31 @@ mod tests {
     }
 
     #[test]
+    fn get_and_search_consistent_after_delete() {
+        let mut store = SqliteThingStore::open_in_memory().unwrap();
+
+        store
+            .put_object(MemoryObject::new("col", "id-1", r#"{"name":"alice"}"#))
+            .unwrap();
+
+        assert!(store.get_object("col", "id-1").unwrap().is_some());
+
+        let results = store
+            .search("alice", crate::SearchOptions::default())
+            .unwrap();
+        assert_eq!(results.len(), 1);
+
+        store.delete_object("col", "id-1").unwrap();
+
+        assert!(store.get_object("col", "id-1").unwrap().is_none());
+
+        let results = store
+            .search("alice", crate::SearchOptions::default())
+            .unwrap();
+        assert_eq!(results.len(), 0);
+    }
+
+    #[test]
     fn counts_objects_correctly_after_deletions() {
         let mut store = SqliteThingStore::open_in_memory().unwrap();
 
