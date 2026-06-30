@@ -108,6 +108,7 @@ interface FormField {
   value: string;
   placeholder?: string;
   isSecret?: boolean;
+  dirty?: boolean;
   options?: string[];
   allowCustom?: boolean;
 }
@@ -139,6 +140,7 @@ function openForm(
       value: f.value || (f.options?.[0] ?? ""),
       placeholder: f.placeholder,
       isSecret: f.isSecret,
+      dirty: false,
       options: f.options,
       allowCustom: f.allowCustom,
     })),
@@ -405,6 +407,40 @@ async function fetchResources(): Promise<void> {
     if (dbSizeHistory.length > 60) {
       dbSizeHistory.shift();
     }
+  }
+}
+
+// ── Connection helpers ───────────────────────────────────────────────
+
+async function connectToDriver(
+  selectedDriver: ThingDDriver,
+  resolvedPath: string,
+  url?: string,
+  token?: string
+): Promise<void> {
+  db = await ThingD.open({
+    path: resolvedPath,
+    url,
+    driver: selectedDriver,
+    authToken: token,
+  });
+
+  driver = selectedDriver;
+  dbPath = resolvedPath;
+  authToken = typeof token === "string" ? token : "";
+
+  connected = true;
+  startedAt = Date.now();
+  cursorIndex = 0;
+  scrollOffset = 0;
+  loadedItemId = "";
+
+  await fetchResources();
+  draw();
+  const t = buildTree();
+  const first = t[cursorIndex];
+  if (first) {
+    scheduleLoad(first);
   }
 }
 
@@ -1518,7 +1554,12 @@ function setupKeypress() {
           // biome-ignore lint/suspicious/noControlCharactersInRegex: we need to filter control characters
           const clean = str.replace(/[\x00-\x1F\x7F]/g, "");
           if (clean) {
-            f.value += clean;
+            if (f.isSecret && !f.dirty && f.value) {
+              f.value = clean;
+              f.dirty = true;
+            } else {
+              f.value += clean;
+            }
             formState.error = undefined;
             draw();
           }
@@ -1671,6 +1712,21 @@ async function handleConnect(node: TreeNode) {
 
   const selectedDriver = node.ref.driver as ThingDDriver;
 
+  // Cloud with saved credentials — skip form
+  if (selectedDriver === "cloud") {
+    const cloudCfg = readCloudConfig();
+    if (cloudCfg?.token && cloudCfg?.url) {
+      try {
+        await connectToDriver("cloud", cloudCfg.url, cloudCfg.url, cloudCfg.token);
+      } catch (err) {
+        const errMsg = err instanceof Error ? err.message : String(err);
+        viewerLines = [pc.red(`Failed to connect: ${errMsg}`)];
+        draw();
+      }
+      return;
+    }
+  }
+
   if (selectedDriver === "native" || selectedDriver === "cloud") {
     const cloudCfg = selectedDriver === "cloud" ? readCloudConfig() : null;
     openForm(
@@ -1700,40 +1756,12 @@ async function handleConnect(node: TreeNode) {
       ],
       async (vals) => {
         const resolvedPath = selectedDriver === "cloud" ? vals.url || "" : vals.path || "";
-
-        // Allow the underlying SDK/SQLite driver to automatically create the file
-        // if it does not exist, rather than throwing an error here.
-
-        db = await ThingD.open({
-          path: resolvedPath,
-          url: selectedDriver === "cloud" ? resolvedPath : undefined,
-          driver: selectedDriver,
-          authToken: vals.token,
-        });
-
-        driver = selectedDriver;
-        dbPath = resolvedPath;
-
-        // Update global authToken safely
-        if (typeof vals.token === "string") {
-          authToken = vals.token;
-        } else {
-          authToken = "";
-        }
-
-        connected = true;
-        startedAt = Date.now();
-        cursorIndex = 0;
-        scrollOffset = 0;
-        loadedItemId = "";
-
-        await fetchResources();
-        draw();
-        const tree = buildTree();
-        const first = tree[cursorIndex];
-        if (first) {
-          scheduleLoad(first);
-        }
+        await connectToDriver(
+          selectedDriver,
+          resolvedPath,
+          selectedDriver === "cloud" ? resolvedPath : undefined,
+          vals.token
+        );
       }
     );
   } else {
@@ -1819,6 +1847,16 @@ export async function runInteractiveCli(): Promise<void> {
   const first = tree[cursorIndex];
   if (first) {
     scheduleLoad(first);
+  }
+
+  // Auto-connect to cloud if credentials exist
+  const cloudCfg = readCloudConfig();
+  if (cloudCfg?.token && cloudCfg?.url) {
+    try {
+      await connectToDriver("cloud", cloudCfg.url, cloudCfg.url, cloudCfg.token);
+    } catch {
+      // Auto-connect failed — fall through to environment selection
+    }
   }
 
   setupKeypress();
