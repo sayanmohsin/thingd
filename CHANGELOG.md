@@ -1,3 +1,10 @@
+## [0.44.0](https://github.com/sayanmohsin/thingd/compare/v0.43.0...v0.44.0) (2026-06-30)
+
+### Features
+
+* **engine:** add event idempotency via idempotencyKey ([cf77768](https://github.com/sayanmohsin/thingd/commit/cf77768e9ccd0da022918daf6a1499e459ed9eb3)), closes [#49](https://github.com/sayanmohsin/thingd/issues/49)
+* **sidecar:** add /metrics endpoint with Prometheus-formatted store metrics ([9a5f15b](https://github.com/sayanmohsin/thingd/commit/9a5f15bea80c72054e1192309d583c3ef673a714)), closes [#46](https://github.com/sayanmohsin/thingd/issues/46)
+
 ## [0.43.0](https://github.com/sayanmohsin/thingd/compare/v0.42.1...v0.43.0) (2026-06-30)
 
 ### Features
