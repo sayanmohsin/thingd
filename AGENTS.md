@@ -62,9 +62,9 @@ packages/
 pnpm build                    # build all packages (TypeScript + Rust native)
 pnpm check                    # biome lint
 pnpm check:write              # biome auto-fix
-pnpm test:node                # 53 Node SDK tests
-pnpm test:cli                 # 39 CLI tests
-pnpm test:rust                # cargo test --workspace (75 tests)
+pnpm test:node                # 55 Node SDK tests
+pnpm test:cli                 # 43 CLI tests
+pnpm test:rust                # cargo test --workspace (118 tests — 71 engine + 47 server)
 pnpm test:local               # check → build → node+cli+package tests
 pnpm bench:rust               # full Rust benchmark (in-memory + sqlite)
 pnpm bench:rust:smoke         # quick Rust benchmark (100 iters)
@@ -144,8 +144,8 @@ After completing thingd work, always check thingd-cloud planning docs:
 
 When `[workspace.package].version` bumps in `Cargo.toml`, path deps with exact version specs must follow:
 ```
-crates/thingd-server/Cargo.toml: thingd = { path = "../thingd", version = "0.37" }
-packages/thingd-native/Cargo.toml: thingd = { path = "../../crates/thingd", version = "0.37" }
+crates/thingd-server/Cargo.toml: thingd = { path = "../thingd", version = "0.41" }
+packages/thingd-native/Cargo.toml: thingd = { path = "../../crates/thingd", version = "0.41" }
 ```
 Search with `rg 'version = "0\.xx"' crates/ packages/` after every version bump.
 
@@ -182,4 +182,5 @@ cargo publish -p thingd --features sqlite
 ## Skills
 
 - `/skill upgrade-deps-and-benchmark` — audit all deps, bump to latest, run benchmarks
-- `/skill audit-after-change` — cross-reference docs vs code, find stale content, sync thingd-cloud planning docs, check test gaps and version pins
+
+> Audit-after-change is not a skill — use the checklist under "Doc audit after every change" above.
