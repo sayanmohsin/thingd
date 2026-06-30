@@ -1,3 +1,9 @@
+## [0.42.1](https://github.com/sayanmohsin/thingd/compare/v0.42.0...v0.42.1) (2026-06-30)
+
+### Bug Fixes
+
+* **engine:** guard search query against orphaned FTS entries ([c9f7de1](https://github.com/sayanmohsin/thingd/commit/c9f7de1282ba8e42bd8c2b2aa4043776b425a40c)), closes [#40](https://github.com/sayanmohsin/thingd/issues/40)
+
 ## [0.42.0](https://github.com/sayanmohsin/thingd/compare/v0.41.3...v0.42.0) (2026-06-30)
 
 ### Features
