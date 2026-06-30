@@ -1,3 +1,9 @@
+## [0.41.3](https://github.com/sayanmohsin/thingd/compare/v0.41.2...v0.41.3) (2026-06-30)
+
+### Bug Fixes
+
+* **sidecar:** align queue push, audit source, and search allowlist with SDK ([d951595](https://github.com/sayanmohsin/thingd/commit/d951595f89ff1dc3c7651ea6891844c35e8dee02))
+
 ## [0.41.2](https://github.com/sayanmohsin/thingd/compare/v0.41.1...v0.41.2) (2026-06-30)
 
 ### Bug Fixes
