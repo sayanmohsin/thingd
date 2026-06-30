@@ -362,12 +362,9 @@ impl Config {
                     .into(),
             );
         }
-        if (self.server.host == "0.0.0.0" || self.server.host == "::")
-            && self.auth.token.is_empty()
+        if (self.server.host == "0.0.0.0" || self.server.host == "::") && self.auth.token.is_empty()
         {
-            return Err(
-                "binding to 0.0.0.0 requires an auth token (set THINGD_AUTH_TOKEN)".into(),
-            );
+            return Err("binding to 0.0.0.0 requires an auth token (set THINGD_AUTH_TOKEN)".into());
         }
         if self.cluster.mode == ClusterMode::Follower && self.cluster.leader_url.is_empty() {
             return Err("cluster.leader_url is required when mode is 'follower'".into());

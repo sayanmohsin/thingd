@@ -35,7 +35,11 @@ fn arg_str(args: &Value, key: &str) -> String {
     args.get(key)
         .and_then(|v| v.as_str())
         .map(|s| {
-            let cap = if key == "query" || key == "text" || key == "payload" { MAX_QUERY_LEN } else { MAX_STRING_LEN };
+            let cap = if key == "query" || key == "text" || key == "payload" {
+                MAX_QUERY_LEN
+            } else {
+                MAX_STRING_LEN
+            };
             let mut truncated = s.chars().take(cap).collect::<String>();
             truncated.shrink_to_fit();
             truncated
@@ -44,11 +48,15 @@ fn arg_str(args: &Value, key: &str) -> String {
 }
 
 fn arg_u64(args: &Value, key: &str) -> Option<u64> {
-    args.get(key).and_then(|v| v.as_u64()).map(|v| v.min(10_000))
+    args.get(key)
+        .and_then(|v| v.as_u64())
+        .map(|v| v.min(10_000))
 }
 
 fn arg_usize(args: &Value, key: &str) -> Option<usize> {
-    args.get(key).and_then(|v| v.as_u64()).map(|v| v.min(10_000) as usize)
+    args.get(key)
+        .and_then(|v| v.as_u64())
+        .map(|v| v.min(10_000) as usize)
 }
 
 fn arg_f64(args: &Value, key: &str) -> Option<f64> {

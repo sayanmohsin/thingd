@@ -1860,7 +1860,9 @@ impl crate::store::LinkStore for SqliteThingStore {
             |t| (" AND type = ?2".to_string(), Some(t.clone())),
         );
 
-        let limit_clause = options.limit.map_or_else(String::new, |_| " LIMIT ?".to_string());
+        let limit_clause = options
+            .limit
+            .map_or_else(String::new, |_| " LIMIT ?".to_string());
 
         let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
         params.push(Box::new(param_value));

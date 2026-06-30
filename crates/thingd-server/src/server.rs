@@ -66,7 +66,9 @@ pub fn build_router(state: Arc<AppState>, config: &Config) -> Router {
 
     // Configurable CORS — empty origins = permissive (backward compat)
     if config.hardening.cors_allowed_origins.is_empty() {
-        tracing::warn!("CORS: permissive mode (all origins allowed). Set hardening.cors_allowed_origins for production.");
+        tracing::warn!(
+            "CORS: permissive mode (all origins allowed). Set hardening.cors_allowed_origins for production."
+        );
         router = router.layer(CorsLayer::permissive());
     } else {
         let origins: Vec<axum::http::HeaderValue> = config

@@ -57,7 +57,9 @@ async fn main() {
     );
 
     if config.auth.token.is_empty() {
-        tracing::warn!("No auth token configured — server is unauthenticated. Set THINGD_AUTH_TOKEN for production.");
+        tracing::warn!(
+            "No auth token configured — server is unauthenticated. Set THINGD_AUTH_TOKEN for production."
+        );
     }
 
     let pool = engine::EnginePool::new(config.server.database.clone());
