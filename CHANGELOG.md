@@ -1,3 +1,9 @@
+## [0.43.0](https://github.com/sayanmohsin/thingd/compare/v0.42.1...v0.43.0) (2026-06-30)
+
+### Features
+
+* **engine:** add optimistic locking / CAS support to put() ([2cc69f1](https://github.com/sayanmohsin/thingd/commit/2cc69f19bb0e54ca81d6efe23a264797cf81d14c)), closes [#43](https://github.com/sayanmohsin/thingd/issues/43)
+
 ## [0.42.1](https://github.com/sayanmohsin/thingd/compare/v0.42.0...v0.42.1) (2026-06-30)
 
 ### Bug Fixes
