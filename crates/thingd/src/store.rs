@@ -51,6 +51,10 @@ pub trait ObjectStore {
     /// Use this when only metadata changes (e.g. timestamp dedup) and the body
     /// text is identical — avoids wasted FTS DELETE + INSERT.
     ///
+    /// When `options.expected_version` is `Some(v)`, the operation succeeds only
+    /// if the current version of the object equals `v` (optimistic locking / CAS).
+    /// Returns `ThingdError::Conflict` on version mismatch.
+    ///
     /// # Errors
     ///
     /// Returns an error when the backing store cannot persist the object.

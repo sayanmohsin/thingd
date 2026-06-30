@@ -8,6 +8,7 @@ import type {
   MemoryObject,
   MemorySearchOptions,
   MemorySearchResult,
+  PutOptions,
   QueueClaimOptions,
   QueueJob,
   QueueJobOptions,
@@ -86,10 +87,13 @@ export class CloudThingStore implements ThingStore {
     this.client = client;
   }
 
-  put(collection: string, object: MemoryObject): Promise<StoredMemoryObject> {
+  put(collection: string, object: MemoryObject, options?: PutOptions): Promise<StoredMemoryObject> {
     return this.callTool("thing_put", {
       collection,
       object,
+      ...(options?.expectedVersion !== undefined
+        ? { expectedVersion: options.expectedVersion }
+        : {}),
     });
   }
 

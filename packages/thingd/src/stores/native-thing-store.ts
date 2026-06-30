@@ -7,6 +7,7 @@ import type {
   MemoryObject,
   MemorySearchOptions,
   MemorySearchResult,
+  PutOptions,
   QueueClaimOptions,
   QueueJob,
   QueueJobOptions,
@@ -20,7 +21,7 @@ import type {
 } from "../types.js";
 
 type NativeThingStoreBinding = {
-  putObjectJson(collection: string, id: string, body: string): string;
+  putObjectJson(collection: string, id: string, body: string, expectedVersion?: number): string;
   getObjectJson(collection: string, id: string): string | null;
   listObjectsJson(
     collectionsJson?: string,
@@ -176,9 +177,18 @@ export class NativeThingStore implements ThingStore {
 
   private constructor(private readonly binding: NativeThingStoreBinding) {}
 
-  async put(collection: string, object: MemoryObject): Promise<StoredMemoryObject> {
+  async put(
+    collection: string,
+    object: MemoryObject,
+    options?: PutOptions
+  ): Promise<StoredMemoryObject> {
     const record = parseJson<NativeObjectRecord>(
-      this.binding.putObjectJson(collection, object.id, JSON.stringify(object))
+      this.binding.putObjectJson(
+        collection,
+        object.id,
+        JSON.stringify(object),
+        options?.expectedVersion
+      )
     );
 
     return objectFromNative(record);

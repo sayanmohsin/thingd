@@ -204,6 +204,17 @@ curl -X PUT http://localhost:8757/v1/objects/users/user-001 \
 }
 ```
 
+**Optimistic locking (CAS):** Set the `If-Match` header to the expected version:
+
+```bash
+curl -X PUT http://localhost:8757/v1/objects/users/user-001 \
+  -H "Content-Type: application/json" \
+  -H "If-Match: 1" \
+  -d '{"name": "Alice Chen", "role": "admin"}'
+```
+
+If the current version does not match, returns `409 Conflict` with error type `"conflict"`.
+
 ### `GET /v1/objects/:collection/:id` — Get single object
 
 ```bash

@@ -112,14 +112,26 @@ pub async fn list_objects(
 pub async fn put_object(
     State(state): State<Arc<AppState>>,
     Path((collection, id)): Path<(String, String)>,
+    headers: axum::http::HeaderMap,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, AppError> {
-    let obj = MemoryObject::new(collection, id, body.to_string());
+    let obj = MemoryObject::new(collection.clone(), id.clone(), body.to_string());
     let e = state.pool.get("");
     let mut g = e.lock();
-    let r = g
-        .put_object(obj)
-        .map_err(|e| AppError::internal(e.to_string()))?;
+    let expected_version = headers
+        .get("if-match")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.parse::<u64>().ok());
+    let r = if let Some(version) = expected_version {
+        let opts = thingd::PutObjectOptions {
+            expected_version: Some(version),
+            ..Default::default()
+        };
+        g.put_object_with_options(obj, opts)
+    } else {
+        g.put_object(obj)
+    }
+    .map_err(AppError::from)?;
     ok(
         json!({ "id": r.key.id, "collection": r.key.collection, "version": r.version, "createdAt": r.created_at, "updatedAt": r.updated_at }),
     )

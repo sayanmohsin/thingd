@@ -6,6 +6,7 @@ import type {
   MemoryObject,
   MemorySearchOptions,
   MemorySearchResult,
+  PutOptions,
   QueueClaimOptions,
   QueueJob,
   QueueJobOptions,
@@ -64,11 +65,26 @@ export class InMemoryThingStore implements ThingStore {
     }
   }
 
-  async put(collection: string, object: MemoryObject): Promise<StoredMemoryObject> {
+  async put(
+    collection: string,
+    object: MemoryObject,
+    options?: PutOptions
+  ): Promise<StoredMemoryObject> {
     return this.withLock(() => {
       const records = this.getCollection(collection);
       const now = new Date().toISOString();
       const existing = records.get(object.id);
+
+      // CAS check: if expectedVersion is set, verify it matches
+      if (options?.expectedVersion !== undefined) {
+        const currentVersion = existing?.version ?? 0;
+        if (currentVersion !== options.expectedVersion) {
+          throw new Error(
+            `Conflict: version mismatch for ${collection}/${object.id}: expected ${options.expectedVersion}, got ${currentVersion}`
+          );
+        }
+      }
+
       const record: StoredMemoryObject = {
         ...object,
         id: object.id,

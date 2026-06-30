@@ -59,6 +59,24 @@ impl ObjectStore for MemoryEngine {
         Ok(object)
     }
 
+    fn put_object_with_options(
+        &mut self,
+        object: MemoryObject,
+        options: crate::PutObjectOptions,
+    ) -> ThingdResult<MemoryObject> {
+        if let Some(expected) = options.expected_version {
+            let current = self.objects.get(&object.key).map(|o| o.version);
+            if current != Some(expected) {
+                return Err(ThingdError::Conflict(format!(
+                    "Version mismatch for {}/{}: expected {expected}, got {:?}",
+                    object.key.collection, object.key.id, current,
+                )));
+            }
+        }
+        // Delegate to put_object for version increment, FTS handling, etc.
+        self.put_object(object)
+    }
+
     fn get_object(&self, collection: &str, id: &str) -> ThingdResult<Option<MemoryObject>> {
         Ok(self.objects.get(&ObjectKey::new(collection, id)).cloned())
     }
@@ -1152,7 +1170,10 @@ mod tests {
     #[test]
     fn put_object_with_options_skip_index() {
         let mut engine = MemoryEngine::new();
-        let opts = crate::PutObjectOptions { index: false };
+        let opts = crate::PutObjectOptions {
+            index: false,
+            ..Default::default()
+        };
 
         engine
             .put_object_with_options(MemoryObject::new("w", "a", r#"{"text":"hello"}"#), opts)
@@ -1161,5 +1182,72 @@ mod tests {
         let obj = engine.get_object("w", "a").unwrap();
         assert!(obj.is_some());
         assert_eq!(obj.unwrap().body, r#"{"text":"hello"}"#);
+    }
+
+    // ── optimistic locking / CAS ──────────────────────────────────────
+
+    #[test]
+    fn cas_succeeds_on_matching_version() {
+        let mut engine = MemoryEngine::new();
+
+        let stored = engine
+            .put_object(MemoryObject::new("col", "id", r#"{"v":1}"#))
+            .unwrap();
+        assert_eq!(stored.version, 1);
+
+        let opts = crate::PutObjectOptions {
+            expected_version: Some(1),
+            ..Default::default()
+        };
+        let updated = engine
+            .put_object_with_options(MemoryObject::new("col", "id", r#"{"v":2}"#), opts)
+            .unwrap();
+        assert_eq!(updated.version, 2);
+    }
+
+    #[test]
+    fn cas_fails_on_version_mismatch() {
+        let mut engine = MemoryEngine::new();
+
+        engine
+            .put_object(MemoryObject::new("col", "id", r#"{"v":1}"#))
+            .unwrap();
+
+        let opts = crate::PutObjectOptions {
+            expected_version: Some(42),
+            ..Default::default()
+        };
+        let err = engine
+            .put_object_with_options(MemoryObject::new("col", "id", r#"{"v":2}"#), opts)
+            .unwrap_err();
+        assert!(matches!(err, crate::ThingdError::Conflict(_)));
+    }
+
+    #[test]
+    fn cas_fails_on_nonexistent_object() {
+        let mut engine = MemoryEngine::new();
+
+        let opts = crate::PutObjectOptions {
+            expected_version: Some(1),
+            ..Default::default()
+        };
+        let err = engine
+            .put_object_with_options(MemoryObject::new("col", "id", r#"{"v":1}"#), opts)
+            .unwrap_err();
+        assert!(matches!(err, crate::ThingdError::Conflict(_)));
+    }
+
+    #[test]
+    fn cas_none_skips_check() {
+        let mut engine = MemoryEngine::new();
+
+        // Should succeed with expected_version: None (the default)
+        let stored = engine
+            .put_object_with_options(
+                MemoryObject::new("col", "id", r#"{"v":1}"#),
+                crate::PutObjectOptions::default(),
+            )
+            .unwrap();
+        assert_eq!(stored.version, 1);
     }
 }

@@ -111,6 +111,7 @@ export function registerThingdTools(
       inputSchema: {
         collection: z.string().min(1),
         object: memoryObjectSchema,
+        expectedVersion: z.number().int().nonnegative().optional(),
         ...auditInputSchema,
       },
       annotations: {
@@ -120,10 +121,10 @@ export function registerThingdTools(
         openWorldHint: false,
       },
     },
-    async ({ collection, object, actor, source }) => {
+    async ({ collection, object, actor, source, expectedVersion }) => {
       assertWriteAllowed();
       assertCollectionAllowed(collection);
-      const stored = await db.put(collection, object);
+      const stored = await db.put(collection, object, { expectedVersion });
       await appendMcpAuditEvent(db, audit, {
         action: "objects.put",
         target: {

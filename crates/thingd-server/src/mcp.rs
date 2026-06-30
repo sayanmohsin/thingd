@@ -187,7 +187,16 @@ fn handle_thing_put(_state: &AppState, _tool_name: &str, args: &Value) -> Result
     let obj = args.get("object").cloned().unwrap_or(json!({}));
     let id = obj.get("id").and_then(|v| v.as_str()).unwrap_or("new");
     let memory_obj = thingd::MemoryObject::new(collection, id.to_string(), obj.to_string());
-    let r = g.put_object(memory_obj)?;
+    let expected_version = args.get("expectedVersion").and_then(|v| v.as_u64());
+    let r = if let Some(version) = expected_version {
+        let opts = thingd::PutObjectOptions {
+            expected_version: Some(version),
+            ..Default::default()
+        };
+        g.put_object_with_options(memory_obj, opts)?
+    } else {
+        g.put_object(memory_obj)?
+    };
     emit_audit_event(&mut g, _tool_name, args, "success");
     Ok(
         json!({ "content": [{ "type": "text", "text": format!("Created/updated: {}/{}", r.key.collection, r.key.id) }] }),
@@ -719,7 +728,7 @@ static ALL_TOOLS: LazyLock<Vec<ToolEntry>> = LazyLock::new(|| {
         ToolEntry {
             name: "thing_put",
             description: "Create or update an object",
-            properties: json!({ "collection": str_prop("Collection name"), "object": obj_prop("Object data, must include 'id' field"), "actor": str_prop("Who performed the action"), "source": str_prop("Where the action originated") }),
+            properties: json!({ "collection": str_prop("Collection name"), "object": obj_prop("Object data, must include 'id' field"), "expectedVersion": int_prop("Optional expected version for optimistic locking (CAS)"), "actor": str_prop("Who performed the action"), "source": str_prop("Where the action originated") }),
             required: &["collection", "object"],
             handler: handle_thing_put,
             is_write: true,

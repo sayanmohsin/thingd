@@ -521,19 +521,39 @@ impl ObjectStore for SqliteThingStore {
         options: crate::PutObjectOptions,
     ) -> ThingdResult<MemoryObject> {
         let transaction = self.connection.transaction().map_err(ThingdError::from)?;
-        let version = transaction
+        let current_version = transaction
             .query_row(
                 "SELECT version FROM objects WHERE collection = ?1 AND id = ?2",
                 params![&object.key.collection, &object.key.id],
                 |row| row.get::<_, i64>(0),
             )
             .optional()
-            .map_err(ThingdError::from)?
-            .map_or(Ok::<u64, ThingdError>(1), |existing| {
-                u64::try_from(existing)
-                    .map(|existing| existing + 1)
-                    .map_err(|error| ThingdError::Storage(error.to_string()))
-            })?;
+            .map_err(ThingdError::from)?;
+
+        // CAS check: if expected_version is Some, verify it matches
+        if let Some(expected) = options.expected_version {
+            match current_version {
+                Some(actual) if u64::try_from(actual).unwrap_or(0) != expected => {
+                    return Err(ThingdError::Conflict(format!(
+                        "Version mismatch for {}/{}: expected {expected}, got {actual}",
+                        object.key.collection, object.key.id,
+                    )));
+                },
+                None => {
+                    return Err(ThingdError::Conflict(format!(
+                        "Version mismatch for {}/{}: expected {expected}, object does not exist",
+                        object.key.collection, object.key.id,
+                    )));
+                },
+                _ => {},
+            }
+        }
+
+        let version = current_version.map_or(Ok::<u64, ThingdError>(1), |existing| {
+            u64::try_from(existing)
+                .map(|existing| existing + 1)
+                .map_err(|error| ThingdError::Storage(error.to_string()))
+        })?;
 
         object.version = version;
         let stored_version = i64::try_from(object.version)
@@ -2885,5 +2905,71 @@ mod tests {
         assert_eq!(a.sequence, 1);
         assert_eq!(b.sequence, 2);
         assert_eq!(c.sequence, 3);
+    }
+
+    // ── optimistic locking / CAS ──────────────────────────────────────
+
+    #[test]
+    fn cas_succeeds_on_matching_version() {
+        let mut store = SqliteThingStore::open_in_memory().unwrap();
+
+        let stored = store
+            .put_object(MemoryObject::new("col", "id", r#"{"v":1}"#))
+            .unwrap();
+        assert_eq!(stored.version, 1);
+
+        let opts = crate::PutObjectOptions {
+            expected_version: Some(1),
+            ..Default::default()
+        };
+        let updated = store
+            .put_object_with_options(MemoryObject::new("col", "id", r#"{"v":2}"#), opts)
+            .unwrap();
+        assert_eq!(updated.version, 2);
+    }
+
+    #[test]
+    fn cas_fails_on_version_mismatch() {
+        let mut store = SqliteThingStore::open_in_memory().unwrap();
+
+        store
+            .put_object(MemoryObject::new("col", "id", r#"{"v":1}"#))
+            .unwrap();
+
+        let opts = crate::PutObjectOptions {
+            expected_version: Some(42),
+            ..Default::default()
+        };
+        let err = store
+            .put_object_with_options(MemoryObject::new("col", "id", r#"{"v":2}"#), opts)
+            .unwrap_err();
+        assert!(matches!(err, crate::ThingdError::Conflict(_)));
+    }
+
+    #[test]
+    fn cas_fails_on_nonexistent_object() {
+        let mut store = SqliteThingStore::open_in_memory().unwrap();
+
+        let opts = crate::PutObjectOptions {
+            expected_version: Some(1),
+            ..Default::default()
+        };
+        let err = store
+            .put_object_with_options(MemoryObject::new("col", "id", r#"{"v":1}"#), opts)
+            .unwrap_err();
+        assert!(matches!(err, crate::ThingdError::Conflict(_)));
+    }
+
+    #[test]
+    fn cas_none_skips_check() {
+        let mut store = SqliteThingStore::open_in_memory().unwrap();
+
+        let stored = store
+            .put_object_with_options(
+                MemoryObject::new("col", "id", r#"{"v":1}"#),
+                crate::PutObjectOptions::default(),
+            )
+            .unwrap();
+        assert_eq!(stored.version, 1);
     }
 }

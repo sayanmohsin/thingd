@@ -251,11 +251,19 @@ pub struct PutObjectOptions {
     /// Set to `false` when only metadata changes (e.g. timestamp dedup)
     /// and the body text is identical — skips FTS DELETE + INSERT.
     pub index: bool,
+    /// Optional expected version for optimistic locking (CAS).
+    /// When `Some(v)`, the put succeeds only if the current version
+    /// equals `v`. If the object does not exist, returns `Conflict`.
+    /// When `None`, no version check is performed (default).
+    pub expected_version: Option<u64>,
 }
 
 impl Default for PutObjectOptions {
     fn default() -> Self {
-        Self { index: true }
+        Self {
+            index: true,
+            expected_version: None,
+        }
     }
 }
 

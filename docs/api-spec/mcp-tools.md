@@ -45,10 +45,13 @@ Create or replace an object. Object must have an `id` field. Emits audit event `
 {
   "collection": "users",
   "object": { "id": "user-001", "name": "Alice", "role": "admin" },
+  "expectedVersion": 1,
   "actor": "optional",
   "source": "optional"
 }
 ```
+
+**Optimistic locking (CAS):** Set `expectedVersion` to the expected current version. Returns error code `-32603` with detail containing `"Conflict"` if the version does not match.
 
 Delete an object. Emits audit event `objects.delete`.
 

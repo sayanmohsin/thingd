@@ -9,6 +9,7 @@ import type {
   MemoryQueue,
   MemorySearchOptions,
   MemorySearchResult,
+  PutOptions,
   QueueClaimOptions,
   QueueJobOptions,
   QueueJobPayload,
@@ -50,8 +51,8 @@ export class ThingD implements ThingDConnection {
     private readonly store: ThingStore
   ) {}
 
-  put(collection: string, object: MemoryObject): Promise<StoredMemoryObject> {
-    return this.store.put(collection, object);
+  put(collection: string, object: MemoryObject, options?: PutOptions): Promise<StoredMemoryObject> {
+    return this.store.put(collection, object, options);
   }
 
   get<T = StoredMemoryObject>(collection: string, id: string): Promise<T | null> {

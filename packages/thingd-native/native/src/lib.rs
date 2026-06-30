@@ -6,8 +6,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use thingd::{
     EventLog, Link, LinkDirection, LinkQueryOptions, LinkStore, ListEventsOptions,
-    ListObjectsOptions, MemoryEvent, MemoryObject, ObjectStore, QueueClaimOptions, QueueJob,
-    QueueJobStatus, QueueNackOptions, QueueStore, SearchOptions, Searcher, SqliteThingStore,
+    ListObjectsOptions, MemoryEvent, MemoryObject, ObjectStore, PutObjectOptions,
+    QueueClaimOptions, QueueJob, QueueJobStatus, QueueNackOptions, QueueStore, SearchOptions,
+    Searcher, SqliteThingStore,
 };
 
 #[derive(Deserialize)]
@@ -59,11 +60,27 @@ impl NativeThingStore {
     }
 
     #[napi(js_name = "putObjectJson")]
-    pub fn put_object_json(&self, collection: String, id: String, body: String) -> Result<String> {
+    pub fn put_object_json(
+        &self,
+        collection: String,
+        id: String,
+        body: String,
+        expected_version: Option<i64>,
+    ) -> Result<String> {
         let mut store = self.lock_store()?;
-        let object = store
-            .put_object(MemoryObject::new(collection, id, body))
-            .map_err(napi_error)?;
+        let object = if let Some(version) = expected_version {
+            let opts = PutObjectOptions {
+                expected_version: Some(version as u64),
+                ..Default::default()
+            };
+            store
+                .put_object_with_options(MemoryObject::new(collection, id, body), opts)
+                .map_err(napi_error)?
+        } else {
+            store
+                .put_object(MemoryObject::new(collection, id, body))
+                .map_err(napi_error)?
+        };
 
         to_json(&object_record(object))
     }

@@ -139,6 +139,11 @@ export type ListObjectsOptions = {
   sortBy?: SortBy;
 };
 
+export type PutOptions = {
+  /** Optional expected version for optimistic locking (CAS). */
+  expectedVersion?: number;
+};
+
 /**
  * Typed interface for a thingd database connection returned by `ThingD.open()`.
  * Consumers can use this for type-safe dependency injection instead of `any`:
@@ -149,7 +154,7 @@ export type ListObjectsOptions = {
  * ```
  */
 export interface ThingDConnection {
-  put(collection: string, object: MemoryObject): Promise<StoredMemoryObject>;
+  put(collection: string, object: MemoryObject, options?: PutOptions): Promise<StoredMemoryObject>;
   get<T = StoredMemoryObject>(collection: string, id: string): Promise<T | null>;
   delete(collection: string, id: string): Promise<ThingDeleteResult>;
   listObjects<T = StoredMemoryObject>(
@@ -193,7 +198,7 @@ export interface ThingDConnection {
 }
 
 export interface ThingStore {
-  put(collection: string, object: MemoryObject): Promise<StoredMemoryObject>;
+  put(collection: string, object: MemoryObject, options?: PutOptions): Promise<StoredMemoryObject>;
   get<T = StoredMemoryObject>(collection: string, id: string): Promise<T | null>;
   delete(collection: string, id: string): Promise<ThingDeleteResult>;
   listObjects<T = StoredMemoryObject>(
