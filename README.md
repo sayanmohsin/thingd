@@ -21,6 +21,8 @@ thingd stores versioned JSON objects in collections, with built-in durable queue
 SDK, CLI, and MCP server are functional and tested, but the project is not
 production-ready yet.
 
+See the [full feature status and roadmap](https://github.com/sayanmohsin/thingd-cloud/blob/main/docs/features.md) for a consolidated view of both the engine and thingd Cloud.
+
 ### Shipped
 
 - **Rust engine** (`thingd` — crates.io) — memory + SQLite adapters, FTS5 search, queue lifecycle, graph links, SQLite schema migrations, startup integrity check, auto‑backup before migrations
