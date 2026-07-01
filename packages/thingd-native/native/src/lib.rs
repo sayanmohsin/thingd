@@ -314,7 +314,7 @@ impl NativeThingStore {
     pub fn wal_checkpoint(&self) -> Result<String> {
         let store = self.lock_store()?;
         let (frames, pages) = store.wal_checkpoint().map_err(napi_error)?;
-        to_json(&serde_json::json!({ "frames": frames, "pages": pages }))
+        to_json(&serde_json::json!({ "framesBefore": frames, "framesAfter": pages }))
     }
 
     #[napi(js_name = "optimizeSearchIndex")]

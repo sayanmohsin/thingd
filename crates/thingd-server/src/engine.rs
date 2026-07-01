@@ -51,7 +51,11 @@ impl EnginePool {
     }
 
     fn resolve_path(&self, db_path: &str) -> String {
-        if db_path.is_empty() { self.default_path.clone() } else { db_path.to_string() }
+        if db_path.is_empty() {
+            self.default_path.clone()
+        } else {
+            db_path.to_string()
+        }
     }
 
     fn is_in_memory_path(path: &str) -> bool {
@@ -199,11 +203,17 @@ mod tests {
         let reader = pool.get_reader(&db_path);
 
         // Write data through writer
-        writer.lock().put_object(MemoryObject::new("col", "id", r#"{"v":1}"#)).unwrap();
+        writer
+            .lock()
+            .put_object(MemoryObject::new("col", "id", r#"{"v":1}"#))
+            .unwrap();
 
         // Read it back through reader (separate connection)
         let obj = reader.lock().get_object("col", "id").unwrap();
-        assert!(obj.is_some(), "reader should see data written by writer in WAL mode");
+        assert!(
+            obj.is_some(),
+            "reader should see data written by writer in WAL mode"
+        );
 
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -273,7 +283,8 @@ mod tests {
             handles.push(tokio::spawn(async move {
                 for i in 0..25 {
                     let id = format!("obj-{}", t * 25 + i);
-                    let guard = p.get_reader(&path).lock();
+                    let engine = p.get_reader(&path);
+                    let guard = engine.lock();
                     let obj = guard.get_object("test", &id).unwrap();
                     assert!(obj.is_some(), "reader {t} failed to find {id}");
                 }
@@ -308,13 +319,15 @@ mod tests {
         let path2 = db_path.clone();
 
         let h1 = tokio::spawn(async move {
-            let guard = p1.get_reader(&path1).lock();
+            let engine = p1.get_reader(&path1);
+            let guard = engine.lock();
             let obj = guard.get_object("test", "obj-0").unwrap();
             assert!(obj.is_some());
         });
 
         let h2 = tokio::spawn(async move {
-            let guard = p2.get_reader(&path2).lock();
+            let engine = p2.get_reader(&path2);
+            let guard = engine.lock();
             let obj = guard.get_object("test", "obj-1").unwrap();
             assert!(obj.is_some());
         });
@@ -336,11 +349,14 @@ mod tests {
 
         let r1 = pool.get_reader(&db_path);
         let r2 = pool.get_reader(&db_path);
-        let r3 = pool.get_reader(&db_path);
+        let _r3 = pool.get_reader(&db_path);
         let r4 = pool.get_reader(&db_path);
 
         // With 3 readers, r1 and r4 should have the same address (round-robin wraps)
-        assert!(Arc::ptr_eq(&r1, &r4), "r1 and r4 should wrap to same reader");
+        assert!(
+            Arc::ptr_eq(&r1, &r4),
+            "r1 and r4 should wrap to same reader"
+        );
         assert!(
             !Arc::ptr_eq(&r1, &r2),
             "r1 and r2 should be different readers"

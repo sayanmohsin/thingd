@@ -159,7 +159,7 @@ fn handle_thing_search(
             }
         }
     }
-    let e = state.pool.get("");
+    let e = state.pool.get_reader("");
     let g = e.lock();
     let query = arg_str(args, "query");
     let limit = arg_usize(args, "limit").map(|v| v.min(100));
@@ -179,7 +179,7 @@ fn handle_thing_search(
 }
 
 fn handle_thing_get(_state: &AppState, _tool_name: &str, args: &Value) -> Result<Value, AppError> {
-    let e = _state.pool.get("");
+    let e = _state.pool.get_reader("");
     let g = e.lock();
     let collection = arg_str(args, "collection");
     let id = arg_str(args, "id");
@@ -197,7 +197,7 @@ fn handle_thing_get(_state: &AppState, _tool_name: &str, args: &Value) -> Result
 }
 
 fn handle_thing_put(_state: &AppState, _tool_name: &str, args: &Value) -> Result<Value, AppError> {
-    let e = _state.pool.get("");
+    let e = _state.pool.get_writer("");
     let mut g = e.lock();
     let collection = arg_str(args, "collection");
     let obj = args.get("object").cloned().unwrap_or(json!({}));
@@ -224,7 +224,7 @@ fn handle_thing_delete(
     _tool_name: &str,
     args: &Value,
 ) -> Result<Value, AppError> {
-    let e = _state.pool.get("");
+    let e = _state.pool.get_reader("");
     let mut g = e.lock();
     let collection = arg_str(args, "collection");
     let id = arg_str(args, "id");
@@ -238,7 +238,7 @@ fn handle_thing_objects_list(
     _tool_name: &str,
     args: &Value,
 ) -> Result<Value, AppError> {
-    let e = _state.pool.get("");
+    let e = _state.pool.get_reader("");
     let g = e.lock();
     let collection = arg_str(args, "collection");
     let opts = thingd::ListObjectsOptions {
@@ -276,7 +276,7 @@ fn handle_thing_objects_put_batch(
     _tool_name: &str,
     args: &Value,
 ) -> Result<Value, AppError> {
-    let e = _state.pool.get("");
+    let e = _state.pool.get_reader("");
     let mut g = e.lock();
     let collection = arg_str(args, "collection");
     let objects = args
@@ -307,7 +307,7 @@ fn handle_thing_objects_delete_batch(
     _tool_name: &str,
     args: &Value,
 ) -> Result<Value, AppError> {
-    let e = _state.pool.get("");
+    let e = _state.pool.get_reader("");
     let mut g = e.lock();
     let collection = arg_str(args, "collection");
     let ids = args
@@ -335,7 +335,7 @@ fn handle_thing_events_append(
     _tool_name: &str,
     args: &Value,
 ) -> Result<Value, AppError> {
-    let e = _state.pool.get("");
+    let e = _state.pool.get_reader("");
     let mut g = e.lock();
     let stream = arg_str(args, "stream");
     let event = args.get("event").cloned().unwrap_or(json!({}));
@@ -363,7 +363,7 @@ fn handle_thing_events_list(
     _tool_name: &str,
     args: &Value,
 ) -> Result<Value, AppError> {
-    let e = _state.pool.get("");
+    let e = _state.pool.get_reader("");
     let g = e.lock();
     let stream = arg_str(args, "stream");
     let stream_opt = if stream.is_empty() {
@@ -388,7 +388,7 @@ fn handle_thing_queue_push(
     _tool_name: &str,
     args: &Value,
 ) -> Result<Value, AppError> {
-    let e = _state.pool.get("");
+    let e = _state.pool.get_reader("");
     let mut g = e.lock();
     let queue = arg_str(args, "queue");
     let payload = args.get("payload").cloned().unwrap_or(json!({}));
@@ -421,7 +421,7 @@ fn handle_thing_queue_claim(
     _tool_name: &str,
     args: &Value,
 ) -> Result<Value, AppError> {
-    let e = _state.pool.get("");
+    let e = _state.pool.get_reader("");
     let mut g = e.lock();
     let queue = arg_str(args, "queue");
     let opts = thingd::QueueClaimOptions {
@@ -447,7 +447,7 @@ fn handle_thing_queue_ack(
     _tool_name: &str,
     args: &Value,
 ) -> Result<Value, AppError> {
-    let e = _state.pool.get("");
+    let e = _state.pool.get_reader("");
     let mut g = e.lock();
     let queue = arg_str(args, "queue");
     let id = arg_str(args, "id");
@@ -469,7 +469,7 @@ fn handle_thing_queue_nack(
     _tool_name: &str,
     args: &Value,
 ) -> Result<Value, AppError> {
-    let e = _state.pool.get("");
+    let e = _state.pool.get_reader("");
     let mut g = e.lock();
     let queue = arg_str(args, "queue");
     let id = arg_str(args, "id");
@@ -495,7 +495,7 @@ fn handle_thing_queue_list(
     _tool_name: &str,
     args: &Value,
 ) -> Result<Value, AppError> {
-    let e = _state.pool.get("");
+    let e = _state.pool.get_reader("");
     let g = e.lock();
     let queue = arg_str(args, "queue");
     let jobs = g.list_jobs(&queue)?;
@@ -509,7 +509,7 @@ fn handle_thing_queue_dead(
     _tool_name: &str,
     args: &Value,
 ) -> Result<Value, AppError> {
-    let e = _state.pool.get("");
+    let e = _state.pool.get_reader("");
     let g = e.lock();
     let queue = arg_str(args, "queue");
     let jobs = g.list_dead_jobs(&queue)?;
@@ -525,7 +525,7 @@ fn handle_thing_count_objects(
     _tool_name: &str,
     _args: &Value,
 ) -> Result<Value, AppError> {
-    let e = _state.pool.get("");
+    let e = _state.pool.get_reader("");
     let g = e.lock();
     let count = g.count_objects()?;
     Ok(json!({ "content": [{ "type": "text", "text": count.to_string() }] }))
@@ -536,7 +536,7 @@ fn handle_thing_count_events(
     _tool_name: &str,
     _args: &Value,
 ) -> Result<Value, AppError> {
-    let e = _state.pool.get("");
+    let e = _state.pool.get_reader("");
     let g = e.lock();
     let count = g.count_events()?;
     Ok(json!({ "content": [{ "type": "text", "text": count.to_string() }] }))
@@ -547,7 +547,7 @@ fn handle_thing_count_active_jobs(
     _tool_name: &str,
     _args: &Value,
 ) -> Result<Value, AppError> {
-    let e = _state.pool.get("");
+    let e = _state.pool.get_reader("");
     let g = e.lock();
     let queues = g.list_queues()?;
     let mut count: u64 = 0;
@@ -563,7 +563,7 @@ fn handle_thing_count_dead_jobs(
     _tool_name: &str,
     _args: &Value,
 ) -> Result<Value, AppError> {
-    let e = _state.pool.get("");
+    let e = _state.pool.get_reader("");
     let g = e.lock();
     let queues = g.list_queues()?;
     let mut count: u64 = 0;
@@ -581,7 +581,7 @@ fn handle_thing_list_collections(
     _tool_name: &str,
     _args: &Value,
 ) -> Result<Value, AppError> {
-    let e = _state.pool.get("");
+    let e = _state.pool.get_reader("");
     let g = e.lock();
     let collections = g.list_collections()?;
     Ok(
@@ -594,7 +594,7 @@ fn handle_thing_list_streams(
     _tool_name: &str,
     _args: &Value,
 ) -> Result<Value, AppError> {
-    let e = _state.pool.get("");
+    let e = _state.pool.get_reader("");
     let g = e.lock();
     let streams = g.list_streams()?;
     Ok(
@@ -607,7 +607,7 @@ fn handle_thing_list_queues(
     _tool_name: &str,
     _args: &Value,
 ) -> Result<Value, AppError> {
-    let e = _state.pool.get("");
+    let e = _state.pool.get_reader("");
     let g = e.lock();
     let queues = g.list_queues()?;
     Ok(
@@ -622,7 +622,7 @@ fn handle_thing_link_create(
     _tool_name: &str,
     args: &Value,
 ) -> Result<Value, AppError> {
-    let e = _state.pool.get("");
+    let e = _state.pool.get_reader("");
     let mut g = e.lock();
     let from_ref = arg_str(args, "fromRef");
     let link_type = arg_str(args, "linkType");
@@ -643,7 +643,7 @@ fn handle_thing_link_get(
     _tool_name: &str,
     args: &Value,
 ) -> Result<Value, AppError> {
-    let e = _state.pool.get("");
+    let e = _state.pool.get_reader("");
     let g = e.lock();
     let id = arg_str(args, "id");
     match g.get_link(&id)? {
@@ -661,7 +661,7 @@ fn handle_thing_link_delete(
     _tool_name: &str,
     args: &Value,
 ) -> Result<Value, AppError> {
-    let e = _state.pool.get("");
+    let e = _state.pool.get_reader("");
     let mut g = e.lock();
     let id = arg_str(args, "id");
     let deleted = g.delete_link(&id)?;
@@ -673,7 +673,7 @@ fn handle_thing_link_neighbors(
     _tool_name: &str,
     args: &Value,
 ) -> Result<Value, AppError> {
-    let e = _state.pool.get("");
+    let e = _state.pool.get_reader("");
     let g = e.lock();
     let reference = arg_str(args, "reference");
     let dir_str = args
@@ -703,7 +703,7 @@ fn handle_thing_link_count(
     _tool_name: &str,
     _args: &Value,
 ) -> Result<Value, AppError> {
-    let e = _state.pool.get("");
+    let e = _state.pool.get_reader("");
     let g = e.lock();
     let count = g.count_links()?;
     Ok(json!({ "content": [{ "type": "text", "text": count.to_string() }] }))
