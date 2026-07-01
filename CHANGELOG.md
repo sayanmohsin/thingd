@@ -1,3 +1,9 @@
+## [0.45.1](https://github.com/sayanmohsin/thingd/compare/v0.45.0...v0.45.1) (2026-07-01)
+
+### Performance Improvements
+
+* **sidecar:** reader/writer connection pool for concurrent reads ([1f2ea69](https://github.com/sayanmohsin/thingd/commit/1f2ea6914ba40bfa4f08bcfea0e1ef2176671afe))
+
 ## [0.45.0](https://github.com/sayanmohsin/thingd/compare/v0.44.3...v0.45.0) (2026-06-30)
 
 ### Features
