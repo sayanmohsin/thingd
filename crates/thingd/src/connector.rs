@@ -1,12 +1,63 @@
 //! External database connectors for syncing data into thingd.
 //!
-//! Connectors pull data from external sources (CSV, JSON, Postgres, `MySQL`)
-//! and sync it into thingd collections.
+//! Connectors pull data from external sources (CSV, JSON, `Postgres`, `MySQL`)
+//! and sync it into thingd collections via a streaming `PullStream` interface.
 
 use std::collections::HashMap;
 use std::path::Path;
 
 use crate::{ThingdError, ThingdResult};
+
+/// A streaming iterator of rows returned by a connector's `pull()` method.
+/// Each item is either a JSON value or an error from the underlying source.
+pub type PullStream = Box<dyn Iterator<Item = ThingdResult<serde_json::Value>>>;
+
+/// SSL/TLS mode for database connections.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub enum SslMode {
+    /// No encryption
+    Disable,
+    /// Prefer TLS if available
+    #[default]
+    Prefer,
+    /// Require TLS
+    Require,
+}
+
+/// Authentication details for database connectors.
+#[derive(Debug, Clone)]
+pub struct ConnectorAuth {
+    /// Database username
+    pub username: String,
+    /// Database password
+    pub password: String,
+    /// Database host
+    pub host: String,
+    /// Database port
+    pub port: u16,
+    /// Database name
+    pub database: String,
+    /// SSL/TLS mode
+    pub ssl_mode: SslMode,
+}
+
+impl ConnectorAuth {
+    /// Build a Postgres connection string.
+    pub fn postgres_uri(&self) -> String {
+        format!(
+            "postgres://{}:{}@{}:{}/{}",
+            self.username, self.password, self.host, self.port, self.database
+        )
+    }
+
+    /// Build a `MySQL` connection string.
+    pub fn mysql_uri(&self) -> String {
+        format!(
+            "mysql://{}:{}@{}:{}/{}",
+            self.username, self.password, self.host, self.port, self.database
+        )
+    }
+}
 
 /// Configuration for a connector instance.
 #[derive(Debug, Clone)]
@@ -28,6 +79,28 @@ pub struct ConnectorConfig {
 
     /// Optional: column mapping (`external_name` → `thingd_field`)
     pub column_mapping: Option<HashMap<String, String>>,
+
+    /// Optional: authentication for database connectors
+    pub auth: Option<ConnectorAuth>,
+
+    /// Number of rows to fetch per batch when streaming (DB connectors only).
+    /// Defaults to 1000.
+    pub batch_size: usize,
+}
+
+impl Default for ConnectorConfig {
+    fn default() -> Self {
+        Self {
+            connector_type: String::new(),
+            source: String::new(),
+            collection: String::new(),
+            sync_strategy: SyncStrategy::Full,
+            query: None,
+            column_mapping: None,
+            auth: None,
+            batch_size: 1000,
+        }
+    }
 }
 
 /// Sync strategy for pulling data.
@@ -102,12 +175,15 @@ pub trait Connector: Send + Sync {
     /// Returns an error when the schema cannot be read from the source.
     fn discover_schema(&self, config: &ConnectorConfig) -> ThingdResult<Schema>;
 
-    /// Pull data from the source, yielding batches of objects.
+    /// Pull data from the source, yielding a stream of objects.
+    ///
+    /// The returned `PullStream` is an iterator — rows are fetched lazily,
+    /// avoiding loading the entire dataset into memory.
     ///
     /// # Errors
     ///
-    /// Returns an error when data cannot be read from the source.
-    fn pull(&self, config: &ConnectorConfig) -> ThingdResult<Vec<serde_json::Value>>;
+    /// Each item in the stream may return an error from the underlying source.
+    fn pull(&self, config: &ConnectorConfig) -> ThingdResult<PullStream>;
 }
 
 /// CSV/JSON file connector.
@@ -138,17 +214,21 @@ impl Connector for FileConnector {
         }
     }
 
-    fn pull(&self, config: &ConnectorConfig) -> ThingdResult<Vec<serde_json::Value>> {
+    fn pull(&self, config: &ConnectorConfig) -> ThingdResult<PullStream> {
         let path = Path::new(&config.source);
         let extension = path.extension().and_then(|e| e.to_str()).unwrap_or("");
 
-        match extension {
-            "csv" => Self::pull_csv(config),
-            "json" | "jsonl" | "ndjson" => Self::pull_json(config),
-            _ => Err(ThingdError::Storage(format!(
-                "unsupported file type: .{extension}"
-            ))),
-        }
+        let rows: Vec<serde_json::Value> = match extension {
+            "csv" => Self::pull_csv(config)?,
+            "json" | "jsonl" | "ndjson" => Self::pull_json(config)?,
+            _ => {
+                return Err(ThingdError::Storage(format!(
+                    "unsupported file type: .{extension}"
+                )));
+            },
+        };
+
+        Ok(Box::new(rows.into_iter().map(Ok)))
     }
 }
 
@@ -465,9 +545,7 @@ mod tests {
             connector_type: "csv".to_string(),
             source: file_path.to_str().unwrap().to_string(),
             collection: "users".to_string(),
-            sync_strategy: SyncStrategy::Full,
-            query: None,
-            column_mapping: None,
+            ..Default::default()
         };
 
         let schema = connector.discover_schema(&config).unwrap();
@@ -492,12 +570,11 @@ mod tests {
             connector_type: "csv".to_string(),
             source: file_path.to_str().unwrap().to_string(),
             collection: "users".to_string(),
-            sync_strategy: SyncStrategy::Full,
-            query: None,
-            column_mapping: None,
+            ..Default::default()
         };
 
-        let objects = connector.pull(&config).unwrap();
+        let stream = connector.pull(&config).unwrap();
+        let objects: Vec<serde_json::Value> = stream.collect::<ThingdResult<Vec<_>>>().unwrap();
         assert_eq!(objects.len(), 2);
         assert_eq!(objects[0]["name"], "Alice");
         assert_eq!(objects[0]["age"], 30);
@@ -521,12 +598,11 @@ mod tests {
             connector_type: "json".to_string(),
             source: file_path.to_str().unwrap().to_string(),
             collection: "users".to_string(),
-            sync_strategy: SyncStrategy::Full,
-            query: None,
-            column_mapping: None,
+            ..Default::default()
         };
 
-        let objects = connector.pull(&config).unwrap();
+        let stream = connector.pull(&config).unwrap();
+        let objects: Vec<serde_json::Value> = stream.collect::<ThingdResult<Vec<_>>>().unwrap();
         assert_eq!(objects.len(), 2);
         assert_eq!(objects[0]["name"], "Alice");
         assert_eq!(objects[1]["name"], "Bob");

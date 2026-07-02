@@ -51,6 +51,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 #[cfg(feature = "connectors")]
 pub mod connector;
+#[cfg(feature = "connectors")]
+pub mod connectors;
 mod error;
 mod in_memory;
 mod model;
@@ -60,8 +62,11 @@ mod store;
 
 #[cfg(feature = "connectors")]
 pub use connector::{
-    Column, ColumnType, Connector, ConnectorConfig, FileConnector, Schema, SyncStrategy,
+    Column, ColumnType, Connector, ConnectorAuth, ConnectorConfig, FileConnector, PullStream,
+    Schema, SslMode, SyncStrategy,
 };
+#[cfg(feature = "connectors")]
+pub use connectors::{MysqlConnector, PostgresConnector};
 pub use error::{ThingdError, ThingdResult};
 pub use in_memory::MemoryEngine;
 pub use model::{

@@ -4,6 +4,7 @@
 //!   cargo run --example `storage_bench` --release --all-features [<iterations>]
 //!   `THINGD_BENCH_ITERS=10000` cargo run --example `storage_bench` --release --all-features
 
+#![allow(unused_crate_dependencies)]
 use std::env;
 use std::error::Error;
 use std::hint::black_box;
