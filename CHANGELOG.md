@@ -1,3 +1,9 @@
+## [0.46.0](https://github.com/sayanmohsin/thingd/compare/v0.45.1...v0.46.0) (2026-07-02)
+
+### Features
+
+* **connectors:** Postgres and MySQL connectors with streaming PullStream ([8cdc45d](https://github.com/sayanmohsin/thingd/commit/8cdc45dd274a60f0099f5cc76377c3ad027794fa))
+
 ## [0.45.1](https://github.com/sayanmohsin/thingd/compare/v0.45.0...v0.45.1) (2026-07-01)
 
 ### Performance Improvements
