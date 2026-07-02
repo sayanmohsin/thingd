@@ -1,0 +1,58 @@
+[
+  {
+    "id": "item-001",
+    "orderId": "order-001",
+    "productId": "prod-001",
+    "quantity": 1,
+    "unitPrice": 49.99
+  },
+  {
+    "id": "item-002",
+    "orderId": "order-001",
+    "productId": "prod-002",
+    "quantity": 1,
+    "unitPrice": 129.5
+  },
+  {
+    "id": "item-003",
+    "orderId": "order-002",
+    "productId": "prod-003",
+    "quantity": 1,
+    "unitPrice": 89.5
+  },
+  {
+    "id": "item-004",
+    "orderId": "order-003",
+    "productId": "prod-002",
+    "quantity": 2,
+    "unitPrice": 129.0
+  },
+  {
+    "id": "item-005",
+    "orderId": "order-004",
+    "productId": "prod-004",
+    "quantity": 1,
+    "unitPrice": 199.99
+  },
+  {
+    "id": "item-006",
+    "orderId": "order-004",
+    "productId": "prod-005",
+    "quantity": 1,
+    "unitPrice": 79.0
+  },
+  {
+    "id": "item-007",
+    "orderId": "order-005",
+    "productId": "prod-001",
+    "quantity": 1,
+    "unitPrice": 49.99
+  },
+  {
+    "id": "item-008",
+    "orderId": "order-005",
+    "productId": "prod-005",
+    "quantity": 1,
+    "unitPrice": 79.0
+  }
+]

@@ -1,0 +1,37 @@
+[
+  {
+    "id": "order-001",
+    "customerId": "cust-001",
+    "orderDate": "2026-01-10",
+    "status": "Paid",
+    "total": 179.49
+  },
+  {
+    "id": "order-002",
+    "customerId": "cust-003",
+    "orderDate": "2026-01-12",
+    "status": "Pending",
+    "total": 89.5
+  },
+  {
+    "id": "order-003",
+    "customerId": "cust-002",
+    "orderDate": "2026-02-03",
+    "status": "Paid",
+    "total": 329.0
+  },
+  {
+    "id": "order-004",
+    "customerId": "cust-005",
+    "orderDate": "2026-02-14",
+    "status": "Paid",
+    "total": 249.99
+  },
+  {
+    "id": "order-005",
+    "customerId": "cust-004",
+    "orderDate": "2026-03-01",
+    "status": "Shipped",
+    "total": 128.99
+  }
+]

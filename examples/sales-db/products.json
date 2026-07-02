@@ -1,0 +1,7 @@
+[
+  { "id": "prod-001", "name": "Starter Plan", "category": "Software", "price": 49.99 },
+  { "id": "prod-002", "name": "Pro Analytics", "category": "Analytics", "price": 129.0 },
+  { "id": "prod-003", "name": "Team Workspace", "category": "Software", "price": 89.5 },
+  { "id": "prod-004", "name": "AI Assistant", "category": "AI", "price": 199.99 },
+  { "id": "prod-005", "name": "Data Sync", "category": "Integration", "price": 79.0 }
+]

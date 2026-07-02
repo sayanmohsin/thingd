@@ -1,0 +1,37 @@
+[
+  {
+    "id": "cust-001",
+    "name": "Ava Patel",
+    "email": "ava@example.com",
+    "segment": "Enterprise",
+    "country": "US"
+  },
+  {
+    "id": "cust-002",
+    "name": "Liam Chen",
+    "email": "liam@example.com",
+    "segment": "SMB",
+    "country": "CA"
+  },
+  {
+    "id": "cust-003",
+    "name": "Sofia Alvarez",
+    "email": "sofia@example.com",
+    "segment": "Mid-Market",
+    "country": "US"
+  },
+  {
+    "id": "cust-004",
+    "name": "Noah Kim",
+    "email": "noah@example.com",
+    "segment": "SMB",
+    "country": "AU"
+  },
+  {
+    "id": "cust-005",
+    "name": "Mina Rossi",
+    "email": "mina@example.com",
+    "segment": "Enterprise",
+    "country": "DE"
+  }
+]

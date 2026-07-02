@@ -160,8 +160,8 @@ After completing thingd work, always check thingd-cloud planning docs:
 
 When `[workspace.package].version` bumps in `Cargo.toml`, path deps with exact version specs must follow:
 ```
-crates/thingd-server/Cargo.toml: thingd = { path = "../thingd", version = "0.44" }
-packages/thingd-native/Cargo.toml: thingd = { path = "../../crates/thingd", version = "0.44" }
+crates/thingd-server/Cargo.toml: thingd = { path = "../thingd", version = "0.45" }
+packages/thingd-native/Cargo.toml: thingd = { path = "../../crates/thingd", version = "0.45" }
 ```
 Search with `rg 'version = "0\.xx"' crates/ packages/` after every version bump.
 
