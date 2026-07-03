@@ -430,7 +430,7 @@ const hits = await db.search("customers who upgraded after a failed deployment",
 
 ## MCP-native access
 
-thingd ships with {{ $themeConfig.mcpToolCount }} built-in MCP tools (search,
+thingd ships with 27 built-in MCP tools (search,
 objects, events, queues, links). Every primitive is accessible through stdio
 or Streamable HTTP — see the [MCP tools reference](docs/api-spec/mcp-tools.md)
 for all tools with schemas and examples.

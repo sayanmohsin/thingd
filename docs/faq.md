@@ -195,11 +195,12 @@ thingd does not currently have MCP-level prompt injection defenses. The applicat
 
 ### What error types does the Rust engine return?
 
-The Rust engine uses `ThingdError` with four variants:
+The Rust engine uses `ThingdError` with five variants:
 
 - `InvalidInput` — malformed input (e.g., empty collection name)
 - `NotFound` — requested resource does not exist
 - `Conflict` — concurrent modification conflict
+- `Protected` — operation on a protected stream (e.g., `__thingd:mcp:audit`)
 - `Storage` — underlying storage error (SQLite, I/O)
 
 ### How do queue job results indicate failure?

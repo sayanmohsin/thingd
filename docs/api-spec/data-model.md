@@ -32,7 +32,7 @@ An object stored in a collection. Objects have arbitrary JSON bodies with requir
 **Constraints:**
 - `id` must be a non-empty string
 - Object body is merged with `id` — you can pass `{ id: "abc", text: "hello" }` or `{ id: "abc" }` with body fields as top-level keys
-- Versions are monotonic (no CAS) — last-write-wins in cluster mode
+- Versions support optimistic locking — set `expectedVersion` to the expected current version; returns error on mismatch
 
 ## StoredMemoryEvent
 

@@ -70,8 +70,10 @@ try {
 ```json
 {
   "error": {
-    "code": "bad_request",
-    "message": "Query parameter 'collection' is required"
+    "type": "bad_request",
+    "title": "Bad Request",
+    "status": 400,
+    "detail": "Query parameter 'collection' is required"
   }
 }
 ```
@@ -155,8 +157,10 @@ The job exists but is in `ready` or `completed`/`dead` state, so `ack()` or `nac
 ```json
 {
   "error": {
-    "code": "not_leased",
-    "message": "Ack failed: not_leased"
+    "type": "not_leased",
+    "title": "Not Leased",
+    "status": 400,
+    "detail": "Ack failed: not_leased"
   }
 }
 ```
@@ -173,8 +177,10 @@ The job has reached a terminal state and cannot be acked or nacked again.
 ```json
 {
   "error": {
-    "code": "terminal",
-    "message": "Nack failed: terminal"
+    "type": "terminal",
+    "title": "Terminal",
+    "status": 400,
+    "detail": "Nack failed: terminal"
   }
 }
 ```
@@ -244,7 +250,7 @@ const res = await fetch("http://localhost:8757/v1/objects/users/user-001");
 const json = await res.json();
 
 if (!res.ok) {
-  switch (json.error.code) {
+  switch (json.error.type) {
     case "not_found":
       // handle missing object
       break;
@@ -271,20 +277,10 @@ MCP errors are returned as tool results with `isError: true`. The agent should h
 ### SDK
 
 ```typescript
-import { ThingDError } from "@thingd/sdk";
-
 try {
   await thingd.put("users", { id: "user-001" });
 } catch (err) {
-  if (err instanceof ThingDError) {
-    switch (err.code) {
-      case "not_found":
-        break;
-      case "bad_request":
-        break;
-      default:
-        break;
-    }
-  }
+  const message = err instanceof Error ? err.message : String(err);
+  // Handle based on message content or HTTP status
 }
 ```

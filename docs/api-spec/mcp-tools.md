@@ -53,6 +53,10 @@ Create or replace an object. Object must have an `id` field. Emits audit event `
 
 **Optimistic locking (CAS):** Set `expectedVersion` to the expected current version. Returns error code `-32603` with detail containing `"Conflict"` if the version does not match.
 
+---
+
+### `thing_delete`
+
 Delete an object. Emits audit event `objects.delete`.
 
 ```json
