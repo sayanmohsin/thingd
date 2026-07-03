@@ -49,6 +49,20 @@ impl Connector for MysqlConnector {
         "mysql"
     }
 
+    fn list_tables(&self, config: &ConnectorConfig) -> ThingdResult<Vec<String>> {
+        let pool = self.pool(config)?;
+        let rows = self
+            .runtime
+            .block_on(sqlx::query_as::<_, (String,)>(
+                "SELECT table_name FROM information_schema.tables \
+                 WHERE table_schema = DATABASE() AND table_type = 'BASE TABLE' \
+                 ORDER BY table_name",
+            )
+            .fetch_all(&pool))
+            .map_err(|e| ThingdError::Storage(format!("failed to list tables: {e}")))?;
+        Ok(rows.into_iter().map(|(name,)| name).collect())
+    }
+
     fn discover_schema(&self, config: &ConnectorConfig) -> ThingdResult<Schema> {
         let pool = self.pool(config)?;
         let table_name = config.query.as_deref().unwrap_or("");

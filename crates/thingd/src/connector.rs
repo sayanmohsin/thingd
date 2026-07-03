@@ -175,6 +175,20 @@ pub trait Connector: Send + Sync {
     /// Returns an error when the schema cannot be read from the source.
     fn discover_schema(&self, config: &ConnectorConfig) -> ThingdResult<Schema>;
 
+    /// List available tables/views in the external source.
+    ///
+    /// Used by the UI to let users pick a table instead of writing raw SQL.
+    /// The default implementation returns an empty list (connectors that don't
+    /// support table listing should keep the default).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the table list cannot be fetched.
+    fn list_tables(&self, config: &ConnectorConfig) -> ThingdResult<Vec<String>> {
+        let _ = config;
+        Ok(Vec::new())
+    }
+
     /// Pull data from the source, yielding a stream of objects.
     ///
     /// The returned `PullStream` is an iterator — rows are fetched lazily,
