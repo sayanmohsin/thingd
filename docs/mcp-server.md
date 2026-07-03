@@ -299,16 +299,24 @@ Audited tools:
 ```txt
 thing_put
 thing_delete
+thing_objects_put_batch
+thing_objects_delete_batch
 thing_events_append
 thing_queue_push
 thing_queue_claim
 thing_queue_ack
 thing_queue_nack
+thing_link_create
+thing_link_delete
 ```
 
 Each write tool accepts optional `actor` and `source` inputs. If omitted, the
 runtime uses `THINGD_MCP_ACTOR` and `THINGD_MCP_SOURCE`, falling back to
 `mcp-client` and `thingd-mcp`.
+
+The `__thingd:mcp:audit` stream is protected at the engine level — events
+cannot be deleted or modified. Direct writes via `thing_events_append` or the
+REST event endpoint are rejected.
 
 Disable audit events with:
 

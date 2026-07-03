@@ -60,7 +60,7 @@ An append-only event in a named stream. Events are ordered by auto-incremented s
 ```
 
 **Constraints:**
-- Events are append-only — no updates or deletes
+- Events are append-only — no updates; protected streams (e.g. `__thingd:mcp:audit`) reject deletion
 - Sequence numbers are auto-incremented per stream
 - `type` must be a non-empty string
 - Streams are created implicitly on first append

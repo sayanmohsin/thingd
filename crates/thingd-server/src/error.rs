@@ -103,6 +103,7 @@ impl From<thingd::ThingdError> for AppError {
                 detail: msg,
                 error_type: "conflict",
             },
+            thingd::ThingdError::Protected(msg) => AppError::bad_request(msg),
             thingd::ThingdError::Storage(msg) => {
                 if is_production_mode() {
                     AppError::internal(String::new())

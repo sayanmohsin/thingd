@@ -102,19 +102,23 @@ fn num_prop(description: &str) -> Value {
 }
 
 fn emit_audit_event(
+    state: &AppState,
     g: &mut Box<dyn thingd::ThingStore + Send>,
     tool_name: &str,
     args: &Value,
     result: &str,
 ) {
+    if !state.mcp_config.audit {
+        return;
+    }
     let actor = args
         .get("actor")
         .and_then(|v| v.as_str())
-        .unwrap_or("mcp-client");
+        .unwrap_or(&state.mcp_config.audit_actor);
     let source = args
         .get("source")
         .and_then(|v| v.as_str())
-        .unwrap_or("thingd-mcp");
+        .unwrap_or(&state.mcp_config.audit_source);
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs())
@@ -127,7 +131,7 @@ fn emit_audit_event(
         "result": result,
     });
     if let Err(e) = g.append_event(thingd::MemoryEvent::new(
-        "__thingd:mcp:audit",
+        &state.mcp_config.audit_stream,
         "audit",
         body.to_string(),
     )) {
@@ -213,7 +217,7 @@ fn handle_thing_put(_state: &AppState, _tool_name: &str, args: &Value) -> Result
     } else {
         g.put_object(memory_obj)?
     };
-    emit_audit_event(&mut g, _tool_name, args, "success");
+    emit_audit_event(_state, &mut g, _tool_name, args, "success");
     Ok(
         json!({ "content": [{ "type": "text", "text": format!("Created/updated: {}/{}", r.key.collection, r.key.id) }] }),
     )
@@ -229,7 +233,7 @@ fn handle_thing_delete(
     let collection = arg_str(args, "collection");
     let id = arg_str(args, "id");
     let deleted = g.delete_object(&collection, &id)?;
-    emit_audit_event(&mut g, _tool_name, args, "success");
+    emit_audit_event(_state, &mut g, _tool_name, args, "success");
     Ok(json!({ "content": [{ "type": "text", "text": format!("Deleted: {deleted}") }] }))
 }
 
@@ -297,6 +301,7 @@ fn handle_thing_objects_put_batch(
         })
         .collect();
     let results = g.put_objects_batch(memory_objects)?;
+    emit_audit_event(_state, &mut g, _tool_name, args, "success");
     Ok(
         json!({ "content": [{ "type": "text", "text": serde_json::to_string(&results).unwrap_or_default() }] }),
     )
@@ -325,6 +330,7 @@ fn handle_thing_objects_delete_batch(
         .filter_map(|v| v.as_str().map(|s| (collection.clone(), s.to_string())))
         .collect();
     let deleted = g.delete_objects_batch(&keys)?;
+    emit_audit_event(_state, &mut g, _tool_name, args, "success");
     Ok(json!({ "content": [{ "type": "text", "text": format!("{deleted}") }] }))
 }
 
@@ -338,6 +344,14 @@ fn handle_thing_events_append(
     let e = _state.pool.get_reader("");
     let mut g = e.lock();
     let stream = arg_str(args, "stream");
+
+    // Prevent direct writes to the protected audit stream
+    if g.is_protected_stream(&stream) {
+        return Err(AppError::bad_request(format!(
+            "Stream '{stream}' is protected and cannot be written to directly"
+        )));
+    }
+
     let event = args.get("event").cloned().unwrap_or(json!({}));
     let event_type = event
         .get("type")
@@ -352,7 +366,7 @@ fn handle_thing_events_append(
         memory_event.idempotency_key = idempotency_key.to_string();
     }
     let r = g.append_event(memory_event)?;
-    emit_audit_event(&mut g, _tool_name, args, "success");
+    emit_audit_event(_state, &mut g, _tool_name, args, "success");
     Ok(
         json!({ "content": [{ "type": "text", "text": format!("Event appended: {} seq={}", r.event_type, r.sequence) }] }),
     )
@@ -410,7 +424,7 @@ fn handle_thing_queue_push(
         job = job.delay_by_ms(delay);
     }
     let result = g.push_job(job)?;
-    emit_audit_event(&mut g, _tool_name, args, "success");
+    emit_audit_event(_state, &mut g, _tool_name, args, "success");
     Ok(
         json!({ "content": [{ "type": "text", "text": serde_json::to_string(&result).unwrap_or_default() }] }),
     )
@@ -433,7 +447,7 @@ fn handle_thing_queue_claim(
     };
     match g.claim_job_with_options(&queue, opts)? {
         Some(job) => {
-            emit_audit_event(&mut g, _tool_name, args, "success");
+            emit_audit_event(_state, &mut g, _tool_name, args, "success");
             Ok(
                 json!({ "content": [{ "type": "text", "text": serde_json::to_string(&job).unwrap_or_default() }] }),
             )
@@ -453,7 +467,7 @@ fn handle_thing_queue_ack(
     let id = arg_str(args, "id");
     match g.ack_job(&queue, &id)? {
         Some(job) => {
-            emit_audit_event(&mut g, _tool_name, args, "success");
+            emit_audit_event(_state, &mut g, _tool_name, args, "success");
             Ok(
                 json!({ "content": [{ "type": "text", "text": serde_json::to_string(&job).unwrap_or_default() }] }),
             )
@@ -479,7 +493,7 @@ fn handle_thing_queue_nack(
     };
     match g.nack_job_with_options(&queue, &id, opts)? {
         Some(job) => {
-            emit_audit_event(&mut g, _tool_name, args, "success");
+            emit_audit_event(_state, &mut g, _tool_name, args, "success");
             Ok(
                 json!({ "content": [{ "type": "text", "text": serde_json::to_string(&job).unwrap_or_default() }] }),
             )
@@ -633,6 +647,7 @@ fn handle_thing_link_create(
     }
     link.metadata_json = arg_str(args, "metadataJson");
     let r = g.create_link(link)?;
+    emit_audit_event(_state, &mut g, _tool_name, args, "success");
     Ok(
         json!({ "content": [{ "type": "text", "text": serde_json::to_string(&r).unwrap_or_default() }] }),
     )
@@ -665,6 +680,7 @@ fn handle_thing_link_delete(
     let mut g = e.lock();
     let id = arg_str(args, "id");
     let deleted = g.delete_link(&id)?;
+    emit_audit_event(_state, &mut g, _tool_name, args, "success");
     Ok(json!({ "content": [{ "type": "text", "text": format!("Deleted: {deleted}") }] }))
 }
 

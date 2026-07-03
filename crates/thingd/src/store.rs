@@ -155,6 +155,13 @@ pub trait ObjectStore {
 /// assert_eq!(events[0].event_type, "user.created");
 /// ```
 pub trait EventLog {
+    /// Returns `true` if the stream is protected from deletion and external
+    /// mutation. Protected streams (e.g. `"__thingd:mcp:audit"`) reject
+    /// `delete_last_event` and `delete_stream` calls.
+    fn is_protected_stream(&self, stream: &str) -> bool {
+        let _ = stream;
+        false
+    }
     /// Append an event to a stream.
     ///
     /// # Errors
@@ -196,10 +203,17 @@ pub trait EventLog {
     /// did not exist. This is useful for implementing undo patterns in
     /// event-sourced applications.
     ///
+    /// Returns `ThingdError::Protected` when the stream is protected.
+    ///
     /// # Errors
     ///
     /// Returns an error when the backing store cannot delete the event.
-    fn delete_last_event(&mut self, _stream: &str) -> ThingdResult<Option<MemoryEvent>> {
+    fn delete_last_event(&mut self, stream: &str) -> ThingdResult<Option<MemoryEvent>> {
+        if self.is_protected_stream(stream) {
+            return Err(ThingdError::Protected(format!(
+                "stream '{stream}' is protected and cannot be modified"
+            )));
+        }
         Err(ThingdError::Storage(
             "delete_last_event is not supported by this adapter".into(),
         ))
@@ -210,10 +224,17 @@ pub trait EventLog {
     /// Returns the number of events deleted. This is useful for cleaning
     /// up completed or expired event streams (e.g. finished game matches).
     ///
+    /// Returns `ThingdError::Protected` when the stream is protected.
+    ///
     /// # Errors
     ///
     /// Returns an error when the backing store cannot delete the events.
-    fn delete_stream(&mut self, _stream: &str) -> ThingdResult<u64> {
+    fn delete_stream(&mut self, stream: &str) -> ThingdResult<u64> {
+        if self.is_protected_stream(stream) {
+            return Err(ThingdError::Protected(format!(
+                "stream '{stream}' is protected and cannot be modified"
+            )));
+        }
         Err(ThingdError::Storage(
             "delete_stream is not supported by this adapter".into(),
         ))

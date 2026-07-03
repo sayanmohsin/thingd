@@ -280,6 +280,14 @@ pub async fn append_event(
     let et = body["type"]
         .as_str()
         .ok_or_else(|| AppError::bad_request("Missing 'type'"))?;
+
+    // Prevent direct writes to the protected audit stream
+    if stream == "__thingd:mcp:audit" {
+        return Err(AppError::bad_request(
+            "Stream '__thingd:mcp:audit' is protected and cannot be written to directly",
+        ));
+    }
+
     let event = MemoryEvent::new(stream, et, body.to_string());
     let e = state.pool.get_reader("");
     let mut g = e.lock();

@@ -15,6 +15,8 @@ pub enum ThingdError {
     NotFound(String),
     /// The requested operation conflicts with current state.
     Conflict(String),
+    /// The operation was attempted on a protected stream.
+    Protected(String),
     /// The storage adapter failed.
     Storage(String),
 }
@@ -25,6 +27,7 @@ impl Display for ThingdError {
             Self::InvalidInput(message) => write!(formatter, "invalid input: {message}"),
             Self::NotFound(message) => write!(formatter, "not found: {message}"),
             Self::Conflict(message) => write!(formatter, "conflict: {message}"),
+            Self::Protected(message) => write!(formatter, "protected: {message}"),
             Self::Storage(message) => write!(formatter, "storage error: {message}"),
         }
     }

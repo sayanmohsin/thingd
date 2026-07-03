@@ -80,6 +80,12 @@ pub struct McpConfig {
     pub collection_allowlist: Vec<String>,
     #[serde(default = "default_true")]
     pub audit: bool,
+    #[serde(default = "default_mcp_audit_actor")]
+    pub audit_actor: String,
+    #[serde(default = "default_mcp_audit_source")]
+    pub audit_source: String,
+    #[serde(default = "default_mcp_audit_stream")]
+    pub audit_stream: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -169,6 +175,9 @@ impl Default for McpConfig {
             max_payload_bytes: default_payload_limit(),
             collection_allowlist: Vec::new(),
             audit: true,
+            audit_actor: default_mcp_audit_actor(),
+            audit_source: default_mcp_audit_source(),
+            audit_stream: default_mcp_audit_stream(),
         }
     }
 }
@@ -239,6 +248,15 @@ fn default_payload_limit() -> usize {
 }
 fn default_true() -> bool {
     true
+}
+fn default_mcp_audit_actor() -> String {
+    "mcp-client".into()
+}
+fn default_mcp_audit_source() -> String {
+    "thingd-mcp".into()
+}
+fn default_mcp_audit_stream() -> String {
+    "__thingd:mcp:audit".into()
 }
 fn default_cluster_mode() -> ClusterMode {
     ClusterMode::Single
@@ -312,6 +330,15 @@ impl Config {
         }
         if let Ok(v) = std::env::var("THINGD_MCP_AUDIT") {
             self.mcp.audit = v == "true";
+        }
+        if let Ok(v) = std::env::var("THINGD_MCP_ACTOR") {
+            self.mcp.audit_actor = v;
+        }
+        if let Ok(v) = std::env::var("THINGD_MCP_SOURCE") {
+            self.mcp.audit_source = v;
+        }
+        if let Ok(v) = std::env::var("THINGD_MCP_AUDIT_STREAM") {
+            self.mcp.audit_stream = v;
         }
         if let Ok(v) = std::env::var("THINGD_CLUSTER_MODE") {
             self.cluster.mode = match v.as_str() {

@@ -928,6 +928,9 @@ impl ObjectStore for SqliteThingStore {
 }
 
 impl EventLog for SqliteThingStore {
+    fn is_protected_stream(&self, stream: &str) -> bool {
+        stream == "__thingd:mcp:audit"
+    }
     fn append_event(&mut self, mut event: MemoryEvent) -> ThingdResult<MemoryEvent> {
         // Idempotency check: if idempotency_key is set and known, return existing event
         if !event.idempotency_key.is_empty()
@@ -1131,6 +1134,11 @@ impl EventLog for SqliteThingStore {
     }
 
     fn delete_last_event(&mut self, stream: &str) -> ThingdResult<Option<MemoryEvent>> {
+        if self.is_protected_stream(stream) {
+            return Err(ThingdError::Protected(format!(
+                "stream '{stream}' is protected and cannot be modified"
+            )));
+        }
         let transaction = self.connection.transaction().map_err(ThingdError::from)?;
 
         let result = transaction
@@ -1164,6 +1172,11 @@ impl EventLog for SqliteThingStore {
     }
 
     fn delete_stream(&mut self, stream: &str) -> ThingdResult<u64> {
+        if self.is_protected_stream(stream) {
+            return Err(ThingdError::Protected(format!(
+                "stream '{stream}' is protected and cannot be modified"
+            )));
+        }
         let transaction = self.connection.transaction().map_err(ThingdError::from)?;
 
         let count = transaction

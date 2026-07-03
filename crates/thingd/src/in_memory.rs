@@ -160,6 +160,9 @@ impl ObjectStore for MemoryEngine {
 }
 
 impl EventLog for MemoryEngine {
+    fn is_protected_stream(&self, stream: &str) -> bool {
+        stream == "__thingd:mcp:audit"
+    }
     fn append_event(&mut self, mut event: MemoryEvent) -> ThingdResult<MemoryEvent> {
         // Idempotency check: if idempotency_key is set and known, return existing event
         if !event.idempotency_key.is_empty()
@@ -229,6 +232,11 @@ impl EventLog for MemoryEngine {
     }
 
     fn delete_last_event(&mut self, stream: &str) -> ThingdResult<Option<MemoryEvent>> {
+        if self.is_protected_stream(stream) {
+            return Err(ThingdError::Protected(format!(
+                "stream '{stream}' is protected and cannot be modified"
+            )));
+        }
         let pos = self.events.iter().rposition(|e| e.stream == stream);
         match pos {
             Some(idx) => Ok(Some(self.events.remove(idx))),
@@ -237,6 +245,11 @@ impl EventLog for MemoryEngine {
     }
 
     fn delete_stream(&mut self, stream: &str) -> ThingdResult<u64> {
+        if self.is_protected_stream(stream) {
+            return Err(ThingdError::Protected(format!(
+                "stream '{stream}' is protected and cannot be modified"
+            )));
+        }
         let before = self.events.len();
         self.events.retain(|e| e.stream != stream);
         Ok((before - self.events.len()) as u64)
@@ -1303,5 +1316,36 @@ mod tests {
         let second = engine.append_event(event_b).unwrap();
         assert_eq!(first.sequence, 1);
         assert_eq!(second.sequence, 2);
+    }
+
+    #[test]
+    fn protects_audit_stream_from_deletion() {
+        let mut engine = MemoryEngine::new();
+        engine
+            .append_event(MemoryEvent::new(
+                "__thingd:mcp:audit",
+                "audit",
+                r#"{"tool":"test"}"#,
+            ))
+            .unwrap();
+        engine
+            .append_event(MemoryEvent::new("normal", "test", "{}"))
+            .unwrap();
+
+        // Normal streams can be deleted
+        engine.delete_stream("normal").unwrap();
+        assert_eq!(engine.count_events().unwrap(), 1);
+
+        // Protected stream rejects delete_stream
+        let err = engine.delete_stream("__thingd:mcp:audit").unwrap_err();
+        assert!(matches!(err, ThingdError::Protected(_)));
+
+        // Protected stream rejects delete_last_event
+        let err = engine.delete_last_event("__thingd:mcp:audit").unwrap_err();
+        assert!(matches!(err, ThingdError::Protected(_)));
+
+        // is_protected_stream returns true
+        assert!(engine.is_protected_stream("__thingd:mcp:audit"));
+        assert!(!engine.is_protected_stream("normal"));
     }
 }

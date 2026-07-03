@@ -64,6 +64,7 @@ try {
 | Invalid JSON | Malformed request body |
 | Missing required fields | `POST /v1/links` without `fromRef` |
 | Invalid enum value | `sortBy.field` not in allowed list |
+| Write to protected stream | `POST /v1/events/__thingd:mcp:audit` |
 
 **Example response:**
 ```json

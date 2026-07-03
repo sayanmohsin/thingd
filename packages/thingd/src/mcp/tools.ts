@@ -199,6 +199,12 @@ export function registerThingdTools(
     },
     async ({ stream, event, actor, source }) => {
       assertWriteAllowed();
+
+      // Prevent direct writes to the protected audit stream
+      if (stream === audit.stream) {
+        throw new Error(`Stream '${stream}' is protected and cannot be written to directly`);
+      }
+
       const stored = await db.events.append(stream, event);
       await appendMcpAuditEvent(db, audit, {
         action: "events.append",
@@ -610,6 +616,7 @@ export function registerThingdTools(
           .array(z.object({ id: z.string() }).passthrough())
           .min(1)
           .max(1000),
+        ...auditInputSchema,
       },
       annotations: {
         readOnlyHint: false,
@@ -618,10 +625,17 @@ export function registerThingdTools(
         openWorldHint: false,
       },
     },
-    async ({ collection, objects }) => {
+    async ({ collection, objects, actor, source }) => {
       assertWriteAllowed();
       assertCollectionAllowed(collection);
-      return jsonResult(await db.putBatch(collection, objects));
+      const result = await db.putBatch(collection, objects);
+      await appendMcpAuditEvent(db, audit, {
+        action: "objects.put_batch",
+        target: { collection, count: objects.length },
+        metadata: auditMetadata(actor, source),
+        result: { count: result.length },
+      });
+      return jsonResult(result);
     }
   );
 
@@ -634,6 +648,7 @@ export function registerThingdTools(
       inputSchema: {
         collection: z.string().min(1),
         ids: z.array(z.string().min(1)).min(1).max(1000),
+        ...auditInputSchema,
       },
       annotations: {
         readOnlyHint: false,
@@ -642,10 +657,16 @@ export function registerThingdTools(
         openWorldHint: false,
       },
     },
-    async ({ collection, ids }) => {
+    async ({ collection, ids, actor, source }) => {
       assertWriteAllowed();
       assertCollectionAllowed(collection);
       const deleted = await db.deleteBatch(collection, ids);
+      await appendMcpAuditEvent(db, audit, {
+        action: "objects.delete_batch",
+        target: { collection, count: ids.length },
+        metadata: auditMetadata(actor, source),
+        result: { deleted },
+      });
       return jsonResult({ deleted });
     }
   );
@@ -662,6 +683,7 @@ export function registerThingdTools(
         toRef: z.string().min(1),
         weight: z.number().optional(),
         metadataJson: z.string().optional(),
+        ...auditInputSchema,
       },
       annotations: {
         readOnlyHint: false,
@@ -670,9 +692,16 @@ export function registerThingdTools(
         openWorldHint: false,
       },
     },
-    async ({ fromRef, linkType, toRef, weight, metadataJson }) => {
+    async ({ fromRef, linkType, toRef, weight, metadataJson, actor, source }) => {
       assertWriteAllowed();
-      return jsonResult(await db.links.create(fromRef, linkType, toRef, weight, metadataJson));
+      const link = await db.links.create(fromRef, linkType, toRef, weight, metadataJson);
+      await appendMcpAuditEvent(db, audit, {
+        action: "link.create",
+        target: { fromRef, linkType, toRef },
+        metadata: auditMetadata(actor, source),
+        result: { id: link.id },
+      });
+      return jsonResult(link);
     }
   );
 
@@ -683,6 +712,7 @@ export function registerThingdTools(
       description: "Delete a graph link by its id. Returns an object with a deleted boolean.",
       inputSchema: {
         id: z.string().min(1),
+        ...auditInputSchema,
       },
       annotations: {
         readOnlyHint: false,
@@ -691,9 +721,16 @@ export function registerThingdTools(
         openWorldHint: false,
       },
     },
-    async ({ id }) => {
+    async ({ id, actor, source }) => {
       assertWriteAllowed();
-      return jsonResult({ deleted: await db.links.delete(id) });
+      const deleted = await db.links.delete(id);
+      await appendMcpAuditEvent(db, audit, {
+        action: "link.delete",
+        target: { id },
+        metadata: auditMetadata(actor, source),
+        result: { deleted },
+      });
+      return jsonResult({ deleted });
     }
   );
 

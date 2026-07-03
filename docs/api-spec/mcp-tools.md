@@ -83,7 +83,7 @@ List objects in a collection with filter, sort, limit, and offset.
 
 ### `thing_objects_put_batch`
 
-Create or replace multiple objects in a single operation. Max 1000 items per call.
+Create or replace multiple objects in a single operation. Max 1000 items per call. Emits audit event `objects.put_batch`.
 
 ```json
 {
@@ -101,7 +101,7 @@ Create or replace multiple objects in a single operation. Max 1000 items per cal
 
 ### `thing_objects_delete_batch`
 
-Delete multiple objects by ID. Max 1000 IDs per call.
+Delete multiple objects by ID. Max 1000 IDs per call. Emits audit event `objects.delete_batch`.
 
 ```json
 { "collection": "users", "ids": ["user-010", "user-011"] }
@@ -325,7 +325,7 @@ List all queue names.
 
 ### `thing_link_create`
 
-Create a directed graph link between two references.
+Create a directed graph link between two references. Emits audit event `link.create`.
 
 ```json
 {
@@ -355,7 +355,7 @@ Get a link by ID.
 
 ### `thing_link_delete`
 
-Delete a link by ID.
+Delete a link by ID. Emits audit event `link.delete`.
 
 ```json
 { "id": "link-uuid" }
@@ -416,7 +416,7 @@ All write operations emit audit events to the `__thingd:mcp:audit` stream. Each 
 | `timestamp` | Unix timestamp (seconds since epoch) |
 | `result` | `success` or `error` |
 
-Audit events are append-only and不可变 (immutable). They can be queried via `thing_events_list` with `stream: "__thingd:mcp:audit"`.
+The `__thingd:mcp:audit` stream is protected at the engine level — events cannot be deleted or modified. Direct writes to the audit stream from MCP tools or REST endpoints are rejected. Only the internal audit mechanism can append to this stream. Audit events can be queried via `thing_events_list` with `stream: "__thingd:mcp:audit"`.
 
 ## Annotations
 
