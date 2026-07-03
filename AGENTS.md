@@ -73,9 +73,9 @@ packages/
 pnpm build                    # build all packages (TypeScript + Rust native)
 pnpm check                    # biome lint
 pnpm check:write              # biome auto-fix
-pnpm test:node                # 55 Node SDK tests
+pnpm test:node                # 61 Node SDK tests
 pnpm test:cli                 # 43 CLI tests
-pnpm test:rust                # cargo test --workspace (118 tests — 71 engine + 47 server)
+pnpm test:rust                # cargo test --workspace --all-features (153 tests — 105 engine + 48 server)
 pnpm test:local               # check → build → node+cli+package tests
 pnpm bench:rust               # full Rust benchmark (in-memory + sqlite)
 pnpm bench:rust:smoke         # quick Rust benchmark (100 iters)

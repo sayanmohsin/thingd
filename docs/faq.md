@@ -16,9 +16,9 @@ thingd does **not** support tunable consistency per-collection, quorum reads, or
 
 ### How does object versioning work?
 
-Every object has a monotonic, store-assigned `version` field that increments on each put. The version is metadata — it is not used for optimistic concurrency control.
+Every object has a monotonic, store-assigned `version` field that increments on each put.
 
-thingd does **not** support compare-and-swap (CAS) or version-based conflict detection. Two concurrent writers to the same object in cluster mode will race; the last write wins.
+thingd supports compare-and-swap (CAS) via the `expectedVersion` parameter on `put()` (MCP `thing_put`, REST `If-Match` header). When set, the write succeeds only if the current version matches; otherwise returns a `409 Conflict`. Two concurrent writers with CAS can detect conflicts instead of racing.
 
 ### Can two writers modify the same object in parallel in cluster mode?
 
