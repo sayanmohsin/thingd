@@ -1,3 +1,9 @@
+## [0.47.3](https://github.com/sayanmohsin/thingd/compare/v0.47.2...v0.47.3) (2026-07-03)
+
+### Bug Fixes
+
+* **cli:** update 14 stale cloud API paths after thingd-cloud route refactor ([60ecf7e](https://github.com/sayanmohsin/thingd/commit/60ecf7e1ee9e7e5d90c61879caaf092316d92ed3))
+
 ## [0.47.2](https://github.com/sayanmohsin/thingd/compare/v0.47.1...v0.47.2) (2026-07-03)
 
 ### Bug Fixes
