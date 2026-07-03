@@ -195,3 +195,32 @@ fn mysql_row_to_json_value(row: &sqlx::mysql::MySqlRow, index: usize) -> serde_j
     }
     serde_json::Value::Null
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn maps_mysql_types() {
+        assert_eq!(mysql_type_to_column_type("int"), ColumnType::Integer);
+        assert_eq!(mysql_type_to_column_type("tinyint"), ColumnType::Integer);
+        assert_eq!(mysql_type_to_column_type("smallint"), ColumnType::Integer);
+        assert_eq!(mysql_type_to_column_type("mediumint"), ColumnType::Integer);
+        assert_eq!(mysql_type_to_column_type("bigint"), ColumnType::Integer);
+        assert_eq!(mysql_type_to_column_type("year"), ColumnType::Integer);
+        assert_eq!(mysql_type_to_column_type("float"), ColumnType::Float);
+        assert_eq!(mysql_type_to_column_type("double"), ColumnType::Float);
+        assert_eq!(mysql_type_to_column_type("decimal"), ColumnType::Float);
+        assert_eq!(mysql_type_to_column_type("numeric"), ColumnType::Float);
+        assert_eq!(mysql_type_to_column_type("boolean"), ColumnType::Boolean);
+        assert_eq!(mysql_type_to_column_type("bool"), ColumnType::Boolean);
+        assert_eq!(mysql_type_to_column_type("bit"), ColumnType::Boolean);
+        assert_eq!(mysql_type_to_column_type("timestamp"), ColumnType::Timestamp);
+        assert_eq!(mysql_type_to_column_type("datetime"), ColumnType::Timestamp);
+        assert_eq!(mysql_type_to_column_type("date"), ColumnType::Timestamp);
+        assert_eq!(mysql_type_to_column_type("json"), ColumnType::Json);
+        assert_eq!(mysql_type_to_column_type("varchar"), ColumnType::Text);
+        assert_eq!(mysql_type_to_column_type("text"), ColumnType::Text);
+        assert_eq!(mysql_type_to_column_type("char"), ColumnType::Text);
+    }
+}

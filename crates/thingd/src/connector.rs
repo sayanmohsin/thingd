@@ -656,4 +656,71 @@ mod tests {
         ];
         assert_eq!(infer_type(&samples), ColumnType::Integer);
     }
+
+    #[test]
+    fn connector_auth_postgres_uri() {
+        let auth = ConnectorAuth {
+            username: "user".to_string(),
+            password: "pass".to_string(),
+            host: "localhost".to_string(),
+            port: 5432,
+            database: "mydb".to_string(),
+            ssl_mode: SslMode::Disable,
+        };
+        assert_eq!(
+            auth.postgres_uri(),
+            "postgres://user:pass@localhost:5432/mydb"
+        );
+    }
+
+    #[test]
+    fn connector_auth_mysql_uri() {
+        let auth = ConnectorAuth {
+            username: "root".to_string(),
+            password: "secret".to_string(),
+            host: "db.example.com".to_string(),
+            port: 3306,
+            database: "analytics".to_string(),
+            ssl_mode: SslMode::Prefer,
+        };
+        assert_eq!(
+            auth.mysql_uri(),
+            "mysql://root:secret@db.example.com:3306/analytics"
+        );
+    }
+
+    #[test]
+    fn pull_stream_from_vec() {
+        let data = vec![
+            serde_json::json!({"id": 1}),
+            serde_json::json!({"id": 2}),
+            serde_json::json!({"id": 3}),
+        ];
+        let stream: PullStream = Box::new(data.into_iter().map(Ok));
+        let results: Vec<serde_json::Value> =
+            stream.collect::<ThingdResult<Vec<_>>>().unwrap();
+        assert_eq!(results.len(), 3);
+        assert_eq!(results[0]["id"], 1);
+        assert_eq!(results[2]["id"], 3);
+    }
+
+    #[test]
+    fn pull_stream_empty() {
+        let stream: PullStream = Box::new(std::iter::empty());
+        let results: Vec<serde_json::Value> =
+            stream.collect::<ThingdResult<Vec<_>>>().unwrap();
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn file_connector_implements_connector() {
+        let connector = FileConnector;
+        assert_eq!(connector.name(), "file");
+        assert!(std::any::TypeId::of::<FileConnector>() != std::any::TypeId::of::<()>());
+    }
+
+    #[test]
+    fn ssl_mode_default() {
+        assert_eq!(SslMode::default(), SslMode::Prefer);
+    }
 }

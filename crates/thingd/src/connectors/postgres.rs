@@ -188,3 +188,28 @@ fn pg_row_to_json_value(row: &sqlx::postgres::PgRow, index: usize) -> serde_json
     }
     serde_json::Value::Null
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn maps_pg_types() {
+        assert_eq!(pg_type_to_column_type("integer"), ColumnType::Integer);
+        assert_eq!(pg_type_to_column_type("bigint"), ColumnType::Integer);
+        assert_eq!(pg_type_to_column_type("smallint"), ColumnType::Integer);
+        assert_eq!(pg_type_to_column_type("serial"), ColumnType::Integer);
+        assert_eq!(pg_type_to_column_type("bigserial"), ColumnType::Integer);
+        assert_eq!(pg_type_to_column_type("double precision"), ColumnType::Float);
+        assert_eq!(pg_type_to_column_type("numeric"), ColumnType::Float);
+        assert_eq!(pg_type_to_column_type("real"), ColumnType::Float);
+        assert_eq!(pg_type_to_column_type("boolean"), ColumnType::Boolean);
+        assert_eq!(pg_type_to_column_type("timestamp without time zone"), ColumnType::Timestamp);
+        assert_eq!(pg_type_to_column_type("date"), ColumnType::Timestamp);
+        assert_eq!(pg_type_to_column_type("jsonb"), ColumnType::Json);
+        assert_eq!(pg_type_to_column_type("json"), ColumnType::Json);
+        assert_eq!(pg_type_to_column_type("text"), ColumnType::Text);
+        assert_eq!(pg_type_to_column_type("character varying"), ColumnType::Text);
+        assert_eq!(pg_type_to_column_type("uuid"), ColumnType::Text);
+    }
+}
