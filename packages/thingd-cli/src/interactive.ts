@@ -1739,7 +1739,10 @@ async function handleConnect(node: TreeNode) {
         ];
         draw();
       } catch {
-        viewerLines = [pc.yellow("Could not fetch cloud instances."), pc.dim("Enter the MCP URL manually.")];
+        viewerLines = [
+          pc.yellow("Could not fetch cloud instances."),
+          pc.dim("Enter the MCP URL manually."),
+        ];
         draw();
       }
     }

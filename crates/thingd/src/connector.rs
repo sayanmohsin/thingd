@@ -711,8 +711,7 @@ mod tests {
             serde_json::json!({"id": 3}),
         ];
         let stream: PullStream = Box::new(data.into_iter().map(Ok));
-        let results: Vec<serde_json::Value> =
-            stream.collect::<ThingdResult<Vec<_>>>().unwrap();
+        let results: Vec<serde_json::Value> = stream.collect::<ThingdResult<Vec<_>>>().unwrap();
         assert_eq!(results.len(), 3);
         assert_eq!(results[0]["id"], 1);
         assert_eq!(results[2]["id"], 3);
@@ -721,8 +720,7 @@ mod tests {
     #[test]
     fn pull_stream_empty() {
         let stream: PullStream = Box::new(std::iter::empty());
-        let results: Vec<serde_json::Value> =
-            stream.collect::<ThingdResult<Vec<_>>>().unwrap();
+        let results: Vec<serde_json::Value> = stream.collect::<ThingdResult<Vec<_>>>().unwrap();
         assert!(results.is_empty());
     }
 

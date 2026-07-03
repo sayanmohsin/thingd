@@ -52,12 +52,14 @@ impl Connector for PostgresConnector {
         let pool = self.pool(config)?;
         let rows = self
             .runtime
-            .block_on(sqlx::query_as::<_, (String,)>(
-                "SELECT table_name FROM information_schema.tables \
+            .block_on(
+                sqlx::query_as::<_, (String,)>(
+                    "SELECT table_name FROM information_schema.tables \
                  WHERE table_schema = 'public' AND table_type = 'BASE TABLE' \
                  ORDER BY table_name",
+                )
+                .fetch_all(&pool),
             )
-            .fetch_all(&pool))
             .map_err(|e| ThingdError::Storage(format!("failed to list tables: {e}")))?;
         Ok(rows.into_iter().map(|(name,)| name).collect())
     }
@@ -214,16 +216,25 @@ mod tests {
         assert_eq!(pg_type_to_column_type("smallint"), ColumnType::Integer);
         assert_eq!(pg_type_to_column_type("serial"), ColumnType::Integer);
         assert_eq!(pg_type_to_column_type("bigserial"), ColumnType::Integer);
-        assert_eq!(pg_type_to_column_type("double precision"), ColumnType::Float);
+        assert_eq!(
+            pg_type_to_column_type("double precision"),
+            ColumnType::Float
+        );
         assert_eq!(pg_type_to_column_type("numeric"), ColumnType::Float);
         assert_eq!(pg_type_to_column_type("real"), ColumnType::Float);
         assert_eq!(pg_type_to_column_type("boolean"), ColumnType::Boolean);
-        assert_eq!(pg_type_to_column_type("timestamp without time zone"), ColumnType::Timestamp);
+        assert_eq!(
+            pg_type_to_column_type("timestamp without time zone"),
+            ColumnType::Timestamp
+        );
         assert_eq!(pg_type_to_column_type("date"), ColumnType::Timestamp);
         assert_eq!(pg_type_to_column_type("jsonb"), ColumnType::Json);
         assert_eq!(pg_type_to_column_type("json"), ColumnType::Json);
         assert_eq!(pg_type_to_column_type("text"), ColumnType::Text);
-        assert_eq!(pg_type_to_column_type("character varying"), ColumnType::Text);
+        assert_eq!(
+            pg_type_to_column_type("character varying"),
+            ColumnType::Text
+        );
         assert_eq!(pg_type_to_column_type("uuid"), ColumnType::Text);
     }
 }
