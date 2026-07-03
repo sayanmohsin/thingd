@@ -1750,24 +1750,45 @@ async function handleConnect(node: TreeNode) {
 
   if (selectedDriver === "native" || selectedDriver === "cloud") {
     const cloudCfg = selectedDriver === "cloud" ? readCloudConfig() : null;
-    const defaultUrl = cloudCfg?.url ?? "https://api.thingd.cloud";
+    const baseUrl = cloudCfg?.url ?? "https://api.thingd.cloud";
+    const isCloudWithConfig = selectedDriver === "cloud" && cloudCfg?.token;
+
     openForm(
       `Connect to ${selectedDriver}`,
       [
         ...(selectedDriver === "cloud"
-          ? [
-              {
-                id: "url",
-                label: "MCP URL (get from thingd.cloud dashboard)",
-                value: `${defaultUrl}/mcp/<project>/<instance>`,
-              },
-              {
-                id: "token",
-                label: "Bearer Token (optional)",
-                isSecret: true,
-                value: cloudCfg?.token ?? "",
-              },
-            ]
+          ? isCloudWithConfig
+            ? [
+                {
+                  id: "project",
+                  label: "Cloud Project (slug)",
+                  value: "",
+                },
+                {
+                  id: "instance",
+                  label: "Cloud Instance (slug)",
+                  value: "",
+                },
+                {
+                  id: "token",
+                  label: "Bearer Token (optional)",
+                  isSecret: true,
+                  value: cloudCfg?.token ?? "",
+                },
+              ]
+            : [
+                {
+                  id: "url",
+                  label: "MCP URL (from thingd.cloud dashboard)",
+                  value: "",
+                },
+                {
+                  id: "token",
+                  label: "Bearer Token (optional)",
+                  isSecret: true,
+                  value: cloudCfg?.token ?? "",
+                },
+              ]
           : [
               {
                 id: "path",
@@ -1777,13 +1798,18 @@ async function handleConnect(node: TreeNode) {
             ]),
       ],
       async (vals) => {
-        const resolvedPath = selectedDriver === "cloud" ? vals.url || "" : vals.path || "";
-        await connectToDriver(
-          selectedDriver,
-          resolvedPath,
-          selectedDriver === "cloud" ? resolvedPath : undefined,
-          vals.token
-        );
+        let mcpUrl: string;
+        if (selectedDriver === "cloud") {
+          if (isCloudWithConfig) {
+            // Construct URL from project + instance slugs
+            mcpUrl = `${baseUrl}/mcp/${encodeURIComponent(vals.project || "")}/${encodeURIComponent(vals.instance || "")}`;
+          } else {
+            mcpUrl = vals.url || "";
+          }
+          await connectToDriver(selectedDriver, mcpUrl, mcpUrl, vals.token);
+        } else {
+          await connectToDriver(selectedDriver, vals.path || "", undefined, undefined);
+        }
       }
     );
   } else {
