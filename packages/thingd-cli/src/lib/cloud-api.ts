@@ -83,11 +83,11 @@ async function request<T>(config: CloudConfig, path: string, opts: ApiOptions = 
 export async function getMe(
   config: CloudConfig
 ): Promise<{ user: { id: string; email: string; name: string; role: string } }> {
-  return request(config, "/api/users/me");
+  return request(config, "/users/me");
 }
 
 export async function listProjects(config: CloudConfig): Promise<{ projects: CloudProject[] }> {
-  return request(config, "/api/projects");
+  return request(config, "/projects");
 }
 
 export async function createProject(
@@ -99,7 +99,7 @@ export async function createProject(
   if (organizationId) {
     body.organizationId = organizationId;
   }
-  return request(config, "/api/projects", { method: "POST", body });
+  return request(config, "/projects", { method: "POST", body });
 }
 
 export async function listInstances(
@@ -137,13 +137,13 @@ export async function createOrganization(
   config: CloudConfig,
   name: string
 ): Promise<{ organization: CloudOrganization }> {
-  return request(config, "/api/organizations", { method: "POST", body: { name } });
+  return request(config, "/organizations", { method: "POST", body: { name } });
 }
 
 export async function listOrganizations(
   config: CloudConfig
 ): Promise<{ organizations: CloudOrganization[] }> {
-  return request(config, "/api/organizations");
+  return request(config, "/organizations");
 }
 
 export async function getOrganization(
@@ -199,12 +199,12 @@ async function requestUnauthenticated<T>(apiUrl: string, path: string, body: unk
 }
 
 export async function startCliAuth(config: CloudConfig): Promise<{ code: string }> {
-  return requestUnauthenticated(config.url ?? DEFAULT_API_URL, "/api/auth/cli/start", {});
+  return requestUnauthenticated(config.url ?? DEFAULT_API_URL, "/auth/cli/start", {});
 }
 
 export async function pollCliAuth(
   config: CloudConfig,
   code: string
 ): Promise<{ token: string } | { status: string }> {
-  return requestUnauthenticated(config.url ?? DEFAULT_API_URL, "/api/auth/cli/poll", { code });
+  return requestUnauthenticated(config.url ?? DEFAULT_API_URL, "/auth/cli/poll", { code });
 }

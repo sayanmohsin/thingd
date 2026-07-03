@@ -75,7 +75,7 @@ ColumnAnnotation {
 
 ## API endpoints
 
-All under `/api/projects/:projectId/connectors/:connectorId/tables`
+All under `/projects/:projectId/connectors/:connectorId/tables`
 
 | Method | Path | Purpose |
 |--------|------|---------|
@@ -114,7 +114,7 @@ Returns all created TableSyncs with auto-discovered column annotations.
 
 ### Preview tables (already exists)
 
-`POST /api/projects/connectors/preview-tables`
+`POST /projects/connectors/preview-tables`
 
 Returns available tables from the database. Now extended to also return
 auto-discovered columns per table for the annotation step.
@@ -236,7 +236,7 @@ thing_query "What were our top 10 orders last month?"
 | Step | What | Files | Est. |
 |------|------|-------|------|
 | 1 | `TableSync` types + `ColumnAnnotation` | `packages/shared/src/index.ts` | 30 min |
-| 2 | Backend: CRUD for table syncs | `apps/api/src/connector/` | 1 hr |
+| 2 | Backend: CRUD for table syncs | `apps/src/connector/` | 1 hr |
 | 3 | Backend: Bulk create endpoint | `controller.ts`, `service.ts` | 30 min |
 | 4 | Backend: Column auto-discovery from `information_schema` | `service.ts` | 1 hr |
 | 5 | Frontend: Step 2 multi-select table picker | `ProjectConnectors.tsx` | 1 hr |
