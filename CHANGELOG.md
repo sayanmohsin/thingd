@@ -1,3 +1,9 @@
+## [0.47.4](https://github.com/sayanmohsin/thingd/compare/v0.47.3...v0.47.4) (2026-07-03)
+
+### Bug Fixes
+
+* protect audit stream from deletion and injection ([44bd1d4](https://github.com/sayanmohsin/thingd/commit/44bd1d4793c8245b747f1670d3d4bcfd10059e70))
+
 ## [0.47.3](https://github.com/sayanmohsin/thingd/compare/v0.47.2...v0.47.3) (2026-07-03)
 
 ### Bug Fixes
