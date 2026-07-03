@@ -1,10 +1,27 @@
 import assert from "node:assert/strict";
+import { connect } from "node:net";
 import test from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 
-test("connects to live thingd MCP and lists tools", async () => {
-  const mcpUrl = process.env.THINGD_MCP_URL ?? "http://127.0.0.1:8757/mcp";
+async function isPortOpen(host, port, timeout = 1000) {
+  return new Promise((resolve) => {
+    const socket = connect(port, host, () => {
+      socket.end();
+      resolve(true);
+    });
+    socket.on("error", () => resolve(false));
+    socket.setTimeout(timeout, () => {
+      socket.destroy();
+      resolve(false);
+    });
+  });
+}
+
+const mcpUrl = process.env.THINGD_MCP_URL ?? "http://127.0.0.1:8757/mcp";
+const parsed = new URL(mcpUrl);
+const mcpReachable = await isPortOpen(parsed.hostname, Number(parsed.port));
+test("connects to live thingd MCP and lists tools", { skip: !mcpReachable }, async () => {
   const authToken = process.env.THINGD_AUTH_TOKEN;
   const transport = new StreamableHTTPClientTransport(new URL(mcpUrl), {
     requestInit: authToken

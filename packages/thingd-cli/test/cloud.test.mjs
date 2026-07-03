@@ -70,7 +70,7 @@ test("cloud logout removes config", async () => {
 test("cloud login with --code and --token verifies against API", async () => {
   const server = createServer((req, res) => {
     res.setHeader("Content-Type", "application/json");
-    if (req.url === "/api/users/me") {
+    if (req.url === "/users/me") {
       res.end(
         JSON.stringify({
           user: { id: "1", email: "mock@test.com", name: "Mock User", role: "admin" },
