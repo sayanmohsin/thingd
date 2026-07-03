@@ -1,3 +1,9 @@
+## [0.47.2](https://github.com/sayanmohsin/thingd/compare/v0.47.1...v0.47.2) (2026-07-03)
+
+### Bug Fixes
+
+* **cli:** cloud connect form now uses project/instance slug picker instead of raw URL ([e9f2ba9](https://github.com/sayanmohsin/thingd/commit/e9f2ba9dc0610e487746197089ab3275b644dd60))
+
 ## [0.47.1](https://github.com/sayanmohsin/thingd/compare/v0.47.0...v0.47.1) (2026-07-03)
 
 ### Bug Fixes
