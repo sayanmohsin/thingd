@@ -1,3 +1,9 @@
+## [0.47.0](https://github.com/sayanmohsin/thingd/compare/v0.46.0...v0.47.0) (2026-07-03)
+
+### Features
+
+* **connectors:** add list_tables() to Connector trait ([38a7287](https://github.com/sayanmohsin/thingd/commit/38a7287e5d993e3cf2cbd26a7fb6570808edc858))
+
 ## [0.46.0](https://github.com/sayanmohsin/thingd/compare/v0.45.1...v0.46.0) (2026-07-02)
 
 ### Features
