@@ -1,3 +1,9 @@
+## [0.47.1](https://github.com/sayanmohsin/thingd/compare/v0.47.0...v0.47.1) (2026-07-03)
+
+### Bug Fixes
+
+* **cli:** cloud TUI connect now uses instance MCP URL instead of API base URL ([a9ce86f](https://github.com/sayanmohsin/thingd/commit/a9ce86f82fc40fdaf87ea11d405a4e914b2e2dd9))
+
 ## [0.47.0](https://github.com/sayanmohsin/thingd/compare/v0.46.0...v0.47.0) (2026-07-03)
 
 ### Features
