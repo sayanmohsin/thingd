@@ -6,6 +6,7 @@ import * as path from "node:path";
 import readline from "node:readline";
 import { type MemorySearchOptions, ThingD, type ThingDDriver } from "@thingd/sdk";
 import pc from "picocolors";
+import { listInstances, listProjects } from "./lib/cloud-api.js";
 import { readCloudConfig } from "./lib/cloud-config.js";
 import { logoText } from "./logo.js";
 
@@ -1712,23 +1713,41 @@ async function handleConnect(node: TreeNode) {
 
   const selectedDriver = node.ref.driver as ThingDDriver;
 
-  // Cloud with saved credentials — skip form
+  // Cloud with saved credentials — fetch projects/instances and connect
   if (selectedDriver === "cloud") {
     const cloudCfg = readCloudConfig();
     if (cloudCfg?.token && cloudCfg?.url) {
       try {
-        await connectToDriver("cloud", cloudCfg.url, cloudCfg.url, cloudCfg.token);
-      } catch (err) {
-        const errMsg = err instanceof Error ? err.message : String(err);
-        viewerLines = [pc.red(`Failed to connect: ${errMsg}`)];
+        const { projects } = await listProjects(cloudCfg);
+        for (const project of projects) {
+          try {
+            const { instances } = await listInstances(cloudCfg, project.id);
+            if (instances.length > 0) {
+              const instance = instances[0];
+              if (instance?.mcpUrl) {
+                await connectToDriver("cloud", instance.mcpUrl, instance.mcpUrl, cloudCfg.token);
+                return;
+              }
+            }
+          } catch {
+            // Try next project
+          }
+        }
+        viewerLines = [
+          pc.yellow("No cloud instances found."),
+          pc.dim("Create one at https://thingd.cloud, or enter the MCP URL manually."),
+        ];
+        draw();
+      } catch {
+        viewerLines = [pc.yellow("Could not fetch cloud instances."), pc.dim("Enter the MCP URL manually.")];
         draw();
       }
-      return;
     }
   }
 
   if (selectedDriver === "native" || selectedDriver === "cloud") {
     const cloudCfg = selectedDriver === "cloud" ? readCloudConfig() : null;
+    const defaultUrl = cloudCfg?.url ?? "https://api.thingd.cloud";
     openForm(
       `Connect to ${selectedDriver}`,
       [
@@ -1736,8 +1755,8 @@ async function handleConnect(node: TreeNode) {
           ? [
               {
                 id: "url",
-                label: "Cloud URL",
-                value: cloudCfg?.url ?? "http://localhost:3000",
+                label: "MCP URL (get from thingd.cloud dashboard)",
+                value: `${defaultUrl}/mcp/<project>/<instance>`,
               },
               {
                 id: "token",
