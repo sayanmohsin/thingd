@@ -1,3 +1,9 @@
+## [0.47.5](https://github.com/sayanmohsin/thingd/compare/v0.47.4...v0.47.5) (2026-07-04)
+
+### Bug Fixes
+
+* **ci:** resolve cargo-deny and vitepress build failures ([c622de4](https://github.com/sayanmohsin/thingd/commit/c622de46162298c0081cd5ca9fc5e8421458d960))
+
 ## [0.47.4](https://github.com/sayanmohsin/thingd/compare/v0.47.3...v0.47.4) (2026-07-03)
 
 ### Bug Fixes
