@@ -1,4 +1,8 @@
 import type {
+  ConnectorAuth,
+  ConnectorSchema,
+  ConnectorSyncOptions,
+  ConnectorSyncResult,
   ListEventsOptions,
   ListObjectsOptions,
   MemoryEvent,
@@ -277,4 +281,32 @@ export class HttpThingStore implements ThingStore {
   }
 
   async close(): Promise<void> {}
+
+  async listConnectors(): Promise<string[]> {
+    return this.request<string[]>("GET", "/connectors");
+  }
+
+  async discoverConnectorSchema(
+    type: string,
+    query: string,
+    auth?: ConnectorAuth
+  ): Promise<ConnectorSchema> {
+    const body: Record<string, unknown> = { query };
+    if (auth) {
+      body.auth = auth;
+    }
+    return this.request<ConnectorSchema>(
+      "POST",
+      `/connectors/${encodeURIComponent(type)}/schema`,
+      body
+    );
+  }
+
+  async connectorSync(type: string, options: ConnectorSyncOptions): Promise<ConnectorSyncResult> {
+    return this.request<ConnectorSyncResult>(
+      "POST",
+      `/connectors/${encodeURIComponent(type)}/pull`,
+      options as Record<string, unknown>
+    );
+  }
 }

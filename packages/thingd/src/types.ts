@@ -112,6 +112,41 @@ export type Link = {
   createdAt: string;
 };
 
+export type ConnectorAuth = {
+  host: string;
+  port: number;
+  database: string;
+  username: string;
+  password: string;
+  sslMode?: "disable" | "prefer" | "require";
+};
+
+export type ConnectorSchema = {
+  name: string;
+  columns: {
+    name: string;
+    dataType: "text" | "integer" | "float" | "boolean" | "timestamp" | "json" | "unknown";
+    nullable: boolean;
+    sampleValues: unknown[];
+  }[];
+  estimatedRows: number | null;
+};
+
+export type ConnectorSyncResult = {
+  imported: number;
+  collection: string;
+};
+
+export type ConnectorSyncOptions = {
+  auth?: ConnectorAuth;
+  source?: string;
+  collection: string;
+  query: string;
+  batchSize?: number;
+  columnMapping?: Record<string, string>;
+  syncStrategy?: "full" | "incremental";
+};
+
 export type MemoryQueue = {
   push(payload: QueueJobPayload, options?: QueueJobOptions): Promise<QueueJob>;
   claim(options?: QueueClaimOptions): Promise<QueueJob | null>;
@@ -196,6 +231,13 @@ export interface ThingDConnection {
   listCollections(): Promise<string[]>;
   listStreams(): Promise<string[]>;
   listQueues(): Promise<string[]>;
+  listConnectors(): Promise<string[]>;
+  discoverConnectorSchema(
+    type: string,
+    query: string,
+    auth?: ConnectorAuth
+  ): Promise<ConnectorSchema>;
+  connectorSync(type: string, options: ConnectorSyncOptions): Promise<ConnectorSyncResult>;
 }
 
 export interface ThingStore {
@@ -242,4 +284,11 @@ export interface ThingStore {
   close?(): Promise<void>;
   backupTo?(path: string): void;
   walCheckpoint?(): { framesBefore: number; framesAfter: number };
+  listConnectors?(): Promise<string[]>;
+  discoverConnectorSchema?(
+    type: string,
+    query: string,
+    auth?: ConnectorAuth
+  ): Promise<ConnectorSchema>;
+  connectorSync?(type: string, options: ConnectorSyncOptions): Promise<ConnectorSyncResult>;
 }

@@ -57,6 +57,10 @@ pub fn build_router(state: Arc<AppState>, config: &Config) -> Router {
         // Links
         .route("/v1/links", post(rest::create_link).get(rest::get_links))
         .route("/v1/links/{id}", get(rest::get_link_by_id).delete(rest::delete_link))
+        // Connectors
+        .route("/v1/connectors", get(rest::list_connectors))
+        .route("/v1/connectors/{type}/schema", post(rest::discover_schema))
+        .route("/v1/connectors/{type}/pull", post(rest::pull_data))
         // MCP
         .route("/mcp", post(crate::mcp::handle_mcp_request))
         // Cluster

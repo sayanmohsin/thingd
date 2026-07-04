@@ -2,6 +2,10 @@ import { CloudThingStore } from "./stores/cloud-thing-store.js";
 import { InMemoryThingStore } from "./stores/in-memory-thing-store.js";
 import { NativeThingStore } from "./stores/native-thing-store.js";
 import type {
+  ConnectorAuth,
+  ConnectorSchema,
+  ConnectorSyncOptions,
+  ConnectorSyncResult,
   ListEventsOptions,
   ListObjectsOptions,
   MemoryEvent,
@@ -185,6 +189,30 @@ export class ThingD implements ThingDConnection {
 
   async listQueues(): Promise<string[]> {
     return this.store.listQueues?.() ?? [];
+  }
+
+  async listConnectors(): Promise<string[]> {
+    return this.store.listConnectors?.() ?? [];
+  }
+
+  async discoverConnectorSchema(
+    type: string,
+    query: string,
+    auth?: ConnectorAuth
+  ): Promise<ConnectorSchema> {
+    const result = await this.store.discoverConnectorSchema?.(type, query, auth);
+    if (!result) {
+      throw new Error(`Connector '${type}' not supported by this store`);
+    }
+    return result;
+  }
+
+  async connectorSync(type: string, options: ConnectorSyncOptions): Promise<ConnectorSyncResult> {
+    const result = await this.store.connectorSync?.(type, options);
+    if (!result) {
+      throw new Error(`Connector '${type}' not supported by this store`);
+    }
+    return result;
   }
 }
 

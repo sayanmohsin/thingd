@@ -2,9 +2,15 @@ use axum::{Json, extract::State};
 use serde_json::{Value, json};
 use std::sync::Arc;
 use std::sync::LazyLock;
+use uuid::Uuid;
 
 use crate::error::{self, AppError};
 use crate::server::AppState;
+
+use thingd::{
+    ColumnType, Connector, ConnectorAuth, ConnectorConfig, FileConnector, MemoryObject,
+    MysqlConnector, PostgresConnector, SyncStrategy,
+};
 
 fn mcp_success(id: Option<&Value>, content: Value) -> Json<Value> {
     Json(json!({ "jsonrpc": "2.0", "result": content, "id": id }))
@@ -629,6 +635,182 @@ fn handle_thing_list_queues(
     )
 }
 
+// ─── Connector tools ─────────────────────────────────────────────
+
+fn connector_from_type(connector_type: &str) -> Result<Box<dyn Connector>, AppError> {
+    match connector_type {
+        "postgres" => Ok(Box::new(PostgresConnector::new())),
+        "mysql" => Ok(Box::new(MysqlConnector::new())),
+        "file" => Ok(Box::new(FileConnector)),
+        _ => Err(AppError::bad_request(&format!(
+            "Unknown connector type: {connector_type}"
+        ))),
+    }
+}
+
+fn args_to_connector_auth(args: &Value) -> Option<ConnectorAuth> {
+    let auth = args.get("auth")?;
+    Some(ConnectorAuth {
+        username: auth["username"].as_str().unwrap_or("").to_string(),
+        password: auth["password"].as_str().unwrap_or("").to_string(),
+        host: auth["host"].as_str().unwrap_or("").to_string(),
+        port: auth["port"].as_u64().unwrap_or(5432) as u16,
+        database: auth["database"].as_str().unwrap_or("").to_string(),
+        ssl_mode: match auth.get("sslMode").and_then(|v| v.as_str()) {
+            Some("disable") => thingd::SslMode::Disable,
+            Some("require") => thingd::SslMode::Require,
+            _ => thingd::SslMode::Prefer,
+        },
+    })
+}
+
+fn args_to_connector_config(connector_type: &str, args: &Value) -> ConnectorConfig {
+    ConnectorConfig {
+        connector_type: connector_type.to_string(),
+        source: args
+            .get("source")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string(),
+        collection: args
+            .get("collection")
+            .and_then(|v| v.as_str())
+            .unwrap_or("imported")
+            .to_string(),
+        sync_strategy: match args
+            .get("syncStrategy")
+            .and_then(|v| v.as_str())
+        {
+            Some("incremental") => SyncStrategy::Incremental {
+                cursor_column: String::new(),
+            },
+            _ => SyncStrategy::Full,
+        },
+        query: args
+            .get("query")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string()),
+        column_mapping: args
+            .get("columnMapping")
+            .and_then(|v| v.as_object())
+            .map(|m| {
+                m.iter()
+                    .map(|(k, v)| (k.clone(), v.as_str().unwrap_or(k).to_string()))
+                    .collect()
+            }),
+        auth: args_to_connector_auth(args),
+        batch_size: args
+            .get("batchSize")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(1000) as usize,
+    }
+}
+
+fn handle_thing_connector_list(
+    _state: &AppState,
+    _tool_name: &str,
+    _args: &Value,
+) -> Result<Value, AppError> {
+    let types = json!(["file", "postgres", "mysql"]);
+    Ok(json!({ "content": [{ "type": "text", "text": serde_json::to_string(&types).unwrap_or_default() }] }))
+}
+
+fn handle_thing_connector_schema(
+    _state: &AppState,
+    _tool_name: &str,
+    args: &Value,
+) -> Result<Value, AppError> {
+    let connector_type = args
+        .get("type")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| AppError::bad_request("Missing 'type'"))?;
+    let connector = connector_from_type(&connector_type)?;
+    let config = args_to_connector_config(&connector_type, args);
+    let schema = connector
+        .discover_schema(&config)
+        .map_err(|e| AppError::internal(e.to_string()))?;
+
+    let columns: Vec<Value> = schema
+        .columns
+        .iter()
+        .map(|c| {
+            json!({
+                "name": c.name,
+                "dataType": match c.data_type {
+                    ColumnType::Text => "text",
+                    ColumnType::Integer => "integer",
+                    ColumnType::Float => "float",
+                    ColumnType::Boolean => "boolean",
+                    ColumnType::Timestamp => "timestamp",
+                    ColumnType::Json => "json",
+                    ColumnType::Unknown => "unknown",
+                },
+                "nullable": c.nullable,
+                "sampleValues": c.sample_values,
+            })
+        })
+        .collect();
+
+    let result = json!({
+        "name": schema.name,
+        "columns": columns,
+        "estimatedRows": schema.estimated_rows,
+    });
+    Ok(json!({ "content": [{ "type": "text", "text": serde_json::to_string(&result).unwrap_or_default() }] }))
+}
+
+fn handle_thing_connector_sync(
+    state: &AppState,
+    _tool_name: &str,
+    args: &Value,
+) -> Result<Value, AppError> {
+    let connector_type = args
+        .get("type")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| AppError::bad_request("Missing 'type'"))?;
+    let connector = connector_from_type(&connector_type)?;
+    let config = args_to_connector_config(&connector_type, args);
+    let collection = config.collection.clone();
+
+    let stream = connector
+        .pull(&config)
+        .map_err(|e| AppError::internal(e.to_string()))?;
+
+    let e = state.pool.get_writer("");
+    let mut g = e.lock();
+    let mut imported: u64 = 0;
+    let batch_size = config.batch_size;
+    let mut batch: Vec<MemoryObject> = Vec::with_capacity(batch_size);
+
+    for row in stream {
+        let row = row.map_err(|e| AppError::internal(e.to_string()))?;
+        let id = row
+            .get("id")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| Uuid::new_v4().to_string());
+        let body_str = serde_json::to_string(&row)
+            .map_err(|e| AppError::internal(e.to_string()))?;
+        batch.push(MemoryObject::new(&collection, &id, &body_str));
+
+        if batch.len() >= batch_size {
+            g.put_objects_batch(std::mem::take(&mut batch))
+                .map_err(|e| AppError::internal(e.to_string()))?;
+            imported += batch_size as u64;
+        }
+    }
+
+    if !batch.is_empty() {
+        let count = batch.len();
+        g.put_objects_batch(batch)
+            .map_err(|e| AppError::internal(e.to_string()))?;
+        imported += count as u64;
+    }
+
+    let result = json!({ "imported": imported, "collection": collection });
+    Ok(json!({ "content": [{ "type": "text", "text": serde_json::to_string(&result).unwrap_or_default() }] }))
+}
+
 // ─── Link tools ──────────────────────────────────────────────────
 
 fn handle_thing_link_create(
@@ -1020,6 +1202,49 @@ static ALL_TOOLS: LazyLock<Vec<ToolEntry>> = LazyLock::new(|| {
             destructive: false,
             needs_collection: false,
         },
+        // Connector tools (3)
+        ToolEntry {
+            name: "thing_connector_list",
+            description: "List available connector types (file, postgres, mysql)",
+            properties: json!({}),
+            required: &[],
+            handler: handle_thing_connector_list,
+            is_write: false,
+            destructive: false,
+            needs_collection: false,
+        },
+        ToolEntry {
+            name: "thing_connector_schema",
+            description: "Discover schema of an external table or file source without importing data",
+            properties: json!({
+                "type": str_prop("Connector type: postgres, mysql, or file"),
+                "auth": obj_prop("Database credentials (host, port, database, username, password, sslMode)"),
+                "query": str_prop("Table name (for DB connectors) or file path"),
+            }),
+            required: &["type", "query"],
+            handler: handle_thing_connector_schema,
+            is_write: false,
+            destructive: false,
+            needs_collection: false,
+        },
+        ToolEntry {
+            name: "thing_connector_sync",
+            description: "Pull data from an external source into a thingd collection",
+            properties: json!({
+                "type": str_prop("Connector type: postgres, mysql, or file"),
+                "auth": obj_prop("Database credentials (host, port, database, username, password, sslMode)"),
+                "collection": str_prop("Target thingd collection name"),
+                "query": str_prop("SQL query or table name"),
+                "batchSize": int_prop("Rows per batch (default 1000)"),
+                "columnMapping": obj_prop("Map external column names to thingd field names"),
+                "syncStrategy": str_prop("Sync strategy: full or incremental"),
+            }),
+            required: &["type", "collection", "query"],
+            handler: handle_thing_connector_sync,
+            is_write: true,
+            destructive: false,
+            needs_collection: false,
+        },
     ]
 });
 
@@ -1170,8 +1395,8 @@ mod tests {
         let tools = result["result"]["tools"].as_array().unwrap();
         assert_eq!(
             tools.len(),
-            27,
-            "expected 27 MCP tools, got {}",
+            30,
+            "expected 30 MCP tools, got {}",
             tools.len()
         );
         let names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
@@ -1203,6 +1428,9 @@ mod tests {
             "thing_link_delete",
             "thing_link_neighbors",
             "thing_link_count",
+            "thing_connector_list",
+            "thing_connector_schema",
+            "thing_connector_sync",
         ] {
             assert!(names.contains(expected), "missing tool: {expected}");
         }

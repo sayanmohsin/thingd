@@ -579,6 +579,108 @@ curl -X DELETE http://localhost:8757/v1/links/8d08a9c5-7ffa-44a9-8180-cf8dd179e6
 
 ---
 
+## Connectors
+
+### `GET /v1/connectors` — List available connectors
+
+Returns the list of available connector types.
+
+```bash
+curl http://localhost:8757/v1/connectors
+```
+
+```json
+{ "data": ["file", "postgres", "mysql"] }
+```
+
+### `POST /v1/connectors/{type}/schema` — Discover schema
+
+Discover the schema of an external table or file source without importing data.
+
+**Path parameter:** `type` — connector type (`"postgres"`, `"mysql"`, `"file"`)
+
+**Body:**
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `auth` | for db connectors | Database credentials (host, port, database, username, password, sslMode) |
+| `source` | for file connector | File path or connection string |
+| `query` | yes | Table name for DB connectors, or file path for file connector |
+
+```bash
+curl -X POST http://localhost:8757/v1/connectors/postgres/schema \
+  -H "Content-Type: application/json" \
+  -d '{
+    "auth": {
+      "host": "localhost",
+      "port": 5432,
+      "database": "mydb",
+      "username": "user",
+      "password": "pass"
+    },
+    "query": "users"
+  }'
+```
+
+```json
+{
+  "data": {
+    "name": "users",
+    "columns": [
+      { "name": "id", "dataType": "integer", "nullable": false, "sampleValues": [1, 2, 3] },
+      { "name": "name", "dataType": "text", "nullable": true, "sampleValues": ["Alice", "Bob"] },
+      { "name": "created_at", "dataType": "timestamp", "nullable": false, "sampleValues": [] }
+    ],
+    "estimatedRows": null
+  }
+}
+```
+
+### `POST /v1/connectors/{type}/pull` — Import data
+
+Pull data from an external source into a thingd collection. Each row becomes an object in the specified collection.
+
+**Path parameter:** `type` — connector type (`"postgres"`, `"mysql"`, `"file"`)
+
+**Body:**
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `auth` | for db connectors | Database credentials |
+| `source` | for file connector | File path |
+| `collection` | yes | Target thingd collection name |
+| `query` | yes | SQL query (for DB) or table name. For files, the file path. |
+| `batchSize` | no | Rows per batch (default: 1000) |
+| `columnMapping` | no | Map external column names to thingd field names: `{ "old_name": "new_name" }` |
+| `syncStrategy` | no | `"full"` (default) or `"incremental"` |
+
+```bash
+curl -X POST http://localhost:8757/v1/connectors/postgres/pull \
+  -H "Content-Type: application/json" \
+  -d '{
+    "auth": {
+      "host": "localhost",
+      "port": 5432,
+      "database": "mydb",
+      "username": "user",
+      "password": "pass"
+    },
+    "collection": "imported_users",
+    "query": "SELECT * FROM users"
+  }'
+```
+
+```json
+{
+  "data": {
+    "imported": 150,
+    "collection": "imported_users"
+  }
+}
+```
+
+---
+
 ## Error Codes
 
 | Code | HTTP Status | Meaning |

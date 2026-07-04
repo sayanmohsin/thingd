@@ -187,6 +187,44 @@ A directed graph link connecting two references. Links model relationships betwe
 - `linkType` is a string — use domain-specific names like `"authored"`, `"supports"`, `"depends_on"`, `"chunk_of"`
 - Multiple links between the same pair of references with different `linkType` values are allowed
 
+## ConnectorSchema
+
+Discovered schema for an external database table or file source.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `name` | string | Table or source name |
+| `columns` | array | List of discovered columns |
+| `estimatedRows` | number \| null | Estimated row count (null if unknown) |
+
+### Column
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `name` | string | Column name |
+| `dataType` | string | `"text"` \| `"integer"` \| `"float"` \| `"boolean"` \| `"timestamp"` \| `"json"` \| `"unknown"` |
+| `nullable` | boolean | Whether the column can be null |
+| `sampleValues` | array | Sample values for type inference (may be empty) |
+
+### ConnectorAuth
+
+Authentication credentials for external database connectors.
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `host` | string | yes | Database hostname |
+| `port` | number | yes | Database port (e.g. 5432 for Postgres) |
+| `database` | string | yes | Database name |
+| `username` | string | yes | Database user |
+| `password` | string | yes | Database password |
+| `sslMode` | string | no | `"disable"` \| `"prefer"` (default) \| `"require"` |
+
+### ConnectorType
+
+Available connector types: `"file"`, `"postgres"`, `"mysql"`.
+
+---
+
 ## Supporting Types
 
 ### SortBy
