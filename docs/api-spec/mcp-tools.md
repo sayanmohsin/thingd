@@ -1,6 +1,6 @@
 # MCP Tools Reference
 
-thingd exposes {{ $themeConfig.mcpToolCount }} MCP tools for AI agents. All tools are available via the stdio MCP server or Streamable HTTP endpoint.
+thingd exposes 27 MCP tools for AI agents. All tools are available via the stdio MCP server or Streamable HTTP endpoint.
 
 **Tool count:** 27 (16 read-only, 11 write — 3 of which are destructive)
 

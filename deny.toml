@@ -1,5 +1,7 @@
 [advisories]
-ignore = []
+ignore = [
+    "RUSTSEC-2023-0071", # rsa: Marvin Attack — no fix available
+]
 
 [licenses]
 allow = [
@@ -21,6 +23,16 @@ allow-wildcard-paths = false
 skip = [
     { name = "hashbrown", version = "0.16" },
     { name = "hashbrown", version = "0.17" },
+    { name = "foldhash", version = "0.1" },
+    { name = "foldhash", version = "0.2" },
+    { name = "getrandom", version = "0.2" },
+    { name = "getrandom", version = "0.4" },
+    { name = "hashlink", version = "0.10" },
+    { name = "hashlink", version = "0.12" },
+    { name = "redox_syscall", version = "0.5" },
+    { name = "redox_syscall", version = "0.9" },
+    { name = "windows-sys", version = "0.48" },
+    { name = "windows-sys", version = "0.61" },
 ]
 
 [sources]

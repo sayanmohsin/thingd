@@ -88,7 +88,7 @@ Opens a dark-mode browser dashboard at `http://localhost:8758`. Browse collectio
 
 ## 4. Connect your editor (MCP)
 
-thingd ships with {{ $themeConfig.mcpToolCount }} MCP tools. Connect your editor to search, read, write, and queue data directly from your agent.
+thingd ships with 27 MCP tools. Connect your editor to search, read, write, and queue data directly from your agent.
 
 ### Cursor
 
@@ -154,7 +154,7 @@ Expected output:
 ✔ MCP server: reachable
 ```
 
-Once connected, your agent can call all {{ $themeConfig.mcpToolCount }} tools — search, objects, events, queues, links, and discovery.
+Once connected, your agent can call all 27 tools — search, objects, events, queues, links, and discovery.
 
 **Example: agent searches before writing**
 
