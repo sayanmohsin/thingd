@@ -94,6 +94,7 @@ cargo clippy --workspace --all-targets --all-features -- -D warnings
 8. `cargo deny check`
 
 All eight must pass before push completes. If clippy or fmt fails, fix and amend.
+Never use `--no-verify` or `--no-check` to bypass pre-push hooks — fix the actual failures in a new commit.
 Note: `pnpm test:rust` is the heaviest hook — expect 30-60s for cold compile plus tests.
 
 ## Key conventions
