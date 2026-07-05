@@ -790,7 +790,6 @@ export function registerThingdTools(
     },
     async () => jsonResult(await db.countLinks())
   );
-
 }
 
 function auditMetadata(

@@ -214,7 +214,6 @@ export class ThingD implements ThingDConnection {
     }
     return result;
   }
-
 }
 
 type ResolvedThingDOpenOptions = ThingDOpenOptions & {

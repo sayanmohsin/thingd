@@ -1,9 +1,9 @@
+use crate::error::{self, AppError};
+use crate::server::AppState;
 use axum::{Json, extract::State};
 use serde_json::{Value, json};
 use std::sync::Arc;
 use std::sync::LazyLock;
-use crate::error::{self, AppError};
-use crate::server::AppState;
 
 fn mcp_success(id: Option<&Value>, content: Value) -> Json<Value> {
     Json(json!({ "jsonrpc": "2.0", "result": content, "id": id }))

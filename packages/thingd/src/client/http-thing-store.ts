@@ -309,5 +309,4 @@ export class HttpThingStore implements ThingStore {
       options as Record<string, unknown>
     );
   }
-
 }

@@ -539,18 +539,39 @@ fn build_connector_auth(body: &Value) -> Option<ConnectorAuth> {
 fn build_connector_config(connector_type: &str, body: &Value) -> ConnectorConfig {
     ConnectorConfig {
         connector_type: connector_type.to_string(),
-        source: body.get("source").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-        collection: body.get("collection").and_then(|v| v.as_str()).unwrap_or("imported").to_string(),
+        source: body
+            .get("source")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string(),
+        collection: body
+            .get("collection")
+            .and_then(|v| v.as_str())
+            .unwrap_or("imported")
+            .to_string(),
         sync_strategy: match body.get("syncStrategy").and_then(|v| v.as_str()) {
-            Some("incremental") => SyncStrategy::Incremental { cursor_column: String::new() },
+            Some("incremental") => SyncStrategy::Incremental {
+                cursor_column: String::new(),
+            },
             _ => SyncStrategy::Full,
         },
-        query: body.get("query").and_then(|v| v.as_str()).map(|s| s.to_string()),
-        column_mapping: body.get("columnMapping")
+        query: body
+            .get("query")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string()),
+        column_mapping: body
+            .get("columnMapping")
             .and_then(|v| v.as_object())
-            .map(|m| m.iter().map(|(k, v)| (k.clone(), v.as_str().unwrap_or(k).to_string())).collect()),
+            .map(|m| {
+                m.iter()
+                    .map(|(k, v)| (k.clone(), v.as_str().unwrap_or(k).to_string()))
+                    .collect()
+            }),
         auth: build_connector_auth(body),
-        batch_size: body.get("batchSize").and_then(|v| v.as_u64()).unwrap_or(1000) as usize,
+        batch_size: body
+            .get("batchSize")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(1000) as usize,
     }
 }
 
@@ -559,7 +580,9 @@ fn get_connector(connector_type: &str) -> Result<Box<dyn Connector>, AppError> {
         "postgres" => Ok(Box::new(PostgresConnector::new())),
         "mysql" => Ok(Box::new(MysqlConnector::new())),
         "file" => Ok(Box::new(FileConnector)),
-        _ => Err(AppError::bad_request(&format!("Unknown connector type: {connector_type}"))),
+        _ => Err(AppError::bad_request(format!(
+            "Unknown connector type: {connector_type}"
+        ))),
     }
 }
 
@@ -569,23 +592,30 @@ pub async fn discover_schema(
 ) -> Result<Json<Value>, AppError> {
     let connector = get_connector(&connector_type)?;
     let config = build_connector_config(&connector_type, &body);
-    let schema = connector.discover_schema(&config)
+    let schema = connector
+        .discover_schema(&config)
         .map_err(|e| AppError::internal(e.to_string()))?;
 
-    let columns: Vec<Value> = schema.columns.iter().map(|c| json!({
-        "name": c.name,
-        "dataType": match c.data_type {
-            ColumnType::Text => "text",
-            ColumnType::Integer => "integer",
-            ColumnType::Float => "float",
-            ColumnType::Boolean => "boolean",
-            ColumnType::Timestamp => "timestamp",
-            ColumnType::Json => "json",
-            ColumnType::Unknown => "unknown",
-        },
-        "nullable": c.nullable,
-        "sampleValues": c.sample_values,
-    })).collect();
+    let columns: Vec<Value> = schema
+        .columns
+        .iter()
+        .map(|c| {
+            json!({
+                "name": c.name,
+                "dataType": match c.data_type {
+                    ColumnType::Text => "text",
+                    ColumnType::Integer => "integer",
+                    ColumnType::Float => "float",
+                    ColumnType::Boolean => "boolean",
+                    ColumnType::Timestamp => "timestamp",
+                    ColumnType::Json => "json",
+                    ColumnType::Unknown => "unknown",
+                },
+                "nullable": c.nullable,
+                "sampleValues": c.sample_values,
+            })
+        })
+        .collect();
 
     ok(json!({
         "name": schema.name,
@@ -604,9 +634,7 @@ pub async fn ping_connector(
     let result = connector.discover_schema(&config);
     match result {
         Ok(_schema) => ok(json!({ "ok": true, "connector": connector_type })),
-        Err(e) => Err(AppError::bad_request(&format!(
-            "Connection failed: {e}"
-        ))),
+        Err(e) => Err(AppError::bad_request(format!("Connection failed: {e}"))),
     }
 }
 
@@ -619,7 +647,8 @@ pub async fn pull_data(
     let config = build_connector_config(&connector_type, &body);
     let collection = config.collection.clone();
 
-    let stream = connector.pull(&config)
+    let stream = connector
+        .pull(&config)
         .map_err(|e| AppError::internal(e.to_string()))?;
 
     let mut imported = 0u64;
@@ -630,12 +659,13 @@ pub async fn pull_data(
 
     for row in stream {
         let row = row.map_err(|e| AppError::internal(e.to_string()))?;
-        let id = row.get("id")
+        let id = row
+            .get("id")
             .and_then(|v| v.as_str())
             .map(|s| s.to_string())
             .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
-        let body_str = serde_json::to_string(&row)
-            .map_err(|e| AppError::internal(e.to_string()))?;
+        let body_str =
+            serde_json::to_string(&row).map_err(|e| AppError::internal(e.to_string()))?;
         let obj = MemoryObject::new(&collection, &id, &body_str);
         batch.push(obj);
 
