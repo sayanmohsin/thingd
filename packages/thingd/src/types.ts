@@ -132,6 +132,11 @@ export type ConnectorSchema = {
   estimatedRows: number | null;
 };
 
+export type ConnectorPingResult = {
+  ok: boolean;
+  connector: string;
+};
+
 export type ConnectorSyncResult = {
   imported: number;
   collection: string;
@@ -238,6 +243,7 @@ export interface ThingDConnection {
     auth?: ConnectorAuth
   ): Promise<ConnectorSchema>;
   connectorSync(type: string, options: ConnectorSyncOptions): Promise<ConnectorSyncResult>;
+  pingConnector(type: string, auth?: ConnectorAuth): Promise<ConnectorPingResult>;
 }
 
 export interface ThingStore {
@@ -291,4 +297,5 @@ export interface ThingStore {
     auth?: ConnectorAuth
   ): Promise<ConnectorSchema>;
   connectorSync?(type: string, options: ConnectorSyncOptions): Promise<ConnectorSyncResult>;
+  pingConnector?(type: string, auth?: ConnectorAuth): Promise<ConnectorPingResult>;
 }

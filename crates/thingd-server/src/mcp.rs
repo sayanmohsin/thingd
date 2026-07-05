@@ -706,6 +706,31 @@ fn args_to_connector_config(connector_type: &str, args: &Value) -> ConnectorConf
     }
 }
 
+fn handle_thing_connector_ping(
+    _state: &AppState,
+    _tool_name: &str,
+    args: &Value,
+) -> Result<Value, AppError> {
+    let connector_type = args
+        .get("type")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| AppError::bad_request("Missing 'type'"))?;
+    let connector = connector_from_type(connector_type)?;
+    let mut config = args_to_connector_config(connector_type, args);
+    config.query = Some("SELECT 1".to_string());
+    let result = connector.discover_schema(&config);
+    match result {
+        Ok(_schema) => {
+            let msg = json!({ "ok": true, "connector": connector_type });
+            Ok(json!({ "content": [{ "type": "text", "text": serde_json::to_string(&msg).unwrap_or_default() }] }))
+        }
+        Err(e) => {
+            let msg = format!("Connection failed: {e}");
+            Ok(json!({ "content": [{ "type": "text", "text": msg }], "isError": true }))
+        }
+    }
+}
+
 fn handle_thing_connector_list(
     _state: &AppState,
     _tool_name: &str,
@@ -1202,7 +1227,20 @@ static ALL_TOOLS: LazyLock<Vec<ToolEntry>> = LazyLock::new(|| {
             destructive: false,
             needs_collection: false,
         },
-        // Connector tools (3)
+        // Connector tools (4)
+        ToolEntry {
+            name: "thing_connector_ping",
+            description: "Test connectivity to an external database without importing data",
+            properties: json!({
+                "type": str_prop("Connector type: postgres, mysql, or file"),
+                "auth": obj_prop("Database credentials (host, port, database, username, password, sslMode)"),
+            }),
+            required: &["type"],
+            handler: handle_thing_connector_ping,
+            is_write: false,
+            destructive: false,
+            needs_collection: false,
+        },
         ToolEntry {
             name: "thing_connector_list",
             description: "List available connector types (file, postgres, mysql)",
@@ -1395,8 +1433,8 @@ mod tests {
         let tools = result["result"]["tools"].as_array().unwrap();
         assert_eq!(
             tools.len(),
-            30,
-            "expected 30 MCP tools, got {}",
+            31,
+            "expected 31 MCP tools, got {}",
             tools.len()
         );
         let names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
@@ -1428,6 +1466,7 @@ mod tests {
             "thing_link_delete",
             "thing_link_neighbors",
             "thing_link_count",
+            "thing_connector_ping",
             "thing_connector_list",
             "thing_connector_schema",
             "thing_connector_sync",

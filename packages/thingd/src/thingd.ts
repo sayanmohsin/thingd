@@ -3,6 +3,7 @@ import { InMemoryThingStore } from "./stores/in-memory-thing-store.js";
 import { NativeThingStore } from "./stores/native-thing-store.js";
 import type {
   ConnectorAuth,
+  ConnectorPingResult,
   ConnectorSchema,
   ConnectorSyncOptions,
   ConnectorSyncResult,
@@ -209,6 +210,14 @@ export class ThingD implements ThingDConnection {
 
   async connectorSync(type: string, options: ConnectorSyncOptions): Promise<ConnectorSyncResult> {
     const result = await this.store.connectorSync?.(type, options);
+    if (!result) {
+      throw new Error(`Connector '${type}' not supported by this store`);
+    }
+    return result;
+  }
+
+  async pingConnector(type: string, auth?: ConnectorAuth): Promise<ConnectorPingResult> {
+    const result = await this.store.pingConnector?.(type, auth);
     if (!result) {
       throw new Error(`Connector '${type}' not supported by this store`);
     }

@@ -59,6 +59,7 @@ pub fn build_router(state: Arc<AppState>, config: &Config) -> Router {
         .route("/v1/links/{id}", get(rest::get_link_by_id).delete(rest::delete_link))
         // Connectors
         .route("/v1/connectors", get(rest::list_connectors))
+        .route("/v1/connectors/{type}/ping", post(rest::ping_connector))
         .route("/v1/connectors/{type}/schema", post(rest::discover_schema))
         .route("/v1/connectors/{type}/pull", post(rest::pull_data))
         // MCP

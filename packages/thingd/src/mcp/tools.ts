@@ -794,6 +794,35 @@ export function registerThingdTools(
   // ── Connector tools ─────────────────────────────────────────────────
 
   server.registerTool(
+    "thing_connector_ping",
+    {
+      title: "Connector Ping",
+      description: "Test connectivity to an external database without importing data.",
+      inputSchema: {
+        type: z.string().min(1).describe("Connector type: postgres, mysql, or file"),
+        auth: z
+          .object({
+            host: z.string(),
+            port: z.number(),
+            database: z.string(),
+            username: z.string(),
+            password: z.string(),
+            sslMode: z.enum(["disable", "prefer", "require"]).optional(),
+          })
+          .optional()
+          .describe("Database credentials (for postgres/mysql)"),
+      },
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async ({ type, auth }) => jsonResult(await db.pingConnector(type, auth))
+  );
+
+  server.registerTool(
     "thing_connector_list",
     {
       title: "List Connectors",

@@ -594,6 +594,22 @@ pub async fn discover_schema(
     }))
 }
 
+pub async fn ping_connector(
+    Path(connector_type): Path<String>,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, AppError> {
+    let connector = get_connector(&connector_type)?;
+    let mut config = build_connector_config(&connector_type, &body);
+    config.query = Some("SELECT 1".to_string());
+    let result = connector.discover_schema(&config);
+    match result {
+        Ok(_schema) => ok(json!({ "ok": true, "connector": connector_type })),
+        Err(e) => Err(AppError::bad_request(&format!(
+            "Connection failed: {e}"
+        ))),
+    }
+}
+
 pub async fn pull_data(
     State(state): State<Arc<AppState>>,
     Path(connector_type): Path<String>,

@@ -338,6 +338,17 @@ export class CloudThingStore implements ThingStore {
     return this.callTool<import("../types.js").ConnectorSchema>("thing_connector_schema", args);
   }
 
+  async pingConnector(
+    type: string,
+    auth?: import("../types.js").ConnectorAuth
+  ): Promise<import("../types.js").ConnectorPingResult> {
+    const args: Record<string, unknown> = { type };
+    if (auth) {
+      args.auth = auth;
+    }
+    return this.callTool<import("../types.js").ConnectorPingResult>("thing_connector_ping", args);
+  }
+
   async connectorSync(
     type: string,
     options: import("../types.js").ConnectorSyncOptions
