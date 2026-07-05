@@ -593,6 +593,40 @@ curl http://localhost:8757/v1/connectors
 { "data": ["file", "postgres", "mysql"] }
 ```
 
+### `POST /v1/connectors/{type}/ping` — Test connection
+
+Test connectivity to an external database without importing data or discovering schema.
+
+**Path parameter:** `type` — connector type (`"postgres"`, `"mysql"`, `"file"`)
+
+**Body:**
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `auth` | for db connectors | Database credentials (host, port, database, username, password, sslMode) |
+
+```bash
+curl -X POST http://localhost:8757/v1/connectors/postgres/ping \
+  -H "Content-Type: application/json" \
+  -d '{
+    "auth": {
+      "host": "localhost",
+      "port": 5432,
+      "database": "mydb",
+      "username": "user",
+      "password": "pass"
+    }
+  }'
+```
+
+```json
+{ "data": { "ok": true, "connector": "postgres" } }
+```
+
+On failure, returns a `400 Bad Request` with connection error details.
+
+---
+
 ### `POST /v1/connectors/{type}/schema` — Discover schema
 
 Discover the schema of an external table or file source without importing data.

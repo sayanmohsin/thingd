@@ -1,8 +1,8 @@
 # MCP Tools Reference
 
-thingd exposes 30 MCP tools for AI agents. All tools are available via the stdio MCP server or Streamable HTTP endpoint.
+thingd exposes 27 MCP tools for AI agents. All tools are available via the stdio MCP server or Streamable HTTP endpoint.
 
-**Tool count:** 30 (17 read-only, 13 write — 3 of which are destructive)
+**Tool count:** 27 (16 read-only, 11 write — 3 of which are destructive)
 
 ---
 
@@ -421,71 +421,6 @@ All write operations emit audit events to the `__thingd:mcp:audit` stream. Each 
 | `result` | `success` or `error` |
 
 The `__thingd:mcp:audit` stream is protected at the engine level — events cannot be deleted or modified. Direct writes to the audit stream from MCP tools or REST endpoints are rejected. Only the internal audit mechanism can append to this stream. Audit events can be queried via `thing_events_list` with `stream: "__thingd:mcp:audit"`.
-
-## Connector Tools
-
-### `thing_connector_list`
-
-List available connector types.
-
-```json
-{}
-```
-
-**Returns:** `string[]` — e.g. `["file", "postgres", "mysql"]`
-
----
-
-### `thing_connector_schema`
-
-Discover the schema of an external table or source without importing data.
-
-```json
-{
-  "type": "postgres",
-  "auth": {
-    "host": "localhost",
-    "port": 5432,
-    "database": "mydb",
-    "username": "user",
-    "password": "pass"
-  },
-  "query": "users"
-}
-```
-
-**Auth fields:** `host`, `port`, `database`, `username`, `password`, `sslMode` (optional, default `"prefer"`)
-
-**Returns:** `ConnectorSchema` — name, columns (with name, dataType, nullable, sampleValues), estimatedRows
-
----
-
-### `thing_connector_sync`
-
-Pull data from an external source into a thingd collection. Each row becomes an object in the specified collection.
-
-```json
-{
-  "type": "postgres",
-  "auth": {
-    "host": "localhost",
-    "port": 5432,
-    "database": "mydb",
-    "username": "user",
-    "password": "pass"
-  },
-  "collection": "imported_users",
-  "query": "SELECT * FROM users",
-  "batchSize": 1000,
-  "columnMapping": { "old_name": "new_name" }
-}
-```
-
-**Optional parameters:** `batchSize` (default 1000), `columnMapping` (rename columns), `syncStrategy` (`"full"` or `"incremental"`)
-
-**Returns:** `{ imported: number, collection: string }`
-
----
 
 ## Annotations
 

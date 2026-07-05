@@ -322,33 +322,6 @@ export class CloudThingStore implements ThingStore {
     throw new Error("WAL checkpoint is not supported for cloud storage driver");
   }
 
-  async listConnectors(): Promise<string[]> {
-    return this.callTool<string[]>("thing_connector_list", {});
-  }
-
-  async discoverConnectorSchema(
-    type: string,
-    query: string,
-    auth?: import("../types.js").ConnectorAuth
-  ): Promise<import("../types.js").ConnectorSchema> {
-    const args: Record<string, unknown> = { type, query };
-    if (auth) {
-      args.auth = auth;
-    }
-    return this.callTool<import("../types.js").ConnectorSchema>("thing_connector_schema", args);
-  }
-
-  async pingConnector(
-    type: string,
-    auth?: import("../types.js").ConnectorAuth
-  ): Promise<import("../types.js").ConnectorPingResult> {
-    const args: Record<string, unknown> = { type };
-    if (auth) {
-      args.auth = auth;
-    }
-    return this.callTool<import("../types.js").ConnectorPingResult>("thing_connector_ping", args);
-  }
-
   async connectorSync(
     type: string,
     options: import("../types.js").ConnectorSyncOptions

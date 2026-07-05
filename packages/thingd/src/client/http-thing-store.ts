@@ -1,6 +1,5 @@
 import type {
   ConnectorAuth,
-  ConnectorPingResult,
   ConnectorSchema,
   ConnectorSyncOptions,
   ConnectorSyncResult,
@@ -311,15 +310,4 @@ export class HttpThingStore implements ThingStore {
     );
   }
 
-  async pingConnector(type: string, auth?: ConnectorAuth): Promise<ConnectorPingResult> {
-    const body: Record<string, unknown> = {};
-    if (auth) {
-      body.auth = auth;
-    }
-    return this.request<ConnectorPingResult>(
-      "POST",
-      `/connectors/${encodeURIComponent(type)}/ping`,
-      body
-    );
-  }
 }
