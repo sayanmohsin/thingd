@@ -1,3 +1,10 @@
+## [0.48.0](https://github.com/sayanmohsin/thingd/compare/v0.47.5...v0.48.0) (2026-07-05)
+
+### Features
+
+* **connectors:** add ping endpoint and test-connection UI ([236020f](https://github.com/sayanmohsin/thingd/commit/236020f1d5577b8a3cc745a2ae598852efeae516))
+* **connectors:** wire Postgres/MySQL connectors through all layers ([4cc1076](https://github.com/sayanmohsin/thingd/commit/4cc1076be3b9e2e05f146d894f384cb8ef0cb4a8))
+
 ## [0.47.5](https://github.com/sayanmohsin/thingd/compare/v0.47.4...v0.47.5) (2026-07-04)
 
 ### Bug Fixes
