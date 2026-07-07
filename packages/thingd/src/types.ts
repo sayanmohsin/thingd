@@ -281,9 +281,6 @@ export interface ThingStore {
   listCollections?(): Promise<string[]>;
   listStreams?(): Promise<string[]>;
   listQueues?(): Promise<string[]>;
-  close?(): Promise<void>;
-  backupTo?(path: string): void;
-  walCheckpoint?(): { framesBefore: number; framesAfter: number };
   listConnectors?(): Promise<string[]>;
   discoverConnectorSchema?(
     type: string,
@@ -291,4 +288,7 @@ export interface ThingStore {
     auth?: ConnectorAuth
   ): Promise<ConnectorSchema>;
   connectorSync?(type: string, options: ConnectorSyncOptions): Promise<ConnectorSyncResult>;
+  close?(): Promise<void>;
+  backupTo?(path: string): void;
+  walCheckpoint?(): { framesBefore: number; framesAfter: number };
 }

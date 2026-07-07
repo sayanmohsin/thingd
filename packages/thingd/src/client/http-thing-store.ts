@@ -1,8 +1,4 @@
 import type {
-  ConnectorAuth,
-  ConnectorSchema,
-  ConnectorSyncOptions,
-  ConnectorSyncResult,
   ListEventsOptions,
   ListObjectsOptions,
   MemoryEvent,
