@@ -74,7 +74,7 @@ thingd links count
 thingd export --collection <name> --out objects.jsonl [--redact [keys]]
 thingd export --events [--stream <name>] --out events.jsonl [--redact [keys]]
 thingd import --collection <name> --in objects.jsonl
-thingd import <connection-string> --collection <name> [--tables <names>|--query <sql>] [--sidecar <url>] [--dry-run] [--list-tables]
+thingd import <connection-string> --collection <name> [--tables <names>|--query <sql>] [--sidecar <url>] [--dry-run] [--list-tables] [--batch-size <n>]
 ```
 
 ### Snapshots
@@ -88,10 +88,11 @@ thingd snapshot restore --in snapshot.thingd.json
 
 ```txt
 thingd backup --out backup.db
+thingd backup --in backup.db
 ```
 
 Creates a consistent snapshot of the SQLite database using `VACUUM INTO`.
-The backup file is a standard SQLite database file.
+The backup file is a standard SQLite database file. Use `--in` to restore from a backup.
 
 ### Database Maintenance
 
@@ -127,6 +128,14 @@ thingd dashboard
 ```
 
 Opens a live browser dashboard at `http://localhost:8758`.
+
+### Metrics
+
+```txt
+thingd metrics
+```
+
+Shows Prometheus-format metrics (objects_total, events_total, etc.).
 
 ## Common Options
 

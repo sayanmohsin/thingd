@@ -262,10 +262,10 @@ thingd does not have built-in zero-downtime upgrade support. Restarting the proc
 ### Is there a health check / observability API?
 
 - `GET /healthz` — basic health check.
+- `GET /v1/health` — health status.
+- `GET /metrics` — Prometheus-format metrics endpoint (objects_total, events_total, etc.).
 - `GET /cluster/status` — cluster health, role, peer info, replication lag.
 - CLI: `thingd doctor`, `thingd metrics`, `thingd status`.
-
-There is no Prometheus/metrics endpoint, no structured logging configuration, and no tracing integration.
 
 ## thingd-cloud
 
@@ -324,7 +324,7 @@ Not built-in. Deploy behind nginx or Caddy for TLS termination. See [Security](.
 
 ### What rate limiting is available?
 
-Per-IP token bucket via `hardening.rate_limit_enabled` (60 req/min default). Returns `429 Too Many Requests`.
+Per-IP token bucket via `hardening.rate_limit_enabled` (300 req/min default). Returns `429 Too Many Requests`.
 
 ### Are errors sanitized in production?
 

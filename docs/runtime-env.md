@@ -42,16 +42,16 @@ When `THINGD_HOST` is a non-loopback host, `THINGD_AUTH_TOKEN` is required.
 ## Hardening
 
 ```txt
-THINGD_RATE_LIMIT_ENABLED=false
-THINGD_RATE_LIMIT_RPM=60
+THINGD_RATE_LIMIT_ENABLED=true
+THINGD_RATE_LIMIT_RPM=300
 THINGD_CORS_ORIGINS=http://localhost:8757
 THINGD_MAX_PAYLOAD_BYTES=524288
 ```
 
 | Var | Default | Description |
 | --- | --- | --- |
-| `THINGD_RATE_LIMIT_ENABLED` | `false` | Enable per-IP rate limiting |
-| `THINGD_RATE_LIMIT_RPM` | `60` | Requests per minute per IP |
+| `THINGD_RATE_LIMIT_ENABLED` | `true` | Enable per-IP rate limiting |
+| `THINGD_RATE_LIMIT_RPM` | `300` | Requests per minute per IP |
 | `THINGD_CORS_ORIGINS` | `http://localhost:8757` | Comma-separated allowed origins. Empty = permissive (`*`) |
 | `THINGD_MAX_PAYLOAD_BYTES` | `524288` (512 KB) | Request body size limit |
 
@@ -74,8 +74,8 @@ auth:
 hardening:
   cors_allowed_origins:
     - "http://localhost:8757"
-  rate_limit_enabled: false
-  rate_limit_requests_per_minute: 60
+  rate_limit_enabled: true
+  rate_limit_requests_per_minute: 300
   max_payload_bytes: 524288
 ```
 

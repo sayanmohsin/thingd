@@ -8,7 +8,7 @@ thingd exposes a REST API on port 8757 (default) under the `/v1` prefix. All req
 
 **CORS:** Configurable via `hardening.cors_allowed_origins`. Default: `http://localhost:8757`.
 
-**Rate Limiting:** Optional per-IP token bucket via `hardening.rate_limit_enabled` (default: disabled).
+**Rate Limiting:** Per-IP token bucket via `hardening.rate_limit_enabled` (default: enabled, 300 rpm).
 
 **Error Mode:** In production mode (`server.production_mode: true`), internal error details are sanitized. See [Error Codes](#error-codes).
 
@@ -41,7 +41,7 @@ thingd exposes a REST API on port 8757 (default) under the `/v1` prefix. All req
 
 ### `GET /v1/health`
 
-Health check with aggregate counts.
+Basic health check.
 
 ```bash
 curl http://localhost:8757/v1/health
@@ -50,19 +50,12 @@ curl http://localhost:8757/v1/health
 ```json
 {
   "data": {
-    "status": "ok",
-    "version": "<current>",
-    "counts": {
-      "objects": 12,
-      "events": 5,
-      "links": 3,
-      "queues": 2,
-      "collections": 2,
-      "streams": 2
-    }
+    "status": "ok"
   }
 }
 ```
+
+> **Note:** Use `GET /v1/counts/objects`, `GET /v1/counts/events`, and `GET /v1/counts/links` for aggregate counts.
 
 ---
 
@@ -243,10 +236,10 @@ curl -X DELETE http://localhost:8757/v1/objects/users/user-001
 ```
 
 ```json
-{ "data": true }
+{ "data": { "deleted": true } }
 ```
 
-Returns `true` even if the object didn't exist (idempotent).
+Returns `deleted: true` even if the object didn't exist (idempotent).
 
 ### `PUT /v1/objects/batch` — Batch upsert
 
@@ -752,12 +745,12 @@ hardening:
 ```yaml
 hardening:
   rate_limit_enabled: true
-  rate_limit_requests_per_minute: 60
+  rate_limit_requests_per_minute: 300
 ```
 
 - Per-IP token bucket (keyed by `X-Forwarded-For` or connection address)
 - Returns `429 Too Many Requests` with `Retry-After` header when exceeded
-- Disabled by default
+- Enabled by default (300 rpm per IP). Set `rate_limit_enabled: false` to disable.
 
 ### Input Validation
 

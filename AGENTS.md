@@ -73,9 +73,9 @@ packages/
 pnpm build                    # build all packages (TypeScript + Rust native)
 pnpm check                    # biome lint
 pnpm check:write              # biome auto-fix
-pnpm test:node                # 61 Node SDK tests
-pnpm test:cli                 # 44 CLI tests
-pnpm test:rust                # cargo test --workspace --all-features (154 tests — 98 engine + 56 server)
+pnpm test:node                # 23 Node SDK tests
+pnpm test:cli                 # 40 CLI tests
+pnpm test:rust                # cargo test --workspace --all-features (143 tests — 94 engine + 49 server)
 pnpm test:local               # check → build → node+cli+package tests
 pnpm bench:rust               # full Rust benchmark (in-memory + sqlite)
 pnpm bench:rust:smoke         # quick Rust benchmark (100 iters)
@@ -163,8 +163,8 @@ After completing thingd work, always check thingd-cloud planning docs:
 
 When `[workspace.package].version` bumps in `Cargo.toml`, path deps with exact version specs must follow:
 ```
-crates/thingd-server/Cargo.toml: thingd = { path = "../thingd", version = "0.47" }
-packages/thingd-native/Cargo.toml: thingd = { path = "../../crates/thingd", version = "0.47" }
+crates/thingd-server/Cargo.toml: thingd = { path = "../thingd", version = "0.48" }
+packages/thingd-native/Cargo.toml: thingd = { path = "../../crates/thingd", version = "0.48" }
 ```
 Search with `rg 'version = "0\.xx"' crates/ packages/` after every version bump.
 

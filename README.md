@@ -581,7 +581,7 @@ Full documentation: [docs/](./docs/)
 - [Node basic](./examples/node-basic) shows the intended SDK shape.
 - [NestJS basic](./examples/nestjs-basic) shows how `thingd` can sit behind a normal NestJS module, service, and controller setup.
 
-Quickstart guide: **[docs/QUICKSTART.md](./docs/QUICKSTART.md)**
+Quickstart guide: **[docs/quickstart.md](./docs/quickstart.md)**
 
 ## Local testing without npm publish
 
