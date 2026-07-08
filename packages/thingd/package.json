@@ -39,19 +39,23 @@
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
+      "import": "./dist/index.js",
+      "require": "./dist/index.js"
     },
     "./client": {
       "types": "./dist/client/index.d.ts",
-      "import": "./dist/client/index.js"
+      "import": "./dist/client/index.js",
+      "require": "./dist/client/index.js"
     },
     "./memory": {
       "types": "./dist/memory/index.d.ts",
-      "import": "./dist/memory/index.js"
+      "import": "./dist/memory/index.js",
+      "require": "./dist/memory/index.js"
     },
     "./types": {
       "types": "./dist/types/index.d.ts",
-      "import": "./dist/types/index.js"
+      "import": "./dist/types/index.js",
+      "require": "./dist/types/index.js"
     }
   },
   "files": [
