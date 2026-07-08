@@ -1,3 +1,9 @@
+## [0.48.1](https://github.com/sayanmohsin/thingd/compare/v0.48.0...v0.48.1) (2026-07-08)
+
+### Bug Fixes
+
+* add require condition to exports for CJS compatibility ([8ad7357](https://github.com/sayanmohsin/thingd/commit/8ad7357892ac16abd446ce58de14478baf24664d))
+
 ## [0.48.0](https://github.com/sayanmohsin/thingd/compare/v0.47.5...v0.48.0) (2026-07-05)
 
 ### Features
