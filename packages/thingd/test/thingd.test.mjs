@@ -714,4 +714,63 @@ function runThingDBehaviorSuite(label, openDb) {
 
     await db.close();
   });
+
+  test(`${label}: aggregate count`, async () => {
+    const db = await openDb();
+
+    await db.put("widgets", { id: "w1", color: "red", price: 10 });
+    await db.put("widgets", { id: "w2", color: "blue", price: 20 });
+    await db.put("widgets", { id: "w3", color: "red", price: 30 });
+
+    const result = await db.aggregate.count("widgets");
+    assert.equal(result.total, 3);
+    assert.equal(result.groups.length, 0);
+
+    await db.close();
+  });
+
+  test(`${label}: aggregate sum`, async () => {
+    const db = await openDb();
+
+    await db.put("items", { id: "a", value: 10 });
+    await db.put("items", { id: "b", value: 20 });
+    await db.put("items", { id: "c", value: 30 });
+
+    const result = await db.aggregate.sum("items", "value");
+    assert.equal(result.total, 60);
+
+    await db.close();
+  });
+
+  test(`${label}: aggregate with groupBy`, async () => {
+    const db = await openDb();
+
+    await db.put("widgets", { id: "w1", color: "red", price: 10 });
+    await db.put("widgets", { id: "w2", color: "blue", price: 20 });
+    await db.put("widgets", { id: "w3", color: "red", price: 30 });
+
+    const result = await db.aggregate.sum("widgets", "price", { groupBy: "color" });
+    assert.equal(result.total, 60);
+    const groups = result.groups.toSorted((a, b) => a.key.localeCompare(b.key));
+    assert.equal(groups.length, 2);
+    assert.equal(groups[0].key, "blue");
+    assert.equal(groups[0].value, 20);
+    assert.equal(groups[1].key, "red");
+    assert.equal(groups[1].value, 40);
+
+    await db.close();
+  });
+
+  test(`${label}: timeseries aggregation`, async () => {
+    const db = await openDb();
+
+    await db.put("events", { id: "e1", value: 1 });
+    await db.put("events", { id: "e2", value: 2 });
+
+    const result = await db.timeseries("events", { function: "count", bucket: "day" });
+    assert.equal(result.buckets.length, 1);
+    assert.equal(result.buckets[0].value, 2);
+
+    await db.close();
+  });
 }

@@ -36,6 +36,8 @@ pub fn build_router(state: Arc<AppState>, config: &Config) -> Router {
         .route("/v1/counts/links", get(rest::count_links))
         // Collections / Streams / Queues
         .route("/v1/collections", get(rest::list_collections))
+        .route("/v1/collections/schema", get(rest::list_schemas))
+        .route("/v1/collections/{name}/schema", get(rest::get_schema))
         .route("/v1/streams", get(rest::list_streams))
         .route("/v1/queues", get(rest::list_queues))
         // Objects
@@ -44,6 +46,9 @@ pub fn build_router(state: Arc<AppState>, config: &Config) -> Router {
         .route("/v1/objects/{collection}/{id}", put(rest::put_object).get(rest::get_object).delete(rest::delete_object))
         // Search
         .route("/v1/search", post(rest::search))
+        // Aggregate
+        .route("/v1/aggregate", post(rest::aggregate))
+        .route("/v1/aggregate/timeseries", post(rest::timeseries))
         // Events
         .route("/v1/events/{stream}", post(rest::append_event))
         .route("/v1/events", get(rest::list_events))

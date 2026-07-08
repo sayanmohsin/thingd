@@ -73,7 +73,7 @@ const neighbors = await db.links.neighbors("doc-1", "outgoing");
 
 ### MCP — tool access for AI agents
 
-All primitives are exposed as MCP tools (27 total)
+All primitives are exposed as MCP tools (29 total)
 so AI agents can search, read, write, and manage data without custom
 integrations. MCP is one access layer — not the product.
 

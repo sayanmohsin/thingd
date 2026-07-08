@@ -713,6 +713,136 @@ pub async fn search(
         .map_err(|e| AppError::internal(e.to_string()))?)
 }
 
+// ─── Aggregate ──────────────────────────────────────────────────
+
+pub async fn aggregate(
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, AppError> {
+    let collection = body["collection"]
+        .as_str()
+        .ok_or_else(|| AppError::bad_request("Missing 'collection'"))?;
+    let function_str = body["function"]
+        .as_str()
+        .ok_or_else(|| AppError::bad_request("Missing 'function'"))?;
+    let function = match function_str {
+        "sum" => AggregateFunction::Sum,
+        "avg" => AggregateFunction::Avg,
+        "min" => AggregateFunction::Min,
+        "max" => AggregateFunction::Max,
+        _ => AggregateFunction::Count,
+    };
+    let field = body.get("field").and_then(|v| v.as_str()).map(String::from);
+    let group_by = body.get("groupBy").and_then(|v| v.as_str()).map(String::from);
+    let filter = body
+        .get("filter")
+        .and_then(|v| v.as_object())
+        .map(|obj| {
+            obj.iter()
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+
+    let opts = AggregateOptions {
+        function,
+        field,
+        filter,
+        group_by,
+    };
+
+    let e = state.pool.get_reader("");
+    let g = e.lock();
+    ok(g.aggregate(collection, &opts)
+        .map_err(|e| AppError::internal(e.to_string()))?)
+}
+
+pub async fn timeseries(
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, AppError> {
+    let collection = body["collection"]
+        .as_str()
+        .ok_or_else(|| AppError::bad_request("Missing 'collection'"))?;
+    let function_str = body["function"]
+        .as_str()
+        .ok_or_else(|| AppError::bad_request("Missing 'function'"))?;
+    let function = match function_str {
+        "sum" => AggregateFunction::Sum,
+        "avg" => AggregateFunction::Avg,
+        "min" => AggregateFunction::Min,
+        "max" => AggregateFunction::Max,
+        _ => AggregateFunction::Count,
+    };
+    let bucket_str = body["bucket"]
+        .as_str()
+        .ok_or_else(|| AppError::bad_request("Missing 'bucket'"))?;
+    let bucket = match bucket_str {
+        "hour" => TimeBucket::Hour,
+        "week" => TimeBucket::Week,
+        "month" => TimeBucket::Month,
+        _ => TimeBucket::Day,
+    };
+    let field = body.get("field").and_then(|v| v.as_str()).map(String::from);
+    let filter = body
+        .get("filter")
+        .and_then(|v| v.as_object())
+        .map(|obj| {
+            obj.iter()
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    let from = body.get("from").and_then(|v| v.as_str()).map(String::from);
+    let to = body.get("to").and_then(|v| v.as_str()).map(String::from);
+
+    let opts = TimeSeriesOptions {
+        function,
+        bucket,
+        field,
+        filter,
+        from,
+        to,
+    };
+
+    let e = state.pool.get_reader("");
+    let g = e.lock();
+    ok(g.timeseries(collection, &opts)
+        .map_err(|e| AppError::internal(e.to_string()))?)
+}
+
+// ─── Schema ────────────────────────────────────────────────────
+
+pub async fn list_schemas(
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<Value>, AppError> {
+    use thingd::SchemaOptions;
+    let e = state.pool.get_reader("");
+    let g = e.lock();
+    let schemas = g
+        .schema(None, &SchemaOptions::default())
+        .map_err(|e| AppError::internal(e.to_string()))?;
+    ok(schemas)
+}
+
+pub async fn get_schema(
+    State(state): State<Arc<AppState>>,
+    Path(collection): Path<String>,
+) -> Result<Json<Value>, AppError> {
+    use thingd::SchemaOptions;
+    let e = state.pool.get_reader("");
+    let g = e.lock();
+    let schemas = g
+        .schema(Some(&collection), &SchemaOptions::default())
+        .map_err(|e| AppError::internal(e.to_string()))?;
+    match schemas.into_iter().next() {
+        Some(schema) => ok(schema),
+        None => Err(AppError::not_found(format!(
+            "Collection '{collection}' not found or has no objects"
+        ))),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1495,5 +1625,123 @@ mod tests {
         let json: Value = serde_json::from_slice(&bytes).unwrap();
         let arr = json["data"].as_array().unwrap();
         assert!(arr.contains(&Value::String("file".to_string())));
+    }
+
+    #[tokio::test]
+    async fn test_aggregate_count() {
+        let (state, config) = test_state_and_config();
+        let app = crate::server::build_router(state, &config);
+
+        // Seed some objects
+        for i in 0..5 {
+            let body = format!(r#"{{"id":"obj{i}","value":{i}}}"#);
+            app.clone()
+                .oneshot(
+                    Request::builder()
+                        .method("PUT")
+                        .uri(format!("/v1/objects/test/obj{i}"))
+                        .header("content-type", "application/json")
+                        .body(Body::from(body))
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+        }
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/aggregate")
+                    .header("content-type", "application/json")
+                    .body(Body::from(r#"{"collection":"test","function":"count"}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let bytes = response.into_body().collect().await.unwrap().to_bytes();
+        let json: Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(json["data"]["total"], 5.0);
+    }
+
+    #[tokio::test]
+    async fn test_aggregate_sum() {
+        let (state, config) = test_state_and_config();
+        let app = crate::server::build_router(state, &config);
+
+        for i in 0..5 {
+            let body = format!(r#"{{"id":"obj{i}","value":{i}}}"#);
+            app.clone()
+                .oneshot(
+                    Request::builder()
+                        .method("PUT")
+                        .uri(format!("/v1/objects/test/obj{i}"))
+                        .header("content-type", "application/json")
+                        .body(Body::from(body))
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+        }
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/aggregate")
+                    .header("content-type", "application/json")
+                    .body(Body::from(r#"{"collection":"test","function":"sum","field":"value"}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let bytes = response.into_body().collect().await.unwrap().to_bytes();
+        let json: Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(json["data"]["total"], 10.0);
+    }
+
+    #[tokio::test]
+    async fn test_aggregate_timeseries() {
+        let (state, config) = test_state_and_config();
+        let app = crate::server::build_router(state, &config);
+
+        // Seed objects with different timestamps
+        let objects = vec![
+            r#"{"id":"obj1","value":1,"createdAt":"2026-01-01T12:00:00Z"}"#,
+            r#"{"id":"obj2","value":2,"createdAt":"2026-01-02T12:00:00Z"}"#,
+            r#"{"id":"obj3","value":3,"createdAt":"2026-01-03T12:00:00Z"}"#,
+        ];
+        for obj in objects {
+            app.clone()
+                .oneshot(
+                    Request::builder()
+                        .method("PUT")
+                        .uri("/v1/objects/test/obj")
+                        .header("content-type", "application/json")
+                        .body(Body::from(obj))
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+        }
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/aggregate/timeseries")
+                    .header("content-type", "application/json")
+                    .body(
+                        Body::from(
+                            r#"{"collection":"test","function":"count","bucket":"day"}"#,
+                        ),
+                    )
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
     }
 }

@@ -790,6 +790,122 @@ export function registerThingdTools(
     },
     async () => jsonResult(await db.countLinks())
   );
+
+  server.registerTool(
+    "thing_aggregate",
+    {
+      title: "Aggregate Objects",
+      description:
+        "Run aggregate queries on objects in a collection. Supports count, sum, avg, min, max with optional groupBy and filter.",
+      inputSchema: {
+        collection: z.string().min(1),
+        function: z.enum(["count", "sum", "avg", "min", "max"]),
+        field: z.string().min(1).optional(),
+        groupBy: z.string().min(1).optional(),
+        filter: z.record(z.string(), z.unknown()).optional(),
+        ...auditInputSchema,
+      },
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async ({ collection, function: fn, field, groupBy, filter, actor, source }) => {
+      assertCollectionAllowed(collection);
+      let result;
+      switch (fn) {
+        case "sum":
+          result = await db.aggregate.sum(collection, field ?? "", { groupBy, filter });
+          break;
+        case "avg":
+          result = await db.aggregate.avg(collection, field ?? "", { groupBy, filter });
+          break;
+        case "min":
+          result = await db.aggregate.min(collection, field ?? "", { groupBy, filter });
+          break;
+        case "max":
+          result = await db.aggregate.max(collection, field ?? "", { groupBy, filter });
+          break;
+        default:
+          result = await db.aggregate.count(collection, { groupBy, filter });
+          break;
+      }
+      await appendMcpAuditEvent(db, audit, {
+        action: "thing_aggregate",
+        target: { collection, function: fn },
+        metadata: { actor, source },
+      });
+      return jsonResult(result);
+    }
+  );
+
+  server.registerTool(
+    "thing_timeseries",
+    {
+      title: "Time Series Aggregation",
+      description:
+        "Run time-series aggregation on objects. Buckets objects by hour/day/week/month and applies an aggregate function.",
+      inputSchema: {
+        collection: z.string().min(1),
+        function: z.enum(["count", "sum", "avg", "min", "max"]),
+        bucket: z.enum(["hour", "day", "week", "month"]),
+        field: z.string().min(1).optional(),
+        filter: z.record(z.string(), z.unknown()).optional(),
+        from: z.string().optional(),
+        to: z.string().optional(),
+        ...auditInputSchema,
+      },
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async ({ collection, function: fn, bucket, field, filter, from, to, actor, source }) => {
+      assertCollectionAllowed(collection);
+      const result = await db.timeseries(collection, {
+        function: fn,
+        bucket,
+        field,
+        filter,
+        from,
+        to,
+      });
+      await appendMcpAuditEvent(db, audit, {
+        action: "thing_timeseries",
+        target: { collection, function: fn, bucket },
+        metadata: { actor, source },
+      });
+      return jsonResult(result);
+    }
+  );
+
+  server.registerTool(
+    "thing_schema",
+    {
+      title: "Reflect Schema",
+      description:
+        "Reflect the schema of one or all collections by sampling stored objects. Returns inferred field names, types, and sample values.",
+      inputSchema: {
+        collection: z.string().min(1).optional(),
+      },
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async ({ collection }) => {
+      if (collection) {
+        assertCollectionAllowed(collection);
+      }
+      return jsonResult(await db.schema(collection));
+    }
+  );
 }
 
 function auditMetadata(

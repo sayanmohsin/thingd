@@ -1,6 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { createRequire } from "node:module";
 import type {
+  AggregateOptions,
+  AggregateResult,
+  CollectionSchema,
   ListEventsOptions,
   ListObjectsOptions,
   MemoryEvent,
@@ -14,10 +17,13 @@ import type {
   QueueJobPayload,
   QueueJobResult,
   QueueNackOptions,
+  SchemaOptions,
   StoredMemoryEvent,
   StoredMemoryObject,
   ThingDeleteResult,
   ThingStore,
+  TimeSeriesOptions,
+  TimeSeriesResult,
 } from "../types.js";
 
 type NativeThingStoreBinding = {
@@ -70,6 +76,23 @@ type NativeThingStoreBinding = {
   appendEventsBatchJson(eventsJson: string): string;
   pushJobsBatchJson(jobsJson: string): string;
   deleteObjectsBatchJson(keysJson: string): number;
+  aggregateJson(
+    collection: string,
+    function_: string,
+    field?: string,
+    groupBy?: string,
+    filterJson?: string
+  ): string;
+  timeseriesJson(
+    collection: string,
+    function_: string,
+    field?: string,
+    bucket?: string,
+    from?: string,
+    to?: string,
+    filterJson?: string
+  ): string;
+  schemaJson(collection?: string, sampleSize?: number): string;
   walCheckpoint(): string;
   backupTo(path: string): void;
 };
@@ -451,6 +474,47 @@ export class NativeThingStore implements ThingStore {
 
   async listQueues(): Promise<string[]> {
     return parseJson<string[]>(await this.binding.listQueuesJson());
+  }
+
+  async aggregate(
+    collection: string,
+    options: AggregateOptions
+  ): Promise<AggregateResult> {
+    const filterJson = serializeFilter(options.filter);
+    return parseJson<AggregateResult>(
+      this.binding.aggregateJson(
+        collection,
+        options.function,
+        options.field,
+        options.groupBy,
+        filterJson
+      )
+    );
+  }
+
+  async timeseries(
+    collection: string,
+    options: TimeSeriesOptions
+  ): Promise<TimeSeriesResult> {
+    const filterJson = serializeFilter(options.filter);
+    return parseJson<TimeSeriesResult>(
+      this.binding.timeseriesJson(
+        collection,
+        options.function,
+        options.field,
+        options.bucket,
+        options.from,
+        options.to,
+        filterJson
+      )
+    );
+  }
+
+  async schema(collection?: string, options?: SchemaOptions): Promise<CollectionSchema[]> {
+    const sampleSize = options?.sampleSize ?? 50;
+    return parseJson<CollectionSchema[]>(
+      this.binding.schemaJson(collection, sampleSize)
+    );
   }
 }
 

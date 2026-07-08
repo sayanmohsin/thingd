@@ -180,6 +180,62 @@ export type PutOptions = {
   expectedVersion?: number;
 };
 
+export type AggregateFunction = "count" | "sum" | "avg" | "min" | "max";
+
+export type AggregateOptions = {
+  function: AggregateFunction;
+  field?: string;
+  groupBy?: string;
+  filter?: Record<string, unknown>;
+};
+
+export type AggregateGroupResult = {
+  key: string;
+  value: number;
+};
+
+export type AggregateResult = {
+  total: number;
+  groups: AggregateGroupResult[];
+};
+
+export type TimeBucket = "hour" | "day" | "week" | "month";
+
+export type TimeSeriesOptions = {
+  function: AggregateFunction;
+  field?: string;
+  bucket: TimeBucket;
+  from?: string;
+  to?: string;
+  filter?: Record<string, unknown>;
+};
+
+export type TimeSeriesBucket = {
+  label: string;
+  value: number;
+};
+
+export type TimeSeriesResult = {
+  buckets: TimeSeriesBucket[];
+};
+
+export type FieldSchema = {
+  name: string;
+  type: string;
+  nullable: boolean;
+  sampleValues: unknown[];
+};
+
+export type CollectionSchema = {
+  name: string;
+  objectCount: number;
+  fields: FieldSchema[];
+};
+
+export type SchemaOptions = {
+  sampleSize?: number;
+};
+
 /**
  * Typed interface for a thingd database connection returned by `ThingD.open()`.
  * Consumers can use this for type-safe dependency injection instead of `any`:
@@ -238,6 +294,15 @@ export interface ThingDConnection {
     auth?: ConnectorAuth
   ): Promise<ConnectorSchema>;
   connectorSync(type: string, options: ConnectorSyncOptions): Promise<ConnectorSyncResult>;
+  schema(collection?: string, options?: SchemaOptions): Promise<CollectionSchema[]>;
+  readonly aggregate: {
+    count(collection: string, options?: Omit<AggregateOptions, "function">): Promise<AggregateResult>;
+    sum(collection: string, field: string, options?: Omit<AggregateOptions, "function" | "field">): Promise<AggregateResult>;
+    avg(collection: string, field: string, options?: Omit<AggregateOptions, "function" | "field">): Promise<AggregateResult>;
+    min(collection: string, field: string, options?: Omit<AggregateOptions, "function" | "field">): Promise<AggregateResult>;
+    max(collection: string, field: string, options?: Omit<AggregateOptions, "function" | "field">): Promise<AggregateResult>;
+  };
+  timeseries(collection: string, options: TimeSeriesOptions): Promise<TimeSeriesResult>;
 }
 
 export interface ThingStore {
@@ -288,6 +353,15 @@ export interface ThingStore {
     auth?: ConnectorAuth
   ): Promise<ConnectorSchema>;
   connectorSync?(type: string, options: ConnectorSyncOptions): Promise<ConnectorSyncResult>;
+  aggregate?(
+    collection: string,
+    options: AggregateOptions
+  ): Promise<AggregateResult>;
+  timeseries?(
+    collection: string,
+    options: TimeSeriesOptions
+  ): Promise<TimeSeriesResult>;
+  schema?(collection?: string, options?: SchemaOptions): Promise<CollectionSchema[]>;
   close?(): Promise<void>;
   backupTo?(path: string): void;
   walCheckpoint?(): { framesBefore: number; framesAfter: number };

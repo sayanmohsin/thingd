@@ -1,6 +1,9 @@
 //! Storage traits implemented by thingd storage adapters.
 
-use crate::model::{ListEventsOptions, ListObjectsOptions, PutObjectOptions};
+use crate::model::{
+    AggregateOptions, AggregateResult, CollectionSchema, ListEventsOptions, ListObjectsOptions,
+    PutObjectOptions, SchemaOptions, TimeSeriesOptions, TimeSeriesResult,
+};
 use crate::{
     MemoryEvent, MemoryObject, QueueClaimOptions, QueueJob, QueueNackOptions, ThingdError,
     ThingdResult,
@@ -137,6 +140,17 @@ pub trait ObjectStore {
     ///
     /// Returns an error when the backing store cannot list collections.
     fn list_collections(&self) -> ThingdResult<Vec<String>>;
+
+    /// Reflect the schema of all or one collection by sampling stored objects.
+    ///
+    /// Returns inferred field names, types, and sample values. When `collection`
+    /// is `None`, returns schemas for all collections. When `Some(name)`, returns
+    /// the schema for that collection or an empty vec if not found.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the backing store cannot read objects.
+    fn schema(&self, collection: Option<&str>, options: &SchemaOptions) -> ThingdResult<Vec<CollectionSchema>>;
 }
 
 /// Append-only event log operations.
@@ -470,7 +484,38 @@ pub trait LinkStore {
     fn count_links(&self) -> ThingdResult<u64>;
 }
 
-/// Full storage interface expected from thingd engine adapters.
-pub trait ThingStore: EventLog + ObjectStore + QueueStore + Searcher + LinkStore {}
+/// Aggregation operations.
+pub trait AggregateStore {
+    /// Run a general aggregation query over objects in a collection.
+    ///
+    /// Supports count, sum, avg, min, max with optional group_by.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the aggregation query fails.
+    fn aggregate(
+        &self,
+        collection: &str,
+        options: &AggregateOptions,
+    ) -> ThingdResult<AggregateResult>;
 
-impl<T> ThingStore for T where T: EventLog + ObjectStore + QueueStore + Searcher + LinkStore {}
+    /// Run a time-bucketed aggregation query.
+    ///
+    /// Groups objects by hour/day/week/month and applies an aggregation function.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the time-series query fails.
+    fn timeseries(
+        &self,
+        collection: &str,
+        options: &TimeSeriesOptions,
+    ) -> ThingdResult<TimeSeriesResult>;
+}
+
+/// Full storage interface expected from thingd engine adapters.
+pub trait ThingStore: EventLog + ObjectStore + QueueStore + Searcher + LinkStore + AggregateStore {}
+
+impl<T> ThingStore for T where
+    T: EventLog + ObjectStore + QueueStore + Searcher + LinkStore + AggregateStore
+{}

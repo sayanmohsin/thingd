@@ -221,6 +221,55 @@ The job has reached a terminal state and cannot be acked or nacked again.
 }
 ```
 
+---
+
+### `invalid_aggregate`
+
+**HTTP 400** — Invalid aggregation request.
+
+| Scenario | Example |
+|----------|---------|
+| Unknown function | `"function": "median"` (not supported) |
+| Missing field | `"function": "sum"` without `"field"` |
+| Unknown bucket | `"bucket": "quarter"` (not supported) |
+| Unknown groupBy field | Group by non-existent field |
+
+**Example response:**
+```json
+{
+  "error": {
+    "type": "invalid_aggregate",
+    "title": "Invalid Aggregation",
+    "status": 400,
+    "detail": "Unknown aggregation function 'median'"
+  }
+}
+```
+
+---
+
+### `invalid_time_bucket`
+
+**HTTP 400** — Invalid time bucket size or time range.
+
+| Scenario | Example |
+|----------|---------|
+| Unsupported bucket | `"bucket": "quarter"` |
+| Invalid time range | `from` after `to` |
+| Invalid ISO 8601 | Malformed `from` or `to` timestamp |
+
+**Example response:**
+```json
+{
+  "error": {
+    "type": "invalid_time_bucket",
+    "title": "Invalid Time Bucket",
+    "status": 400,
+    "detail": "Unsupported bucket size 'quarter'. Use: hour, day, week, month"
+  }
+}
+```
+
 ## Queue-Specific Errors
 
 Queue operations (`ack`, `nack`) return a discriminated union instead of throwing:

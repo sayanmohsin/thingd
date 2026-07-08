@@ -70,14 +70,17 @@ pub use connectors::{MysqlConnector, PostgresConnector};
 pub use error::{ThingdError, ThingdResult};
 pub use in_memory::MemoryEngine;
 pub use model::{
-    DEFAULT_QUEUE_LEASE_MS, Link, LinkDirection, LinkQueryOptions, ListEventsOptions,
-    ListObjectsOptions, MemoryEvent, MemoryObject, ObjectKey, PutObjectOptions, QueueClaimOptions,
-    QueueJob, QueueJobStatus, QueueNackOptions, SearchHit, SearchOptions, SortBy, SortDirection,
+    AggregateFunction, AggregateGroupResult, AggregateOptions, AggregateResult,
+    CollectionSchema, DEFAULT_QUEUE_LEASE_MS, FieldSchema, Link, LinkDirection, LinkQueryOptions,
+    ListEventsOptions, ListObjectsOptions, MemoryEvent, MemoryObject, ObjectKey,
+    PutObjectOptions, QueueClaimOptions, QueueJob, QueueJobStatus, QueueNackOptions, SchemaOptions,
+    SearchHit, SearchOptions, SortBy, SortDirection, TimeBucket, TimeSeriesBucket,
+    TimeSeriesOptions, TimeSeriesResult,
 };
 #[cfg(feature = "sqlite")]
 #[cfg_attr(docsrs, doc(cfg(feature = "sqlite")))]
 pub use sqlite::{SQLITE_SCHEMA_VERSION, SqliteThingStore};
-pub use store::{EventLog, LinkStore, ObjectStore, QueueStore, Searcher, ThingStore};
+pub use store::{AggregateStore, EventLog, LinkStore, ObjectStore, QueueStore, Searcher, ThingStore};
 
 pub(crate) fn unix_timestamp_millis() -> i64 {
     let Ok(duration) = SystemTime::now().duration_since(UNIX_EPOCH) else {

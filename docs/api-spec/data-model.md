@@ -246,6 +246,115 @@ Annotation metadata for NLQ schema context.
 
 ---
 
+## Aggregate Types
+
+### AggregateFunction
+
+Available aggregation functions.
+
+| Value | Description |
+|-------|-------------|
+| `"count"` | Count objects (field ignored) |
+| `"sum"` | Sum of numeric field values |
+| `"avg"` | Average of numeric field values |
+| `"min"` | Minimum of field values |
+| `"max"` | Maximum of field values |
+
+### AggregateOptions
+
+Options for `POST /v1/aggregate` and `thing_aggregate` MCP tool.
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `collection` | string | yes | Collection to aggregate over |
+| `function` | AggregateFunction | yes | Aggregation function |
+| `field` | string | no | Field to aggregate (required for sum/avg/min/max, ignored for count) |
+| `groupBy` | string | no | Group results by this field |
+| `filter` | object | no | Key-value pairs to filter objects before aggregation |
+
+### AggregateResult
+
+Result of an aggregation query.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `total` | number | Total across all groups (or single result if no groupBy) |
+| `groups` | AggregateGroupResult[] | Per-group results (empty if no groupBy) |
+
+### AggregateGroupResult
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `key` | string | Group key (the field value) |
+| `value` | number | Aggregated value for this group |
+
+### TimeBucket
+
+Available time bucket sizes.
+
+| Value | Description |
+|-------|-------------|
+| `"hour"` | Group by hour |
+| `"day"` | Group by day |
+| `"week"` | Group by week |
+| `"month"` | Group by month |
+
+### TimeSeriesOptions
+
+Options for `POST /v1/aggregate/timeseries` and `thing_timeseries` MCP tool.
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `collection` | string | yes | Collection to aggregate over |
+| `function` | AggregateFunction | yes | Aggregation function |
+| `field` | string | no | Field to aggregate (ignored for count) |
+| `bucket` | TimeBucket | yes | Time bucket size |
+| `from` | string | no | Start of time range (ISO 8601) |
+| `to` | string | no | End of time range (ISO 8601) |
+| `filter` | object | no | Key-value pairs to filter objects before aggregation |
+
+### TimeSeriesResult
+
+Result of a time-series aggregation query.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `buckets` | TimeSeriesBucket[] | Ordered time buckets |
+
+### TimeSeriesBucket
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `label` | string | Bucket label (ISO 8601 truncated to bucket granularity) |
+| `value` | number | Aggregated value for this bucket |
+
+---
+
+## Schema Types
+
+### FieldSchema
+
+Inferred field metadata for a collection, used by NLQ schema reflection.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `name` | string | Field name |
+| `type` | string | `"string"` \| `"number"` \| `"boolean"` \| `"date"` \| `"null"` \| `"unknown"` |
+| `nullable` | boolean | Whether the field is absent or null in sampled objects |
+| `sampleValues` | array | Example values from sampled objects (may be empty) |
+
+### CollectionSchema
+
+Reflected schema for a collection.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `name` | string | Collection name |
+| `objectCount` | number | Total number of objects in the collection |
+| `fields` | FieldSchema[] | Inferred fields from sampled objects |
+
+---
+
 ## Supporting Types
 
 ### SortBy

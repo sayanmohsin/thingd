@@ -16,6 +16,7 @@ type RouteMatch = {
   id?: string;
   queue?: string;
   stream?: string;
+  name?: string;
 };
 
 function matchRoute(pathname: string, pattern: string): RouteMatch | null {
@@ -94,6 +95,30 @@ export async function handleRestRequest(
       sendDataList(res, await db.listCollections());
       return;
     }
+
+    // GET /v1/collections/schema — all schemas
+    if (pathname === "/v1/collections/schema" && method === "GET") {
+      sendDataList(res, await db.schema());
+      return;
+    }
+
+    // GET /v1/collections/:name/schema — single schema
+    const schemaMatch = matchRoute(pathname, "/v1/collections/:name/schema");
+    if (schemaMatch?.name && method === "GET") {
+      const schemas = await db.schema(schemaMatch.name);
+      if (schemas.length === 0) {
+        sendError(
+          res,
+          404,
+          "not_found",
+          `Collection '${schemaMatch.name}' not found or has no objects`
+        );
+        return;
+      }
+      sendData(res, schemas[0]);
+      return;
+    }
+
     if (pathname === "/v1/streams" && method === "GET") {
       sendDataList(res, await db.listStreams());
       return;
@@ -202,6 +227,64 @@ export async function handleRestRequest(
         filter: body.filter,
       });
       sendData(res, results);
+      return;
+    }
+
+    // ─── Aggregate ──────────────────────────────────────────────
+    if (pathname === "/v1/aggregate" && method === "POST") {
+      const body = JSON.parse(await readBody(req));
+      if (!body.collection) {
+        sendError(res, 400, "bad_request", "Field 'collection' is required");
+        return;
+      }
+      if (!body.function) {
+        sendError(res, 400, "bad_request", "Field 'function' is required");
+        return;
+      }
+      let result;
+      switch (body.function) {
+        case "sum":
+          result = await db.aggregate.sum(body.collection, body.field ?? "", { groupBy: body.groupBy, filter: body.filter });
+          break;
+        case "avg":
+          result = await db.aggregate.avg(body.collection, body.field ?? "", { groupBy: body.groupBy, filter: body.filter });
+          break;
+        case "min":
+          result = await db.aggregate.min(body.collection, body.field ?? "", { groupBy: body.groupBy, filter: body.filter });
+          break;
+        case "max":
+          result = await db.aggregate.max(body.collection, body.field ?? "", { groupBy: body.groupBy, filter: body.filter });
+          break;
+        default:
+          result = await db.aggregate.count(body.collection, { groupBy: body.groupBy, filter: body.filter });
+          break;
+      }
+      sendData(res, result);
+      return;
+    }
+    if (pathname === "/v1/aggregate/timeseries" && method === "POST") {
+      const body = JSON.parse(await readBody(req));
+      if (!body.collection) {
+        sendError(res, 400, "bad_request", "Field 'collection' is required");
+        return;
+      }
+      if (!body.function) {
+        sendError(res, 400, "bad_request", "Field 'function' is required");
+        return;
+      }
+      if (!body.bucket) {
+        sendError(res, 400, "bad_request", "Field 'bucket' is required");
+        return;
+      }
+      const result = await db.timeseries(body.collection, {
+        function: body.function,
+        bucket: body.bucket,
+        field: body.field,
+        filter: body.filter,
+        from: body.from,
+        to: body.to,
+      });
+      sendData(res, result);
       return;
     }
 

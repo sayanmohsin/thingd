@@ -436,3 +436,170 @@ pub enum LinkDirection {
     #[default]
     Both,
 }
+
+/// Aggregation function to apply.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum AggregateFunction {
+    /// Count objects (field ignored).
+    #[default]
+    Count,
+    /// Sum of numeric field values.
+    Sum,
+    /// Average of numeric field values.
+    Avg,
+    /// Minimum of field values.
+    Min,
+    /// Maximum of field values.
+    Max,
+}
+
+impl AggregateFunction {
+    /// Return the SQL function name for this aggregate.
+    pub fn sql_func(&self) -> &str {
+        match self {
+            Self::Count => "COUNT(*)",
+            Self::Sum => "SUM",
+            Self::Avg => "AVG",
+            Self::Min => "MIN",
+            Self::Max => "MAX",
+        }
+    }
+}
+
+/// Options for a general aggregation query.
+#[derive(Clone, Debug, Default, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AggregateOptions {
+    /// Filter key-value pairs: only matching objects are aggregated.
+    pub filter: Vec<(String, serde_json::Value)>,
+    /// Group results by this top-level body field.
+    pub group_by: Option<String>,
+    /// Aggregation function to apply.
+    pub function: AggregateFunction,
+    /// Field to aggregate (required for sum/avg/min/max, ignored for count).
+    pub field: Option<String>,
+}
+
+/// Result of an aggregation query.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AggregateResult {
+    /// Total across all groups (or the single result if no group_by).
+    pub total: f64,
+    /// Per-group results (empty if no group_by).
+    pub groups: Vec<AggregateGroupResult>,
+}
+
+/// A single group result from aggregation.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AggregateGroupResult {
+    /// Group key (the field value).
+    pub key: String,
+    /// Aggregated value for this group.
+    pub value: f64,
+}
+
+/// Time bucket size for time-series aggregation.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum TimeBucket {
+    /// Group by hour.
+    Hour,
+    /// Group by day.
+    #[default]
+    Day,
+    /// Group by week.
+    Week,
+    /// Group by month.
+    Month,
+}
+
+impl TimeBucket {
+    /// Return the SQLite strftime format for this bucket.
+    pub fn strftime_format(&self) -> &str {
+        match self {
+            Self::Hour => "%Y-%m-%dT%H:00:00Z",
+            Self::Day => "%Y-%m-%d",
+            Self::Week => "%Y-W%W",
+            Self::Month => "%Y-%m",
+        }
+    }
+}
+
+/// Options for a time-series aggregation query.
+#[derive(Clone, Debug, Default, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TimeSeriesOptions {
+    /// Filter key-value pairs: only matching objects are aggregated.
+    pub filter: Vec<(String, serde_json::Value)>,
+    /// Time bucket size.
+    pub bucket: TimeBucket,
+    /// Aggregation function to apply.
+    pub function: AggregateFunction,
+    /// Field to aggregate (ignored for count).
+    pub field: Option<String>,
+    /// Start of time range (ISO 8601).
+    pub from: Option<String>,
+    /// End of time range (ISO 8601).
+    pub to: Option<String>,
+}
+
+/// Result of a time-series aggregation query.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TimeSeriesResult {
+    /// Ordered time buckets.
+    pub buckets: Vec<TimeSeriesBucket>,
+}
+
+/// A single time bucket from time-series aggregation.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TimeSeriesBucket {
+    /// Bucket label (ISO 8601 truncated to bucket granularity).
+    pub label: String,
+    /// Aggregated value for this bucket.
+    pub value: f64,
+}
+
+/// Inferred field metadata for a collection.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FieldSchema {
+    /// Field name.
+    pub name: String,
+    /// Inferred data type: `"string"`, `"number"`, `"boolean"`, `"date"`, `"null"`, or `"unknown"`.
+    pub field_type: String,
+    /// Whether the field is absent or null in sampled objects.
+    pub nullable: bool,
+    /// Example values from sampled objects (may be empty).
+    pub sample_values: Vec<serde_json::Value>,
+}
+
+/// Reflected schema for a collection.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CollectionSchema {
+    /// Collection name.
+    pub name: String,
+    /// Total number of objects in the collection.
+    pub object_count: u64,
+    /// Inferred fields from sampled objects.
+    pub fields: Vec<FieldSchema>,
+}
+
+/// Options for schema reflection.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SchemaOptions {
+    /// Number of objects to sample for type inference (default 50).
+    pub sample_size: Option<usize>,
+}
+
+impl Default for SchemaOptions {
+    fn default() -> Self {
+        Self { sample_size: Some(50) }
+    }
+}

@@ -10,9 +10,11 @@ use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 
 use crate::model::{ListEventsOptions, ListObjectsOptions};
 use crate::{
-    EventLog, MemoryEvent, MemoryObject, ObjectKey, ObjectStore, QueueClaimOptions, QueueJob,
-    QueueJobStatus, QueueNackOptions, QueueStore, ThingdError, ThingdResult, u64_to_i64,
-    unix_timestamp_millis,
+    AggregateFunction, AggregateGroupResult, AggregateOptions, AggregateResult, CollectionSchema,
+    EventLog, FieldSchema, MemoryEvent, MemoryObject, ObjectKey, ObjectStore,
+    QueueClaimOptions, QueueJob, QueueJobStatus, QueueNackOptions, QueueStore, SchemaOptions,
+    ThingdError, ThingdResult, TimeSeriesBucket, TimeSeriesOptions, TimeSeriesResult,
+    u64_to_i64, unix_timestamp_millis,
 };
 
 /// Current `SQLite` schema version.
@@ -924,6 +926,116 @@ impl ObjectStore for SqliteThingStore {
             collections.push(row.map_err(ThingdError::from)?);
         }
         Ok(collections)
+    }
+
+    fn schema(
+        &self,
+        collection: Option<&str>,
+        options: &SchemaOptions,
+    ) -> ThingdResult<Vec<CollectionSchema>> {
+        let sample_size = options.sample_size.unwrap_or(50);
+
+        let collections: Vec<String> = match collection {
+            Some(name) => vec![name.to_string()],
+            None => {
+                let mut stmt = self
+                    .connection
+                    .prepare("SELECT DISTINCT collection FROM objects ORDER BY collection")
+                    .map_err(ThingdError::from)?;
+                let rows = stmt
+                    .query_map([], |row| row.get::<_, String>(0))
+                    .map_err(ThingdError::from)?;
+                let mut cols = Vec::new();
+                for row in rows {
+                    cols.push(row.map_err(ThingdError::from)?);
+                }
+                cols
+            },
+        };
+
+        let mut schemas = Vec::new();
+        for col in &collections {
+            // Get object count
+            let object_count: u64 = self
+                .connection
+                .query_row(
+                    "SELECT COUNT(*) FROM objects WHERE collection = ?1",
+                    [col],
+                    |row| row.get::<_, i64>(0),
+                )
+                .map_err(ThingdError::from)?
+                as u64;
+
+            if object_count == 0 {
+                continue;
+            }
+
+            // Sample objects
+            let mut stmt = self
+                .connection
+                .prepare(
+                    "SELECT body FROM objects WHERE collection = ?1 LIMIT ?2",
+                )
+                .map_err(ThingdError::from)?;
+
+            let rows = stmt
+                .query_map(rusqlite::params![col, sample_size as i64], |row| {
+                    row.get::<_, String>(0)
+                })
+                .map_err(ThingdError::from)?;
+
+            let mut field_map: std::collections::BTreeMap<
+                String,
+                (String, bool, Vec<serde_json::Value>),
+            > = std::collections::BTreeMap::new();
+
+            for row in rows {
+                let body_str = row.map_err(ThingdError::from)?;
+                let body: serde_json::Value =
+                    serde_json::from_str(&body_str).unwrap_or(serde_json::Value::Null);
+                let map = match &body {
+                    serde_json::Value::Object(m) => m,
+                    _ => continue,
+                };
+
+                for (key, value) in map {
+                    let entry = field_map.entry(key.clone()).or_insert_with(|| {
+                        (infer_sqlite_json_type(value), false, Vec::new())
+                    });
+
+                    if value.is_null() {
+                        entry.1 = true;
+                    }
+
+                    if entry.2.len() < 3 && !value.is_null() {
+                        entry.2.push(value.clone());
+                    }
+
+                    let t = infer_sqlite_json_type(value);
+                    if entry.0 != t && !value.is_null() {
+                        entry.0 = "unknown".to_string();
+                    }
+                }
+            }
+
+            let fields: Vec<FieldSchema> = field_map
+                .into_iter()
+                .map(|(name, (field_type, nullable, sample_values))| FieldSchema {
+                    name,
+                    field_type,
+                    nullable,
+                    sample_values,
+                })
+                .collect();
+
+            schemas.push(CollectionSchema {
+                name: col.clone(),
+                object_count,
+                fields,
+            });
+        }
+
+        Ok(schemas)
     }
 }
 
@@ -1978,6 +2090,228 @@ impl crate::store::LinkStore for SqliteThingStore {
     }
 }
 
+impl crate::store::AggregateStore for SqliteThingStore {
+    fn aggregate(
+        &self,
+        collection: &str,
+        options: &AggregateOptions,
+    ) -> ThingdResult<AggregateResult> {
+        let mut conditions = vec!["collection = ?".to_string()];
+        let mut bound_values: Vec<Box<dyn rusqlite::types::ToSql>> =
+            vec![Box::new(collection.to_string())];
+
+        // Validate and add filter conditions
+        for (key, value) in &options.filter {
+            if !key
+                .chars()
+                .all(|c| c.is_alphanumeric() || c == '_' || c == '.')
+            {
+                return Err(ThingdError::InvalidInput(format!(
+                    "Invalid filter key: '{key}'. Only alphanumeric, underscore, and dot characters are allowed."
+                )));
+            }
+            conditions.push(format!("json_extract(body, '$.{key}') = ?"));
+            let sql_val: Box<dyn rusqlite::types::ToSql> = match value {
+                serde_json::Value::String(s) => Box::new(s.clone()),
+                serde_json::Value::Number(n) => {
+                    if let Some(i) = n.as_i64() {
+                        Box::new(i)
+                    } else {
+                        Box::new(n.as_f64().unwrap_or(0.0))
+                    }
+                },
+                serde_json::Value::Bool(b) => Box::new(i64::from(*b)),
+                serde_json::Value::Null => Box::new(rusqlite::types::Null),
+                other => Box::new(other.to_string()),
+            };
+            bound_values.push(sql_val);
+        }
+
+        let where_clause = format!("WHERE {}", conditions.join(" AND "));
+
+        match &options.group_by {
+            Some(group_field) => {
+                // Validate group_by field
+                if !group_field
+                    .chars()
+                    .all(|c| c.is_alphanumeric() || c == '_' || c == '.')
+                {
+                    return Err(ThingdError::InvalidInput(format!(
+                        "Invalid groupBy field: '{group_field}'. Only alphanumeric, underscore, and dot characters are allowed."
+                    )));
+                }
+
+                let sql = match options.function {
+                    AggregateFunction::Count => format!(
+                        "SELECT json_extract(body, '$.{group_field}') AS grp, COUNT(*) AS val FROM objects {where_clause} GROUP BY grp ORDER BY grp"
+                    ),
+                    _ => {
+                        let field = options.field.as_deref().unwrap_or_default();
+                        if !field
+                            .chars()
+                            .all(|c| c.is_alphanumeric() || c == '_' || c == '.')
+                        {
+                            return Err(ThingdError::InvalidInput(format!(
+                                "Invalid field: '{field}'. Only alphanumeric, underscore, and dot characters are allowed."
+                            )));
+                        }
+                        let func = options.function.sql_func();
+                        format!(
+                            "SELECT json_extract(body, '$.{group_field}') AS grp, {func}(json_extract(body, '$.{field}')) AS val FROM objects {where_clause} GROUP BY grp ORDER BY grp"
+                        )
+                    },
+                };
+
+                let mut statement = self.connection.prepare(&sql).map_err(ThingdError::from)?;
+                let param_refs: Vec<&dyn rusqlite::types::ToSql> =
+                    bound_values.iter().map(AsRef::as_ref).collect();
+                let rows = statement
+                    .query_map(param_refs.as_slice(), |row| {
+                        Ok(AggregateGroupResult {
+                            key: row.get::<_, String>(0).unwrap_or_default(),
+                            value: row.get::<_, f64>(1).unwrap_or(0.0),
+                        })
+                    })
+                    .map_err(ThingdError::from)?;
+
+                let mut groups = Vec::new();
+                for row in rows {
+                    groups.push(row.map_err(ThingdError::from)?);
+                }
+
+                let total: f64 = groups.iter().map(|g| g.value).sum();
+                Ok(AggregateResult { total, groups })
+            },
+            None => {
+                let sql = match options.function {
+                    AggregateFunction::Count => {
+                        format!("SELECT COUNT(*) FROM objects {where_clause}")
+                    },
+                    _ => {
+                        let field = options.field.as_deref().unwrap_or_default();
+                        if !field
+                            .chars()
+                            .all(|c| c.is_alphanumeric() || c == '_' || c == '.')
+                        {
+                            return Err(ThingdError::InvalidInput(format!(
+                                "Invalid field: '{field}'. Only alphanumeric, underscore, and dot characters are allowed."
+                            )));
+                        }
+                        let func = options.function.sql_func();
+                        format!(
+                            "SELECT {func}(json_extract(body, '$.{field}')) FROM objects {where_clause}"
+                        )
+                    },
+                };
+
+                let mut statement = self.connection.prepare(&sql).map_err(ThingdError::from)?;
+                let param_refs: Vec<&dyn rusqlite::types::ToSql> =
+                    bound_values.iter().map(AsRef::as_ref).collect();
+                let total = statement
+                    .query_row(param_refs.as_slice(), |row| row.get::<_, f64>(0))
+                    .map_err(ThingdError::from)?;
+
+                Ok(AggregateResult {
+                    total,
+                    groups: Vec::new(),
+                })
+            },
+        }
+    }
+
+    fn timeseries(
+        &self,
+        collection: &str,
+        options: &TimeSeriesOptions,
+    ) -> ThingdResult<TimeSeriesResult> {
+        let mut conditions = vec!["collection = ?".to_string()];
+        let mut bound_values: Vec<Box<dyn rusqlite::types::ToSql>> =
+            vec![Box::new(collection.to_string())];
+
+        // Add filter conditions
+        for (key, value) in &options.filter {
+            if !key
+                .chars()
+                .all(|c| c.is_alphanumeric() || c == '_' || c == '.')
+            {
+                return Err(ThingdError::InvalidInput(format!(
+                    "Invalid filter key: '{key}'. Only alphanumeric, underscore, and dot characters are allowed."
+                )));
+            }
+            conditions.push(format!("json_extract(body, '$.{key}') = ?"));
+            let sql_val: Box<dyn rusqlite::types::ToSql> = match value {
+                serde_json::Value::String(s) => Box::new(s.clone()),
+                serde_json::Value::Number(n) => {
+                    if let Some(i) = n.as_i64() {
+                        Box::new(i)
+                    } else {
+                        Box::new(n.as_f64().unwrap_or(0.0))
+                    }
+                },
+                serde_json::Value::Bool(b) => Box::new(i64::from(*b)),
+                serde_json::Value::Null => Box::new(rusqlite::types::Null),
+                other => Box::new(other.to_string()),
+            };
+            bound_values.push(sql_val);
+        }
+
+        // Add time range conditions
+        if let Some(ref from) = options.from {
+            conditions.push("created_at >= ?".to_string());
+            bound_values.push(Box::new(from.clone()));
+        }
+        if let Some(ref to) = options.to {
+            conditions.push("created_at < ?".to_string());
+            bound_values.push(Box::new(to.clone()));
+        }
+
+        let where_clause = format!("WHERE {}", conditions.join(" AND "));
+        let strftime_format = options.bucket.strftime_format();
+
+        let sql = match options.function {
+            AggregateFunction::Count => {
+                format!(
+                    "SELECT strftime('{strftime_format}', created_at) AS label, COUNT(*) AS val FROM objects {where_clause} GROUP BY label ORDER BY label"
+                )
+            },
+            _ => {
+                let field = options.field.as_deref().unwrap_or_default();
+                if !field
+                    .chars()
+                    .all(|c| c.is_alphanumeric() || c == '_' || c == '.')
+                {
+                    return Err(ThingdError::InvalidInput(format!(
+                        "Invalid field: '{field}'. Only alphanumeric, underscore, and dot characters are allowed."
+                    )));
+                }
+                let func = options.function.sql_func();
+                format!(
+                    "SELECT strftime('{strftime_format}', created_at) AS label, {func}(json_extract(body, '$.{field}')) AS val FROM objects {where_clause} GROUP BY label ORDER BY label"
+                )
+            },
+        };
+
+        let mut statement = self.connection.prepare(&sql).map_err(ThingdError::from)?;
+        let param_refs: Vec<&dyn rusqlite::types::ToSql> =
+            bound_values.iter().map(AsRef::as_ref).collect();
+        let rows = statement
+            .query_map(param_refs.as_slice(), |row| {
+                Ok(TimeSeriesBucket {
+                    label: row.get::<_, String>(0).unwrap_or_default(),
+                    value: row.get::<_, f64>(1).unwrap_or(0.0),
+                })
+            })
+            .map_err(ThingdError::from)?;
+
+        let mut buckets = Vec::new();
+        for row in rows {
+            buckets.push(row.map_err(ThingdError::from)?);
+        }
+
+        Ok(TimeSeriesResult { buckets })
+    }
+}
+
 fn row_to_link(row: &rusqlite::Row<'_>) -> rusqlite::Result<crate::Link> {
     Ok(crate::Link {
         id: row.get(0)?,
@@ -2202,6 +2536,27 @@ fn matches_filter(body_str: &str, filter: &serde_json::Value) -> bool {
         }
     }
     true
+}
+
+/// Infer the JSON type string for a value (used by schema reflection).
+fn infer_sqlite_json_type(value: &serde_json::Value) -> String {
+    match value {
+        serde_json::Value::Null => "null".to_string(),
+        serde_json::Value::Bool(_) => "boolean".to_string(),
+        serde_json::Value::Number(_) => "number".to_string(),
+        serde_json::Value::String(s) => {
+            if s.len() > 10
+                && (s.contains('T') || s.contains('-'))
+                && chrono::DateTime::parse_from_rfc3339(s).is_ok()
+            {
+                "date".to_string()
+            } else {
+                "string".to_string()
+            }
+        },
+        serde_json::Value::Array(_) => "array".to_string(),
+        serde_json::Value::Object(_) => "object".to_string(),
+    }
 }
 
 #[cfg(test)]

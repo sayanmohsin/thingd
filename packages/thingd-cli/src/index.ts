@@ -130,6 +130,9 @@ Usage:
   thingd links delete <id>
   thingd links neighbors <reference> [--direction Outgoing|Incoming|Both] [--type <linkType>] [--limit <n>]
   thingd links count
+  thingd schema [--collection <name>]
+  thingd aggregate <function> <collection> [--field <name>] [--group-by <name>] [--filter <json>]
+  thingd timeseries <function> <collection> <bucket> [--field <name>] [--filter <json>] [--from <iso>] [--to <iso>]
   thingd bench rust --smoke
   thingd bench rust --count <n>
   thingd metrics
@@ -337,6 +340,21 @@ async function runCommand(context: CliContext): Promise<void> {
 
   if (command === "links") {
     await runLinks(context);
+    return;
+  }
+
+  if (command === "schema") {
+    await runSchema(context);
+    return;
+  }
+
+  if (command === "aggregate") {
+    await runAggregate(context);
+    return;
+  }
+
+  if (command === "timeseries") {
+    await runTimeseries(context);
     return;
   }
 
@@ -1089,6 +1107,68 @@ async function runLinks(context: CliContext): Promise<void> {
     }
 
     throw new Error(`Unknown links action: ${action}`);
+  });
+}
+
+async function runSchema(context: CliContext): Promise<void> {
+  const collection = stringFlag(context.parsed, "collection");
+  await withDb(context, async (db) => {
+    const schemas = await db.schema(collection ?? undefined);
+    writeJson(context.stdout, schemas, context.pretty);
+  });
+}
+
+async function runAggregate(context: CliContext): Promise<void> {
+  const function_ = requiredToken(context.parsed, 1, "aggregate function (count|sum|avg|min|max)");
+  const collection = requiredToken(context.parsed, 2, "collection name");
+  const field = stringFlag(context.parsed, "field");
+  const groupBy = stringFlag(context.parsed, "group-by");
+  const filterRaw = stringFlag(context.parsed, "filter");
+  const filter = filterRaw ? JSON.parse(filterRaw) : undefined;
+
+  await withDb(context, async (db) => {
+    let result;
+    switch (function_) {
+      case "sum":
+        result = await db.aggregate.sum(collection, field ?? "", { groupBy, filter });
+        break;
+      case "avg":
+        result = await db.aggregate.avg(collection, field ?? "", { groupBy, filter });
+        break;
+      case "min":
+        result = await db.aggregate.min(collection, field ?? "", { groupBy, filter });
+        break;
+      case "max":
+        result = await db.aggregate.max(collection, field ?? "", { groupBy, filter });
+        break;
+      default:
+        result = await db.aggregate.count(collection, { groupBy, filter });
+        break;
+    }
+    writeJson(context.stdout, result, context.pretty);
+  });
+}
+
+async function runTimeseries(context: CliContext): Promise<void> {
+  const function_ = requiredToken(context.parsed, 1, "aggregate function (count|sum|avg|min|max)");
+  const collection = requiredToken(context.parsed, 2, "collection name");
+  const bucket = requiredToken(context.parsed, 3, "time bucket (hour|day|week|month)");
+  const field = stringFlag(context.parsed, "field");
+  const filterRaw = stringFlag(context.parsed, "filter");
+  const filter = filterRaw ? JSON.parse(filterRaw) : undefined;
+  const from = stringFlag(context.parsed, "from");
+  const to = stringFlag(context.parsed, "to");
+
+  await withDb(context, async (db) => {
+    const result = await db.timeseries(collection, {
+      function: function_ as "count" | "sum" | "avg" | "min" | "max",
+      bucket: bucket as "hour" | "day" | "week" | "month",
+      field,
+      filter,
+      from,
+      to,
+    });
+    writeJson(context.stdout, result, context.pretty);
   });
 }
 

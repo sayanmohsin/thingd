@@ -4,7 +4,7 @@
 
 **thingd** is a fast object-first data engine for applications and AI agents.
 It provides object storage, durable queues, event streams, full-text search,
-graph links, and 27 MCP tools — all in one binary. Runs embedded (Rust/Node),
+graph links, and 30 MCP tools — all in one binary. Runs embedded (Rust/Node),
 as a sidecar MCP server, in Docker, or in Kubernetes.
 
 **thingd Cloud** (at [thingd.cloud](https://thingd.cloud), private repo
@@ -61,7 +61,7 @@ packages/
 | CLI | `packages/thingd-cli/src/index.ts` |
 | Tests | `packages/thingd/test/`, `packages/thingd-cli/test/`, `crates/thingd/` |
 
-**Sidecar MCP** implements all 27 tools natively (`crates/thingd-server/src/mcp.rs`) via a registry-based dispatch. The Node.js SDK MCP (`packages/thingd/src/mcp/tools.ts`) remains the primary reference and adds auth gating.
+**Sidecar MCP** implements all 30 tools natively (`crates/thingd-server/src/mcp.rs`) via a registry-based dispatch. The Node.js SDK MCP (`packages/thingd/src/mcp/tools.ts`) remains the primary reference and adds auth gating.
 
 **Sidecar cluster** returns real config (mode, peers, discovery). Real cluster forwarding/leader election logic is in `packages/thingd-cli/src/mcp/cluster.ts`.
 
@@ -73,9 +73,9 @@ packages/
 pnpm build                    # build all packages (TypeScript + Rust native)
 pnpm check                    # biome lint
 pnpm check:write              # biome auto-fix
-pnpm test:node                # 61 Node SDK tests
+pnpm test:node                # 69 Node SDK tests
 pnpm test:cli                 # 44 CLI tests
-pnpm test:rust                # cargo test --workspace --all-features (219 tests — 130 engine + 89 server)
+pnpm test:rust                # cargo test --workspace --all-features (231 tests — 129 engine + 95 server + 7 integration)
 pnpm test:local               # check → build → node+cli+package tests
 pnpm bench:rust               # full Rust benchmark (in-memory + sqlite)
 pnpm bench:rust:smoke         # quick Rust benchmark (100 iters)
@@ -133,7 +133,7 @@ This file should stay useful but not become a dump. Rules:
 ### Doc audit after every change
 
 After any implementation, audit ALL public docs for staleness. This session found:
-- **AGENTS.md** claimed sidecar MCP was a "stub with 5 tools" (already 27 tools)
+- **AGENTS.md** claimed sidecar MCP was a "stub with 5 tools" (already 29 tools)
 - **rest-api.md** had wrong error format, missing `body` field in GET response, wrong links endpoint
 - **mcp-tools.md** had incorrect tool breakdown (claimed 12/12/3, actual 16 read-only / 11 write of which 3 destructive)
 - **errors.md** referenced non-existent `ThingDError` class (SDK throws plain `Error`)

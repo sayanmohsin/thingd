@@ -161,7 +161,7 @@ CLI commands: `thingd queues dead <queue>` lists dead jobs. To replay, delete an
 
 ### What MCP tools are exposed?
 
-27 tools — see the [API spec — MCP tools reference](api-spec/mcp-tools.md) for the full list with schemas.
+29 tools — see the [API spec — MCP tools reference](api-spec/mcp-tools.md) for the full list with schemas.
 
 ### Can agents bypass allowlists accidentally?
 

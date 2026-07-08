@@ -131,6 +131,44 @@ curl http://localhost:8757/v1/queues
 { "data": ["email-queue", "sync-queue"] }
 ```
 
+### `GET /v1/collections/schema`
+
+Reflect the schema of all collections that have objects. Returns the inferred
+field names, types, and sample values for each collection.
+
+```bash
+curl http://localhost:8757/v1/collections/schema
+```
+
+```json
+{
+  "data": [
+    {
+      "name": "orders",
+      "objectCount": 150,
+      "fields": [
+        { "name": "id", "type": "string", "nullable": false, "sampleValues": ["ord-001", "ord-002"] },
+        { "name": "product", "type": "string", "nullable": false, "sampleValues": ["Widget", "Gadget"] },
+        { "name": "revenue", "type": "number", "nullable": false, "sampleValues": [29.99, 49.99] },
+        { "name": "region", "type": "string", "nullable": true, "sampleValues": ["North", "South"] },
+        { "name": "date", "type": "date", "nullable": false, "sampleValues": ["2026-06-01T00:00:00Z"] }
+      ]
+    }
+  ]
+}
+```
+
+### `GET /v1/collections/{name}/schema`
+
+Reflect the schema of a single collection.
+
+```bash
+curl http://localhost:8757/v1/collections/orders/schema
+```
+
+Returns the same format as the list endpoint but scoped to one collection.
+Returns 404 if the collection has no objects.
+
 ---
 
 ## Objects
@@ -568,6 +606,78 @@ curl -X DELETE http://localhost:8757/v1/links/8d08a9c5-7ffa-44a9-8180-cf8dd179e6
 
 ```json
 { "data": true }
+```
+
+---
+
+## Aggregation
+
+### `POST /v1/aggregate` — General aggregation
+
+Run a count, sum, avg, min, or max aggregation over objects in a collection, with optional grouping.
+
+**Body:**
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `collection` | yes | Collection name |
+| `function` | yes | `count`, `sum`, `avg`, `min`, `max` |
+| `field` | no | Field to aggregate (required for sum/avg/min/max, ignored for count) |
+| `groupBy` | no | Group results by this field |
+| `filter` | no | Key-value pairs to filter objects before aggregation |
+
+```bash
+curl -X POST http://localhost:8757/v1/aggregate \
+  -H "Content-Type: application/json" \
+  -d '{"collection": "sales", "function": "sum", "field": "amount", "groupBy": "region"}'
+```
+
+```json
+{
+  "data": {
+    "total": 45000,
+    "groups": [
+      { "key": "North", "value": 15000 },
+      { "key": "South", "value": 12000 },
+      { "key": "East", "value": 10000 },
+      { "key": "West", "value": 8000 }
+    ]
+  }
+}
+```
+
+### `POST /v1/aggregate/timeseries` — Time-bucketed aggregation
+
+Run a time-bucketed aggregation over objects, grouped by hour/day/week/month.
+
+**Body:**
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `collection` | yes | Collection name |
+| `function` | yes | `count`, `sum`, `avg`, `min`, `max` |
+| `bucket` | yes | `hour`, `day`, `week`, `month` |
+| `field` | no | Field to aggregate (ignored for count) |
+| `from` | no | Start of time range (ISO 8601) |
+| `to` | no | End of time range (ISO 8601) |
+| `filter` | no | Key-value pairs to filter objects before aggregation |
+
+```bash
+curl -X POST http://localhost:8757/v1/aggregate/timeseries \
+  -H "Content-Type: application/json" \
+  -d '{"collection": "sales", "function": "sum", "field": "amount", "bucket": "month", "from": "2026-01-01T00:00:00Z", "to": "2026-07-01T00:00:00Z"}'
+```
+
+```json
+{
+  "data": {
+    "buckets": [
+      { "label": "2026-01-01T00:00:00Z", "value": 7200 },
+      { "label": "2026-02-01T00:00:00Z", "value": 8100 },
+      { "label": "2026-03-01T00:00:00Z", "value": 9500 }
+    ]
+  }
+}
 ```
 
 ---

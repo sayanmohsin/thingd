@@ -1,1 +1,1 @@
-export const MCP_TOOL_COUNT = 27 as const;
+export const MCP_TOOL_COUNT = 30 as const;

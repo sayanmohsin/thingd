@@ -724,6 +724,114 @@ fn handle_thing_link_count(
     Ok(json!({ "content": [{ "type": "text", "text": count.to_string() }] }))
 }
 
+fn handle_thing_schema(
+    _state: &AppState,
+    _tool_name: &str,
+    args: &Value,
+) -> Result<Value, AppError> {
+    let e = _state.pool.get_reader("");
+    let g = e.lock();
+    let collection = args.get("collection").and_then(|v| v.as_str());
+    let schemas = g
+        .schema(collection, &thingd::SchemaOptions::default())
+        .map_err(|e| AppError::internal(e.to_string()))?;
+    Ok(
+        json!({ "content": [{ "type": "text", "text": serde_json::to_string(&schemas).unwrap_or_default() }] }),
+    )
+}
+
+fn handle_thing_aggregate(
+    _state: &AppState,
+    _tool_name: &str,
+    args: &Value,
+) -> Result<Value, AppError> {
+    let e = _state.pool.get_reader("");
+    let g = e.lock();
+    let collection = arg_str(args, "collection");
+    let function_str = arg_str(args, "function");
+    let function = match function_str.as_str() {
+        "sum" => thingd::AggregateFunction::Sum,
+        "avg" => thingd::AggregateFunction::Avg,
+        "min" => thingd::AggregateFunction::Min,
+        "max" => thingd::AggregateFunction::Max,
+        _ => thingd::AggregateFunction::Count,
+    };
+    let field = args.get("field").and_then(|v| v.as_str()).map(String::from);
+    let group_by = args.get("groupBy").and_then(|v| v.as_str()).map(String::from);
+    let filter = args
+        .get("filter")
+        .and_then(|v| v.as_object())
+        .map(|obj| {
+            obj.iter()
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+
+    let opts = thingd::AggregateOptions {
+        function,
+        field,
+        filter,
+        group_by,
+    };
+
+    let result = g.aggregate(&collection, &opts)?;
+    Ok(
+        json!({ "content": [{ "type": "text", "text": serde_json::to_string(&result).unwrap_or_default() }] }),
+    )
+}
+
+fn handle_thing_timeseries(
+    _state: &AppState,
+    _tool_name: &str,
+    args: &Value,
+) -> Result<Value, AppError> {
+    let e = _state.pool.get_reader("");
+    let g = e.lock();
+    let collection = arg_str(args, "collection");
+    let function_str = arg_str(args, "function");
+    let function = match function_str.as_str() {
+        "sum" => thingd::AggregateFunction::Sum,
+        "avg" => thingd::AggregateFunction::Avg,
+        "min" => thingd::AggregateFunction::Min,
+        "max" => thingd::AggregateFunction::Max,
+        _ => thingd::AggregateFunction::Count,
+    };
+    let bucket_str = arg_str(args, "bucket");
+    let bucket = match bucket_str.as_str() {
+        "hour" => thingd::TimeBucket::Hour,
+        "week" => thingd::TimeBucket::Week,
+        "month" => thingd::TimeBucket::Month,
+        _ => thingd::TimeBucket::Day,
+    };
+    let field = args.get("field").and_then(|v| v.as_str()).map(String::from);
+    let filter = args
+        .get("filter")
+        .and_then(|v| v.as_object())
+        .map(|obj| {
+            obj.iter()
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    let from = args.get("from").and_then(|v| v.as_str()).map(String::from);
+    let to = args.get("to").and_then(|v| v.as_str()).map(String::from);
+
+    let opts = thingd::TimeSeriesOptions {
+        function,
+        bucket,
+        field,
+        filter,
+        from,
+        to,
+    };
+
+    let result = g.timeseries(&collection, &opts)?;
+    Ok(
+        json!({ "content": [{ "type": "text", "text": serde_json::to_string(&result).unwrap_or_default() }] }),
+    )
+}
+
 type ToolHandler = fn(&AppState, &str, &Value) -> Result<Value, AppError>;
 
 struct ToolEntry {
@@ -1019,6 +1127,38 @@ static ALL_TOOLS: LazyLock<Vec<ToolEntry>> = LazyLock::new(|| {
             destructive: false,
             needs_collection: false,
         },
+        // Schema tool (1)
+        ToolEntry {
+            name: "thing_schema",
+            description: "Reflect the schema of one or all collections by sampling stored objects. Returns inferred field names, types, and sample values.",
+            properties: json!({ "collection": str_prop("Optional collection name (omit for all)") }),
+            required: &[],
+            handler: handle_thing_schema,
+            is_write: false,
+            destructive: false,
+            needs_collection: false,
+        },
+        // Aggregate tools (2)
+        ToolEntry {
+            name: "thing_aggregate",
+            description: "Run aggregate queries on objects in a collection",
+            properties: json!({ "collection": str_prop("Collection name"), "function": str_prop("Aggregate function: count, sum, avg, min, or max"), "field": str_prop("Field name for sum/avg/min/max"), "groupBy": str_prop("Optional field to group results by"), "filter": obj_prop("Metadata filter"), "actor": str_prop("Who performed the action"), "source": str_prop("Where the action originated") }),
+            required: &["collection", "function"],
+            handler: handle_thing_aggregate,
+            is_write: false,
+            destructive: false,
+            needs_collection: true,
+        },
+        ToolEntry {
+            name: "thing_timeseries",
+            description: "Run time-series aggregation on objects",
+            properties: json!({ "collection": str_prop("Collection name"), "function": str_prop("Aggregate function: count, sum, avg, min, or max"), "bucket": str_prop("Time bucket: hour, day, week, or month"), "field": str_prop("Field name for sum/avg/min/max"), "filter": obj_prop("Metadata filter"), "from": str_prop("Start timestamp (ISO 8601)"), "to": str_prop("End timestamp (ISO 8601)"), "actor": str_prop("Who performed the action"), "source": str_prop("Where the action originated") }),
+            required: &["collection", "function", "bucket"],
+            handler: handle_thing_timeseries,
+            is_write: false,
+            destructive: false,
+            needs_collection: true,
+        },
     ]
 });
 
@@ -1169,8 +1309,8 @@ mod tests {
         let tools = result["result"]["tools"].as_array().unwrap();
         assert_eq!(
             tools.len(),
-            27,
-            "expected 27 MCP tools, got {}",
+            30,
+            "expected 30 MCP tools, got {}",
             tools.len()
         );
         let names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
@@ -1202,6 +1342,9 @@ mod tests {
             "thing_link_delete",
             "thing_link_neighbors",
             "thing_link_count",
+            "thing_schema",
+            "thing_aggregate",
+            "thing_timeseries",
         ] {
             assert!(names.contains(expected), "missing tool: {expected}");
         }
@@ -1459,5 +1602,58 @@ mod tests {
         )
         .await;
         assert_eq!(result["error"]["code"], -32601);
+    }
+
+    #[tokio::test]
+    async fn test_mcp_thing_aggregate() {
+        let state = test_state();
+        // Seed objects
+        for i in 0..5 {
+            let (_status, _result) = call_mcp_with(
+                &state,
+                json!({ "jsonrpc": "2.0", "method": "tools/call", "params": { "name": "thing_put", "arguments": { "collection": "test", "object": { "id": format!("obj{i}"), "value": i } } }, "id": 1 }),
+            ).await;
+        }
+        let (_status, result) = call_mcp_with(
+            &state,
+            json!({ "jsonrpc": "2.0", "method": "tools/call", "params": { "name": "thing_aggregate", "arguments": { "collection": "test", "function": "count" } }, "id": 1 }),
+        ).await;
+        assert_ne!(result["result"]["isError"], true);
+        let text = result["result"]["content"][0]["text"].as_str().unwrap();
+        let parsed: Value = serde_json::from_str(text).unwrap();
+        assert_eq!(parsed["total"], 5.0);
+    }
+
+    #[tokio::test]
+    async fn test_mcp_thing_aggregate_sum() {
+        let state = test_state();
+        for i in 0..5 {
+            let (_status, _result) = call_mcp_with(
+                &state,
+                json!({ "jsonrpc": "2.0", "method": "tools/call", "params": { "name": "thing_put", "arguments": { "collection": "t", "object": { "id": format!("obj{i}"), "value": i } } }, "id": 1 }),
+            ).await;
+        }
+        let (_status, result) = call_mcp_with(
+            &state,
+            json!({ "jsonrpc": "2.0", "method": "tools/call", "params": { "name": "thing_aggregate", "arguments": { "collection": "t", "function": "sum", "field": "value" } }, "id": 1 }),
+        ).await;
+        assert_ne!(result["result"]["isError"], true);
+        let text = result["result"]["content"][0]["text"].as_str().unwrap();
+        let parsed: Value = serde_json::from_str(text).unwrap();
+        assert_eq!(parsed["total"], 10.0);
+    }
+
+    #[tokio::test]
+    async fn test_mcp_thing_timeseries() {
+        let state = test_state();
+        let (_status, _result) = call_mcp_with(
+            &state,
+            json!({ "jsonrpc": "2.0", "method": "tools/call", "params": { "name": "thing_put", "arguments": { "collection": "ts", "object": { "id": "obj1", "value": 1 } } }, "id": 1 }),
+        ).await;
+        let (_status, result) = call_mcp_with(
+            &state,
+            json!({ "jsonrpc": "2.0", "method": "tools/call", "params": { "name": "thing_timeseries", "arguments": { "collection": "ts", "function": "count", "bucket": "day" } }, "id": 1 }),
+        ).await;
+        assert_ne!(result["result"]["isError"], true);
     }
 }

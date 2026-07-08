@@ -1,5 +1,8 @@
 import { randomUUID } from "node:crypto";
 import type {
+  AggregateOptions,
+  AggregateResult,
+  CollectionSchema,
   ListEventsOptions,
   ListObjectsOptions,
   MemoryEvent,
@@ -13,10 +16,13 @@ import type {
   QueueJobPayload,
   QueueJobResult,
   QueueNackOptions,
+  SchemaOptions,
   StoredMemoryEvent,
   StoredMemoryObject,
   ThingDeleteResult,
   ThingStore,
+  TimeSeriesOptions,
+  TimeSeriesResult,
 } from "../types.js";
 
 const DEFAULT_LEASE_MS = 30_000;
@@ -526,6 +532,251 @@ export class InMemoryThingStore implements ThingStore {
       streams.add(event.stream);
     }
     return Array.from(streams).sort();
+  }
+
+  async aggregate(
+    collection: string,
+    options: AggregateOptions
+  ): Promise<AggregateResult> {
+    const records = Array.from(this.collections.get(collection)?.values() ?? []);
+
+    // Apply filter
+    const filtered = options.filter
+      ? records.filter((obj) =>
+          Object.entries(options.filter!).every(
+            ([key, value]) => (obj as Record<string, unknown>)[key] === value
+          )
+        )
+      : records;
+
+    if (options.groupBy) {
+      const groups = new Map<string, typeof filtered>();
+      for (const obj of filtered) {
+        const key = String((obj as Record<string, unknown>)[options.groupBy] ?? "");
+        const group = groups.get(key) ?? [];
+        group.push(obj);
+        groups.set(key, group);
+      }
+
+      const groupResults = Array.from(groups.entries())
+        .map(([key, objs]) => ({
+          key,
+          value: this.computeAggregate(objs, options.function, options.field),
+        }))
+        .sort((a, b) => a.key.localeCompare(b.key));
+
+      const total = groupResults.reduce((sum, g) => sum + g.value, 0);
+      return { total, groups: groupResults };
+    }
+
+    const total = this.computeAggregate(filtered, options.function, options.field);
+    return { total, groups: [] };
+  }
+
+  async timeseries(
+    collection: string,
+    options: TimeSeriesOptions
+  ): Promise<TimeSeriesResult> {
+    const records = Array.from(this.collections.get(collection)?.values() ?? []);
+
+    // Apply filter
+    let filtered = options.filter
+      ? records.filter((obj) =>
+          Object.entries(options.filter!).every(
+            ([key, value]) => (obj as Record<string, unknown>)[key] === value
+          )
+        )
+      : records;
+
+    // Apply time range
+    if (options.from) {
+      filtered = filtered.filter((obj) => obj.createdAt >= options.from!);
+    }
+    if (options.to) {
+      filtered = filtered.filter((obj) => obj.createdAt < options.to!);
+    }
+
+    // Bucket by createdAt
+    const format = this.getTimeBucketFormat(options.bucket);
+    const buckets = new Map<string, typeof filtered>();
+    for (const obj of filtered) {
+      const label = this.formatTimestamp(obj.createdAt, format);
+      const group = buckets.get(label) ?? [];
+      group.push(obj);
+      buckets.set(label, group);
+    }
+
+    const resultBuckets = Array.from(buckets.entries())
+      .map(([label, objs]) => ({
+        label,
+        value: this.computeAggregate(objs, options.function, options.field),
+      }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+
+    return { buckets: resultBuckets };
+  }
+
+  async schema(
+    collection?: string,
+    options?: SchemaOptions
+  ): Promise<CollectionSchema[]> {
+    const sampleSize = options?.sampleSize ?? 50;
+    const collections = collection
+      ? [collection]
+      : Array.from(this.collections.keys()).sort();
+
+    const result: CollectionSchema[] = [];
+    for (const col of collections) {
+      const objects = Array.from(this.collections.get(col)?.values() ?? []);
+      if (objects.length === 0) {
+        continue;
+      }
+
+      const sampled = objects.slice(0, sampleSize);
+      const fieldMap = new Map<string, { type: string; nullable: boolean; samples: unknown[] }>();
+
+      for (const obj of sampled) {
+        const body = typeof obj.body === "string" ? JSON.parse(obj.body) : obj.body;
+        if (!body || typeof body !== "object") {
+          continue;
+        }
+
+        for (const [key, value] of Object.entries(body as Record<string, unknown>)) {
+          let entry = fieldMap.get(key);
+          if (!entry) {
+            entry = { type: this.inferType(value), nullable: false, samples: [] };
+            fieldMap.set(key, entry);
+          }
+          if (value === null || value === undefined) {
+            entry.nullable = true;
+          } else {
+            const inferred = this.inferType(value);
+            if (entry.type !== inferred) {
+              entry.type = "unknown";
+            }
+            if (entry.samples.length < 3) {
+              entry.samples.push(value);
+            }
+          }
+        }
+      }
+
+      result.push({
+        name: col,
+        objectCount: objects.length,
+        fields: Array.from(fieldMap.entries()).map(([name, { type, nullable, samples }]) => ({
+          name,
+          type,
+          nullable,
+          sampleValues: samples,
+        })),
+      });
+    }
+
+    return result;
+  }
+
+  private inferType(value: unknown): string {
+    if (value === null || value === undefined) {
+      return "null";
+    }
+    if (typeof value === "boolean") {
+      return "boolean";
+    }
+    if (typeof value === "number") {
+      return "number";
+    }
+    if (typeof value === "string") {
+      if (
+        value.length > 10 &&
+        (value.includes("T") || value.includes("-")) &&
+        !Number.isNaN(Date.parse(value))
+      ) {
+        return "date";
+      }
+      return "string";
+    }
+    if (Array.isArray(value)) {
+      return "array";
+    }
+    if (typeof value === "object") {
+      return "object";
+    }
+    return "unknown";
+  }
+
+  private computeAggregate(
+    objects: StoredMemoryObject[],
+    function_: string,
+    field?: string
+  ): number {
+    switch (function_) {
+      case "count":
+        return objects.length;
+      case "sum":
+        return objects.reduce(
+          (sum, obj) => sum + (Number((obj as Record<string, unknown>)[field ?? ""]) || 0),
+          0
+        );
+      case "avg": {
+        const values = objects
+          .map((obj) => Number((obj as Record<string, unknown>)[field ?? ""]) || 0)
+          .filter((v) => !Number.isNaN(v));
+        return values.length > 0 ? values.reduce((a, b) => a + b, 0) / values.length : 0;
+      }
+      case "min": {
+        const values = objects
+          .map((obj) => Number((obj as Record<string, unknown>)[field ?? ""]) || 0)
+          .filter((v) => !Number.isNaN(v));
+        return values.length > 0 ? Math.min(...values) : 0;
+      }
+      case "max": {
+        const values = objects
+          .map((obj) => Number((obj as Record<string, unknown>)[field ?? ""]) || 0)
+          .filter((v) => !Number.isNaN(v));
+        return values.length > 0 ? Math.max(...values) : 0;
+      }
+      default:
+        return 0;
+    }
+  }
+
+  private getTimeBucketFormat(bucket: string): string {
+    switch (bucket) {
+      case "hour":
+        return "YYYY-MM-DDTHH:00:00Z";
+      case "day":
+        return "YYYY-MM-DD";
+      case "week":
+        return "YYYY-[W]WW";
+      case "month":
+        return "YYYY-MM";
+      default:
+        return "YYYY-MM-DD";
+    }
+  }
+
+  private formatTimestamp(ts: string, format: string): string {
+    const date = new Date(ts);
+    if (Number.isNaN(date.getTime())) {
+      return ts;
+    }
+
+    const pad = (n: number) => String(n).padStart(2, "0");
+    const year = date.getUTCFullYear();
+    const month = pad(date.getUTCMonth() + 1);
+    const day = pad(date.getUTCDate());
+    const hours = pad(date.getUTCHours());
+    const weekNum = Math.ceil(
+      (date.getUTCDate() - date.getUTCDay() + 1) / 7
+    );
+
+    return format
+      .replace("YYYY", String(year))
+      .replace("MM", month)
+      .replace("DD", day)
+      .replace("HH", hours)
+      .replace("[W]WW", `W${String(weekNum).padStart(2, "0")}`);
   }
 
   async close(): Promise<void> {

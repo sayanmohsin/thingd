@@ -2,6 +2,9 @@ import { CloudThingStore } from "./stores/cloud-thing-store.js";
 import { InMemoryThingStore } from "./stores/in-memory-thing-store.js";
 import { NativeThingStore } from "./stores/native-thing-store.js";
 import type {
+  AggregateOptions,
+  AggregateResult,
+  CollectionSchema,
   ConnectorAuth,
   ConnectorSchema,
   ConnectorSyncOptions,
@@ -18,11 +21,14 @@ import type {
   QueueJobOptions,
   QueueJobPayload,
   QueueNackOptions,
+  SchemaOptions,
   StoredMemoryEvent,
   StoredMemoryObject,
   ThingDConnection,
   ThingDeleteResult,
   ThingStore,
+  TimeSeriesOptions,
+  TimeSeriesResult,
 } from "./types.js";
 
 export type ThingDDriver = "memory" | "native" | "cloud";
@@ -139,6 +145,60 @@ export class ThingD implements ThingDConnection {
       options: import("./types.js").LinkQueryOptions = {}
     ) => this.store.getNeighbors?.(reference, direction, options) ?? Promise.resolve([]),
   };
+
+  readonly aggregate = {
+    count: (
+      collection: string,
+      options: Omit<AggregateOptions, "function"> = {}
+    ): Promise<AggregateResult> =>
+      this.store.aggregate?.(collection, { ...options, function: "count" }) ??
+      Promise.reject(new Error("Aggregation not supported by this driver")),
+    sum: (
+      collection: string,
+      field: string,
+      options: Omit<AggregateOptions, "function" | "field"> = {}
+    ): Promise<AggregateResult> =>
+      this.store.aggregate?.(collection, { ...options, function: "sum", field }) ??
+      Promise.reject(new Error("Aggregation not supported by this driver")),
+    avg: (
+      collection: string,
+      field: string,
+      options: Omit<AggregateOptions, "function" | "field"> = {}
+    ): Promise<AggregateResult> =>
+      this.store.aggregate?.(collection, { ...options, function: "avg", field }) ??
+      Promise.reject(new Error("Aggregation not supported by this driver")),
+    min: (
+      collection: string,
+      field: string,
+      options: Omit<AggregateOptions, "function" | "field"> = {}
+    ): Promise<AggregateResult> =>
+      this.store.aggregate?.(collection, { ...options, function: "min", field }) ??
+      Promise.reject(new Error("Aggregation not supported by this driver")),
+    max: (
+      collection: string,
+      field: string,
+      options: Omit<AggregateOptions, "function" | "field"> = {}
+    ): Promise<AggregateResult> =>
+      this.store.aggregate?.(collection, { ...options, function: "max", field }) ??
+      Promise.reject(new Error("Aggregation not supported by this driver")),
+  };
+
+  timeseries(collection: string, options: TimeSeriesOptions): Promise<TimeSeriesResult> {
+    return (
+      this.store.timeseries?.(collection, options) ??
+      Promise.reject(new Error("Time-series aggregation not supported by this driver"))
+    );
+  }
+
+  async schema(
+    collection?: string,
+    options?: SchemaOptions
+  ): Promise<CollectionSchema[]> {
+    return (
+      this.store.schema?.(collection, options) ??
+      Promise.reject(new Error("schema not supported by this driver"))
+    );
+  }
 
   async close(): Promise<void> {
     await this.store.close?.();

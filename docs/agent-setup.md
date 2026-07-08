@@ -25,7 +25,7 @@ Claude Desktop setup. The install, config, and verification steps are identical.
 npx thingd install
 ```
 
-Your agent can then call all 27 `thing_*` tools (search, objects, events, queues,
+Your agent can then call all 29 `thing_*` tools (search, objects, events, queues,
 links, counts, discovery). See the [MCP tools reference](api-spec/mcp-tools.md)
 for the full list.
 
@@ -191,7 +191,7 @@ Your MCP endpoint: `https://example.com/mcp`
    - **URL**: `https://example.com/mcp`
    - **Bearer token**: `strong-random-token`
 
-ChatGPT can now call all 27 thingd tools in any conversation.
+ChatGPT can now call all 29 thingd tools in any conversation.
 
 ---
 

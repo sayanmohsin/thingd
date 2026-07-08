@@ -5,10 +5,11 @@ use napi_derive::napi;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use thingd::{
-    EventLog, Link, LinkDirection, LinkQueryOptions, LinkStore, ListEventsOptions,
-    ListObjectsOptions, MemoryEvent, MemoryObject, ObjectStore, PutObjectOptions,
-    QueueClaimOptions, QueueJob, QueueJobStatus, QueueNackOptions, QueueStore, SearchOptions,
-    Searcher, SqliteThingStore,
+    AggregateFunction, AggregateOptions, AggregateStore, EventLog,
+    Link, LinkDirection, LinkQueryOptions, LinkStore, ListEventsOptions, ListObjectsOptions,
+    MemoryEvent, MemoryObject, ObjectStore, PutObjectOptions, QueueClaimOptions, QueueJob,
+    QueueJobStatus, QueueNackOptions, QueueStore, SchemaOptions, SearchOptions, Searcher,
+    SqliteThingStore, TimeSeriesOptions,
 };
 
 #[derive(Deserialize)]
@@ -503,6 +504,119 @@ impl NativeThingStore {
 
         to_json(&links)
     }
+
+    #[napi(js_name = "aggregateJson")]
+    pub fn aggregate_json(
+        &self,
+        collection: String,
+        function: String,
+        field: Option<String>,
+        group_by: Option<String>,
+        filter_json: Option<String>,
+    ) -> Result<String> {
+        let agg_function = match function.as_str() {
+            "count" => AggregateFunction::Count,
+            "sum" => AggregateFunction::Sum,
+            "avg" => AggregateFunction::Avg,
+            "min" => AggregateFunction::Min,
+            "max" => AggregateFunction::Max,
+            _ => return Err(Error::from_reason(format!("unknown function '{function}'"))),
+        };
+
+        let filter = parse_filter_json(filter_json)?;
+
+        let options = AggregateOptions {
+            filter,
+            group_by,
+            function: agg_function,
+            field,
+        };
+
+        let store = self.lock_store()?;
+        let result = store.aggregate(&collection, &options).map_err(napi_error)?;
+
+        to_json(&AggregateResultRecord {
+            total: result.total,
+            groups: result
+                .groups
+                .into_iter()
+                .map(|g| AggregateGroupRecord {
+                    key: g.key,
+                    value: g.value,
+                })
+                .collect(),
+        })
+    }
+
+    #[napi(js_name = "timeseriesJson")]
+    pub fn timeseries_json(
+        &self,
+        collection: String,
+        function: String,
+        field: Option<String>,
+        bucket: String,
+        from: Option<String>,
+        to: Option<String>,
+        filter_json: Option<String>,
+    ) -> Result<String> {
+        let agg_function = match function.as_str() {
+            "count" => AggregateFunction::Count,
+            "sum" => AggregateFunction::Sum,
+            "avg" => AggregateFunction::Avg,
+            "min" => AggregateFunction::Min,
+            "max" => AggregateFunction::Max,
+            _ => return Err(Error::from_reason(format!("unknown function '{function}'"))),
+        };
+
+        let time_bucket = match bucket.as_str() {
+            "hour" => thingd::TimeBucket::Hour,
+            "day" => thingd::TimeBucket::Day,
+            "week" => thingd::TimeBucket::Week,
+            "month" => thingd::TimeBucket::Month,
+            _ => return Err(Error::from_reason(format!("unknown bucket '{bucket}'"))),
+        };
+
+        let filter = parse_filter_json(filter_json)?;
+
+        let options = TimeSeriesOptions {
+            filter,
+            bucket: time_bucket,
+            function: agg_function,
+            field,
+            from,
+            to,
+        };
+
+        let store = self.lock_store()?;
+        let result = store.timeseries(&collection, &options).map_err(napi_error)?;
+
+        to_json(&TimeSeriesResultRecord {
+            buckets: result
+                .buckets
+                .into_iter()
+                .map(|b| TimeSeriesBucketRecord {
+                    label: b.label,
+                    value: b.value,
+                })
+                .collect(),
+        })
+    }
+
+    #[napi(js_name = "schemaJson")]
+    pub fn schema_json(
+        &self,
+        collection: Option<String>,
+        sample_size: Option<i64>,
+    ) -> Result<String> {
+        let store = self.lock_store()?;
+        let options = SchemaOptions {
+            sample_size: sample_size.map(|s| s as usize),
+        };
+        let schemas = store
+            .schema(collection.as_deref(), &options)
+            .map_err(napi_error)?;
+        to_json(&schemas)
+    }
 }
 
 use napi::bindgen_prelude::AsyncTask;
@@ -764,6 +878,33 @@ struct NativeLinkRecord {
     created_at: String,
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AggregateResultRecord {
+    total: f64,
+    groups: Vec<AggregateGroupRecord>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AggregateGroupRecord {
+    key: String,
+    value: f64,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TimeSeriesResultRecord {
+    buckets: Vec<TimeSeriesBucketRecord>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TimeSeriesBucketRecord {
+    label: String,
+    value: f64,
+}
+
 pub struct CountLinksTask {
     store: Arc<Mutex<SqliteThingStore>>,
 }
@@ -903,6 +1044,17 @@ fn parse_optional_string_array(value: Option<String>) -> Result<Option<Vec<Strin
     value
         .map(|json| serde_json::from_str::<Vec<String>>(&json).map_err(napi_error))
         .transpose()
+}
+
+fn parse_filter_json(filter_json: Option<String>) -> Result<Vec<(String, Value)>> {
+    filter_json
+        .map(|json| {
+            let obj: serde_json::Map<String, Value> =
+                serde_json::from_str(&json).map_err(napi_error)?;
+            Ok::<_, Error>(obj.into_iter().collect())
+        })
+        .transpose()
+        .map(|opt| opt.unwrap_or_default())
 }
 
 fn to_json<T: Serialize>(value: &T) -> Result<String> {

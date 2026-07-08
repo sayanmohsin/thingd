@@ -1,8 +1,8 @@
 # MCP Tools Reference
 
-thingd exposes 27 MCP tools for AI agents. All tools are available via the stdio MCP server or Streamable HTTP endpoint.
+thingd exposes 30 MCP tools for AI agents. All tools are available via the stdio MCP server or Streamable HTTP endpoint.
 
-**Tool count:** 27 (16 read-only, 11 write — 3 of which are destructive)
+**Tool count:** 30 (19 read-only, 11 write — 3 of which are destructive)
 
 ---
 
@@ -397,6 +397,64 @@ Count all links in the store.
 ```
 
 **Returns:** `number`
+
+---
+
+## Aggregate Tools
+
+### `thing_aggregate`
+
+Run a count, sum, avg, min, or max aggregation over objects in a collection, with optional grouping. Read-only.
+
+```json
+{
+  "collection": "sales",
+  "function": "count",
+  "groupBy": "region",
+  "filter": { "status": "closed" }
+}
+```
+
+**Functions:** `count`, `sum`, `avg`, `min`, `max`
+
+**Returns:** `AggregateResult` — `{ total, groups: [{ key, value }] }`
+
+---
+
+### `thing_timeseries`
+
+Run a time-bucketed aggregation over objects, grouped by hour/day/week/month. Read-only.
+
+```json
+{
+  "collection": "sales",
+  "function": "sum",
+  "field": "amount",
+  "bucket": "month",
+  "from": "2026-01-01T00:00:00Z",
+  "to": "2026-07-01T00:00:00Z"
+}
+```
+
+**Buckets:** `hour`, `day`, `week`, `month`
+
+**Returns:** `TimeSeriesResult` — `{ buckets: [{ label, value }] }`
+
+---
+
+## Schema Tool
+
+### `thing_schema`
+
+Reflect the schema of one or all collections. Returns inferred field names, types, and sample values. Read-only.
+
+```json
+{
+  "collection": "optional collection name (omit for all)"
+}
+```
+
+**Returns:** `CollectionSchema | CollectionSchema[]`
 
 ---
 
