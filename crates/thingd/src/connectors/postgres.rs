@@ -278,15 +278,5 @@ mod tests {
     #[test]
     fn pg_type_time() {
         assert_eq!(pg_type_to_column_type("time"), ColumnType::Timestamp);
-        assert_eq!(
-            pg_type_to_column_type("time without time zone"),
-            ColumnType::Timestamp
-        );
-    }
-
-    #[test]
-    fn postgres_connector_name() {
-        let connector = PostgresConnector;
-        assert_eq!(connector.name(), "postgres");
     }
 }

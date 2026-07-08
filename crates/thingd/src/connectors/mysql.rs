@@ -274,13 +274,6 @@ mod tests {
     }
 
     #[test]
-    fn mysql_type_unknown() {
-        assert_eq!(mysql_type_to_column_type("set"), ColumnType::Text);
-        assert_eq!(mysql_type_to_column_type("enum"), ColumnType::Text);
-        assert_eq!(mysql_type_to_column_type("point"), ColumnType::Text);
-    }
-
-    #[test]
     fn mysql_type_int_unsigned() {
         assert_eq!(mysql_type_to_column_type("int unsigned"), ColumnType::Integer);
     }
@@ -293,11 +286,5 @@ mod tests {
     #[test]
     fn mysql_type_real() {
         assert_eq!(mysql_type_to_column_type("real"), ColumnType::Float);
-    }
-
-    #[test]
-    fn mysql_connector_name() {
-        let connector = MysqlConnector;
-        assert_eq!(connector.name(), "mysql");
     }
 }

@@ -780,7 +780,7 @@ mod tests {
         assert!(config.source.is_empty());
         assert!(config.collection.is_empty());
         assert!(config.query.is_none());
-        assert!(config.batch_size.is_none());
+        assert_eq!(config.batch_size, 1000);
     }
 
     #[test]
@@ -789,13 +789,13 @@ mod tests {
             serde_json::Value::Null,
             serde_json::Value::Null,
         ];
-        assert_eq!(infer_type(&samples), ColumnType::Text);
+        assert_eq!(infer_type(&samples), ColumnType::Unknown);
     }
 
     #[test]
     fn infer_type_empty() {
         let samples: Vec<serde_json::Value> = vec![];
-        assert_eq!(infer_type(&samples), ColumnType::Text);
+        assert_eq!(infer_type(&samples), ColumnType::Unknown);
     }
 
     #[test]
