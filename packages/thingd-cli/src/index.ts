@@ -132,6 +132,7 @@ Usage:
   thingd export --collection <name> --out <path> [--redact [keys]]
   thingd export --events [--stream <name>] --out <path> [--redact [keys]]
   thingd import --collection <name> --in <path>
+  thingd import <connection-string> --collection <name> [--tables <names> | --query <sql>] [--sidecar <url>] [--dry-run] [--list-tables] [--batch-size <n>]
   thingd snapshot create --out <path>
   thingd snapshot restore --in <path>
   thingd backup --out <path>

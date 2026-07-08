@@ -122,6 +122,8 @@ This file should stay useful but not become a dump. Rules:
 - **AGENTS.md version examples** — `Version specifier propagation` examples must match the current workspace `[workspace.package].version` in `Cargo.toml`.
 - **MCP tool count** — update in `packages/thingd/src/constants.ts` only; VitePress docs use `{{ $themeConfig.mcpToolCount }}` from `docs/.vitepress/config.ts`
 - **Sidecar REST gap** — every REST endpoint in `docs/api-spec/rest-api.md` must exist in `crates/thingd-server/src/rest.rs`
+- **CLI import for DBs** — `thingd import <connection-string>` calls sidecar `POST /v1/connectors/{type}/pull`. Document flags in `docs/cli-reference.md`.
+
 - **Sidecar MCP gap** — every MCP tool in `docs/api-spec/mcp-tools.md` must exist in `crates/thingd-server/src/mcp.rs`
 - **Native binding type** — update `NativeThingStoreBinding` in `native-thing-store.ts` when adding napi methods
 - **Sort/filter params** — Rust `ListObjectsOptions` changes must propagate to native binding `list_objects_json` and TypeScript `listObjects`

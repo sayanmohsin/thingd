@@ -1,6 +1,8 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import type {
+  ConnectorAuth,
+  ConnectorSchema,
   MemoryEvent,
   MemoryObject,
   QueueJob,
@@ -8,6 +10,15 @@ import type {
   StoredMemoryObject,
 } from "@thingd/sdk";
 import { type CliContext, hasFlag, requiredFlag, stringFlag, withDb, writeJson } from "./index.js";
+
+const SIDECAR_DEFAULT_URL = "http://localhost:8757";
+
+type ConnectorType = "postgres" | "mysql";
+
+type ConnectorPullResult = {
+  imported: number;
+  collection: string;
+};
 
 const DEFAULT_REDACT_KEYS = [
   "password",
@@ -114,6 +125,21 @@ export async function runExport(context: CliContext): Promise<void> {
 }
 
 export async function runImport(context: CliContext): Promise<void> {
+  const source = stringFlag(context.parsed, "source") ?? context.parsed.tokens[1] ?? "";
+  const type = stringFlag(context.parsed, "type");
+  const isDb =
+    source.startsWith("postgresql://") ||
+    source.startsWith("postgres://") ||
+    source.startsWith("mysql://") ||
+    type === "postgres" ||
+    type === "mysql";
+
+  if (isDb) {
+    await runImportDb(context, source, type);
+    return;
+  }
+
+  // --- existing file import logic (unchanged) ---
   const collection = requiredFlag(context.parsed, "collection");
   const inPath = requiredFlag(context.parsed, "in");
 
@@ -184,6 +210,216 @@ export async function runImport(context: CliContext): Promise<void> {
       context.pretty
     );
   });
+}
+
+// ── DB import helpers ──────────────────────────────────────────────────
+
+function resolveSidecarUrl(context: CliContext): string {
+  const flag = stringFlag(context.parsed, "sidecar");
+  if (flag) {
+    return flag.replace(/\/$/, "");
+  }
+  const envUrl = context.env.THINGD_URL;
+  if (envUrl) {
+    const normalized = envUrl.replace(/\/$/, "");
+    if (normalized.startsWith("http://") || normalized.startsWith("https://")) {
+      return normalized;
+    }
+  }
+  return SIDECAR_DEFAULT_URL;
+}
+
+function authHeaders(context: CliContext): Record<string, string> {
+  const token = stringFlag(context.parsed, "auth-token") ?? context.env.THINGD_AUTH_TOKEN;
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+function detectConnectorType(source: string, explicitType?: string): ConnectorType {
+  if (explicitType === "postgres" || explicitType === "mysql") {
+    return explicitType;
+  }
+  if (source.startsWith("postgresql://") || source.startsWith("postgres://")) {
+    return "postgres";
+  }
+  if (source.startsWith("mysql://")) {
+    return "mysql";
+  }
+  throw new Error(
+    `Could not detect connector type from "${source.slice(0, 30)}...". Use --type postgres or --type mysql.`
+  );
+}
+
+function parseConnectionString(source: string): ConnectorAuth {
+  const isUri =
+    source.startsWith("postgresql://") ||
+    source.startsWith("postgres://") ||
+    source.startsWith("mysql://");
+
+  if (isUri) {
+    const url = new URL(source);
+    const defaultPort = source.startsWith("mysql://") ? 3306 : 5432;
+    return {
+      host: url.hostname,
+      port: url.port ? Number(url.port) : defaultPort,
+      database: decodeURIComponent(url.pathname.replace(/^\//, "")),
+      username: decodeURIComponent(url.username),
+      password: decodeURIComponent(url.password),
+      sslMode: (url.searchParams.get("sslmode") as ConnectorAuth["sslMode"]) ?? "prefer",
+    };
+  }
+
+  // Shorthand: host:port:database:username:password
+  const parts = source.split(":");
+  return {
+    host: parts[0] ?? "localhost",
+    port: Number(parts[1]) || 5432,
+    database: parts[2] ?? "",
+    username: parts[3] ?? "",
+    password: parts.slice(4).join(":"),
+    sslMode: "prefer",
+  };
+}
+
+function parseMappings(context: CliContext): [string, string][] {
+  const maps = stringFlag(context.parsed, "map");
+  if (!maps) {
+    return [];
+  }
+  return maps.split(",").map((m) => {
+    const parts = m.split(":");
+    return [parts[0] ?? "", parts[1] ?? parts[0] ?? ""];
+  });
+}
+
+function buildColumnMapping(pairs: [string, string][]): Record<string, string> | undefined {
+  if (pairs.length === 0) {
+    return undefined;
+  }
+  return Object.fromEntries(pairs);
+}
+
+async function callConnectorSchema(
+  url: string,
+  type: string,
+  auth: ConnectorAuth,
+  query: string,
+  headers: Record<string, string>
+): Promise<ConnectorSchema> {
+  const res = await fetch(`${url}/v1/connectors/${type}/schema`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...headers },
+    body: JSON.stringify({ auth, query }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => null);
+    throw new Error(err?.error?.detail ?? `Schema discovery failed (HTTP ${res.status})`);
+  }
+  const json = await res.json();
+  return json.data as ConnectorSchema;
+}
+
+async function callConnectorPull(
+  url: string,
+  type: string,
+  auth: ConnectorAuth,
+  opts: {
+    collection: string;
+    query: string;
+    batchSize: number;
+    columnMapping?: Record<string, string>;
+  },
+  headers: Record<string, string>
+): Promise<ConnectorPullResult> {
+  const res = await fetch(`${url}/v1/connectors/${type}/pull`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...headers },
+    body: JSON.stringify({
+      auth,
+      collection: opts.collection,
+      query: opts.query,
+      batchSize: opts.batchSize,
+      columnMapping: opts.columnMapping,
+    }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => null);
+    throw new Error(err?.error?.detail ?? `Import failed (HTTP ${res.status})`);
+  }
+  const json = await res.json();
+  return json.data as ConnectorPullResult;
+}
+
+async function runImportDb(
+  context: CliContext,
+  source: string,
+  explicitType?: string
+): Promise<void> {
+  const sidecarUrl = resolveSidecarUrl(context);
+  const headers = authHeaders(context);
+  const connectorType = detectConnectorType(source, explicitType);
+  const auth = parseConnectionString(source);
+  const collection = requiredFlag(context.parsed, "collection");
+  const batchSize = Number(stringFlag(context.parsed, "batch-size") ?? "1000");
+  const columnMapping = buildColumnMapping(parseMappings(context));
+
+  // Verify sidecar is reachable
+  try {
+    const healthRes = await fetch(`${sidecarUrl}/v1/health`, { headers });
+    if (!healthRes.ok) {
+      throw new Error(`Sidecar returned HTTP ${healthRes.status}`);
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    throw new Error(
+      `Cannot reach sidecar at ${sidecarUrl}: ${message}. ` +
+        `Is thingd running? Try 'thingd mcp' first.`
+    );
+  }
+
+  // --list-tables: show available tables
+  if (hasFlag(context.parsed, "list-tables")) {
+    const tables = await callConnectorSchema(sidecarUrl, connectorType, auth, "", headers);
+    writeJson(context.stdout, { tables }, context.pretty);
+    return;
+  }
+
+  // Resolve query from --tables or --query
+  const tablesFlag = stringFlag(context.parsed, "tables");
+  const queryFlag = stringFlag(context.parsed, "query");
+
+  if (!queryFlag && !tablesFlag) {
+    throw new Error("Must specify --tables (comma-separated) or --query for DB import.");
+  }
+
+  const queries: string[] = tablesFlag
+    ? tablesFlag.split(",").map((t) => `SELECT * FROM ${t.trim()}`)
+    : [queryFlag as string];
+
+  // --dry-run: show schema without importing
+  if (hasFlag(context.parsed, "dry-run")) {
+    const schemas: ConnectorSchema[] = [];
+    for (const q of queries) {
+      const schema = await callConnectorSchema(sidecarUrl, connectorType, auth, q, headers);
+      schemas.push(schema);
+    }
+    writeJson(context.stdout, { dryRun: true, schemas }, context.pretty);
+    return;
+  }
+
+  // Execute imports for each query/table
+  let totalImported = 0;
+  for (const q of queries) {
+    const result = await callConnectorPull(
+      sidecarUrl,
+      connectorType,
+      auth,
+      { collection, query: q, batchSize, columnMapping },
+      headers
+    );
+    totalImported += result.imported;
+  }
+
+  writeJson(context.stdout, { success: true, imported: totalImported, collection }, context.pretty);
 }
 
 export async function runSnapshot(context: CliContext): Promise<void> {

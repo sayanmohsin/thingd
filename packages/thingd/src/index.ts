@@ -35,6 +35,10 @@ export { NativeThingStore } from "./stores/native-thing-store.js";
 export type { ThingDDriver, ThingDOpenConfig, ThingDOpenOptions } from "./thingd.js";
 export { ThingD } from "./thingd.js";
 export type {
+  ConnectorAuth,
+  ConnectorSchema,
+  ConnectorSyncOptions,
+  ConnectorSyncResult,
   Link,
   LinkDirection,
   LinkQueryOptions,

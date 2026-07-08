@@ -74,6 +74,7 @@ thingd links count
 thingd export --collection <name> --out objects.jsonl [--redact [keys]]
 thingd export --events [--stream <name>] --out events.jsonl [--redact [keys]]
 thingd import --collection <name> --in objects.jsonl
+thingd import <connection-string> --collection <name> [--tables <names>|--query <sql>] [--sidecar <url>] [--dry-run] [--list-tables]
 ```
 
 ### Snapshots

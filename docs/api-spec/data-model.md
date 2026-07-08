@@ -223,6 +223,27 @@ Authentication credentials for external database connectors.
 
 Available connector types: `"file"`, `"postgres"`, `"mysql"`.
 
+### ColumnAnnotation
+
+Annotation metadata for NLQ schema context.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `name` | string | Column name |
+| `description` | string | Human-readable description |
+| `primaryKey` | boolean | Whether this is a primary key |
+| `foreignKey` | ForeignKey \| null | Foreign key reference |
+| `type` | string | `"text"` \| `"integer"` \| `"float"` \| `"boolean"` \| `"timestamp"` \| `"currency"` \| `"enum"` \| `"json"` \| `"unknown"` |
+| `enumValues` | string[] \| null | Allowed values for enum columns |
+| `included` | boolean | Include in NLQ schema context |
+
+### ForeignKey
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `table` | string | Referenced table |
+| `column` | string | Referenced column |
+
 ---
 
 ## Supporting Types
