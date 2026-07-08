@@ -75,7 +75,7 @@ pnpm check                    # biome lint
 pnpm check:write              # biome auto-fix
 pnpm test:node                # 61 Node SDK tests
 pnpm test:cli                 # 44 CLI tests
-pnpm test:rust                # cargo test --workspace --all-features (187 tests — 98 engine + 89 server)
+pnpm test:rust                # cargo test --workspace --all-features (219 tests — 130 engine + 89 server)
 pnpm test:local               # check → build → node+cli+package tests
 pnpm bench:rust               # full Rust benchmark (in-memory + sqlite)
 pnpm bench:rust:smoke         # quick Rust benchmark (100 iters)
