@@ -1310,6 +1310,128 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_mcp_thing_objects_put_batch() {
+        let state = test_state();
+        let (_status, result) = call_mcp_with(
+            &state,
+            json!({ "jsonrpc": "2.0", "method": "tools/call", "params": { "name": "thing_objects_put_batch", "arguments": { "collection": "batch_test", "objects": [{"id":"b1","v":1},{"id":"b2","v":2}] } }, "id": 1 }),
+        ).await;
+        assert_ne!(result["result"]["isError"], true);
+        let text = result["result"]["content"][0]["text"].as_str().unwrap();
+        assert!(text.contains("2"));
+    }
+
+    #[tokio::test]
+    async fn test_mcp_thing_objects_delete_batch() {
+        let state = test_state();
+        call_mcp_with(&state, json!({ "jsonrpc": "2.0", "method": "tools/call", "params": { "name": "thing_objects_put_batch", "arguments": { "collection": "del_batch", "objects": [{"id":"d1"},{"id":"d2"}] } }, "id": 1 })).await;
+        let (_status, result) = call_mcp_with(
+            &state,
+            json!({ "jsonrpc": "2.0", "method": "tools/call", "params": { "name": "thing_objects_delete_batch", "arguments": { "collection": "del_batch", "ids": ["d1","d2"] } }, "id": 2 }),
+        ).await;
+        assert_ne!(result["result"]["isError"], true);
+    }
+
+    #[tokio::test]
+    async fn test_mcp_thing_queue_ack_and_nack() {
+        let state = test_state();
+        // Push
+        let (_status, result) = call_mcp_with(&state, json!({ "jsonrpc": "2.0", "method": "tools/call", "params": { "name": "thing_queue_push", "arguments": { "queue": "ackq", "payload": {"t":"j"} } }, "id": 1 })).await;
+        assert_ne!(result["result"]["isError"], true);
+        // Claim
+        let (_status, result) = call_mcp_with(&state, json!({ "jsonrpc": "2.0", "method": "tools/call", "params": { "name": "thing_queue_claim", "arguments": { "queue": "ackq" } }, "id": 2 })).await;
+        assert_ne!(result["result"]["isError"], true);
+        let text = result["result"]["content"][0]["text"].as_str().unwrap();
+        let parsed: Value = serde_json::from_str(text).unwrap();
+        let job_id = parsed["id"].as_str().unwrap();
+        // Ack
+        let (_status, result) = call_mcp_with(&state, json!({ "jsonrpc": "2.0", "method": "tools/call", "params": { "name": "thing_queue_ack", "arguments": { "queue": "ackq", "jobId": job_id } }, "id": 3 })).await;
+        assert_ne!(result["result"]["isError"], true);
+    }
+
+    #[tokio::test]
+    async fn test_mcp_thing_queue_nack() {
+        let state = test_state();
+        call_mcp_with(&state, json!({ "jsonrpc": "2.0", "method": "tools/call", "params": { "name": "thing_queue_push", "arguments": { "queue": "nackq", "payload": {"t":"j"} } }, "id": 1 })).await;
+        let (_status, result) = call_mcp_with(&state, json!({ "jsonrpc": "2.0", "method": "tools/call", "params": { "name": "thing_queue_claim", "arguments": { "queue": "nackq" } }, "id": 2 })).await;
+        let text = result["result"]["content"][0]["text"].as_str().unwrap();
+        let parsed: Value = serde_json::from_str(text).unwrap();
+        let job_id = parsed["id"].as_str().unwrap();
+        let (_status, result) = call_mcp_with(&state, json!({ "jsonrpc": "2.0", "method": "tools/call", "params": { "name": "thing_queue_nack", "arguments": { "queue": "nackq", "jobId": job_id, "error": "oops" } }, "id": 3 })).await;
+        assert_ne!(result["result"]["isError"], true);
+    }
+
+    #[tokio::test]
+    async fn test_mcp_thing_queue_list() {
+        let state = test_state();
+        call_mcp_with(&state, json!({ "jsonrpc": "2.0", "method": "tools/call", "params": { "name": "thing_queue_push", "arguments": { "queue": "listq", "payload": {"k":"v"} } }, "id": 1 })).await;
+        let (_status, result) = call_mcp_with(&state, json!({ "jsonrpc": "2.0", "method": "tools/call", "params": { "name": "thing_queue_list", "arguments": { "queue": "listq" } }, "id": 2 })).await;
+        assert_ne!(result["result"]["isError"], true);
+    }
+
+    #[tokio::test]
+    async fn test_mcp_thing_queue_dead() {
+        let state = test_state();
+        let (_status, result) = call_mcp_with(&state, json!({ "jsonrpc": "2.0", "method": "tools/call", "params": { "name": "thing_queue_dead", "arguments": { "queue": "deadq" } }, "id": 1 })).await;
+        assert_ne!(result["result"]["isError"], true);
+    }
+
+    #[tokio::test]
+    async fn test_mcp_thing_count_events() {
+        let state = test_state();
+        let (_status, result) = call_mcp_with(&state, json!({ "jsonrpc": "2.0", "method": "tools/call", "params": { "name": "thing_count_events", "arguments": {} }, "id": 1 })).await;
+        assert_ne!(result["result"]["isError"], true);
+    }
+
+    #[tokio::test]
+    async fn test_mcp_thing_count_active_jobs() {
+        let state = test_state();
+        let (_status, result) = call_mcp_with(&state, json!({ "jsonrpc": "2.0", "method": "tools/call", "params": { "name": "thing_count_active_jobs", "arguments": { "queue": "q" } }, "id": 1 })).await;
+        assert_ne!(result["result"]["isError"], true);
+    }
+
+    #[tokio::test]
+    async fn test_mcp_thing_count_dead_jobs() {
+        let state = test_state();
+        let (_status, result) = call_mcp_with(&state, json!({ "jsonrpc": "2.0", "method": "tools/call", "params": { "name": "thing_count_dead_jobs", "arguments": { "queue": "q" } }, "id": 1 })).await;
+        assert_ne!(result["result"]["isError"], true);
+    }
+
+    #[tokio::test]
+    async fn test_mcp_thing_list_streams() {
+        let state = test_state();
+        let (_status, result) = call_mcp_with(&state, json!({ "jsonrpc": "2.0", "method": "tools/call", "params": { "name": "thing_list_streams", "arguments": {} }, "id": 1 })).await;
+        assert_ne!(result["result"]["isError"], true);
+    }
+
+    #[tokio::test]
+    async fn test_mcp_thing_list_queues() {
+        let state = test_state();
+        let (_status, result) = call_mcp_with(&state, json!({ "jsonrpc": "2.0", "method": "tools/call", "params": { "name": "thing_list_queues", "arguments": {} }, "id": 1 })).await;
+        assert_ne!(result["result"]["isError"], true);
+    }
+
+    #[tokio::test]
+    async fn test_mcp_thing_link_get_and_delete_and_neighbors() {
+        let state = test_state();
+        // Create
+        let (_status, result) = call_mcp_with(&state, json!({ "jsonrpc": "2.0", "method": "tools/call", "params": { "name": "thing_link_create", "arguments": { "fromRef": "u1", "linkType": "knows", "toRef": "u2" } }, "id": 1 })).await;
+        assert_ne!(result["result"]["isError"], true);
+        let text = result["result"]["content"][0]["text"].as_str().unwrap();
+        let parsed: Value = serde_json::from_str(text).unwrap();
+        let link_id = parsed["id"].as_str().unwrap();
+        // Get
+        let (_status, result) = call_mcp_with(&state, json!({ "jsonrpc": "2.0", "method": "tools/call", "params": { "name": "thing_link_get", "arguments": { "id": link_id } }, "id": 2 })).await;
+        assert_ne!(result["result"]["isError"], true);
+        // Neighbors
+        let (_status, result) = call_mcp_with(&state, json!({ "jsonrpc": "2.0", "method": "tools/call", "params": { "name": "thing_link_neighbors", "arguments": { "reference": "u1", "direction": "Outgoing" } }, "id": 3 })).await;
+        assert_ne!(result["result"]["isError"], true);
+        // Delete
+        let (_status, result) = call_mcp_with(&state, json!({ "jsonrpc": "2.0", "method": "tools/call", "params": { "name": "thing_link_delete", "arguments": { "id": link_id } }, "id": 4 })).await;
+        assert_ne!(result["result"]["isError"], true);
+    }
+
+    #[tokio::test]
     async fn test_mcp_unknown_tool() {
         let state = test_state();
         let (_status, result) = call_mcp_with(&state, json!({ "jsonrpc": "2.0", "method": "tools/call", "params": { "name": "nonexistent_tool", "arguments": {} }, "id": 1 })).await;
