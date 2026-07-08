@@ -275,12 +275,18 @@ mod tests {
 
     #[test]
     fn mysql_type_int_unsigned() {
-        assert_eq!(mysql_type_to_column_type("int unsigned"), ColumnType::Integer);
+        assert_eq!(
+            mysql_type_to_column_type("int unsigned"),
+            ColumnType::Integer
+        );
     }
 
     #[test]
     fn mysql_type_double_precision() {
-        assert_eq!(mysql_type_to_column_type("double precision"), ColumnType::Float);
+        assert_eq!(
+            mysql_type_to_column_type("double precision"),
+            ColumnType::Float
+        );
     }
 
     #[test]

@@ -785,10 +785,7 @@ mod tests {
 
     #[test]
     fn infer_type_all_nulls() {
-        let samples = vec![
-            serde_json::Value::Null,
-            serde_json::Value::Null,
-        ];
+        let samples = vec![serde_json::Value::Null, serde_json::Value::Null];
         assert_eq!(infer_type(&samples), ColumnType::Unknown);
     }
 

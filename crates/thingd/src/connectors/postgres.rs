@@ -261,10 +261,7 @@ mod tests {
     #[test]
     fn pg_type_char() {
         assert_eq!(pg_type_to_column_type("char"), ColumnType::Text);
-        assert_eq!(
-            pg_type_to_column_type("character"),
-            ColumnType::Text
-        );
+        assert_eq!(pg_type_to_column_type("character"), ColumnType::Text);
     }
 
     #[test]
