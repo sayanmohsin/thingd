@@ -1344,8 +1344,8 @@ mod tests {
         let text = result["result"]["content"][0]["text"].as_str().unwrap();
         let parsed: Value = serde_json::from_str(text).unwrap();
         let job_id = parsed["id"].as_str().unwrap();
-        // Ack
-        let (_status, result) = call_mcp_with(&state, json!({ "jsonrpc": "2.0", "method": "tools/call", "params": { "name": "thing_queue_ack", "arguments": { "queue": "ackq", "jobId": job_id } }, "id": 3 })).await;
+        // Ack (MCP uses "id" not "jobId")
+        let (_status, result) = call_mcp_with(&state, json!({ "jsonrpc": "2.0", "method": "tools/call", "params": { "name": "thing_queue_ack", "arguments": { "queue": "ackq", "id": job_id } }, "id": 3 })).await;
         assert_ne!(result["result"]["isError"], true);
     }
 
@@ -1357,7 +1357,8 @@ mod tests {
         let text = result["result"]["content"][0]["text"].as_str().unwrap();
         let parsed: Value = serde_json::from_str(text).unwrap();
         let job_id = parsed["id"].as_str().unwrap();
-        let (_status, result) = call_mcp_with(&state, json!({ "jsonrpc": "2.0", "method": "tools/call", "params": { "name": "thing_queue_nack", "arguments": { "queue": "nackq", "jobId": job_id, "error": "oops" } }, "id": 3 })).await;
+        // Nack (MCP uses "id" not "jobId")
+        let (_status, result) = call_mcp_with(&state, json!({ "jsonrpc": "2.0", "method": "tools/call", "params": { "name": "thing_queue_nack", "arguments": { "queue": "nackq", "id": job_id, "error": "oops" } }, "id": 3 })).await;
         assert_ne!(result["result"]["isError"], true);
     }
 
