@@ -191,10 +191,15 @@ export class ThingD implements ThingDConnection {
     return this.store.listQueues?.() ?? [];
   }
 
+  /** List available connector types. Requires sidecar/HTTP store (returns [] for in-memory/native). */
   async listConnectors(): Promise<string[]> {
     return this.store.listConnectors?.() ?? [];
   }
 
+  /**
+   * Discover the schema of an external table or file source.
+   * Requires sidecar/HTTP store — throws on in-memory/native stores.
+   */
   async discoverConnectorSchema(
     type: string,
     query: string,
@@ -207,6 +212,10 @@ export class ThingD implements ThingDConnection {
     return result;
   }
 
+  /**
+   * Import data from an external source into a thingd collection.
+   * Requires sidecar/HTTP store — throws on in-memory/native stores.
+   */
   async connectorSync(type: string, options: ConnectorSyncOptions): Promise<ConnectorSyncResult> {
     const result = await this.store.connectorSync?.(type, options);
     if (!result) {
