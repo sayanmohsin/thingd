@@ -1095,4 +1095,405 @@ mod tests {
             .unwrap();
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     }
+
+    #[tokio::test]
+    async fn test_count_objects() {
+        let (state, config) = test_state_and_config();
+        let app = crate::server::build_router(state, &config);
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/v1/counts/objects")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let bytes = response.into_body().collect().await.unwrap().to_bytes();
+        let json: Value = serde_json::from_slice(&bytes).unwrap();
+        assert!(json["data"]["count"].is_number());
+    }
+
+    #[tokio::test]
+    async fn test_count_events() {
+        let (state, config) = test_state_and_config();
+        let app = crate::server::build_router(state, &config);
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/v1/counts/events")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let bytes = response.into_body().collect().await.unwrap().to_bytes();
+        let json: Value = serde_json::from_slice(&bytes).unwrap();
+        assert!(json["data"]["count"].is_number());
+    }
+
+    #[tokio::test]
+    async fn test_count_links() {
+        let (state, config) = test_state_and_config();
+        let app = crate::server::build_router(state, &config);
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/v1/counts/links")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let bytes = response.into_body().collect().await.unwrap().to_bytes();
+        let json: Value = serde_json::from_slice(&bytes).unwrap();
+        assert!(json["data"]["count"].is_number());
+    }
+
+    #[tokio::test]
+    async fn test_list_collections() {
+        let (state, config) = test_state_and_config();
+        let app = crate::server::build_router(state, &config);
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/v1/collections")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let bytes = response.into_body().collect().await.unwrap().to_bytes();
+        let json: Value = serde_json::from_slice(&bytes).unwrap();
+        assert!(json["data"].is_array());
+    }
+
+    #[tokio::test]
+    async fn test_list_streams() {
+        let (state, config) = test_state_and_config();
+        let app = crate::server::build_router(state, &config);
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/v1/streams")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let bytes = response.into_body().collect().await.unwrap().to_bytes();
+        let json: Value = serde_json::from_slice(&bytes).unwrap();
+        assert!(json["data"].is_array());
+    }
+
+    #[tokio::test]
+    async fn test_list_queues() {
+        let (state, config) = test_state_and_config();
+        let app = crate::server::build_router(state, &config);
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/v1/queues")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let bytes = response.into_body().collect().await.unwrap().to_bytes();
+        let json: Value = serde_json::from_slice(&bytes).unwrap();
+        assert!(json["data"].is_array());
+    }
+
+    #[tokio::test]
+    async fn test_batch_upsert() {
+        let (state, config) = test_state_and_config();
+        let app = crate::server::build_router(state, &config);
+        let body = r#"[{"id":"b1","name":"Bob"},{"id":"b2","name":"Alice"}]"#;
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("PUT")
+                    .uri("/v1/objects/batch?collection=users")
+                    .header("content-type", "application/json")
+                    .body(Body::from(body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let bytes = response.into_body().collect().await.unwrap().to_bytes();
+        let json: Value = serde_json::from_slice(&bytes).unwrap();
+        let arr = json["data"].as_array().unwrap();
+        assert_eq!(arr.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn test_batch_delete() {
+        let (state, config) = test_state_and_config();
+        let app = crate::server::build_router(state, &config);
+
+        // First create objects
+        app.clone()
+            .oneshot(
+                Request::builder()
+                    .method("PUT")
+                    .uri("/v1/objects/deltest/d1")
+                    .header("content-type", "application/json")
+                    .body(Body::from(r#"{"id":"d1"}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        app.clone()
+            .oneshot(
+                Request::builder()
+                    .method("PUT")
+                    .uri("/v1/objects/deltest/d2")
+                    .header("content-type", "application/json")
+                    .body(Body::from(r#"{"id":"d2"}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        let body = r#"["d1","d2"]"#;
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("DELETE")
+                    .uri("/v1/objects/batch?collection=deltest")
+                    .header("content-type", "application/json")
+                    .body(Body::from(body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let bytes = response.into_body().collect().await.unwrap().to_bytes();
+        let json: Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(json["data"]["deleted"], 2);
+    }
+
+    #[tokio::test]
+    async fn test_queue_nack() {
+        let (state, config) = test_state_and_config();
+        let app = crate::server::build_router(state, &config);
+
+        // Push a job
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/queues/nackq/push")
+                    .header("content-type", "application/json")
+                    .body(Body::from(r#"{"payload":"job"}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        // Claim it
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/queues/nackq/claim")
+                    .header("content-type", "application/json")
+                    .body(Body::from(r#"{}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let bytes = response.into_body().collect().await.unwrap().to_bytes();
+        let json: Value = serde_json::from_slice(&bytes).unwrap();
+        let job_id = json["data"]["id"].as_str().unwrap();
+
+        // Nack it
+        let body = format!(r#"{{"jobId":"{}","error":"failed"}}"#, job_id);
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/queues/nackq/nack")
+                    .header("content-type", "application/json")
+                    .body(Body::from(body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn test_queue_dead() {
+        let (state, config) = test_state_and_config();
+        let app = crate::server::build_router(state, &config);
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/v1/queues/deadq/dead")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let bytes = response.into_body().collect().await.unwrap().to_bytes();
+        let json: Value = serde_json::from_slice(&bytes).unwrap();
+        assert!(json["data"].is_array());
+    }
+
+    #[tokio::test]
+    async fn test_get_link_by_id() {
+        let (state, config) = test_state_and_config();
+        let app = crate::server::build_router(state, &config);
+
+        // Create a link first
+        let body = r#"{"fromRef":"a","linkType":"refs","toRef":"b"}"#;
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/links")
+                    .header("content-type", "application/json")
+                    .body(Body::from(body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let bytes = response.into_body().collect().await.unwrap().to_bytes();
+        let json: Value = serde_json::from_slice(&bytes).unwrap();
+        let link_id = json["data"]["id"].as_str().unwrap();
+
+        // Get by ID
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri(format!("/v1/links/{}", link_id))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn test_delete_link() {
+        let (state, config) = test_state_and_config();
+        let app = crate::server::build_router(state, &config);
+
+        // Create a link
+        let body = r#"{"fromRef":"x","linkType":"dep","toRef":"y"}"#;
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/links")
+                    .header("content-type", "application/json")
+                    .body(Body::from(body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let bytes = response.into_body().collect().await.unwrap().to_bytes();
+        let json: Value = serde_json::from_slice(&bytes).unwrap();
+        let link_id = json["data"]["id"].as_str().unwrap();
+
+        // Delete it
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("DELETE")
+                    .uri(format!("/v1/links/{}", link_id))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn test_get_neighbors() {
+        let (state, config) = test_state_and_config();
+        let app = crate::server::build_router(state, &config);
+
+        // Create links
+        let body1 = r#"{"fromRef":"user/alice","linkType":"authored","toRef":"post/1"}"#;
+        app.clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/links")
+                    .header("content-type", "application/json")
+                    .body(Body::from(body1))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        let body2 = r#"{"fromRef":"user/alice","linkType":"authored","toRef":"post/2"}"#;
+        app.clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/links")
+                    .header("content-type", "application/json")
+                    .body(Body::from(body2))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        // Get neighbors
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/v1/links?reference=user/alice&direction=Outgoing")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let bytes = response.into_body().collect().await.unwrap().to_bytes();
+        let json: Value = serde_json::from_slice(&bytes).unwrap();
+        let arr = json["data"].as_array().unwrap();
+        assert_eq!(arr.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn test_list_connectors() {
+        let (state, config) = test_state_and_config();
+        let app = crate::server::build_router(state, &config);
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/v1/connectors")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let bytes = response.into_body().collect().await.unwrap().to_bytes();
+        let json: Value = serde_json::from_slice(&bytes).unwrap();
+        let arr = json["data"].as_array().unwrap();
+        assert!(arr.contains(&Value::String("file".to_string())));
+    }
 }
