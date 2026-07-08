@@ -735,4 +735,175 @@ mod tests {
     fn ssl_mode_default() {
         assert_eq!(SslMode::default(), SslMode::Prefer);
     }
+
+    #[test]
+    fn ssl_mode_variants() {
+        assert_eq!(SslMode::Disable as u8, 0);
+        assert_eq!(SslMode::Prefer as u8, 1);
+        assert_eq!(SslMode::Require as u8, 2);
+    }
+
+    #[test]
+    fn connector_auth_postgres_uri_special_chars() {
+        let auth = ConnectorAuth {
+            username: "user@host".to_string(),
+            password: "p@ss:word!".to_string(),
+            host: "localhost".to_string(),
+            port: 5432,
+            database: "mydb".to_string(),
+            ssl_mode: SslMode::Disable,
+        };
+        let uri = auth.postgres_uri();
+        assert!(uri.contains("user@host"));
+        assert!(uri.contains("mydb"));
+    }
+
+    #[test]
+    fn connector_auth_mysql_uri_special_chars() {
+        let auth = ConnectorAuth {
+            username: "root".to_string(),
+            password: "p@ss:word!".to_string(),
+            host: "db.example.com".to_string(),
+            port: 3306,
+            database: "analytics".to_string(),
+            ssl_mode: SslMode::Require,
+        };
+        let uri = auth.mysql_uri();
+        assert!(uri.starts_with("mysql://"));
+        assert!(uri.contains("analytics"));
+    }
+
+    #[test]
+    fn connector_config_defaults() {
+        let config = ConnectorConfig::default();
+        assert!(config.connector_type.is_empty());
+        assert!(config.source.is_empty());
+        assert!(config.collection.is_empty());
+        assert!(config.query.is_none());
+        assert!(config.batch_size.is_none());
+    }
+
+    #[test]
+    fn infer_type_all_nulls() {
+        let samples = vec![
+            serde_json::Value::Null,
+            serde_json::Value::Null,
+        ];
+        assert_eq!(infer_type(&samples), ColumnType::Text);
+    }
+
+    #[test]
+    fn infer_type_empty() {
+        let samples: Vec<serde_json::Value> = vec![];
+        assert_eq!(infer_type(&samples), ColumnType::Text);
+    }
+
+    #[test]
+    fn infer_type_float() {
+        let samples = vec![serde_json::json!(1.5), serde_json::json!(2.7)];
+        assert_eq!(infer_type(&samples), ColumnType::Float);
+    }
+
+    #[test]
+    fn infer_type_boolean() {
+        let samples = vec![serde_json::json!(true), serde_json::json!(false)];
+        assert_eq!(infer_type(&samples), ColumnType::Boolean);
+    }
+
+    #[test]
+    fn infer_type_string() {
+        let samples = vec![serde_json::json!("hello"), serde_json::json!("world")];
+        assert_eq!(infer_type(&samples), ColumnType::Text);
+    }
+
+    #[test]
+    fn infer_json_value_negative() {
+        let v = infer_json_value("-42");
+        assert_eq!(v, serde_json::json!(-42));
+    }
+
+    #[test]
+    fn infer_json_value_large_number() {
+        let v = infer_json_value("9999999999999");
+        assert!(v.is_number());
+    }
+
+    #[test]
+    fn csv_empty_rows() {
+        let dir = tempdir().unwrap();
+        let file_path = dir.path().join("empty.csv");
+        let mut file = std::fs::File::create(&file_path).unwrap();
+        writeln!(file, "name,age").unwrap();
+
+        let connector = FileConnector;
+        let config = ConnectorConfig {
+            connector_type: "csv".to_string(),
+            source: file_path.to_str().unwrap().to_string(),
+            collection: "test".to_string(),
+            ..Default::default()
+        };
+
+        let stream = connector.pull(&config).unwrap();
+        let objects: Vec<serde_json::Value> = stream.collect::<ThingdResult<Vec<_>>>().unwrap();
+        assert!(objects.is_empty());
+    }
+
+    #[test]
+    fn csv_single_column() {
+        let dir = tempdir().unwrap();
+        let file_path = dir.path().join("single.csv");
+        let mut file = std::fs::File::create(&file_path).unwrap();
+        writeln!(file, "value\nhello\nworld").unwrap();
+
+        let connector = FileConnector;
+        let config = ConnectorConfig {
+            connector_type: "csv".to_string(),
+            source: file_path.to_str().unwrap().to_string(),
+            collection: "test".to_string(),
+            ..Default::default()
+        };
+
+        let schema = connector.discover_schema(&config).unwrap();
+        assert_eq!(schema.columns.len(), 1);
+        assert_eq!(schema.columns[0].name, "value");
+
+        let stream = connector.pull(&config).unwrap();
+        let objects: Vec<serde_json::Value> = stream.collect::<ThingdResult<Vec<_>>>().unwrap();
+        assert_eq!(objects.len(), 2);
+        assert_eq!(objects[0]["value"], "hello");
+    }
+
+    #[test]
+    fn jsonl_single_object() {
+        let dir = tempdir().unwrap();
+        let file_path = dir.path().join("single.jsonl");
+        let mut file = std::fs::File::create(&file_path).unwrap();
+        writeln!(file, "{{\"id\":1,\"name\":\"only\"}}").unwrap();
+
+        let connector = FileConnector;
+        let config = ConnectorConfig {
+            connector_type: "json".to_string(),
+            source: file_path.to_str().unwrap().to_string(),
+            collection: "test".to_string(),
+            ..Default::default()
+        };
+
+        let stream = connector.pull(&config).unwrap();
+        let objects: Vec<serde_json::Value> = stream.collect::<ThingdResult<Vec<_>>>().unwrap();
+        assert_eq!(objects.len(), 1);
+        assert_eq!(objects[0]["name"], "only");
+    }
+
+    #[test]
+    fn list_tables_returns_empty_for_file_connector() {
+        let connector = FileConnector;
+        let config = ConnectorConfig::default();
+        let tables = connector.list_tables(&config).unwrap();
+        assert!(tables.is_empty());
+    }
+
+    #[test]
+    fn connector_name_constants() {
+        assert_eq!(FileConnector.name(), "file");
+    }
 }

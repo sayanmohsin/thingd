@@ -237,4 +237,56 @@ mod tests {
         );
         assert_eq!(pg_type_to_column_type("uuid"), ColumnType::Text);
     }
+
+    #[test]
+    fn pg_type_money_maps_to_text() {
+        assert_eq!(pg_type_to_column_type("money"), ColumnType::Text);
+    }
+
+    #[test]
+    fn pg_type_unknown_maps_to_text() {
+        assert_eq!(pg_type_to_column_type("xml"), ColumnType::Text);
+        assert_eq!(pg_type_to_column_type("bytea"), ColumnType::Text);
+        assert_eq!(pg_type_to_column_type("citext"), ColumnType::Text);
+    }
+
+    #[test]
+    fn pg_type_varchar_without_length() {
+        assert_eq!(
+            pg_type_to_column_type("character varying"),
+            ColumnType::Text
+        );
+    }
+
+    #[test]
+    fn pg_type_char() {
+        assert_eq!(pg_type_to_column_type("char"), ColumnType::Text);
+        assert_eq!(
+            pg_type_to_column_type("character"),
+            ColumnType::Text
+        );
+    }
+
+    #[test]
+    fn pg_type_timestamp_with_time_zone() {
+        assert_eq!(
+            pg_type_to_column_type("timestamp with time zone"),
+            ColumnType::Timestamp
+        );
+    }
+
+    #[test]
+    fn pg_type_time() {
+        assert_eq!(pg_type_to_column_type("time"), ColumnType::Timestamp);
+        assert_eq!(
+            pg_type_to_column_type("time without time zone"),
+            ColumnType::Timestamp
+        );
+    }
+
+    #[test]
+    fn postgres_connector_name() {
+        let connector = PostgresConnector;
+        assert_eq!(connector.name(), "postgres");
+    }
 }

@@ -242,4 +242,62 @@ mod tests {
         assert_eq!(mysql_type_to_column_type("text"), ColumnType::Text);
         assert_eq!(mysql_type_to_column_type("char"), ColumnType::Text);
     }
+
+    #[test]
+    fn mysql_type_longtext() {
+        assert_eq!(mysql_type_to_column_type("longtext"), ColumnType::Text);
+    }
+
+    #[test]
+    fn mysql_type_mediumtext() {
+        assert_eq!(mysql_type_to_column_type("mediumtext"), ColumnType::Text);
+    }
+
+    #[test]
+    fn mysql_type_tinytext() {
+        assert_eq!(mysql_type_to_column_type("tinytext"), ColumnType::Text);
+    }
+
+    #[test]
+    fn mysql_type_binary() {
+        assert_eq!(mysql_type_to_column_type("binary"), ColumnType::Text);
+    }
+
+    #[test]
+    fn mysql_type_varbinary() {
+        assert_eq!(mysql_type_to_column_type("varbinary"), ColumnType::Text);
+    }
+
+    #[test]
+    fn mysql_type_blob() {
+        assert_eq!(mysql_type_to_column_type("blob"), ColumnType::Text);
+    }
+
+    #[test]
+    fn mysql_type_unknown() {
+        assert_eq!(mysql_type_to_column_type("set"), ColumnType::Text);
+        assert_eq!(mysql_type_to_column_type("enum"), ColumnType::Text);
+        assert_eq!(mysql_type_to_column_type("point"), ColumnType::Text);
+    }
+
+    #[test]
+    fn mysql_type_int_unsigned() {
+        assert_eq!(mysql_type_to_column_type("int unsigned"), ColumnType::Integer);
+    }
+
+    #[test]
+    fn mysql_type_double_precision() {
+        assert_eq!(mysql_type_to_column_type("double precision"), ColumnType::Float);
+    }
+
+    #[test]
+    fn mysql_type_real() {
+        assert_eq!(mysql_type_to_column_type("real"), ColumnType::Float);
+    }
+
+    #[test]
+    fn mysql_connector_name() {
+        let connector = MysqlConnector;
+        assert_eq!(connector.name(), "mysql");
+    }
 }
