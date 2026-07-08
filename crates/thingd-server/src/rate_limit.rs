@@ -108,3 +108,67 @@ pub async fn rate_limit_middleware(
         Ok(response)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn new_limiter_allows_initial_requests() {
+        let limiter = RateLimiter::new(10);
+        assert!(limiter.check("client1"));
+    }
+
+    #[test]
+    fn limiter_exhausts_tokens() {
+        let limiter = RateLimiter::new(3);
+        assert!(limiter.check("client1"));
+        assert!(limiter.check("client1"));
+        assert!(limiter.check("client1"));
+        assert!(!limiter.check("client1"));
+    }
+
+    #[test]
+    fn limiter_independent_clients() {
+        let limiter = RateLimiter::new(2);
+        assert!(limiter.check("client1"));
+        assert!(limiter.check("client1"));
+        assert!(!limiter.check("client1"));
+        // Different client has its own bucket
+        assert!(limiter.check("client2"));
+        assert!(limiter.check("client2"));
+        assert!(!limiter.check("client2"));
+    }
+
+    #[test]
+    fn client_key_uses_forwarded_for() {
+        let mut headers = HeaderMap::new();
+        headers.insert("x-forwarded-for", "192.168.1.1".parse().unwrap());
+        assert_eq!(client_key(&headers), "192.168.1.1");
+    }
+
+    #[test]
+    fn client_key_forwarded_for_multiple_ips() {
+        let mut headers = HeaderMap::new();
+        headers.insert("x-forwarded-for", "192.168.1.1, 10.0.0.1".parse().unwrap());
+        assert_eq!(client_key(&headers), "192.168.1.1");
+    }
+
+    #[test]
+    fn client_key_fallback_to_default() {
+        let headers = HeaderMap::new();
+        assert_eq!(client_key(&headers), "default");
+    }
+
+    #[test]
+    fn limiter_prunes_stale_buckets() {
+        let limiter = RateLimiter::new(100_001);
+        // Fill with many entries
+        for i in 0..10_001 {
+            limiter.check(&format!("client{}", i));
+        }
+        assert!(limiter.buckets.lock().len() > 10_000);
+        // Next check triggers pruning — should not panic
+        limiter.check("trigger-prune");
+    }
+}

@@ -45,3 +45,45 @@ pub async fn auth_middleware(
 
     Ok(next.run(req).await)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn constant_time_eq_matching_strings() {
+        assert!(constant_time_eq("hello", "hello"));
+    }
+
+    #[test]
+    fn constant_time_eq_different_strings() {
+        assert!(!constant_time_eq("hello", "world"));
+    }
+
+    #[test]
+    fn constant_time_eq_different_lengths() {
+        assert!(!constant_time_eq("hi", "hello"));
+    }
+
+    #[test]
+    fn constant_time_eq_empty_strings() {
+        assert!(constant_time_eq("", ""));
+    }
+
+    #[test]
+    fn constant_time_eq_empty_vs_nonempty() {
+        assert!(!constant_time_eq("", "a"));
+    }
+
+    #[test]
+    fn constant_time_eq_single_char() {
+        assert!(constant_time_eq("a", "a"));
+        assert!(!constant_time_eq("a", "b"));
+    }
+
+    #[test]
+    fn constant_time_eq_unicode() {
+        assert!(constant_time_eq("héllo", "héllo"));
+        assert!(!constant_time_eq("héllo", "hello"));
+    }
+}
