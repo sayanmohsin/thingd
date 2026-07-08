@@ -125,6 +125,11 @@ Usage:
   thingd queues nack <queue> <jobId> [--error <message>] [--delay-ms <ms>]
   thingd queues list <queue> [--limit <n>]
   thingd queues dead <queue> [--limit <n>]
+  thingd links create <fromRef> <linkType> <toRef> [--weight <n>] [--metadata <json>]
+  thingd links get <id>
+  thingd links delete <id>
+  thingd links neighbors <reference> [--direction Outgoing|Incoming|Both] [--type <linkType>] [--limit <n>]
+  thingd links count
   thingd bench rust --smoke
   thingd bench rust --count <n>
   thingd metrics
@@ -137,6 +142,12 @@ Usage:
   thingd snapshot restore --in <path>
   thingd backup --out <path>
   thingd backup --in <path>
+  thingd cloud login [--code <code> --token <token>]
+  thingd cloud logout
+  thingd cloud status
+  thingd cloud project list
+  thingd cloud instance list <project>
+  thingd cloud api-key create <project> <name>
   thingd db checkpoint [--path <path>]
   thingd db integrity [--path <path>]
 
