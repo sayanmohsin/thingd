@@ -232,12 +232,15 @@ export class CloudThingStore implements ThingStore {
     collection: string,
     objects: import("../types.js").MemoryObject[]
   ): Promise<import("../types.js").StoredMemoryObject[]> {
-    return Promise.all(objects.map((obj) => this.put(collection, obj)));
+    return this.callTool("thing_objects_put_batch", { collection, objects });
   }
 
   async deleteBatch(collection: string, ids: string[]): Promise<number> {
-    const results = await Promise.all(ids.map((id) => this.delete(collection, id)));
-    return results.filter(Boolean).length;
+    const res = await this.callTool<{ deleted: number }>("thing_objects_delete_batch", {
+      collection,
+      ids,
+    });
+    return res.deleted;
   }
 
   async createLink(
