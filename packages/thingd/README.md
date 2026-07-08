@@ -24,15 +24,33 @@ console.log(obj); // { id: "hello", text: "Hello world", collection: "notes", ve
 ## Subpath imports
 
 ```typescript
-// Lightweight HTTP client (browser + Node.js, zero dependencies)
+// Lightweight HTTP client (browser + Node.js + Bun, zero dependencies)
 import { ThingD } from "@thingd/sdk/client";
 
-// Pure in-memory store (browser + Node.js, zero dependencies)
+// Pure in-memory store (browser + Node.js + Bun, zero dependencies)
 import { ThingD } from "@thingd/sdk/memory";
 
 // Types only (for type-safe dependency injection)
 import type { ThingDConnection } from "@thingd/sdk/types";
 ```
+
+## Bun + Hono
+
+thingd's HTTP client (`@thingd/sdk/client`) uses only web-standard `fetch()` — it runs in **Bun**, Deno, Cloudflare Workers, and browsers. No Node.js dependencies.
+
+Connect to the thingd sidecar (Rust binary) over HTTP:
+
+```ts
+import { ThingD } from "@thingd/sdk/client";
+
+const db = await ThingD.open({
+  driver: "cloud",
+  databaseUrl: "http://localhost:8757",
+});
+```
+
+Full example: [`examples/bun-hono/`](https://github.com/sayanmohsin/thingd/tree/main/examples/bun-hono)
+Guide: [`docs/bun-hono.md`](https://github.com/sayanmohsin/thingd/tree/main/docs/bun-hono.md)
 
 ## API
 
