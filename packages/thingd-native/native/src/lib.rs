@@ -1,3 +1,4 @@
+#![allow(clippy::too_many_arguments)]
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use napi::bindgen_prelude::{Error, Result};
@@ -5,11 +6,10 @@ use napi_derive::napi;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use thingd::{
-    AggregateFunction, AggregateOptions, AggregateStore, EventLog,
-    Link, LinkDirection, LinkQueryOptions, LinkStore, ListEventsOptions, ListObjectsOptions,
-    MemoryEvent, MemoryObject, ObjectStore, PutObjectOptions, QueueClaimOptions, QueueJob,
-    QueueJobStatus, QueueNackOptions, QueueStore, SchemaOptions, SearchOptions, Searcher,
-    SqliteThingStore, TimeSeriesOptions,
+    AggregateFunction, AggregateOptions, AggregateStore, EventLog, Link, LinkDirection,
+    LinkQueryOptions, LinkStore, ListEventsOptions, ListObjectsOptions, MemoryEvent, MemoryObject,
+    ObjectStore, PutObjectOptions, QueueClaimOptions, QueueJob, QueueJobStatus, QueueNackOptions,
+    QueueStore, SchemaOptions, SearchOptions, Searcher, SqliteThingStore, TimeSeriesOptions,
 };
 
 #[derive(Deserialize)]
@@ -588,7 +588,9 @@ impl NativeThingStore {
         };
 
         let store = self.lock_store()?;
-        let result = store.timeseries(&collection, &options).map_err(napi_error)?;
+        let result = store
+            .timeseries(&collection, &options)
+            .map_err(napi_error)?;
 
         to_json(&TimeSeriesResultRecord {
             buckets: result

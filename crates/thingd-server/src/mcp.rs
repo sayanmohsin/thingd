@@ -740,11 +740,7 @@ fn handle_thing_schema(
     )
 }
 
-fn handle_thing_nlq(
-    _state: &AppState,
-    _tool_name: &str,
-    args: &Value,
-) -> Result<Value, AppError> {
+fn handle_thing_nlq(_state: &AppState, _tool_name: &str, args: &Value) -> Result<Value, AppError> {
     if !_state.nlq_config.enabled {
         return Ok(json!({
             "content": [{ "type": "text", "text": "NLQ is not enabled. Set --nlq-model to enable." }],
@@ -752,10 +748,7 @@ fn handle_thing_nlq(
         }));
     }
 
-    let question = args
-        .get("question")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
+    let question = args.get("question").and_then(|v| v.as_str()).unwrap_or("");
 
     if question.is_empty() {
         return Ok(json!({
@@ -766,13 +759,12 @@ fn handle_thing_nlq(
 
     let collection = args.get("collection").and_then(|v| v.as_str());
 
-    let result = tokio::runtime::Handle::current()
-        .block_on(crate::nlq::execute_nlq(
-            &_state.pool,
-            &_state.nlq_config,
-            question,
-            collection,
-        ));
+    let result = tokio::runtime::Handle::current().block_on(crate::nlq::execute_nlq(
+        &_state.pool,
+        &_state.nlq_config,
+        question,
+        collection,
+    ));
 
     match result {
         Ok(nlq_result) => Ok(json!({
@@ -802,7 +794,10 @@ fn handle_thing_aggregate(
         _ => thingd::AggregateFunction::Count,
     };
     let field = args.get("field").and_then(|v| v.as_str()).map(String::from);
-    let group_by = args.get("groupBy").and_then(|v| v.as_str()).map(String::from);
+    let group_by = args
+        .get("groupBy")
+        .and_then(|v| v.as_str())
+        .map(String::from);
     let filter = args
         .get("filter")
         .and_then(|v| v.as_object())

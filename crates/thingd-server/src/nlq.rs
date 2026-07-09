@@ -25,6 +25,7 @@ pub struct NlqResult {
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 struct ChatMessage {
     role: String,
     content: String,
@@ -99,16 +100,22 @@ async fn call_llm(
         req
     };
 
-    let resp = req.send().await.map_err(|e| format!("LLM request failed: {e}"))?;
+    let resp = req
+        .send()
+        .await
+        .map_err(|e| format!("LLM request failed: {e}"))?;
     let status = resp.status();
-    let text = resp.text().await.map_err(|e| format!("LLM response read failed: {e}"))?;
+    let text = resp
+        .text()
+        .await
+        .map_err(|e| format!("LLM response read failed: {e}"))?;
 
     if !status.is_success() {
         return Err(format!("LLM returned {status}: {text}"));
     }
 
-    let chat: ChatResponse =
-        serde_json::from_str(&text).map_err(|e| format!("LLM response parse failed: {e} — body: {text}"))?;
+    let chat: ChatResponse = serde_json::from_str(&text)
+        .map_err(|e| format!("LLM response parse failed: {e} — body: {text}"))?;
 
     chat.choices
         .into_iter()
@@ -130,6 +137,7 @@ fn parse_intent(text: &str) -> Result<NlqIntent, String> {
 }
 
 /// Execute an NLQ query: schema reflection → LLM call → intent → execution → result.
+#[allow(clippy::await_holding_lock)]
 pub async fn execute_nlq(
     pool: &EnginePool,
     config: &NlqConfig,
@@ -140,15 +148,20 @@ pub async fn execute_nlq(
     let g = e.lock();
 
     let schemas = g
-        .schema(collection_filter, &thingd::SchemaOptions {
-            sample_size: Some(config.sample_size),
-        })
+        .schema(
+            collection_filter,
+            &thingd::SchemaOptions {
+                sample_size: Some(config.sample_size),
+            },
+        )
         .map_err(|e| format!("Schema reflection failed: {e}"))?;
 
     drop(g);
 
     if schemas.is_empty() {
-        return Err("No collections found. Add objects first or specify a valid collection.".to_string());
+        return Err(
+            "No collections found. Add objects first or specify a valid collection.".to_string(),
+        );
     }
 
     let schemas_json =
@@ -248,12 +261,16 @@ fn format_intent_result(intent: &NlqIntent, data: &Value) -> String {
             let total = data["total"].as_f64().unwrap_or(0.0);
             let groups = data["groups"].as_array().map(|a| a.len()).unwrap_or(0);
             if groups > 0 {
-                format!("{fn_name} of {} = {total}, grouped by {} into {groups} groups",
+                format!(
+                    "{fn_name} of {} = {total}, grouped by {} into {groups} groups",
                     intent.field.as_deref().unwrap_or("objects"),
-                    intent.group_by.as_deref().unwrap_or("field"))
+                    intent.group_by.as_deref().unwrap_or("field")
+                )
             } else {
-                format!("{fn_name} of {} = {total}",
-                    intent.field.as_deref().unwrap_or("objects"))
+                format!(
+                    "{fn_name} of {} = {total}",
+                    intent.field.as_deref().unwrap_or("objects")
+                )
             }
         },
         "timeseries" => {

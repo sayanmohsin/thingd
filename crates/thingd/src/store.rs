@@ -150,7 +150,11 @@ pub trait ObjectStore {
     /// # Errors
     ///
     /// Returns an error when the backing store cannot read objects.
-    fn schema(&self, collection: Option<&str>, options: &SchemaOptions) -> ThingdResult<Vec<CollectionSchema>>;
+    fn schema(
+        &self,
+        collection: Option<&str>,
+        options: &SchemaOptions,
+    ) -> ThingdResult<Vec<CollectionSchema>>;
 }
 
 /// Append-only event log operations.
@@ -488,7 +492,7 @@ pub trait LinkStore {
 pub trait AggregateStore {
     /// Run a general aggregation query over objects in a collection.
     ///
-    /// Supports count, sum, avg, min, max with optional group_by.
+    /// Supports count, sum, avg, min, max with optional `group_by`.
     ///
     /// # Errors
     ///
@@ -514,8 +518,12 @@ pub trait AggregateStore {
 }
 
 /// Full storage interface expected from thingd engine adapters.
-pub trait ThingStore: EventLog + ObjectStore + QueueStore + Searcher + LinkStore + AggregateStore {}
+pub trait ThingStore:
+    EventLog + ObjectStore + QueueStore + Searcher + LinkStore + AggregateStore
+{
+}
 
 impl<T> ThingStore for T where
     T: EventLog + ObjectStore + QueueStore + Searcher + LinkStore + AggregateStore
-{}
+{
+}

@@ -256,6 +256,8 @@ export type NlqResult = {
 export type NlqOptions = {
   collection?: string;
   model?: string;
+  endpoint?: string;
+  apiKey?: string;
 };
 
 /**
@@ -321,11 +323,30 @@ export interface ThingDConnection {
     query(question: string, options?: NlqOptions): Promise<NlqResult>;
   };
   readonly aggregate: {
-    count(collection: string, options?: Omit<AggregateOptions, "function">): Promise<AggregateResult>;
-    sum(collection: string, field: string, options?: Omit<AggregateOptions, "function" | "field">): Promise<AggregateResult>;
-    avg(collection: string, field: string, options?: Omit<AggregateOptions, "function" | "field">): Promise<AggregateResult>;
-    min(collection: string, field: string, options?: Omit<AggregateOptions, "function" | "field">): Promise<AggregateResult>;
-    max(collection: string, field: string, options?: Omit<AggregateOptions, "function" | "field">): Promise<AggregateResult>;
+    count(
+      collection: string,
+      options?: Omit<AggregateOptions, "function">
+    ): Promise<AggregateResult>;
+    sum(
+      collection: string,
+      field: string,
+      options?: Omit<AggregateOptions, "function" | "field">
+    ): Promise<AggregateResult>;
+    avg(
+      collection: string,
+      field: string,
+      options?: Omit<AggregateOptions, "function" | "field">
+    ): Promise<AggregateResult>;
+    min(
+      collection: string,
+      field: string,
+      options?: Omit<AggregateOptions, "function" | "field">
+    ): Promise<AggregateResult>;
+    max(
+      collection: string,
+      field: string,
+      options?: Omit<AggregateOptions, "function" | "field">
+    ): Promise<AggregateResult>;
   };
   timeseries(collection: string, options: TimeSeriesOptions): Promise<TimeSeriesResult>;
 }
@@ -378,14 +399,8 @@ export interface ThingStore {
     auth?: ConnectorAuth
   ): Promise<ConnectorSchema>;
   connectorSync?(type: string, options: ConnectorSyncOptions): Promise<ConnectorSyncResult>;
-  aggregate?(
-    collection: string,
-    options: AggregateOptions
-  ): Promise<AggregateResult>;
-  timeseries?(
-    collection: string,
-    options: TimeSeriesOptions
-  ): Promise<TimeSeriesResult>;
+  aggregate?(collection: string, options: AggregateOptions): Promise<AggregateResult>;
+  timeseries?(collection: string, options: TimeSeriesOptions): Promise<TimeSeriesResult>;
   schema?(collection?: string, options?: SchemaOptions): Promise<CollectionSchema[]>;
   nlqQuery?(question: string, options?: NlqOptions): Promise<NlqResult>;
   close?(): Promise<void>;

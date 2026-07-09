@@ -814,7 +814,7 @@ export function registerThingdTools(
     },
     async ({ collection, function: fn, field, groupBy, filter, actor, source }) => {
       assertCollectionAllowed(collection);
-      let result;
+      let result: unknown;
       switch (fn) {
         case "sum":
           result = await db.aggregate.sum(collection, field ?? "", { groupBy, filter });

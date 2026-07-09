@@ -241,22 +241,37 @@ export async function handleRestRequest(
         sendError(res, 400, "bad_request", "Field 'function' is required");
         return;
       }
-      let result;
+      let result: unknown;
       switch (body.function) {
         case "sum":
-          result = await db.aggregate.sum(body.collection, body.field ?? "", { groupBy: body.groupBy, filter: body.filter });
+          result = await db.aggregate.sum(body.collection, body.field ?? "", {
+            groupBy: body.groupBy,
+            filter: body.filter,
+          });
           break;
         case "avg":
-          result = await db.aggregate.avg(body.collection, body.field ?? "", { groupBy: body.groupBy, filter: body.filter });
+          result = await db.aggregate.avg(body.collection, body.field ?? "", {
+            groupBy: body.groupBy,
+            filter: body.filter,
+          });
           break;
         case "min":
-          result = await db.aggregate.min(body.collection, body.field ?? "", { groupBy: body.groupBy, filter: body.filter });
+          result = await db.aggregate.min(body.collection, body.field ?? "", {
+            groupBy: body.groupBy,
+            filter: body.filter,
+          });
           break;
         case "max":
-          result = await db.aggregate.max(body.collection, body.field ?? "", { groupBy: body.groupBy, filter: body.filter });
+          result = await db.aggregate.max(body.collection, body.field ?? "", {
+            groupBy: body.groupBy,
+            filter: body.filter,
+          });
           break;
         default:
-          result = await db.aggregate.count(body.collection, { groupBy: body.groupBy, filter: body.filter });
+          result = await db.aggregate.count(body.collection, {
+            groupBy: body.groupBy,
+            filter: body.filter,
+          });
           break;
       }
       sendData(res, result);

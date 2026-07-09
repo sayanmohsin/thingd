@@ -476,10 +476,7 @@ export class NativeThingStore implements ThingStore {
     return parseJson<string[]>(await this.binding.listQueuesJson());
   }
 
-  async aggregate(
-    collection: string,
-    options: AggregateOptions
-  ): Promise<AggregateResult> {
+  async aggregate(collection: string, options: AggregateOptions): Promise<AggregateResult> {
     const filterJson = serializeFilter(options.filter);
     return parseJson<AggregateResult>(
       this.binding.aggregateJson(
@@ -492,10 +489,7 @@ export class NativeThingStore implements ThingStore {
     );
   }
 
-  async timeseries(
-    collection: string,
-    options: TimeSeriesOptions
-  ): Promise<TimeSeriesResult> {
+  async timeseries(collection: string, options: TimeSeriesOptions): Promise<TimeSeriesResult> {
     const filterJson = serializeFilter(options.filter);
     return parseJson<TimeSeriesResult>(
       this.binding.timeseriesJson(
@@ -512,9 +506,7 @@ export class NativeThingStore implements ThingStore {
 
   async schema(collection?: string, options?: SchemaOptions): Promise<CollectionSchema[]> {
     const sampleSize = options?.sampleSize ?? 50;
-    return parseJson<CollectionSchema[]>(
-      this.binding.schemaJson(collection, sampleSize)
-    );
+    return parseJson<CollectionSchema[]>(this.binding.schemaJson(collection, sampleSize));
   }
 }
 

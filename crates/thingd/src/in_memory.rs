@@ -165,19 +165,14 @@ impl ObjectStore for MemoryEngine {
         collection: Option<&str>,
         options: &SchemaOptions,
     ) -> ThingdResult<Vec<CollectionSchema>> {
-        let sample_size = options.sample_size.unwrap_or(50);
-        let collections = match collection {
-            Some(name) => vec![name.to_string()],
-            None => {
-                let mut cols: Vec<String> = self
-                    .objects
-                    .keys()
-                    .map(|k| k.collection.clone())
-                    .collect();
-                cols.sort();
-                cols.dedup();
-                cols
-            },
+        #[allow(clippy::option_if_let_else)]
+        let collections = if let Some(name) = collection {
+            vec![name.to_string()]
+        } else {
+            let mut cols: Vec<String> = self.objects.keys().map(|k| k.collection.clone()).collect();
+            cols.sort();
+            cols.dedup();
+            cols
         };
 
         let mut schemas = Vec::new();
@@ -193,6 +188,7 @@ impl ObjectStore for MemoryEngine {
                 continue;
             }
 
+            let sample_size = options.sample_size.unwrap_or(50);
             let sampled: Vec<&MemoryObject> = objects.iter().take(sample_size).copied().collect();
             let fields = infer_fields(&sampled);
 
@@ -629,55 +625,51 @@ impl crate::store::AggregateStore for MemoryEngine {
         collection: &str,
         options: &AggregateOptions,
     ) -> ThingdResult<AggregateResult> {
-        let objects: Vec<&MemoryObject> = self
-            .objects
-            .values()
-            .filter(|o| o.key.collection == collection)
-            .filter(|o| {
-                if options.filter.is_empty() {
-                    return true;
-                }
-                let Ok(body) = serde_json::from_str::<serde_json::Value>(&o.body) else {
-                    return false;
-                };
-                options
-                    .filter
-                    .iter()
-                    .all(|(key, expected)| body.get(key.as_str()).is_some_and(|v| v == expected))
-            })
-            .collect();
-
-        match &options.group_by {
-            Some(group_field) => {
-                let mut groups: std::collections::HashMap<String, Vec<&MemoryObject>> =
-                    std::collections::HashMap::new();
-                for obj in &objects {
-                    let key = extract_field_str(&obj.body, group_field);
-                    groups.entry(key).or_default().push(obj);
-                }
-
-                let mut group_results: Vec<AggregateGroupResult> = groups
-                    .iter()
-                    .map(|(key, objs)| AggregateGroupResult {
-                        key: key.clone(),
-                        value: compute_aggregate(objs, options.function, options.field.as_deref()),
+        let objects: Vec<&MemoryObject> =
+            self.objects
+                .values()
+                .filter(|o| o.key.collection == collection)
+                .filter(|o| {
+                    if options.filter.is_empty() {
+                        return true;
+                    }
+                    let Ok(body) = serde_json::from_str::<serde_json::Value>(&o.body) else {
+                        return false;
+                    };
+                    options.filter.iter().all(|(key, expected)| {
+                        body.get(key.as_str()).is_some_and(|v| v == expected)
                     })
-                    .collect();
-                group_results.sort_by(|a, b| a.key.cmp(&b.key));
+                })
+                .collect();
 
-                let total: f64 = group_results.iter().map(|g| g.value).sum();
-                Ok(AggregateResult {
-                    total,
-                    groups: group_results,
+        if let Some(group_field) = &options.group_by {
+            let mut groups: std::collections::HashMap<String, Vec<&MemoryObject>> =
+                std::collections::HashMap::new();
+            for obj in &objects {
+                let key = extract_field_str(&obj.body, group_field);
+                groups.entry(key).or_default().push(obj);
+            }
+
+            let mut group_results: Vec<AggregateGroupResult> = groups
+                .iter()
+                .map(|(key, objs)| AggregateGroupResult {
+                    key: key.clone(),
+                    value: compute_aggregate(objs, options.function, options.field.as_deref()),
                 })
-            },
-            None => {
-                let total = compute_aggregate(&objects, options.function, options.field.as_deref());
-                Ok(AggregateResult {
-                    total,
-                    groups: Vec::new(),
-                })
-            },
+                .collect();
+            group_results.sort_by(|a, b| a.key.cmp(&b.key));
+
+            let total: f64 = group_results.iter().map(|g| g.value).sum();
+            Ok(AggregateResult {
+                total,
+                groups: group_results,
+            })
+        } else {
+            let total = compute_aggregate(&objects, options.function, options.field.as_deref());
+            Ok(AggregateResult {
+                total,
+                groups: Vec::new(),
+            })
         }
     }
 
@@ -687,42 +679,41 @@ impl crate::store::AggregateStore for MemoryEngine {
         options: &TimeSeriesOptions,
     ) -> ThingdResult<TimeSeriesResult> {
         let format = options.bucket.strftime_format();
-        let objects: Vec<&MemoryObject> = self
-            .objects
-            .values()
-            .filter(|o| o.key.collection == collection)
-            .filter(|o| {
-                if options.filter.is_empty() {
-                    return true;
-                }
-                let Ok(body) = serde_json::from_str::<serde_json::Value>(&o.body) else {
-                    return false;
-                };
-                options
-                    .filter
-                    .iter()
-                    .all(|(key, expected)| body.get(key.as_str()).is_some_and(|v| v == expected))
-            })
-            .filter(|o| {
-                if options.from.is_none() && options.to.is_none() {
-                    return true;
-                }
-                let in_range = |ts: &str| -> bool {
-                    if let Some(ref from) = options.from {
-                        if ts < from.as_str() {
+        let objects: Vec<&MemoryObject> =
+            self.objects
+                .values()
+                .filter(|o| o.key.collection == collection)
+                .filter(|o| {
+                    if options.filter.is_empty() {
+                        return true;
+                    }
+                    let Ok(body) = serde_json::from_str::<serde_json::Value>(&o.body) else {
+                        return false;
+                    };
+                    options.filter.iter().all(|(key, expected)| {
+                        body.get(key.as_str()).is_some_and(|v| v == expected)
+                    })
+                })
+                .filter(|o| {
+                    if options.from.is_none() && options.to.is_none() {
+                        return true;
+                    }
+                    let in_range = |ts: &str| -> bool {
+                        if let Some(ref from) = options.from
+                            && ts < from.as_str()
+                        {
                             return false;
                         }
-                    }
-                    if let Some(ref to) = options.to {
-                        if ts >= to.as_str() {
+                        if let Some(ref to) = options.to
+                            && ts >= to.as_str()
+                        {
                             return false;
                         }
-                    }
-                    true
-                };
-                in_range(&o.created_at)
-            })
-            .collect();
+                        true
+                    };
+                    in_range(&o.created_at)
+                })
+                .collect();
 
         // Bucket by created_at using chrono
         let mut buckets: std::collections::HashMap<String, Vec<&MemoryObject>> =
@@ -854,9 +845,9 @@ fn infer_fields(objects: &[&MemoryObject]) -> Vec<FieldSchema> {
         };
 
         for (key, value) in map {
-            let entry = field_map.entry(key.clone()).or_insert_with(|| {
-                (infer_json_type(value), false, Vec::new())
-            });
+            let entry = field_map
+                .entry(key.clone())
+                .or_insert_with(|| (infer_json_type(value), false, Vec::new()));
 
             if value.is_null() {
                 entry.1 = true;
@@ -874,12 +865,14 @@ fn infer_fields(objects: &[&MemoryObject]) -> Vec<FieldSchema> {
 
     field_map
         .into_iter()
-        .map(|(name, (field_type, nullable, sample_values))| FieldSchema {
-            name,
-            field_type,
-            nullable,
-            sample_values,
-        })
+        .map(
+            |(name, (field_type, nullable, sample_values))| FieldSchema {
+                name,
+                field_type,
+                nullable,
+                sample_values,
+            },
+        )
         .collect()
 }
 

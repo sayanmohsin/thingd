@@ -45,6 +45,18 @@
   let searchMetadata = '';
   let searchResults = [];
 
+  // NLQ
+  let nlqQuestion = '';
+  let nlqCollection = '';
+  let nlqResults = null;
+  let nlqLoading = false;
+  let nlqSchema = null;
+  let nlqShowSchema = false;
+  let nlqModel = localStorage.getItem('thingd_nlq_model') || 'llama3';
+  let nlqEndpoint = localStorage.getItem('thingd_nlq_endpoint') || 'http://localhost:11434/v1';
+  let nlqApiKey = localStorage.getItem('thingd_nlq_api_key') || '';
+  let nlqShowSettings = false;
+
   // Recently changed items (for highlight animation)
   let recentlyChanged = new Set();
   function markChanged(id) {
@@ -593,6 +605,64 @@
     }
   }
 
+  // NLQ Query
+  async function runNlq() {
+    const question = nlqQuestion.trim();
+    if (!question) {
+      showToast('Please enter a question.', 'warning');
+      return;
+    }
+
+    nlqLoading = true;
+    nlqResults = null;
+
+    saveNlqSettings();
+
+    try {
+      const response = await fetch('/api/nlq', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          question,
+          collection: nlqCollection || undefined,
+          model: nlqModel,
+          endpoint: nlqEndpoint,
+          apiKey: nlqApiKey,
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        showToast(data.error || 'NLQ request failed', 'error');
+        return;
+      }
+      nlqResults = data;
+    } catch (err) {
+      showToast(`NLQ failed: ${err.message}`, 'error');
+    } finally {
+      nlqLoading = false;
+    }
+  }
+
+  async function fetchNlqSchema() {
+    try {
+      const url = nlqCollection ? `/api/schema?collection=${encodeURIComponent(nlqCollection)}` : '/api/schema';
+      nlqSchema = await request(url);
+    } catch (err) {
+      showToast(`Schema fetch failed: ${err.message}`, 'error');
+    }
+  }
+
+  function saveNlqSettings() {
+    localStorage.setItem('thingd_nlq_model', nlqModel);
+    localStorage.setItem('thingd_nlq_endpoint', nlqEndpoint);
+    localStorage.setItem('thingd_nlq_api_key', nlqApiKey);
+  }
+
+  function formatNlqValue(val) {
+    if (typeof val === 'number') return val.toLocaleString();
+    return String(val ?? '');
+  }
+
   function getHighlightedText(text, query) {
     if (!text) return '-';
     let res = escapeHtml(text);
@@ -765,6 +835,10 @@
         <svg class="nav-icon" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
         Stemming FTS5 Tester
       </button>
+      <button class="nav-item {currentTab === 'nlq' ? 'active' : ''}" on:click={() => selectTab('nlq')}>
+        <svg class="nav-icon" viewBox="0 0 24 24"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H5.17L4 17.17V4h16v12z"/></svg>
+        NLQ Query
+      </button>
       <button class="nav-item {currentTab === 'health' ? 'active' : ''}" on:click={() => selectTab('health')}>
         <svg class="nav-icon" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
         Database Health
@@ -793,6 +867,7 @@
           {#if currentTab === 'events'}Event Log Stream{/if}
           {#if currentTab === 'queues'}Queues & Background Jobs{/if}
           {#if currentTab === 'search'}Stemming FTS5 Tester{/if}
+          {#if currentTab === 'nlq'}NLQ Query{/if}
           {#if currentTab === 'health'}Database Health{/if}
         </h1>
       </div>
@@ -1289,6 +1364,194 @@
                   </table>
                 </div>
               </div>
+
+            </div>
+          </div>
+        </div>
+      {/if}
+
+      <!-- NLQ Query Tab -->
+      {#if currentTab === 'nlq'}
+        <div class="tab-panel active">
+          <div class="card glass fill-height flex-column">
+            <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+              <h2>Natural Language Query</h2>
+              <div style="display: flex; gap: 8px;">
+                <button class="btn btn-sm btn-secondary" on:click={async () => { await fetchNlqSchema(); nlqShowSchema = !nlqShowSchema; }}>
+                  {nlqShowSchema ? 'Hide' : 'Show'} Schema
+                </button>
+                <button class="btn btn-sm btn-secondary" on:click={() => nlqShowSettings = !nlqShowSettings}>
+                  ⚙️ Settings
+                </button>
+              </div>
+            </div>
+            <div class="card-body flex-column scroll-y">
+
+              <!-- NLQ Input -->
+              <div class="search-form-grid">
+                <div class="form-group flex-3">
+                  <label for="nlq-question">Ask a question about your data</label>
+                  <div class="search-input-group">
+                    <input type="text" id="nlq-question" bind:value={nlqQuestion}
+                      placeholder="e.g. total revenue by region, most recent events, count of all objects..."
+                      class="form-input search-input"
+                      on:keydown={(e) => e.key === 'Enter' && runNlq()}>
+                    <button class="btn btn-primary" on:click={runNlq} disabled={nlqLoading}>
+                      {nlqLoading ? 'Thinking...' : 'Ask'}
+                    </button>
+                  </div>
+                </div>
+                <div class="form-group flex-1">
+                  <label for="nlq-collection">Collection (optional)</label>
+                  <input type="text" id="nlq-collection" bind:value={nlqCollection} placeholder="e.g. orders" class="form-input">
+                </div>
+              </div>
+
+              <!-- LLM Settings -->
+              {#if nlqShowSettings}
+                <div class="card glass" style="margin: 12px 0; padding: 16px;">
+                  <h4 style="margin: 0 0 12px 0;">LLM Configuration</h4>
+                  <div class="row-flex gap-lg">
+                    <div class="form-group flex-1">
+                      <label for="nlq-model">Model</label>
+                      <input type="text" id="nlq-model" bind:value={nlqModel} placeholder="llama3" class="form-input">
+                    </div>
+                    <div class="form-group flex-2">
+                      <label for="nlq-endpoint">Endpoint</label>
+                      <input type="text" id="nlq-endpoint" bind:value={nlqEndpoint} placeholder="http://localhost:11434/v1" class="form-input">
+                    </div>
+                    <div class="form-group flex-1">
+                      <label for="nlq-apikey">API Key (optional)</label>
+                      <input type="password" id="nlq-apikey" bind:value={nlqApiKey} placeholder="sk-..." class="form-input">
+                    </div>
+                  </div>
+                  <button class="btn btn-sm btn-primary" style="margin-top: 8px;" on:click={saveNlqSettings}>Save Settings</button>
+                </div>
+              {/if}
+
+              <!-- Schema Display -->
+              {#if nlqShowSchema && nlqSchema}
+                <div class="card glass" style="margin: 12px 0; padding: 16px;">
+                  <h4 style="margin: 0 0 12px 0;">Schema</h4>
+                  {#each nlqSchema as col}
+                    <div style="margin-bottom: 12px;">
+                      <strong style="color: var(--color-primary);">{col.name}</strong>
+                      <span class="text-muted" style="margin-left: 8px;">({col.objectCount} objects)</span>
+                      <div style="margin-top: 4px; font-size: 12px;">
+                        {#each col.fields as field}
+                          <span class="badge badge-queued" style="margin: 2px;">
+                            {field.name}: <span class="text-muted">{field.type}</span>
+                          </span>
+                        {/each}
+                      </div>
+                    </div>
+                  {/each}
+                </div>
+              {:else if nlqShowSchema}
+                <p class="text-muted" style="margin: 12px 0;">Click "Show Schema" to load schema.</p>
+              {/if}
+
+              <!-- NLQ Results -->
+              {#if nlqLoading}
+                <div class="search-results-section">
+                  <p class="text-muted">Querying LLM and executing...</p>
+                </div>
+              {:else if nlqResults}
+                <div class="search-results-section">
+                  <div class="card glass" style="margin-bottom: 12px; padding: 16px;">
+                    <h4 style="margin: 0 0 4px 0;">Answer</h4>
+                    <p style="font-size: 16px;">{nlqResults.answer}</p>
+                  </div>
+
+                  <!-- Aggregate results (table) -->
+                  {#if nlqResults.data && nlqResults.data.total !== undefined}
+                    <div class="scroll-table-wrapper">
+                      <table class="data-table">
+                        <thead>
+                          <tr>
+                            <th>Total</th>
+                            {#if nlqResults.data.groups && nlqResults.data.groups.length > 0}
+                              <th>Group</th>
+                              <th>Value</th>
+                            {/if}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          <tr>
+                            <td class="font-weight-bold text-success">{formatNlqValue(nlqResults.data.total)}</td>
+                            {#if nlqResults.data.groups && nlqResults.data.groups.length > 0}
+                              <td colspan="2"></td>
+                            {/if}
+                          </tr>
+                          {#if nlqResults.data.groups}
+                            {#each nlqResults.data.groups as group}
+                              <tr>
+                                <td></td>
+                                <td><span class="badge badge-leased">{group.key}</span></td>
+                                <td class="font-weight-bold">{formatNlqValue(group.value)}</td>
+                              </tr>
+                            {/each}
+                          {/if}
+                        </tbody>
+                      </table>
+                    </div>
+
+                  <!-- Timeseries results -->
+                  {:else if nlqResults.data && nlqResults.data.buckets}
+                    <div class="scroll-table-wrapper">
+                      <table class="data-table">
+                        <thead>
+                          <tr>
+                            <th>Bucket</th>
+                            <th>Value</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {#each nlqResults.data.buckets as bucket}
+                            <tr>
+                              <td>{bucket.label}</td>
+                              <td class="font-weight-bold">{formatNlqValue(bucket.value)}</td>
+                            </tr>
+                          {/each}
+                        </tbody>
+                      </table>
+                    </div>
+
+                  <!-- Search results (list) -->
+                  {:else if nlqResults.data && Array.isArray(nlqResults.data)}
+                    <div class="scroll-table-wrapper">
+                      <table class="data-table">
+                        <thead>
+                          <tr>
+                            <th>Collection</th>
+                            <th>ID</th>
+                            <th>Score</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {#each nlqResults.data as hit}
+                            <tr>
+                              <td><span class="badge badge-leased">{hit.collection || hit.stream}</span></td>
+                              <td class="code-cell">{hit.id}</td>
+                              <td class="font-weight-bold text-success">{hit.score?.toFixed(3) ?? '-'}</td>
+                            </tr>
+                          {/each}
+                        </tbody>
+                      </table>
+                    </div>
+                  {/if}
+
+                  <!-- Raw result toggle -->
+                  <details style="margin-top: 12px;">
+                    <summary style="cursor: pointer; color: var(--text-muted); font-size: 12px;">Raw JSON</summary>
+                    <pre class="code-block" style="margin-top: 8px;">{JSON.stringify(nlqResults, null, 2)}</pre>
+                  </details>
+                </div>
+              {:else}
+                <div class="search-results-section">
+                  <p class="text-muted">Ask a question above to query your data using natural language.</p>
+                </div>
+              {/if}
 
             </div>
           </div>

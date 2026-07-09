@@ -534,16 +534,13 @@ export class InMemoryThingStore implements ThingStore {
     return Array.from(streams).sort();
   }
 
-  async aggregate(
-    collection: string,
-    options: AggregateOptions
-  ): Promise<AggregateResult> {
+  async aggregate(collection: string, options: AggregateOptions): Promise<AggregateResult> {
     const records = Array.from(this.collections.get(collection)?.values() ?? []);
 
     // Apply filter
     const filtered = options.filter
       ? records.filter((obj) =>
-          Object.entries(options.filter!).every(
+          Object.entries(options.filter as Record<string, unknown>).every(
             ([key, value]) => (obj as Record<string, unknown>)[key] === value
           )
         )
@@ -573,16 +570,13 @@ export class InMemoryThingStore implements ThingStore {
     return { total, groups: [] };
   }
 
-  async timeseries(
-    collection: string,
-    options: TimeSeriesOptions
-  ): Promise<TimeSeriesResult> {
+  async timeseries(collection: string, options: TimeSeriesOptions): Promise<TimeSeriesResult> {
     const records = Array.from(this.collections.get(collection)?.values() ?? []);
 
     // Apply filter
     let filtered = options.filter
       ? records.filter((obj) =>
-          Object.entries(options.filter!).every(
+          Object.entries(options.filter as Record<string, unknown>).every(
             ([key, value]) => (obj as Record<string, unknown>)[key] === value
           )
         )
@@ -590,10 +584,10 @@ export class InMemoryThingStore implements ThingStore {
 
     // Apply time range
     if (options.from) {
-      filtered = filtered.filter((obj) => obj.createdAt >= options.from!);
+      filtered = filtered.filter((obj) => obj.createdAt >= (options.from as string));
     }
     if (options.to) {
-      filtered = filtered.filter((obj) => obj.createdAt < options.to!);
+      filtered = filtered.filter((obj) => obj.createdAt < (options.to as string));
     }
 
     // Bucket by createdAt
@@ -616,14 +610,9 @@ export class InMemoryThingStore implements ThingStore {
     return { buckets: resultBuckets };
   }
 
-  async schema(
-    collection?: string,
-    options?: SchemaOptions
-  ): Promise<CollectionSchema[]> {
+  async schema(collection?: string, options?: SchemaOptions): Promise<CollectionSchema[]> {
     const sampleSize = options?.sampleSize ?? 50;
-    const collections = collection
-      ? [collection]
-      : Array.from(this.collections.keys()).sort();
+    const collections = collection ? [collection] : Array.from(this.collections.keys()).sort();
 
     const result: CollectionSchema[] = [];
     for (const col of collections) {
@@ -767,9 +756,7 @@ export class InMemoryThingStore implements ThingStore {
     const month = pad(date.getUTCMonth() + 1);
     const day = pad(date.getUTCDate());
     const hours = pad(date.getUTCHours());
-    const weekNum = Math.ceil(
-      (date.getUTCDate() - date.getUTCDay() + 1) / 7
-    );
+    const weekNum = Math.ceil((date.getUTCDate() - date.getUTCDay() + 1) / 7);
 
     return format
       .replace("YYYY", String(year))

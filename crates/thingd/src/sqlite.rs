@@ -11,10 +11,10 @@ use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use crate::model::{ListEventsOptions, ListObjectsOptions};
 use crate::{
     AggregateFunction, AggregateGroupResult, AggregateOptions, AggregateResult, CollectionSchema,
-    EventLog, FieldSchema, MemoryEvent, MemoryObject, ObjectKey, ObjectStore,
-    QueueClaimOptions, QueueJob, QueueJobStatus, QueueNackOptions, QueueStore, SchemaOptions,
-    ThingdError, ThingdResult, TimeSeriesBucket, TimeSeriesOptions, TimeSeriesResult,
-    u64_to_i64, unix_timestamp_millis,
+    EventLog, FieldSchema, MemoryEvent, MemoryObject, ObjectKey, ObjectStore, QueueClaimOptions,
+    QueueJob, QueueJobStatus, QueueNackOptions, QueueStore, SchemaOptions, ThingdError,
+    ThingdResult, TimeSeriesBucket, TimeSeriesOptions, TimeSeriesResult, u64_to_i64,
+    unix_timestamp_millis,
 };
 
 /// Current `SQLite` schema version.
@@ -935,22 +935,21 @@ impl ObjectStore for SqliteThingStore {
     ) -> ThingdResult<Vec<CollectionSchema>> {
         let sample_size = options.sample_size.unwrap_or(50);
 
-        let collections: Vec<String> = match collection {
-            Some(name) => vec![name.to_string()],
-            None => {
-                let mut stmt = self
-                    .connection
-                    .prepare("SELECT DISTINCT collection FROM objects ORDER BY collection")
-                    .map_err(ThingdError::from)?;
-                let rows = stmt
-                    .query_map([], |row| row.get::<_, String>(0))
-                    .map_err(ThingdError::from)?;
-                let mut cols = Vec::new();
-                for row in rows {
-                    cols.push(row.map_err(ThingdError::from)?);
-                }
-                cols
-            },
+        let collections: Vec<String> = if let Some(name) = collection {
+            vec![name.to_string()]
+        } else {
+            let mut stmt = self
+                .connection
+                .prepare("SELECT DISTINCT collection FROM objects ORDER BY collection")
+                .map_err(ThingdError::from)?;
+            let rows = stmt
+                .query_map([], |row| row.get::<_, String>(0))
+                .map_err(ThingdError::from)?;
+            let mut cols = Vec::new();
+            for row in rows {
+                cols.push(row.map_err(ThingdError::from)?);
+            }
+            cols
         };
 
         let mut schemas = Vec::new();
@@ -963,8 +962,7 @@ impl ObjectStore for SqliteThingStore {
                     [col],
                     |row| row.get::<_, i64>(0),
                 )
-                .map_err(ThingdError::from)?
-                as u64;
+                .map_err(ThingdError::from)? as u64;
 
             if object_count == 0 {
                 continue;
@@ -973,9 +971,7 @@ impl ObjectStore for SqliteThingStore {
             // Sample objects
             let mut stmt = self
                 .connection
-                .prepare(
-                    "SELECT body FROM objects WHERE collection = ?1 LIMIT ?2",
-                )
+                .prepare("SELECT body FROM objects WHERE collection = ?1 LIMIT ?2")
                 .map_err(ThingdError::from)?;
 
             let rows = stmt
@@ -999,9 +995,9 @@ impl ObjectStore for SqliteThingStore {
                 };
 
                 for (key, value) in map {
-                    let entry = field_map.entry(key.clone()).or_insert_with(|| {
-                        (infer_sqlite_json_type(value), false, Vec::new())
-                    });
+                    let entry = field_map
+                        .entry(key.clone())
+                        .or_insert_with(|| (infer_sqlite_json_type(value), false, Vec::new()));
 
                     if value.is_null() {
                         entry.1 = true;
@@ -1020,12 +1016,14 @@ impl ObjectStore for SqliteThingStore {
 
             let fields: Vec<FieldSchema> = field_map
                 .into_iter()
-                .map(|(name, (field_type, nullable, sample_values))| FieldSchema {
-                    name,
-                    field_type,
-                    nullable,
-                    sample_values,
-                })
+                .map(
+                    |(name, (field_type, nullable, sample_values))| FieldSchema {
+                        name,
+                        field_type,
+                        nullable,
+                        sample_values,
+                    },
+                )
                 .collect();
 
             schemas.push(CollectionSchema {
@@ -2129,93 +2127,86 @@ impl crate::store::AggregateStore for SqliteThingStore {
 
         let where_clause = format!("WHERE {}", conditions.join(" AND "));
 
-        match &options.group_by {
-            Some(group_field) => {
-                // Validate group_by field
-                if !group_field
+        if let Some(group_field) = &options.group_by {
+            // Validate group_by field
+            if !group_field
+                .chars()
+                .all(|c| c.is_alphanumeric() || c == '_' || c == '.')
+            {
+                return Err(ThingdError::InvalidInput(format!(
+                    "Invalid groupBy field: '{group_field}'. Only alphanumeric, underscore, and dot characters are allowed."
+                )));
+            }
+
+            let sql = if options.function == AggregateFunction::Count {
+                format!(
+                    "SELECT json_extract(body, '$.{group_field}') AS grp, COUNT(*) AS val FROM objects {where_clause} GROUP BY grp ORDER BY grp"
+                )
+            } else {
+                let field = options.field.as_deref().unwrap_or_default();
+                if !field
                     .chars()
                     .all(|c| c.is_alphanumeric() || c == '_' || c == '.')
                 {
                     return Err(ThingdError::InvalidInput(format!(
-                        "Invalid groupBy field: '{group_field}'. Only alphanumeric, underscore, and dot characters are allowed."
+                        "Invalid field: '{field}'. Only alphanumeric, underscore, and dot characters are allowed."
                     )));
                 }
+                let func = options.function.sql_func();
+                format!(
+                    "SELECT json_extract(body, '$.{group_field}') AS grp, {func}(json_extract(body, '$.{field}')) AS val FROM objects {where_clause} GROUP BY grp ORDER BY grp"
+                )
+            };
 
-                let sql = match options.function {
-                    AggregateFunction::Count => format!(
-                        "SELECT json_extract(body, '$.{group_field}') AS grp, COUNT(*) AS val FROM objects {where_clause} GROUP BY grp ORDER BY grp"
-                    ),
-                    _ => {
-                        let field = options.field.as_deref().unwrap_or_default();
-                        if !field
-                            .chars()
-                            .all(|c| c.is_alphanumeric() || c == '_' || c == '.')
-                        {
-                            return Err(ThingdError::InvalidInput(format!(
-                                "Invalid field: '{field}'. Only alphanumeric, underscore, and dot characters are allowed."
-                            )));
-                        }
-                        let func = options.function.sql_func();
-                        format!(
-                            "SELECT json_extract(body, '$.{group_field}') AS grp, {func}(json_extract(body, '$.{field}')) AS val FROM objects {where_clause} GROUP BY grp ORDER BY grp"
-                        )
-                    },
-                };
-
-                let mut statement = self.connection.prepare(&sql).map_err(ThingdError::from)?;
-                let param_refs: Vec<&dyn rusqlite::types::ToSql> =
-                    bound_values.iter().map(AsRef::as_ref).collect();
-                let rows = statement
-                    .query_map(param_refs.as_slice(), |row| {
-                        Ok(AggregateGroupResult {
-                            key: row.get::<_, String>(0).unwrap_or_default(),
-                            value: row.get::<_, f64>(1).unwrap_or(0.0),
-                        })
+            let mut statement = self.connection.prepare(&sql).map_err(ThingdError::from)?;
+            let param_refs: Vec<&dyn rusqlite::types::ToSql> =
+                bound_values.iter().map(AsRef::as_ref).collect();
+            let rows = statement
+                .query_map(param_refs.as_slice(), |row| {
+                    Ok(AggregateGroupResult {
+                        key: row.get::<_, String>(0).unwrap_or_default(),
+                        value: row.get::<_, f64>(1).unwrap_or(0.0),
                     })
-                    .map_err(ThingdError::from)?;
-
-                let mut groups = Vec::new();
-                for row in rows {
-                    groups.push(row.map_err(ThingdError::from)?);
-                }
-
-                let total: f64 = groups.iter().map(|g| g.value).sum();
-                Ok(AggregateResult { total, groups })
-            },
-            None => {
-                let sql = match options.function {
-                    AggregateFunction::Count => {
-                        format!("SELECT COUNT(*) FROM objects {where_clause}")
-                    },
-                    _ => {
-                        let field = options.field.as_deref().unwrap_or_default();
-                        if !field
-                            .chars()
-                            .all(|c| c.is_alphanumeric() || c == '_' || c == '.')
-                        {
-                            return Err(ThingdError::InvalidInput(format!(
-                                "Invalid field: '{field}'. Only alphanumeric, underscore, and dot characters are allowed."
-                            )));
-                        }
-                        let func = options.function.sql_func();
-                        format!(
-                            "SELECT {func}(json_extract(body, '$.{field}')) FROM objects {where_clause}"
-                        )
-                    },
-                };
-
-                let mut statement = self.connection.prepare(&sql).map_err(ThingdError::from)?;
-                let param_refs: Vec<&dyn rusqlite::types::ToSql> =
-                    bound_values.iter().map(AsRef::as_ref).collect();
-                let total = statement
-                    .query_row(param_refs.as_slice(), |row| row.get::<_, f64>(0))
-                    .map_err(ThingdError::from)?;
-
-                Ok(AggregateResult {
-                    total,
-                    groups: Vec::new(),
                 })
-            },
+                .map_err(ThingdError::from)?;
+
+            let mut groups = Vec::new();
+            for row in rows {
+                groups.push(row.map_err(ThingdError::from)?);
+            }
+
+            let total: f64 = groups.iter().map(|g| g.value).sum();
+            Ok(AggregateResult { total, groups })
+        } else {
+            let sql = if options.function == AggregateFunction::Count {
+                format!("SELECT COUNT(*) FROM objects {where_clause}")
+            } else {
+                let field = options.field.as_deref().unwrap_or_default();
+                if !field
+                    .chars()
+                    .all(|c| c.is_alphanumeric() || c == '_' || c == '.')
+                {
+                    return Err(ThingdError::InvalidInput(format!(
+                        "Invalid field: '{field}'. Only alphanumeric, underscore, and dot characters are allowed."
+                    )));
+                }
+                let func = options.function.sql_func();
+                format!(
+                    "SELECT {func}(json_extract(body, '$.{field}')) FROM objects {where_clause}"
+                )
+            };
+
+            let mut statement = self.connection.prepare(&sql).map_err(ThingdError::from)?;
+            let param_refs: Vec<&dyn rusqlite::types::ToSql> =
+                bound_values.iter().map(AsRef::as_ref).collect();
+            let total = statement
+                .query_row(param_refs.as_slice(), |row| row.get::<_, f64>(0))
+                .map_err(ThingdError::from)?;
+
+            Ok(AggregateResult {
+                total,
+                groups: Vec::new(),
+            })
         }
     }
 
@@ -2268,27 +2259,24 @@ impl crate::store::AggregateStore for SqliteThingStore {
         let where_clause = format!("WHERE {}", conditions.join(" AND "));
         let strftime_format = options.bucket.strftime_format();
 
-        let sql = match options.function {
-            AggregateFunction::Count => {
-                format!(
-                    "SELECT strftime('{strftime_format}', created_at) AS label, COUNT(*) AS val FROM objects {where_clause} GROUP BY label ORDER BY label"
-                )
-            },
-            _ => {
-                let field = options.field.as_deref().unwrap_or_default();
-                if !field
-                    .chars()
-                    .all(|c| c.is_alphanumeric() || c == '_' || c == '.')
-                {
-                    return Err(ThingdError::InvalidInput(format!(
-                        "Invalid field: '{field}'. Only alphanumeric, underscore, and dot characters are allowed."
-                    )));
-                }
-                let func = options.function.sql_func();
-                format!(
-                    "SELECT strftime('{strftime_format}', created_at) AS label, {func}(json_extract(body, '$.{field}')) AS val FROM objects {where_clause} GROUP BY label ORDER BY label"
-                )
-            },
+        let sql = if options.function == AggregateFunction::Count {
+            format!(
+                "SELECT strftime('{strftime_format}', created_at) AS label, COUNT(*) AS val FROM objects {where_clause} GROUP BY label ORDER BY label"
+            )
+        } else {
+            let field = options.field.as_deref().unwrap_or_default();
+            if !field
+                .chars()
+                .all(|c| c.is_alphanumeric() || c == '_' || c == '.')
+            {
+                return Err(ThingdError::InvalidInput(format!(
+                    "Invalid field: '{field}'. Only alphanumeric, underscore, and dot characters are allowed."
+                )));
+            }
+            let func = options.function.sql_func();
+            format!(
+                "SELECT strftime('{strftime_format}', created_at) AS label, {func}(json_extract(body, '$.{field}')) AS val FROM objects {where_clause} GROUP BY label ORDER BY label"
+            )
         };
 
         let mut statement = self.connection.prepare(&sql).map_err(ThingdError::from)?;

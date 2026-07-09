@@ -192,10 +192,7 @@ export class ThingD implements ThingDConnection {
     );
   }
 
-  async schema(
-    collection?: string,
-    options?: SchemaOptions
-  ): Promise<CollectionSchema[]> {
+  async schema(collection?: string, options?: SchemaOptions): Promise<CollectionSchema[]> {
     return (
       this.store.schema?.(collection, options) ??
       Promise.reject(new Error("schema not supported by this driver"))

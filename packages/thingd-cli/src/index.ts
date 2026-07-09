@@ -1145,7 +1145,7 @@ async function runAggregate(context: CliContext): Promise<void> {
   const filter = filterRaw ? JSON.parse(filterRaw) : undefined;
 
   await withDb(context, async (db) => {
-    let result;
+    let result: unknown;
     switch (function_) {
       case "sum":
         result = await db.aggregate.sum(collection, field ?? "", { groupBy, filter });

@@ -425,6 +425,178 @@ export async function startDashboardServer(
           return;
         }
 
+        // GET /api/schema
+        if (pathname === "/api/schema" && req.method === "GET") {
+          const collection = url.searchParams.get("collection") || undefined;
+          const schemas = await db.schema(collection);
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify(schemas));
+          return;
+        }
+
+        // POST /api/nlq
+        if (pathname === "/api/nlq" && req.method === "POST") {
+          const bodyStr = await readBody(req);
+          const { question, collection, model, endpoint, apiKey } = JSON.parse(bodyStr);
+          if (!question) {
+            sendError(res, 400, "Field 'question' is required.");
+            return;
+          }
+
+          const llmModel = model || "llama3";
+          const llmEndpoint = (endpoint || "http://localhost:11434/v1").replace(/\/+$/, "");
+          const llmApiKey = apiKey || "";
+
+          // Step 1: Reflect schema
+          const schemas = await db.schema(collection || undefined);
+          if (!schemas || schemas.length === 0) {
+            sendError(
+              res,
+              400,
+              "No collections found. Add objects first or specify a valid collection."
+            );
+            return;
+          }
+
+          // Step 2: Build prompt and call LLM
+          const systemPrompt = `You are a data analysis assistant. The user has a thingd database with these collections and inferred schemas:
+
+${JSON.stringify(schemas, null, 2)}
+
+You can perform these operations on the data:
+- "aggregate": count/sum/avg/min/max with optional groupBy
+- "timeseries": time-bucketed aggregation by hour/day/week/month
+- "search": full-text search across objects
+
+Respond with ONLY a JSON object (no markdown, no explanation) matching this type:
+{
+  "action": "aggregate" | "timeseries" | "search",
+  "collection": "string (collection name)",
+  "function": "count" | "sum" | "avg" | "min" | "max" (omit for search)",
+  "field": "string (field name for sum/avg/min/max, omit for count)",
+  "groupBy": "string (field name to group by, optional)",
+  "bucket": "hour" | "day" | "week" | "month" (only for timeseries)",
+  "query": "string (search query, only for search action)",
+  "limit": number (optional, max 100)
+}}
+
+Example: { "action": "aggregate", "collection": "orders", "function": "sum", "field": "revenue", "groupBy": "region" }`;
+
+          const llmResponse = await fetch(`${llmEndpoint}/chat/completions`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              ...(llmApiKey ? { Authorization: `Bearer ${llmApiKey}` } : {}),
+            },
+            body: JSON.stringify({
+              model: llmModel,
+              messages: [
+                { role: "system", content: systemPrompt },
+                { role: "user", content: question },
+              ],
+              max_tokens: 1024,
+              temperature: 0.1,
+            }),
+          });
+
+          if (!llmResponse.ok) {
+            const errText = await llmResponse.text();
+            sendError(res, 502, `LLM returned ${llmResponse.status}: ${errText}`);
+            return;
+          }
+
+          const llmData = await llmResponse.json();
+          const llmText = llmData.choices?.[0]?.message?.content;
+          if (!llmText) {
+            sendError(res, 502, "LLM returned no choices");
+            return;
+          }
+
+          // Step 3: Parse intent
+          const cleaned = llmText
+            .trim()
+            .replace(/^```(?:json)?\s*/, "")
+            .replace(/\s*```$/, "")
+            .trim();
+
+          let intent: Record<string, unknown>;
+          try {
+            intent = JSON.parse(cleaned);
+          } catch {
+            sendError(res, 502, `Failed to parse LLM response as JSON: ${cleaned}`);
+            return;
+          }
+
+          // Step 4: Execute
+          let data: unknown;
+          switch (intent.action) {
+            case "aggregate": {
+              const fn = (intent.function as string) || "count";
+              const col = intent.collection as string;
+              if (fn === "count") {
+                data = await db.aggregate.count(col, {
+                  groupBy: intent.groupBy as string | undefined,
+                });
+              } else if (fn === "sum") {
+                data = await db.aggregate.sum(col, intent.field as string, {
+                  groupBy: intent.groupBy as string | undefined,
+                });
+              } else if (fn === "avg") {
+                data = await db.aggregate.avg(col, intent.field as string, {
+                  groupBy: intent.groupBy as string | undefined,
+                });
+              } else if (fn === "min") {
+                data = await db.aggregate.min(col, intent.field as string, {
+                  groupBy: intent.groupBy as string | undefined,
+                });
+              } else {
+                data = await db.aggregate.max(col, intent.field as string, {
+                  groupBy: intent.groupBy as string | undefined,
+                });
+              }
+              break;
+            }
+            case "timeseries": {
+              const bucket = ((intent.bucket as string) || "day") as
+                | "hour"
+                | "day"
+                | "week"
+                | "month";
+              data = await db.timeseries(intent.collection as string, {
+                function: ((intent.function as string) || "count") as
+                  | "count"
+                  | "sum"
+                  | "avg"
+                  | "min"
+                  | "max",
+                bucket,
+                field: intent.field as string | undefined,
+              });
+              break;
+            }
+            case "search": {
+              data = await db.search((intent.query as string) || question, {
+                collections: [intent.collection as string],
+                limit: (intent.limit as number) || 10,
+              });
+              break;
+            }
+            default:
+              sendError(res, 400, `Unknown action: ${intent.action}`);
+              return;
+          }
+
+          const result = {
+            answer: formatAnswer(intent, data),
+            data,
+            intent,
+          };
+
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify(result));
+          return;
+        }
+
         // GET /api/db/checkpoint
         if (pathname === "/api/db/checkpoint" && req.method === "GET") {
           try {
@@ -535,4 +707,30 @@ export async function startDashboardServer(
       rejectPromise(err);
     });
   });
+}
+
+function formatAnswer(intent: Record<string, unknown>, data: unknown): string {
+  const fnName = (intent.function as string) || "count";
+  const field = (intent.field as string) || "objects";
+  switch (intent.action) {
+    case "aggregate": {
+      const d = data as { total?: number; groups?: unknown[] };
+      const total = d?.total ?? 0;
+      const groups = d?.groups?.length ?? 0;
+      if (groups > 0) {
+        return `${fnName} of ${field} = ${total}, grouped by ${intent.groupBy as string} into ${groups} groups`;
+      }
+      return `${fnName} of ${field} = ${total}`;
+    }
+    case "timeseries": {
+      const d = data as { buckets?: unknown[] };
+      return `Time series with ${d?.buckets?.length ?? 0} buckets`;
+    }
+    case "search": {
+      const hits = (data as unknown[])?.length ?? 0;
+      return `Found ${hits} results`;
+    }
+    default:
+      return "Query executed.";
+  }
 }

@@ -734,13 +734,12 @@ pub async fn nlq_query(
         .and_then(|v| v.as_str())
         .map(String::from);
 
-    let result = tokio::runtime::Handle::current()
-        .block_on(crate::nlq::execute_nlq(
-            &state.pool,
-            &state.nlq_config,
-            &question,
-            collection.as_deref(),
-        ));
+    let result = tokio::runtime::Handle::current().block_on(crate::nlq::execute_nlq(
+        &state.pool,
+        &state.nlq_config,
+        &question,
+        collection.as_deref(),
+    ));
 
     match result {
         Ok(r) => ok(r),
@@ -768,7 +767,10 @@ pub async fn aggregate(
         _ => AggregateFunction::Count,
     };
     let field = body.get("field").and_then(|v| v.as_str()).map(String::from);
-    let group_by = body.get("groupBy").and_then(|v| v.as_str()).map(String::from);
+    let group_by = body
+        .get("groupBy")
+        .and_then(|v| v.as_str())
+        .map(String::from);
     let filter = body
         .get("filter")
         .and_then(|v| v.as_object())
@@ -848,9 +850,7 @@ pub async fn timeseries(
 
 // ─── Schema ────────────────────────────────────────────────────
 
-pub async fn list_schemas(
-    State(state): State<Arc<AppState>>,
-) -> Result<Json<Value>, AppError> {
+pub async fn list_schemas(State(state): State<Arc<AppState>>) -> Result<Json<Value>, AppError> {
     use thingd::SchemaOptions;
     let e = state.pool.get_reader("");
     let g = e.lock();
@@ -891,7 +891,7 @@ mod tests {
 
     fn test_state_and_config() -> (Arc<AppState>, Config) {
         let config = Config::default();
-        let state =         Arc::new(AppState {
+        let state = Arc::new(AppState {
             pool: Arc::new(EnginePool::new(":memory:".to_string())),
             mcp_config: config.mcp.clone(),
             auth_token: config.auth.token.clone(),
@@ -1727,7 +1727,9 @@ mod tests {
                     .method("POST")
                     .uri("/v1/aggregate")
                     .header("content-type", "application/json")
-                    .body(Body::from(r#"{"collection":"test","function":"sum","field":"value"}"#))
+                    .body(Body::from(
+                        r#"{"collection":"test","function":"sum","field":"value"}"#,
+                    ))
                     .unwrap(),
             )
             .await
@@ -1769,11 +1771,9 @@ mod tests {
                     .method("POST")
                     .uri("/v1/aggregate/timeseries")
                     .header("content-type", "application/json")
-                    .body(
-                        Body::from(
-                            r#"{"collection":"test","function":"count","bucket":"day"}"#,
-                        ),
-                    )
+                    .body(Body::from(
+                        r#"{"collection":"test","function":"count","bucket":"day"}"#,
+                    ))
                     .unwrap(),
             )
             .await

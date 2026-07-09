@@ -8,6 +8,14 @@
 //! # Feature Flags
 //!
 //! | Feature | Default | Description |
+#![allow(
+    clippy::cast_possible_wrap,
+    clippy::cast_precision_loss,
+    clippy::cast_sign_loss,
+    clippy::too_many_lines,
+    clippy::option_if_let_else,
+    clippy::manual_let_else
+)]
 //! |---------|---------|-------------|
 //! | `sqlite` | No | Enables [`SqliteThingStore`] with FTS5 search, WAL mode, and auto-migration |
 //! | `connectors` | No | Enables CSV/JSON file connectors for data import |
@@ -70,17 +78,18 @@ pub use connectors::{MysqlConnector, PostgresConnector};
 pub use error::{ThingdError, ThingdResult};
 pub use in_memory::MemoryEngine;
 pub use model::{
-    AggregateFunction, AggregateGroupResult, AggregateOptions, AggregateResult,
-    CollectionSchema, DEFAULT_QUEUE_LEASE_MS, FieldSchema, Link, LinkDirection, LinkQueryOptions,
-    ListEventsOptions, ListObjectsOptions, MemoryEvent, MemoryObject, ObjectKey,
-    PutObjectOptions, QueueClaimOptions, QueueJob, QueueJobStatus, QueueNackOptions, SchemaOptions,
-    SearchHit, SearchOptions, SortBy, SortDirection, TimeBucket, TimeSeriesBucket,
-    TimeSeriesOptions, TimeSeriesResult,
+    AggregateFunction, AggregateGroupResult, AggregateOptions, AggregateResult, CollectionSchema,
+    DEFAULT_QUEUE_LEASE_MS, FieldSchema, Link, LinkDirection, LinkQueryOptions, ListEventsOptions,
+    ListObjectsOptions, MemoryEvent, MemoryObject, ObjectKey, PutObjectOptions, QueueClaimOptions,
+    QueueJob, QueueJobStatus, QueueNackOptions, SchemaOptions, SearchHit, SearchOptions, SortBy,
+    SortDirection, TimeBucket, TimeSeriesBucket, TimeSeriesOptions, TimeSeriesResult,
 };
 #[cfg(feature = "sqlite")]
 #[cfg_attr(docsrs, doc(cfg(feature = "sqlite")))]
 pub use sqlite::{SQLITE_SCHEMA_VERSION, SqliteThingStore};
-pub use store::{AggregateStore, EventLog, LinkStore, ObjectStore, QueueStore, Searcher, ThingStore};
+pub use store::{
+    AggregateStore, EventLog, LinkStore, ObjectStore, QueueStore, Searcher, ThingStore,
+};
 
 pub(crate) fn unix_timestamp_millis() -> i64 {
     let Ok(duration) = SystemTime::now().duration_since(UNIX_EPOCH) else {

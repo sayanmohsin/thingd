@@ -456,7 +456,7 @@ pub enum AggregateFunction {
 
 impl AggregateFunction {
     /// Return the SQL function name for this aggregate.
-    pub fn sql_func(&self) -> &str {
+    pub const fn sql_func(&self) -> &str {
         match self {
             Self::Count => "COUNT(*)",
             Self::Sum => "SUM",
@@ -485,9 +485,9 @@ pub struct AggregateOptions {
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AggregateResult {
-    /// Total across all groups (or the single result if no group_by).
+    /// Total across all groups (or the single result if no `group_by`).
     pub total: f64,
-    /// Per-group results (empty if no group_by).
+    /// Per-group results (empty if no `group_by`).
     pub groups: Vec<AggregateGroupResult>,
 }
 
@@ -517,8 +517,8 @@ pub enum TimeBucket {
 }
 
 impl TimeBucket {
-    /// Return the SQLite strftime format for this bucket.
-    pub fn strftime_format(&self) -> &str {
+    /// Return the `SQLite` strftime format for this bucket.
+    pub const fn strftime_format(&self) -> &str {
         match self {
             Self::Hour => "%Y-%m-%dT%H:00:00Z",
             Self::Day => "%Y-%m-%d",
@@ -565,7 +565,7 @@ pub struct TimeSeriesBucket {
 }
 
 /// Inferred field metadata for a collection.
-#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FieldSchema {
     /// Field name.
@@ -579,7 +579,7 @@ pub struct FieldSchema {
 }
 
 /// Reflected schema for a collection.
-#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CollectionSchema {
     /// Collection name.
@@ -591,7 +591,7 @@ pub struct CollectionSchema {
 }
 
 /// Options for schema reflection.
-#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SchemaOptions {
     /// Number of objects to sample for type inference (default 50).
@@ -600,6 +600,8 @@ pub struct SchemaOptions {
 
 impl Default for SchemaOptions {
     fn default() -> Self {
-        Self { sample_size: Some(50) }
+        Self {
+            sample_size: Some(50),
+        }
     }
 }
