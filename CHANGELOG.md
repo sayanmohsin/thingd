@@ -1,3 +1,5 @@
+## [0.49.0](https://github.com/sayanmohsin/thingd/compare/v0.48.1...v0.49.0) (2026-07-09)
+
 ## [0.48.1](https://github.com/sayanmohsin/thingd/compare/v0.48.0...v0.48.1) (2026-07-08)
 
 ### Bug Fixes
