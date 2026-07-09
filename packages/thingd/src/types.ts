@@ -236,6 +236,28 @@ export type SchemaOptions = {
   sampleSize?: number;
 };
 
+export type NlqIntent = {
+  action: string;
+  collection: string;
+  function?: string;
+  field?: string;
+  groupBy?: string;
+  bucket?: string;
+  query?: string;
+  limit?: number;
+};
+
+export type NlqResult = {
+  answer: string;
+  data: unknown;
+  intent: NlqIntent;
+};
+
+export type NlqOptions = {
+  collection?: string;
+  model?: string;
+};
+
 /**
  * Typed interface for a thingd database connection returned by `ThingD.open()`.
  * Consumers can use this for type-safe dependency injection instead of `any`:
@@ -295,6 +317,9 @@ export interface ThingDConnection {
   ): Promise<ConnectorSchema>;
   connectorSync(type: string, options: ConnectorSyncOptions): Promise<ConnectorSyncResult>;
   schema(collection?: string, options?: SchemaOptions): Promise<CollectionSchema[]>;
+  readonly nlq: {
+    query(question: string, options?: NlqOptions): Promise<NlqResult>;
+  };
   readonly aggregate: {
     count(collection: string, options?: Omit<AggregateOptions, "function">): Promise<AggregateResult>;
     sum(collection: string, field: string, options?: Omit<AggregateOptions, "function" | "field">): Promise<AggregateResult>;
@@ -362,6 +387,7 @@ export interface ThingStore {
     options: TimeSeriesOptions
   ): Promise<TimeSeriesResult>;
   schema?(collection?: string, options?: SchemaOptions): Promise<CollectionSchema[]>;
+  nlqQuery?(question: string, options?: NlqOptions): Promise<NlqResult>;
   close?(): Promise<void>;
   backupTo?(path: string): void;
   walCheckpoint?(): { framesBefore: number; framesAfter: number };

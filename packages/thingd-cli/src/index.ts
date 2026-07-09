@@ -131,6 +131,7 @@ Usage:
   thingd links neighbors <reference> [--direction Outgoing|Incoming|Both] [--type <linkType>] [--limit <n>]
   thingd links count
   thingd schema [--collection <name>]
+  thingd nlq <question> [--collection <name>]
   thingd aggregate <function> <collection> [--field <name>] [--group-by <name>] [--filter <json>]
   thingd timeseries <function> <collection> <bucket> [--field <name>] [--filter <json>] [--from <iso>] [--to <iso>]
   thingd bench rust --smoke
@@ -345,6 +346,11 @@ async function runCommand(context: CliContext): Promise<void> {
 
   if (command === "schema") {
     await runSchema(context);
+    return;
+  }
+
+  if (command === "nlq") {
+    await runNlq(context);
     return;
   }
 
@@ -1115,6 +1121,18 @@ async function runSchema(context: CliContext): Promise<void> {
   await withDb(context, async (db) => {
     const schemas = await db.schema(collection ?? undefined);
     writeJson(context.stdout, schemas, context.pretty);
+  });
+}
+
+async function runNlq(context: CliContext): Promise<void> {
+  const question = context.parsed.tokens.slice(1).join(" ").trim();
+  if (!question) {
+    throw new Error("nlq requires a question. Usage: thingd nlq <question>");
+  }
+  const collection = stringFlag(context.parsed, "collection");
+  await withDb(context, async (db) => {
+    const result = await db.nlq.query(question, { collection: collection ?? undefined });
+    writeJson(context.stdout, result, context.pretty);
   });
 }
 

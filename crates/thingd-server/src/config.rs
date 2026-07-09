@@ -18,6 +18,8 @@ pub struct Config {
     pub cluster: ClusterConfig,
     #[serde(default)]
     pub hardening: HardeningConfig,
+    #[serde(default)]
+    pub nlq: NlqConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -93,6 +95,39 @@ pub struct McpConfig {
 pub struct RestConfig {
     #[serde(default = "default_true")]
     pub enabled: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[derive(Default)]
+pub struct NlqConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default = "default_nlq_model")]
+    pub model: String,
+    #[serde(default = "default_nlq_endpoint")]
+    pub endpoint: String,
+    #[serde(default)]
+    pub api_key: String,
+    #[serde(default = "default_nlq_max_tokens")]
+    pub max_tokens: u32,
+    #[serde(default = "default_nlq_sample_size")]
+    pub sample_size: usize,
+    #[serde(default)]
+    pub format_result: bool,
+}
+
+fn default_nlq_model() -> String {
+    "llama3".to_string()
+}
+fn default_nlq_endpoint() -> String {
+    "http://localhost:11434/v1".to_string()
+}
+fn default_nlq_max_tokens() -> u32 {
+    1024
+}
+fn default_nlq_sample_size() -> usize {
+    50
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
@@ -373,6 +408,23 @@ impl Config {
             && let Ok(n) = v.parse()
         {
             self.cluster.election_max_failures = n;
+        }
+        if let Ok(v) = std::env::var("THINGD_NLQ_ENABLED") {
+            self.nlq.enabled = v == "true";
+        }
+        if let Ok(v) = std::env::var("THINGD_NLQ_MODEL") {
+            self.nlq.model = v;
+        }
+        if let Ok(v) = std::env::var("THINGD_NLQ_ENDPOINT") {
+            self.nlq.endpoint = v;
+        }
+        if let Ok(v) = std::env::var("THINGD_NLQ_API_KEY") {
+            self.nlq.api_key = v;
+        }
+        if let Ok(v) = std::env::var("THINGD_NLQ_MAX_TOKENS")
+            && let Ok(n) = v.parse()
+        {
+            self.nlq.max_tokens = n;
         }
     }
 

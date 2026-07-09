@@ -712,6 +712,41 @@ pub async fn search(
     ok(g.search(query, opts)
         .map_err(|e| AppError::internal(e.to_string()))?)
 }
+// ─── NLQ ───────────────────────────────────────────────────────
+
+pub async fn nlq_query(
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, AppError> {
+    if !state.nlq_config.enabled {
+        return Err(AppError::bad_request(
+            "NLQ is not enabled. Set nlq.enabled=true or THINGD_NLQ_ENABLED=true.",
+        ));
+    }
+
+    let question = body["question"]
+        .as_str()
+        .ok_or_else(|| AppError::bad_request("Missing 'question'"))?
+        .to_string();
+
+    let collection = body
+        .get("collection")
+        .and_then(|v| v.as_str())
+        .map(String::from);
+
+    let result = tokio::runtime::Handle::current()
+        .block_on(crate::nlq::execute_nlq(
+            &state.pool,
+            &state.nlq_config,
+            &question,
+            collection.as_deref(),
+        ));
+
+    match result {
+        Ok(r) => ok(r),
+        Err(e) => Err(AppError::bad_request(e)),
+    }
+}
 
 // ─── Aggregate ──────────────────────────────────────────────────
 
@@ -856,12 +891,13 @@ mod tests {
 
     fn test_state_and_config() -> (Arc<AppState>, Config) {
         let config = Config::default();
-        let state = Arc::new(AppState {
-            pool: EnginePool::new(":memory:".to_string()),
+        let state =         Arc::new(AppState {
+            pool: Arc::new(EnginePool::new(":memory:".to_string())),
             mcp_config: config.mcp.clone(),
             auth_token: config.auth.token.clone(),
             allow_unauthenticated: config.auth.allow_unauthenticated,
             cluster_config: config.cluster.clone(),
+            nlq_config: config.nlq.clone(),
         });
         (state, config)
     }

@@ -16,6 +16,8 @@ import type {
   MemoryQueue,
   MemorySearchOptions,
   MemorySearchResult,
+  NlqOptions,
+  NlqResult,
   PutOptions,
   QueueClaimOptions,
   QueueJobOptions,
@@ -199,6 +201,15 @@ export class ThingD implements ThingDConnection {
       Promise.reject(new Error("schema not supported by this driver"))
     );
   }
+
+  readonly nlq = {
+    query: (question: string, options?: NlqOptions): Promise<NlqResult> => {
+      return (
+        this.store.nlqQuery?.(question, options) ??
+        Promise.reject(new Error("NLQ not supported by this driver"))
+      );
+    },
+  };
 
   async close(): Promise<void> {
     await this.store.close?.();

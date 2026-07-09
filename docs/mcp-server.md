@@ -9,7 +9,7 @@ knowing SQL or internal storage details.
 
 ## Current Status
 
-**30 MCP tools** exposed via stdio and Streamable HTTP.
+**31 MCP tools** exposed via stdio and Streamable HTTP.
 
 The package implements the local stdio server plus a remote-capable Streamable
 HTTP runtime.
@@ -39,7 +39,7 @@ Implemented:
 
 ## Tool Surface
 
-All 30 tools are documented in the [API spec — MCP tools reference](api-spec/mcp-tools.md)
+All 31 tools are documented in the [API spec — MCP tools reference](api-spec/mcp-tools.md)
 with JSON schemas, input/output types, and return formats.
 
 ### Categories
@@ -51,6 +51,7 @@ with JSON schemas, input/output types, and return formats.
 - **Count & Discovery** (7): `thing_count_objects`, `thing_count_events`, `thing_count_active_jobs`, `thing_count_dead_jobs`, `thing_list_collections`, `thing_list_streams`, `thing_list_queues`
 - **Aggregate** (2): `thing_aggregate`, `thing_timeseries`
 - **Schema** (1): `thing_schema`
+- **NLQ** (1): `thing_nlq`
 
 ## Zero-Config Setup
 

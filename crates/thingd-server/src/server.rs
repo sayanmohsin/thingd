@@ -12,17 +12,18 @@ use tower::timeout::TimeoutLayer;
 use tower_http::cors::CorsLayer;
 
 use crate::auth::auth_middleware;
-use crate::config::{ClusterConfig, Config, McpConfig};
+use crate::config::{ClusterConfig, Config, McpConfig, NlqConfig};
 use crate::engine::EnginePool;
 use crate::rest;
 
 /// Shared application state passed to all handlers via axum's State extractor.
 pub struct AppState {
-    pub pool: EnginePool,
+    pub pool: Arc<EnginePool>,
     pub mcp_config: McpConfig,
     pub auth_token: String,
     pub allow_unauthenticated: bool,
     pub cluster_config: ClusterConfig,
+    pub nlq_config: NlqConfig,
 }
 
 pub fn build_router(state: Arc<AppState>, config: &Config) -> Router {
@@ -69,6 +70,8 @@ pub fn build_router(state: Arc<AppState>, config: &Config) -> Router {
         .route("/v1/connectors/{type}/pull", post(rest::pull_data))
         // MCP
         .route("/mcp", post(crate::mcp::handle_mcp_request))
+        // NLQ
+        .route("/v1/nlq", post(rest::nlq_query))
         // Cluster
         .route("/cluster/status", get(crate::cluster::cluster_status))
         .route("/cluster/peers", get(crate::cluster::cluster_peers))

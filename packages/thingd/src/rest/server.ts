@@ -288,6 +288,20 @@ export async function handleRestRequest(
       return;
     }
 
+    // ─── NLQ ──────────────────────────────────────────────────
+    if (pathname === "/v1/nlq" && method === "POST") {
+      const body = JSON.parse(await readBody(req));
+      if (!body.question) {
+        sendError(res, 400, "bad_request", "Field 'question' is required");
+        return;
+      }
+      const result = await db.nlq.query(body.question, {
+        collection: body.collection,
+      });
+      sendData(res, result);
+      return;
+    }
+
     // ─── Events ──────────────────────────────────────────────────
     // POST /v1/events/:stream
     const streamMatch = matchRoute(pathname, "/v1/events/:stream");

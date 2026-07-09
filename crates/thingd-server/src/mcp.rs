@@ -740,6 +740,51 @@ fn handle_thing_schema(
     )
 }
 
+fn handle_thing_nlq(
+    _state: &AppState,
+    _tool_name: &str,
+    args: &Value,
+) -> Result<Value, AppError> {
+    if !_state.nlq_config.enabled {
+        return Ok(json!({
+            "content": [{ "type": "text", "text": "NLQ is not enabled. Set --nlq-model to enable." }],
+            "isError": true
+        }));
+    }
+
+    let question = args
+        .get("question")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+
+    if question.is_empty() {
+        return Ok(json!({
+            "content": [{ "type": "text", "text": "Missing 'question' parameter" }],
+            "isError": true
+        }));
+    }
+
+    let collection = args.get("collection").and_then(|v| v.as_str());
+
+    let result = tokio::runtime::Handle::current()
+        .block_on(crate::nlq::execute_nlq(
+            &_state.pool,
+            &_state.nlq_config,
+            question,
+            collection,
+        ));
+
+    match result {
+        Ok(nlq_result) => Ok(json!({
+            "content": [{ "type": "text", "text": serde_json::to_string(&nlq_result).unwrap_or_default() }]
+        })),
+        Err(e) => Ok(json!({
+            "content": [{ "type": "text", "text": e }],
+            "isError": true
+        })),
+    }
+}
+
 fn handle_thing_aggregate(
     _state: &AppState,
     _tool_name: &str,
@@ -1138,6 +1183,17 @@ static ALL_TOOLS: LazyLock<Vec<ToolEntry>> = LazyLock::new(|| {
             destructive: false,
             needs_collection: false,
         },
+        // NLQ tool (1)
+        ToolEntry {
+            name: "thing_nlq",
+            description: "Ask a natural language question about your data. Infers schema, calls an LLM, and returns structured results.",
+            properties: json!({ "question": str_prop("Natural language question about your data"), "collection": str_prop("Optional collection name to scope the query") }),
+            required: &["question"],
+            handler: handle_thing_nlq,
+            is_write: false,
+            destructive: false,
+            needs_collection: false,
+        },
         // Aggregate tools (2)
         ToolEntry {
             name: "thing_aggregate",
@@ -1257,11 +1313,12 @@ mod tests {
     fn test_state() -> Arc<AppState> {
         let config = Config::default();
         Arc::new(AppState {
-            pool: EnginePool::new(":memory:".to_string()),
+            pool: Arc::new(EnginePool::new(":memory:".to_string())),
             mcp_config: config.mcp,
             auth_token: config.auth.token,
             allow_unauthenticated: config.auth.allow_unauthenticated,
             cluster_config: config.cluster,
+            nlq_config: config.nlq,
         })
     }
 
@@ -1309,8 +1366,8 @@ mod tests {
         let tools = result["result"]["tools"].as_array().unwrap();
         assert_eq!(
             tools.len(),
-            30,
-            "expected 30 MCP tools, got {}",
+            31,
+            "expected 31 MCP tools, got {}",
             tools.len()
         );
         let names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
@@ -1343,6 +1400,7 @@ mod tests {
             "thing_link_neighbors",
             "thing_link_count",
             "thing_schema",
+            "thing_nlq",
             "thing_aggregate",
             "thing_timeseries",
         ] {

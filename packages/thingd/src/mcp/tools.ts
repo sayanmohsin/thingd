@@ -906,6 +906,28 @@ export function registerThingdTools(
       return jsonResult(await db.schema(collection));
     }
   );
+
+  server.registerTool(
+    "thing_nlq",
+    {
+      title: "Natural Language Query",
+      description:
+        "Ask a natural language question about your data. Requires NLQ configuration with an LLM endpoint.",
+      inputSchema: {
+        question: z.string().min(1),
+        collection: z.string().min(1).optional(),
+      },
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async ({ question, collection }) => {
+      return jsonResult(await db.nlq.query(question, { collection }));
+    }
+  );
 }
 
 function auditMetadata(
