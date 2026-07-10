@@ -728,7 +728,10 @@ mod tests {
     fn file_connector_implements_connector() {
         let connector = FileConnector;
         assert_eq!(connector.name(), "file");
-        assert!(std::any::TypeId::of::<FileConnector>() != std::any::TypeId::of::<()>());
+        assert_ne!(
+            std::any::TypeId::of::<FileConnector>(),
+            std::any::TypeId::of::<()>()
+        );
     }
 
     #[test]
