@@ -149,7 +149,7 @@ export default defineConfig({
 
     footer: {
       message:
-        "Built by <a href='https://github.com/sayanmohsin'>Sayan Mohsin</a> · Rust core · Apache-2.0",
+        "Built by <a href='https://sayanmohsin.com'>Sayan Mohsin</a> · Rust core · Apache-2.0",
       copyright:
         "© 2026 Sayan Mohsin. <a href='https://thingd.cloud'>thingd Cloud</a> — managed hosting for thingd.",
     },

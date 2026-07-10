@@ -708,3 +708,10 @@ pnpm test:local
 ## License
 
 `thingd` is open source under the Apache-2.0 license. See [LICENSE](./LICENSE).
+
+## Author
+
+Built by [Sayan Mohsin](https://sayanmohsin.com) in Toronto, Canada.
+- [GitHub](https://github.com/sayanmohsin)
+- [Portfolio](https://sayanmohsin.com)
+- [thingd Cloud](https://thingd.cloud)
