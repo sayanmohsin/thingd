@@ -353,7 +353,7 @@ async function openStore(path: string, options: ResolvedThingDOpenOptions): Prom
   if (options.driver === "native") {
     if (!hasNative) {
       throw new Error(
-        `The native thingd driver is not available. Run "pnpm --filter thingd-native build" before using driver: "native".`
+        `The native thingd driver is not available. Install @thingd/native with "npm install @thingd/native". For monorepo development: "pnpm --filter thingd-native build".`
       );
     }
     return NativeThingStore.open(path);

@@ -147,9 +147,9 @@ impl SqliteThingStore {
         }
 
         if current_version > SQLITE_SCHEMA_VERSION {
-            return Err(ThingdError::Storage(format!(
-                "database schema version {current_version} is newer than supported version {SQLITE_SCHEMA_VERSION}"
-            )));
+            eprintln!(
+                "warning: database schema version {current_version} is newer than supported version {SQLITE_SCHEMA_VERSION}. Proceeding in forward-compatibility mode."
+            );
         }
 
         // Run integrity check after all migrations
@@ -2601,7 +2601,7 @@ mod tests {
     }
 
     #[test]
-    fn rejects_newer_schema_versions() {
+    fn allows_newer_schema_versions() {
         let file = NamedTempFile::new().unwrap();
         let connection = Connection::open(file.path()).unwrap();
         connection
@@ -2619,11 +2619,8 @@ mod tests {
             )
             .unwrap();
 
-        let Err(error) = SqliteThingStore::open(file.path()) else {
-            panic!("expected newer schema version to be rejected");
-        };
-
-        assert!(error.to_string().contains("newer than supported version"));
+        let store = SqliteThingStore::open(file.path());
+        assert!(store.is_ok());
     }
 
     #[test]

@@ -585,7 +585,7 @@ async function loadNativeModule(): Promise<NativeThingStoreModule> {
     }
 
     throw new Error(
-      `The native thingd driver is not available. Run "pnpm --filter thingd-native build" before using driver: "native". ${formatUnknownError(importError)}`
+      `The native thingd driver is not available. Install @thingd/native with "npm install @thingd/native" or set THINGD_NATIVE_PATH. For monorepo development: "pnpm --filter thingd-native build". ${formatUnknownError(importError)}`
     );
   }
 }
