@@ -106,7 +106,7 @@ export async function listInstances(
   config: CloudConfig,
   projectId: string
 ): Promise<{ instances: CloudInstance[] }> {
-  return request(config, `/api/projects/${projectId}/instances`);
+  return request(config, `/projects/${projectId}/instances`);
 }
 
 export async function createInstance(
@@ -114,7 +114,7 @@ export async function createInstance(
   projectId: string,
   name: string
 ): Promise<{ instance: CloudInstance }> {
-  return request(config, `/api/projects/${projectId}/instances`, {
+  return request(config, `/projects/${projectId}/instances`, {
     method: "POST",
     body: { name },
   });
@@ -125,7 +125,7 @@ export async function createApiKey(
   projectId: string,
   name?: string
 ): Promise<{ key: CloudApiKey }> {
-  return request(config, `/api/projects/${projectId}/api-keys`, {
+  return request(config, `/projects/${projectId}/api-keys`, {
     method: "POST",
     body: { name: name ?? "CLI key" },
   });
@@ -150,14 +150,14 @@ export async function getOrganization(
   config: CloudConfig,
   orgId: string
 ): Promise<{ organization: CloudOrganization; role: string }> {
-  return request(config, `/api/organizations/${orgId}`);
+  return request(config, `/organizations/${orgId}`);
 }
 
 export async function listOrganizationMembers(
   config: CloudConfig,
   orgId: string
 ): Promise<{ members: CloudOrganizationMember[] }> {
-  return request(config, `/api/organizations/${orgId}/members`);
+  return request(config, `/organizations/${orgId}/members`);
 }
 
 export async function addOrganizationMember(
@@ -166,7 +166,7 @@ export async function addOrganizationMember(
   userId: string,
   role: string = "member"
 ): Promise<{ member: CloudOrganizationMember }> {
-  return request(config, `/api/organizations/${orgId}/members`, {
+  return request(config, `/organizations/${orgId}/members`, {
     method: "POST",
     body: { userId, role },
   });
@@ -177,7 +177,7 @@ export async function removeOrganizationMember(
   orgId: string,
   userId: string
 ): Promise<{ ok: boolean }> {
-  return request(config, `/api/organizations/${orgId}/members/${userId}`, {
+  return request(config, `/organizations/${orgId}/members/${userId}`, {
     method: "DELETE",
   });
 }
