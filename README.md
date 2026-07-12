@@ -26,9 +26,10 @@ See the [full feature status and roadmap](https://github.com/sayanmohsin/thingd-
 ### Shipped
 
 - **Rust engine** (`thingd` — crates.io) — memory + SQLite adapters, FTS5 search, queue lifecycle, graph links, SQLite schema migrations, startup integrity check, auto‑backup before migrations
-- **Node.js SDK** (`@thingd/sdk`) — three drivers: memory (default in-memory TS store), native (napi-rs Rust SQLite), remote/cloud (Streamable HTTP MCP)
+- **Node.js SDK** (`@thingd/sdk`) — three drivers: memory (default in-memory TS store), native (napi-rs Rust SQLite), cloud (remote HTTP REST)
+- **Browser/Edge client** (`@thingd/client`) — zero-dependency REST client for browsers, Cloudflare Workers, AWS Lambda, Bun, Deno
 - **CLI** (`@thingd/cli`) — TUI dashboard, 30+ subcommands (search, objects, events, queues, export/import/snapshot/backup, doctor, bench, db maintenance). Support for importing from Postgres/MySQL via sidecar REST.
-- **MCP server** — 29 tools, stdio + Streamable HTTP, audit events, collection allowlists, read-only mode (tool count defined in packages/thingd/src/constants.ts)
+- **MCP server** — 31 tools, stdio + Streamable HTTP, audit events, collection allowlists, read-only mode (tool count defined in packages/thingd/src/constants.ts)
 - **Docker** — multi-stage image, compose + K8s for leader/follower cluster
 - **CI/tooling** — semantic-release, biome, lefthook, doc tests, cargo audit, cargo deny, CodeQL
 
@@ -46,11 +47,14 @@ API exploration and local integration tests. The Rust core has SQLite-backed
 object, event, and queue persistence behind the `sqlite` feature. Node apps can
 use the cloud driver to talk to a `thingd` sidecar through `THINGD_URL`.
 
-| Entry point | Default driver | Default path |
+For browsers, edge runtimes, and non-Node.js environments, use the standalone
+`@thingd/client` package — a zero-dependency REST client.
+
+| Entry point | Driver | Protocol |
 | --- | --- | --- |
-| `ThingD.open()` from npm (today) | memory | n/a |
-| `thingd mcp` / `mcp-http` | native (when built) | `~/.thingd/data.db` |
-| `THINGD_URL` set | remote | sidecar |
+| `ThingD.open()` (Node.js) | memory / native / cloud | In-process / napi / HTTP REST |
+| `@thingd/client` (browser/edge) | cloud | HTTP REST |
+| `thingd mcp` / `mcp-http` | native | stdio MCP / Streamable HTTP |
 
 ## Why thingd?
 
@@ -144,14 +148,17 @@ thingd = { version = "0.49", features = ["sqlite"] }
 // Full SDK (Node.js: MCP + REST + stores + native binding)
 import { ThingD } from "@thingd/sdk";
 
-// Lightweight HTTP client (browser + Node.js, zero dependencies)
-import { ThingD } from "@thingd/sdk/client";
+// HTTP REST client (Node.js, Bun, Deno)
+import { HttpThingStore, openThingD } from "@thingd/sdk/client";
 
 // Pure in-memory store (browser + Node.js, zero dependencies)
-import { ThingD } from "@thingd/sdk/memory";
+import { InMemoryThingStore, openMemoryThingD } from "@thingd/sdk/memory";
 
 // Types only (for type-safe dependency injection)
 import type { ThingDConnection } from "@thingd/sdk/types";
+
+// Zero-dependency client for browser/edge (npm install @thingd/client)
+import { ThingdClient } from "@thingd/client";
 ```
 
 ### Docker (sidecar runtime)
@@ -211,7 +218,7 @@ const db = await ThingD.open({
 });
 ```
 
-For sidecar mode, point the SDK at the HTTP MCP runtime:
+For sidecar mode, point the SDK at the HTTP REST endpoint:
 
 ```bash
 THINGD_URL=http://127.0.0.1:8757
@@ -226,7 +233,7 @@ Or configure it explicitly:
 
 ```ts
 const db = await ThingD.open({
-  url: "http://127.0.0.1:8757/mcp",
+  url: "http://127.0.0.1:8757",
   driver: "cloud",
   authToken: "change-me",
 });
@@ -505,7 +512,7 @@ const db = await ThingD.open();
 ```
 
 With `THINGD_URL` set, this uses the remote SDK driver and talks to the local
-sidecar over Streamable HTTP MCP.
+sidecar over HTTP REST.
 
 See [docs/mcp-server.md](./docs/mcp-server.md#bridge-mode) for the bridge
 environment, [docs/runtime-env.md](./docs/runtime-env.md) for all env vars, and
@@ -541,11 +548,16 @@ For local object memory, the first distributed design should be primary-writer p
 ## Architecture
 
 ```txt
-Node.js app
+Node.js / Browser / Edge app
   |
-  | thingd
+  | @thingd/sdk  |  @thingd/client  |  thingd mcp
+  | (Node SDK)   |  (HTTP REST)     |  (MCP tools)
   v
-Rust core
+thingd-server (Rust sidecar) or thingd.cloud
+  |
+  | HTTP REST (/v1/*)  |  MCP (/mcp)
+  v
+Rust core (crates/thingd)
   |-- object store
   |-- event log
   |-- queue engine
@@ -553,24 +565,25 @@ Rust core
   |-- storage adapters
       |-- in-memory engine
       |-- SQLite objects/events/queues adapter
-  |
-  +-- MCP server
 ```
 
-Planned package layout:
+Package layout:
 
 ```txt
 crates/
   thingd/            Rust engine primitives
+  thingd-server/     Rust sidecar binary (REST + MCP + cluster)
 
 packages/
-  thingd/            Node.js SDK
+  thingd/            Node.js SDK (@thingd/sdk)
+  thingd-client/     Zero-dep REST client (@thingd/client)
   thingd-native/     Private native Node.js binding package
   thingd-cli/        Interactive Dashboard, JSON CLI, & MCP servers
 
 examples/
   node-basic/         Minimal Node.js example
   nestjs-basic/       NestJS API example
+  bun-hono/           Bun + Hono + HTTP REST example
 ```
 
 Full documentation: [docs/](./docs/)

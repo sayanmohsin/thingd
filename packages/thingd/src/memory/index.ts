@@ -1,2 +1,9 @@
-export { InMemoryThingStore } from "../stores/in-memory-thing-store.js";
-export { ThingD } from "../thingd.js";
+import { openThingD } from "../client/thingd.js";
+
+export { InMemoryThingStore } from "../client/in-memory-thing-store.js";
+
+/**
+ * Open a pure in-memory thingd connection.
+ * Browser-safe — no Node.js dependencies.
+ */
+export const openMemoryThingD = () => openThingD({ driver: "memory" });

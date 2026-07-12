@@ -21,27 +21,27 @@ thingd is a fast, object-first data engine for applications and AI agents. It su
 │  LinkStore — in-memory + SQLite implementations     │
 └──────────────────────┬──────────────────────────────┘
                        │
-          ┌────────────┼────────────┬────────────┐
-          │            │            │            │
-    ┌─────▼────┐ ┌─────▼────┐ ┌────▼─────┐ ┌───▼──────┐
-    │ thingd   │ │ thingd-  │ │ thingd-  │ │ thingd-  │
-    │ (Node)   │ │ go       │ │ rust     │ │ flutter  │
-    │ napi-rs  │ │ cgo FFI  │ │ direct   │ │ dart FFI │
-    └─────┬────┘ └─────┬────┘ └────┬─────┘ └───┬──────┘
-          │            │            │            │
-          ▼            ▼            ▼            ▼
-    ┌─────────────────────────────────────────────────┐
-    │           Protocol Adapters (per-language)       │
-    │  REST API (/v1/*)  │  MCP Server (29 tools)     │
-    └─────────────────────┬───────────────────────────┘
-                          │
-              ┌───────────┼───────────┐
-              │           │           │
-       ┌──────▼──┐  ┌─────▼─────┐ ┌──▼──────┐
-       │ CLI     │  │ Cloud     │ │ Web UI  │
-       │ + TUI   │  │ Hosted    │ │ Local + │
-       │ + MCP   │  │ Auth+Billing│ │ Cloud  │
-       └─────────┘  └───────────┘ └─────────┘
+          ┌────────────┼────────────┬────────────┬────────────┐
+          │            │            │            │            │
+    ┌─────▼────┐ ┌─────▼────┐ ┌────▼─────┐ ┌───▼──────┐ ┌───▼──────┐
+    │ thingd   │ │ thingd-  │ │ thingd-  │ │ thingd-  │ │ thingd-  │
+    │ (Node)   │ │ client   │ │ go       │ │ rust     │ │ flutter  │
+    │ napi-rs  │ │ fetch    │ │ cgo FFI  │ │ direct   │ │ dart FFI │
+    └─────┬────┘ └─────┬────┘ └────┬─────┘ └───┬──────┘ └───┬──────┘
+          │            │            │            │            │
+          ▼            ▼            ▼            ▼            ▼
+    ┌─────────────────────────────────────────────────────────────┐
+    │           Protocol Adapters (per-language)                   │
+    │  REST API (/v1/*)  │  MCP Server (31 tools)                 │
+    └─────────────────────────┬───────────────────────────────────┘
+                              │
+                  ┌───────────┼───────────┐
+                  │           │           │
+           ┌──────▼──┐  ┌─────▼─────┐ ┌──▼──────┐
+           │ CLI     │  │ Cloud     │ │ Web UI  │
+           │ + TUI   │  │ Hosted    │ │ Local + │
+           │ + MCP   │  │ Auth+Billing│ │ Cloud  │
+           └─────────┘  └───────────┘ └─────────┘
 ```
 
 ## Response Format

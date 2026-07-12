@@ -1,4 +1,8 @@
+export { ThingdClient, type ThingdClientOptions } from "./client.js";
 export type {
+  AggregateOptions,
+  AggregateResult,
+  CollectionSchema,
   Link,
   LinkDirection,
   LinkQueryOptions,
@@ -9,6 +13,8 @@ export type {
   MemoryQueue,
   MemorySearchOptions,
   MemorySearchResult,
+  NlqOptions,
+  NlqResult,
   QueueClaimOptions,
   QueueJob,
   QueueJobOptions,
@@ -16,17 +22,11 @@ export type {
   QueueJobResult,
   QueueJobStatus,
   QueueNackOptions,
+  SchemaOptions,
   SortBy,
-  SortDirection,
   StoredMemoryEvent,
   StoredMemoryObject,
-  ThingDConnection,
   ThingDeleteResult,
-  ThingStore,
-} from "../types.js";
-export { HttpThingStore, type HttpThingStoreOptions } from "./http-thing-store.js";
-export { InMemoryThingStore } from "./in-memory-thing-store.js";
-export {
-  openThingD,
-  type ThingDClientOptions,
-} from "./thingd.js";
+  TimeSeriesOptions,
+  TimeSeriesResult,
+} from "./types.js";

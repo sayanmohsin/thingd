@@ -1,6 +1,6 @@
 # thingd + Bun + Hono
 
-thingd's SDK ships with a **zero-dependency HTTP client** (`@thingd/sdk/client`) that works in any runtime with `fetch()` — Bun, Deno, Cloudflare Workers, and browsers.
+thingd's HTTP REST client works in any runtime with `fetch()` — Bun, Deno, Cloudflare Workers, browsers, and Node.js.
 
 Bun users can access the full engine (objects, events, queues, search, links) via HTTP without needing the native Rust addon.
 
@@ -9,19 +9,19 @@ Bun users can access the full engine (objects, events, queues, search, links) vi
 | Import | Bun | What it gives you |
 |--------|-----|-------------------|
 | `@thingd/sdk` | ❌ | Bundles Express MCP server + Node `http` types |
-| `@thingd/sdk/client` | ✅ | `HttpThingStore`, `InMemoryThingStore`, `ThingD` class |
-| `@thingd/sdk/memory` | ✅ | `InMemoryThingStore`, `ThingD` class |
+| `@thingd/sdk/client` | ✅ | `HttpThingStore`, `InMemoryThingStore`, `openThingD` |
+| `@thingd/client` | ✅ | Standalone zero-dep REST client |
 | `@thingd/sdk/types` | ✅ | TypeScript types only |
 
 ## Architecture
 
-thingd runs as a **sidecar** — a separate Rust binary that you start once. Your Bun app connects to it over HTTP.
+thingd runs as a **sidecar** — a separate Rust binary that you start once. Your Bun app connects to it over HTTP REST.
 
 ```
-┌──────────────┐         HTTP          ┌──────────────────┐
+┌──────────────┐         HTTP REST      ┌──────────────────┐
 │  Bun + Hono  │  ──────────────────→  │  thingd sidecar  │
 │  (your app)  │  ←──────────────────  │  (Rust binary)   │
-└──────────────┘         REST          └──────────────────┘
+└──────────────┘                       └──────────────────┘
 ```
 
 ## Setup
@@ -47,11 +47,10 @@ Or as a Kubernetes sidecar (same pod, container port 8757).
 ### 2. Connect from Bun
 
 ```ts
-import { ThingD } from "@thingd/sdk/client";
+import { HttpThingStore } from "@thingd/sdk/client";
 
-const thingd = await ThingD.open({
-  driver: "cloud",
-  databaseUrl: process.env.THINGD_URL ?? "http://localhost:8757",
+const thingd = await HttpThingStore.open({
+  url: process.env.THINGD_URL ?? "http://localhost:8757",
   authToken: process.env.THINGD_AUTH_TOKEN,
 });
 ```

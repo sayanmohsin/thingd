@@ -152,10 +152,10 @@ Shows Prometheus-format metrics (objects_total, events_total, etc.).
 
 ```txt
 THINGD_URL set:
-  use remote SDK driver over Streamable HTTP MCP
+  use remote SDK driver over HTTP REST
 
 --url set:
-  use remote SDK driver over Streamable HTTP MCP
+  use remote SDK driver over HTTP REST
 
 --driver native --path ./thingd.db:
   use local native Rust SQLite driver

@@ -1,8 +1,8 @@
 # MCP Tools Reference
 
-thingd exposes 30 MCP tools for AI agents. All tools are available via the stdio MCP server or Streamable HTTP endpoint.
+thingd exposes 31 MCP tools for AI agents. All tools are available via the stdio MCP server or Streamable HTTP endpoint.
 
-**Tool count:** 30 (19 read-only, 11 write — 3 of which are destructive)
+**Tool count:** 31 (20 read-only, 11 write — 3 of which are destructive)
 
 ---
 
@@ -455,6 +455,26 @@ Reflect the schema of one or all collections. Returns inferred field names, type
 ```
 
 **Returns:** `CollectionSchema | CollectionSchema[]`
+
+---
+
+## NLQ Tool
+
+### `thing_nlq`
+
+Ask a natural language question about your data. Uses an LLM to convert the question into a structured query (filter + aggregate + group by) and returns results. Read-only.
+
+```json
+{
+  "question": "What were total sales by region last month?",
+  "collections": ["sales"],
+  "model": "optional model override"
+}
+```
+
+**Returns:** `NlqResult` — `{ answer: string, data?: Record[] }`
+
+Requires LLM configuration on the server (`nlq.enabled`, `nlq.model`, `nlq.endpoint`).
 
 ---
 

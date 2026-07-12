@@ -1,4 +1,7 @@
 import type {
+  AggregateOptions,
+  AggregateResult,
+  CollectionSchema,
   ConnectorAuth,
   ConnectorSchema,
   ConnectorSyncOptions,
@@ -9,16 +12,21 @@ import type {
   MemoryObject,
   MemorySearchOptions,
   MemorySearchResult,
+  NlqOptions,
+  NlqResult,
   QueueClaimOptions,
   QueueJob,
   QueueJobOptions,
   QueueJobPayload,
   QueueJobResult,
   QueueNackOptions,
+  SchemaOptions,
   StoredMemoryEvent,
   StoredMemoryObject,
   ThingDeleteResult,
   ThingStore,
+  TimeSeriesOptions,
+  TimeSeriesResult,
 } from "../types.js";
 
 export type HttpThingStoreOptions = {
@@ -308,5 +316,24 @@ export class HttpThingStore implements ThingStore {
       `/connectors/${encodeURIComponent(type)}/pull`,
       options as Record<string, unknown>
     );
+  }
+
+  async aggregate(collection: string, options: AggregateOptions): Promise<AggregateResult> {
+    return this.request("POST", "/aggregate", { collection, ...options });
+  }
+
+  async timeseries(collection: string, options: TimeSeriesOptions): Promise<TimeSeriesResult> {
+    return this.request("POST", "/aggregate/timeseries", { collection, ...options });
+  }
+
+  async schema(collection?: string, _options?: SchemaOptions): Promise<CollectionSchema[]> {
+    if (collection) {
+      return this.request("GET", `/collections/${encodeURIComponent(collection)}/schema`);
+    }
+    return this.request("GET", "/collections/schema");
+  }
+
+  async nlqQuery(question: string, options?: NlqOptions): Promise<NlqResult> {
+    return this.request("POST", "/nlq", { question, ...options });
   }
 }

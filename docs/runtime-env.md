@@ -11,7 +11,7 @@ THINGD_AUTH_TOKEN=change-me
 ```
 
 When `THINGD_URL` is set, `ThingD.open()` uses the SDK cloud driver and
-talks to the sidecar over Streamable HTTP MCP. If the URL has no path, `/mcp` is
+talks to the sidecar over HTTP REST. If the URL has no path, `/v1` is
 used automatically.
 
 ## Storage

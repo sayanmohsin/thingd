@@ -818,6 +818,42 @@ curl -X POST http://localhost:8757/v1/connectors/postgres/pull \
 
 ---
 
+## Natural Language Query
+
+### `POST /v1/nlq` — Natural language query
+
+Ask a natural language question about your data. Uses an LLM to convert the question into a structured query. Read-only.
+
+**Body:**
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `question` | yes | Natural language question (e.g. "total sales by region") |
+| `collections` | no | Limit to these collection names |
+| `model` | no | Override the server's default LLM model |
+
+```bash
+curl -X POST http://localhost:8757/v1/nlq \
+  -H "Content-Type: application/json" \
+  -d '{"question": "What were total sales by region last month?"}'
+```
+
+```json
+{
+  "data": {
+    "answer": "Total sales by region last month: North $15,000, South $12,000, East $10,000, West $8,000",
+    "data": [
+      { "region": "North", "total": 15000 },
+      { "region": "South", "total": 12000 }
+    ]
+  }
+}
+```
+
+Requires LLM configuration on the server (`nlq.enabled`, `nlq.model`, `nlq.endpoint`). Returns 400 with `nlq_not_enabled` if not configured.
+
+---
+
 ## Error Codes
 
 | Code | HTTP Status | Meaning |

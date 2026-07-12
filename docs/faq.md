@@ -161,7 +161,7 @@ CLI commands: `thingd queues dead <queue>` lists dead jobs. To replay, delete an
 
 ### What MCP tools are exposed?
 
-29 tools — see the [API spec — MCP tools reference](api-spec/mcp-tools.md) for the full list with schemas.
+31 tools — see the [API spec — MCP tools reference](api-spec/mcp-tools.md) for the full list with schemas.
 
 ### Can agents bypass allowlists accidentally?
 
@@ -273,7 +273,7 @@ thingd-cloud is the managed hosted version. See the [thingd-cloud](https://githu
 
 ### Will APIs differ between local and cloud?
 
-The SDK is designed to be driver-agnostic — the same `ThingD.open()` call works for in-memory, native, and cloud drivers. The cloud API is expected to be the same MCP-based interface.
+The SDK is designed to be driver-agnostic — the same `ThingD.open()` call works for in-memory, native, and cloud drivers. The cloud API uses the same REST endpoints as the sidecar.
 
 ### Is multi-tenancy supported?
 

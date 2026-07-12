@@ -97,6 +97,8 @@ importers:
         specifier: ^8.0.16
         version: 8.0.16(@types/node@26.1.1)
 
+  packages/thingd-client: {}
+
   packages/thingd-native: {}
 
 packages:

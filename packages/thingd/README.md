@@ -24,33 +24,46 @@ console.log(obj); // { id: "hello", text: "Hello world", collection: "notes", ve
 ## Subpath imports
 
 ```typescript
-// Lightweight HTTP client (browser + Node.js + Bun, zero dependencies)
-import { ThingD } from "@thingd/sdk/client";
+// Full SDK (Node.js: MCP + REST + stores + native binding)
+import { ThingD } from "@thingd/sdk";
 
-// Pure in-memory store (browser + Node.js + Bun, zero dependencies)
-import { ThingD } from "@thingd/sdk/memory";
+// Lightweight HTTP client (Node.js + Bun, works in browsers via @thingd/client)
+import { openThingD, HttpThingStore } from "@thingd/sdk/client";
+
+// Pure in-memory store (browser + Node.js + Bun)
+import { openMemoryThingD, InMemoryThingStore } from "@thingd/sdk/memory";
 
 // Types only (for type-safe dependency injection)
 import type { ThingDConnection } from "@thingd/sdk/types";
 ```
 
-## Bun + Hono
+## Browser / Edge
 
-thingd's HTTP client (`@thingd/sdk/client`) uses only web-standard `fetch()` — it runs in **Bun**, Deno, Cloudflare Workers, and browsers. No Node.js dependencies.
+For browser, Cloudflare Workers, and other edge runtimes, use the standalone
+`@thingd/client` package — a zero-dependency REST client:
 
-Connect to the thingd sidecar (Rust binary) over HTTP:
+```bash
+npm install @thingd/client
+```
 
 ```ts
-import { ThingD } from "@thingd/sdk/client";
+import { ThingdClient } from "@thingd/client";
 
-const db = await ThingD.open({
-  driver: "cloud",
-  databaseUrl: "http://localhost:8757",
+const db = new ThingdClient({
+  url: "https://api.thingd.cloud",
+  authToken: "sk-...",
 });
 ```
 
-Full example: [`examples/bun-hono/`](https://github.com/sayanmohsin/thingd/tree/main/examples/bun-hono)
-Guide: [`docs/bun-hono.md`](https://github.com/sayanmohsin/thingd/tree/main/docs/bun-hono.md)
+Or use the subpath import (works in Node.js and Bun, bundled for browser):
+
+```ts
+import { HttpThingStore } from "@thingd/sdk/client";
+const store = await HttpThingStore.open({
+  url: "http://localhost:8757",
+  authToken: "change-me",
+});
+```
 
 ## API
 

@@ -36,6 +36,7 @@ crates/
   thingd-server/     ← Rust sidecar binary (axum: MCP + REST + cluster, Docker ~15MB)
 packages/
   thingd/            ← @thingd/sdk (Node.js SDK: MCP + REST + three stores)
+  thingd-client/     ← @thingd/client (zero-dep REST client for browsers/edge)
   thingd-cli/        ← @thingd/cli (CLI + TUI + transports)
   thingd-native/     ← @thingd/native (napi-rs binding to thingd crate)
 ```
@@ -55,13 +56,14 @@ packages/
 | Sidecar REST (Rust axum) | `crates/thingd-server/src/rest.rs` |
 | Sidecar MCP (Rust) | `crates/thingd-server/src/mcp.rs` |
 | Node.js SDK (TypeScript) | `packages/thingd/src/thingd.ts` |
+| Browser/Edge client | `packages/thingd-client/src/client.ts` |
 | Node.js REST | `packages/thingd/src/rest/server.ts` |
 | Node.js MCP | `packages/thingd/src/mcp/tools.ts` |
 | Node.js stores | `packages/thingd/src/stores/*.ts` |
 | CLI | `packages/thingd-cli/src/index.ts` |
 | Tests | `packages/thingd/test/`, `packages/thingd-cli/test/`, `crates/thingd/` |
 
-**Sidecar MCP** implements all 30 tools natively (`crates/thingd-server/src/mcp.rs`) via a registry-based dispatch. The Node.js SDK MCP (`packages/thingd/src/mcp/tools.ts`) remains the primary reference and adds auth gating.
+**Sidecar MCP** implements all 31 tools natively (`crates/thingd-server/src/mcp.rs`) via a registry-based dispatch. The Node.js SDK MCP (`packages/thingd/src/mcp/tools.ts`) remains the primary reference and adds auth gating.
 
 **Sidecar cluster** returns real config (mode, peers, discovery). Real cluster forwarding/leader election logic is in `packages/thingd-cli/src/mcp/cluster.ts`.
 
@@ -124,7 +126,7 @@ This file should stay useful but not become a dump. Rules:
 - **Sidecar REST gap** — every REST endpoint in `docs/api-spec/rest-api.md` must exist in `crates/thingd-server/src/rest.rs`
 - **CLI import for DBs** — `thingd import <connection-string>` calls sidecar `POST /v1/connectors/{type}/pull`. Document flags in `docs/cli-reference.md`.
 
-- **Sidecar MCP gap** — every MCP tool in `docs/api-spec/mcp-tools.md` must exist in `crates/thingd-server/src/mcp.rs`
+- **Sidecar MCP sync** — every MCP tool added to `packages/thingd/src/mcp/tools.ts` must also exist in `crates/thingd-server/src/mcp.rs`
 - **Native binding type** — update `NativeThingStoreBinding` in `native-thing-store.ts` when adding napi methods
 - **Sort/filter params** — Rust `ListObjectsOptions` changes must propagate to native binding `list_objects_json` and TypeScript `listObjects`
 
@@ -133,7 +135,7 @@ This file should stay useful but not become a dump. Rules:
 ### Doc audit after every change
 
 After any implementation, audit ALL public docs for staleness. This session found:
-- **AGENTS.md** claimed sidecar MCP was a "stub with 5 tools" (already 29 tools)
+- **AGENTS.md** claimed sidecar MCP was a "stub with 5 tools" (now 31 tools)
 - **rest-api.md** had wrong error format, missing `body` field in GET response, wrong links endpoint
 - **mcp-tools.md** had incorrect tool breakdown (claimed 12/12/3, actual 16 read-only / 11 write of which 3 destructive)
 - **errors.md** referenced non-existent `ThingDError` class (SDK throws plain `Error`)

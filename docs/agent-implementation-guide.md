@@ -14,7 +14,7 @@ Current implementation:
 - `packages/thingd/src/stores/in-memory-thing-store.ts` is the current in-memory store.
 - `crates/thingd` contains the Rust storage boundary, in-memory Rust engine, and `SqliteThingStore` behind the `sqlite` feature.
 - `packages/thingd-native` is a private N-API binding for local native driver testing.
-- `packages/thingd/src/stores/cloud-thing-store.ts` lets the SDK talk to a sidecar over Streamable HTTP MCP.
+- `packages/thingd/src/client/http-thing-store.ts` lets the SDK talk to a sidecar over HTTP REST.
 - `packages/thingd-cli` exposes the visual TUI dashboard, non-interactive CLI commands, and integrated stdio and Streamable HTTP MCP servers.
 - the HTTP MCP runtime supports `single`, `leader`, and `follower` bridge modes.
 - `examples/nestjs-basic` demonstrates app integration shape.

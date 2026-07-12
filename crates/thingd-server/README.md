@@ -21,7 +21,7 @@ Starts on `http://0.0.0.0:7377` by default. Point your MCP client at `http://loc
 
 | Protocol | Endpoint | Purpose |
 |---|---|---|
-| **MCP** | `POST /mcp` | Model Context Protocol — all 27 tools (search, put, get, delete, events, queues, links) |
+| **MCP** | `POST /mcp` | Model Context Protocol — all 31 tools (search, put, get, delete, events, queues, links, aggregate, timeseries, schema, NLQ) |
 | **REST** | `GET /healthz` | Health check (unauthenticated) |
 | **REST** | `GET /v1/health` | Same as `/healthz` |
 | **REST** | `GET /v1/counts/objects` | Object count |
@@ -38,6 +38,15 @@ Starts on `http://0.0.0.0:7377` by default. Point your MCP client at `http://loc
 | **REST** | `POST /v1/events` | List events across streams |
 | **REST** | Queue endpoints | `push`, `claim`, `ack`, `nack`, `list`, `dead` under `/v1/queues/{queue}/` |
 | **REST** | Link endpoints | CRUD under `/v1/links` |
+| **REST** | `POST /v1/aggregate` | Aggregate queries (count, sum, avg, min, max) |
+| **REST** | `POST /v1/aggregate/timeseries` | Time-bucketed aggregation |
+| **REST** | `POST /v1/nlq` | Natural language queries |
+| **REST** | `GET /v1/collections/schema` | Reflect collection schemas |
+| **REST** | `GET /v1/connectors` | List available connectors |
+| **REST** | `POST /v1/connectors/{type}/ping` | Test connector connection |
+| **REST** | `POST /v1/connectors/{type}/schema` | Discover external schema |
+| **REST** | `POST /v1/connectors/{type}/pull` | Import data from external source |
+| **REST** | `GET /metrics` | Prometheus metrics |
 | **Cluster** | `GET /cluster/status` | Cluster node status |
 | **Cluster** | `GET /cluster/peers` | Cluster peer list |
 
@@ -69,7 +78,7 @@ thingd-server binary
   ├── config.rs        — YAML + env config loader
   ├── server.rs        — axum router, middleware stack (CORS, timeout, auth, rate limit)
   ├── rest.rs          — REST API handlers
-  ├── mcp.rs           — MCP handler (all 27 tools via registry dispatch)
+  ├── mcp.rs           — MCP handler (all 31 tools via registry dispatch)
   ├── engine.rs        — EnginePool: shared database connections
   ├── auth.rs          — Bearer token auth middleware
   ├── rate_limit.rs    — Token bucket rate limiter

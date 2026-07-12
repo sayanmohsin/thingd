@@ -2,7 +2,7 @@
 
 A runnable example demonstrating thingd as a **remote data engine** accessed from a Bun + Hono app over HTTP.
 
-The key difference from the Node.js examples: this uses `@thingd/sdk/client` which has **zero Node.js dependencies** — pure `fetch()`, works in Bun, Deno, Edge, and browsers.
+The key difference from the Node.js examples: this uses `@thingd/sdk/client` (`HttpThingStore`) or `@thingd/client` (`ThingdClient`) — pure `fetch()`, works in Bun, Deno, Edge, and browsers.
 
 ## Architecture
 
@@ -92,19 +92,19 @@ curl -X POST http://localhost:3000/events/audit \
 ## Import Path
 
 ```ts
-import { ThingD } from "@thingd/sdk/client";
+import { HttpThingStore } from "@thingd/sdk/client";
+// or: import { ThingdClient } from "@thingd/client";
 ```
 
-This is the only import path that works in Bun. The main `@thingd/sdk` export bundles an Express-based MCP server and Node `http` types — those won't work in Bun.
+The main `@thingd/sdk` export bundles an Express-based MCP server and Node `http` types — those won't work in Bun.
 
 ## Sidecar Auth
 
 If your sidecar has auth enabled, set the token:
 
 ```ts
-const thingd = await ThingD.open({
-  driver: "cloud",
-  databaseUrl: "http://localhost:8757",
+const thingd = await HttpThingStore.open({
+  url: "http://localhost:8757",
   authToken: "your-secret-token",
 });
 ```

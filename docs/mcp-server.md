@@ -351,7 +351,7 @@ See [docker-runtime.md](./docker-runtime.md).
 
 ## Node SDK Remote Driver
 
-Node apps can use the same SDK against the Streamable HTTP runtime:
+Node apps can use the same SDK against the sidecar's HTTP REST API:
 
 ```bash
 THINGD_URL=http://127.0.0.1:8757
@@ -362,8 +362,8 @@ THINGD_AUTH_TOKEN=change-me
 const db = await ThingD.open();
 ```
 
-`ThingD.open()` appends `/mcp` automatically when `THINGD_URL` points at the
-runtime root.
+`ThingD.open()` detects `http://` URLs and uses the REST cloud driver
+automatically.
 
 ## Security
 

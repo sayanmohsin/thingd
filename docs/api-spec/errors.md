@@ -40,7 +40,7 @@ MCP errors are returned via the `isError: true` flag in the tool result:
 
 ## SDK Error Format
 
-The TypeScript SDK throws `Error` objects with descriptive messages. The REST client (CloudThingStore) may throw plain `Error` objects from HTTP errors, while the MCP client throws errors received from the MCP tool layer:
+The TypeScript SDK throws `Error` objects with descriptive messages. The HTTP REST client (`HttpThingStore` / `ThingdClient`) may throw plain `Error` objects from HTTP errors, while the MCP client throws errors received from the MCP tool layer:
 
 ```typescript
 try {
