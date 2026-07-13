@@ -236,7 +236,11 @@ async function handleHealth(
     return;
   }
 
-  const status = await getClusterStatus(state.cluster, state.db, state.consecutiveReplicationFailures);
+  const status = await getClusterStatus(
+    state.cluster,
+    state.db,
+    state.consecutiveReplicationFailures
+  );
   writeJson(
     response,
     200,
@@ -264,7 +268,11 @@ async function handleClusterStatus(
     return;
   }
 
-  const status = await getClusterStatus(state.cluster, state.db, state.consecutiveReplicationFailures);
+  const status = await getClusterStatus(
+    state.cluster,
+    state.db,
+    state.consecutiveReplicationFailures
+  );
   writeJson(response, 200, status, request.method === "HEAD");
 }
 
@@ -647,9 +655,7 @@ function startReplicationRunner(state: RuntimeState) {
       state.consecutiveReplicationFailures++;
 
       // Print "All leader URLs exhausted" only once per failure threshold
-      if (
-        state.consecutiveReplicationFailures === state.cluster.electionMaxFailures
-      ) {
+      if (state.consecutiveReplicationFailures === state.cluster.electionMaxFailures) {
         console.error("All leader URLs exhausted for replication");
       }
 
