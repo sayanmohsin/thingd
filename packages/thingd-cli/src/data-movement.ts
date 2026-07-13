@@ -466,7 +466,7 @@ export async function runSnapshot(context: CliContext): Promise<void> {
       throw new Error(`Unsupported snapshot version: ${snapshot.version}`);
     }
 
-    console.error("Restoring snapshot... (consider 'thingd backup --out pre-restore.db' first)");
+    context.stderr.write("Restoring snapshot... (consider 'thingd backup --out pre-restore.db' first)\n");
 
     await withDb(context, async (db) => {
       try {
@@ -524,10 +524,10 @@ export async function runSnapshot(context: CliContext): Promise<void> {
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         // Restore failed — recommend using backup for atomic recovery
-        console.error(
+        context.stderr.write(
           `Restore failed: ${message}. Data may be partially restored.\n` +
             `For atomic restore, use 'thingd backup --out backup.db' before making changes\n` +
-            `and copy the backup file to restore.`
+            `and copy the backup file to restore.\n`
         );
         throw err;
       }
@@ -556,7 +556,7 @@ export async function runBackup(context: CliContext): Promise<void> {
       await db.close();
       const { copyFileSync } = await import("node:fs");
       copyFileSync(resolvedIn, db.path);
-      console.log(`Restored from: ${resolvedIn}`);
+      context.stderr.write(`Restored from: ${resolvedIn}\n`);
     });
     return;
   }
@@ -576,6 +576,6 @@ export async function runBackup(context: CliContext): Promise<void> {
     const stats = statSync(outPath);
     const sizeMb = (stats.size / (1024 * 1024)).toFixed(2);
 
-    console.log(`Backup created: ${outPath} (${sizeMb} MB)`);
+    context.stderr.write(`Backup created: ${outPath} (${sizeMb} MB)\n`);
   });
 }
