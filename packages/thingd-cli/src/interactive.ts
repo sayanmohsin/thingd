@@ -8,8 +8,8 @@ import { type MemorySearchOptions, ThingD, type ThingDDriver } from "@thingd/sdk
 import pc from "picocolors";
 import { listInstances, listProjects } from "./lib/cloud-api.js";
 import { readCloudConfig, resolveCloudUrl } from "./lib/cloud-config.js";
-import { defaultThingdDbPath } from "./paths.js";
 import { logoText } from "./logo.js";
+import { defaultThingdDbPath } from "./paths.js";
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
@@ -297,7 +297,10 @@ async function fetchResourcesFallback() {
   for (const col of collections) {
     try {
       const list = await db.listObjects(col);
-      objectsByCollection.set(col, list.map((o: { id: string }) => o.id));
+      objectsByCollection.set(
+        col,
+        list.map((o: { id: string }) => o.id)
+      );
     } catch {
       objectsByCollection.set(col, []);
     }
@@ -352,7 +355,10 @@ async function fetchResources(): Promise<void> {
   for (const col of collections) {
     try {
       const list = await db.listObjects(col);
-      objectsByCollection.set(col, list.map((o: { id: string }) => o.id));
+      objectsByCollection.set(
+        col,
+        list.map((o: { id: string }) => o.id)
+      );
     } catch {
       objectsByCollection.set(col, []);
     }
@@ -1846,7 +1852,7 @@ async function handleConnect(node: TreeNode) {
               {
                 id: "path",
                 label: "Database Path",
-                  value: defaultThingdDbPath(),
+                value: defaultThingdDbPath(),
               },
             ]),
       ],

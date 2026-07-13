@@ -6,7 +6,6 @@ import { setTimeout as sleep } from "node:timers/promises";
 import { pathToFileURL } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import { SDK_VERSION } from "@thingd/sdk";
 import {
   type ListObjectsOptions,
   type MemoryEvent,
@@ -15,6 +14,7 @@ import {
   type QueueClaimOptions,
   type QueueJobOptions,
   type QueueNackOptions,
+  SDK_VERSION,
   type SortBy,
   ThingD,
   type ThingDDriver,

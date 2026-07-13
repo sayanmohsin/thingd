@@ -466,7 +466,9 @@ export async function runSnapshot(context: CliContext): Promise<void> {
       throw new Error(`Unsupported snapshot version: ${snapshot.version}`);
     }
 
-    context.stderr.write("Restoring snapshot... (consider 'thingd backup --out pre-restore.db' first)\n");
+    context.stderr.write(
+      "Restoring snapshot... (consider 'thingd backup --out pre-restore.db' first)\n"
+    );
 
     await withDb(context, async (db) => {
       try {
