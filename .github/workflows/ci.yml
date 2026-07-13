@@ -4,15 +4,11 @@ on:
   pull_request:
     branches: [main]
     paths-ignore:
-      - "*.md"
-      - "docs/**"
       - "LICENSE"
       - ".gitignore"
   push:
     branches: [main]
     paths-ignore:
-      - "*.md"
-      - "docs/**"
       - "LICENSE"
       - ".gitignore"
 
@@ -24,6 +20,22 @@ permissions:
   contents: read
 
 jobs:
+
+  # ── Fast gate: lint + typecheck (30s) ─────────────────
+  lint:
+    name: Lint (biome)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm check
+
+  # ── Rust: fmt + clippy + test (parallel to node) ─────
   rust:
     name: Rust (fmt, clippy, test)
     runs-on: ubuntu-latest
@@ -32,43 +44,81 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
-          key: engine-${{ hashFiles('crates/thingd/src/**/*.rs') }}
+          key: engine-${{ hashFiles('**/Cargo.lock') }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets --all-features -- -D warnings
       - run: cargo test --workspace --all-targets --all-features
       - run: cargo test --doc --workspace --all-features
 
-  node-build-test:
-    name: Node build+test (${{ matrix.platform }}-${{ matrix.arch }})
+  # ── Node unit tests (linux) — no `needs: [rust]` ─────
+  node-unit:
+    name: Node unit tests (linux)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: native-${{ hashFiles('**/Cargo.lock') }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @thingd/sdk --filter @thingd/cli --filter @thingd/native build
+      - run: pnpm test:node
+      - run: pnpm test:package
+      - name: Verify native filter
+        run: |
+          node << 'EOF'
+          const { NativeThingStore } = require('./packages/thingd-native');
+          const path = require('node:os').tmpdir() + '/thingd-filter-test.db';
+          const store = NativeThingStore.open(path);
+          store.putObjectJson('test', '1', JSON.stringify({status:'active'}));
+          const r1 = store.listObjectsJson('["test"]', '{"status":"nonexistent"}', null, null, null, null);
+          if (JSON.parse(r1).length !== 0) throw new Error('Non-matching filter returned non-empty');
+          const r2 = store.listObjectsJson('["test"]', '{"status":"active"}', null, null, null, null);
+          if (JSON.parse(r2).length !== 1) throw new Error('Matching filter returned wrong count');
+          console.log('Native filter test passed');
+          try { require('node:fs').unlinkSync(path); } catch {}
+          EOF
+
+  # ── CLI + integration tests (only after unit passes) ──
+  node-cli:
+    name: CLI + integration tests
+    needs: [node-unit]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @thingd/sdk --filter @thingd/cli build
+      - run: pnpm test:cli
+
+  # ── Cross-platform (push to main only) ───────────────
+  platform-test:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [lint, rust, node-unit]
     strategy:
-      fail-fast: false
+      fail-fast: true
       matrix:
         include:
-          - os: ubuntu-latest
-            platform: linux
-            arch: x64
-            build_native: "true"
-            run_cli_test: "true"
-            run_package_test: "true"
           - os: macos-14
             platform: darwin
             arch: arm64
-            build_native: "false"
-            run_cli_test: "false"
-            run_package_test: "true"
           - os: macos-15
             platform: darwin
             arch: x64
-            build_native: "false"
-            run_cli_test: "false"
-            run_package_test: "true"
           - os: windows-2025
             platform: win32
             arch: x64
-            build_native: "false"
-            run_cli_test: "false"
-            run_package_test: "false"
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v6
@@ -77,77 +127,7 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
-      - uses: dtolnay/rust-toolchain@stable
-        if: matrix.build_native == 'true'
-      - uses: Swatinem/rust-cache@v2
-        if: matrix.build_native == 'true'
-        with:
-          key: native-${{ hashFiles('packages/thingd-native/**/*.rs', 'crates/thingd/src/**/*.rs') }}
       - run: pnpm install --frozen-lockfile
-      - run: pnpm check
-      - run: pnpm --filter @thingd/sdk --filter @thingd/cli --filter @thingd/native build
-        if: matrix.build_native == 'true'
       - run: pnpm --filter @thingd/sdk --filter @thingd/cli build
-        if: matrix.build_native == 'false'
       - run: pnpm test:node
-      - name: Verify native filter
-        if: matrix.build_native == 'true'
-        run: |
-          node << 'EOF'
-          const { NativeThingStore } = require('./packages/thingd-native');
-          const path = require('node:os').tmpdir() + '/thingd-filter-test.db';
-          const store = NativeThingStore.open(path);
-          store.putObjectJson('test', '1', JSON.stringify({status:'active'}));
-          const r1 = store.listObjectsJson('["test"]', '{"status":"nonexistent"}', null, null, null, null);
-          const c1 = JSON.parse(r1).length;
-          if (c1 !== 0) throw new Error('Non-matching filter returned ' + c1 + ' (expected 0)');
-          const r2 = store.listObjectsJson('["test"]', '{"status":"active"}', null, null, null, null);
-          const c2 = JSON.parse(r2).length;
-          if (c2 !== 1) throw new Error('Matching filter returned ' + c2 + ' (expected 1)');
-          console.log('Native filter test passed');
-          try { require('node:fs').unlinkSync(path); } catch {}
-          EOF
-      - run: pnpm test:cli
-        if: matrix.run_cli_test == 'true'
       - run: pnpm test:package
-        if: matrix.run_package_test == 'true'
-
-  node-build-test-pr:
-    name: Node build+test (linux-x64)
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    needs: [rust]
-    steps:
-      - uses: actions/checkout@v6
-      - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v6
-        with:
-          node-version: 24
-          cache: pnpm
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-        with:
-          key: native-${{ hashFiles('packages/thingd-native/**/*.rs', 'crates/thingd/src/**/*.rs') }}
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm check
-      - run: pnpm --filter @thingd/sdk --filter @thingd/cli --filter @thingd/native build
-      - run: pnpm test:node
-      - name: Verify native filter
-        run: |
-          node << 'EOF'
-          const { NativeThingStore } = require('./packages/thingd-native');
-          const path = require('node:os').tmpdir() + '/thingd-filter-test.db';
-          const store = NativeThingStore.open(path);
-          store.putObjectJson('test', '1', JSON.stringify({status:'active'}));
-          const r1 = store.listObjectsJson('["test"]', '{"status":"nonexistent"}', null, null, null, null);
-          const c1 = JSON.parse(r1).length;
-          if (c1 !== 0) throw new Error('Non-matching filter returned ' + c1 + ' (expected 0)');
-          const r2 = store.listObjectsJson('["test"]', '{"status":"active"}', null, null, null, null);
-          const c2 = JSON.parse(r2).length;
-          if (c2 !== 1) throw new Error('Matching filter returned ' + c2 + ' (expected 1)');
-          console.log('Native filter test passed');
-          try { require('node:fs').unlinkSync(path); } catch {}
-          EOF
-      - run: pnpm test:cli
-      - run: pnpm test:package
-

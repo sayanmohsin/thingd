@@ -88,16 +88,17 @@ cargo clippy --workspace --all-targets --all-features -- -D warnings
 
 1. `pnpm check` (biome)
 2. `pnpm build` (recursive — TypeScript + Rust native)
-3. `pnpm test:node` (Node SDK tests)
+3. `pnpm test:node` (Node SDK unit tests)
 4. `pnpm test:cli` (CLI tests)
-5. `pnpm test:rust` (cargo test — engine + sidecar)
+5. `pnpm test:rust` (cargo test)
 6. `cargo fmt --all --check`
 7. `cargo clippy --workspace --all-targets --all-features -- -D warnings`
 8. `cargo deny check`
 
 All eight must pass before push completes. If clippy or fmt fails, fix and amend.
-Never use `--no-verify` or `--no-check` to bypass pre-push hooks — fix the actual failures in a new commit.
-Note: `pnpm test:rust` is the heaviest hook — expect 30-60s for cold compile plus tests.
+Never use `--no-verify` to bypass pre-push hooks — fix actual failures in a new commit.
+
+CI jobs: lint → rust + node-unit (parallel) → node-cli → platform-test (main only).
 
 ## Key conventions
 
