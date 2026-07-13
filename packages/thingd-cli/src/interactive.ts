@@ -277,6 +277,17 @@ async function fetchResourcesFallback() {
   } catch {
     queues = ["embed", "load-queue", "worker-queue"];
   }
+
+  // Populate objectsByCollection from live data
+  objectsByCollection.clear();
+  for (const col of collections) {
+    try {
+      const list = await db.listObjects(col);
+      objectsByCollection.set(col, list.map((o: { id: string }) => o.id));
+    } catch {
+      objectsByCollection.set(col, []);
+    }
+  }
 }
 
 async function fetchResources(): Promise<void> {
@@ -320,6 +331,17 @@ async function fetchResources(): Promise<void> {
     }
   } else {
     await fetchResourcesFallback();
+  }
+
+  // Populate objectsByCollection from live data
+  objectsByCollection.clear();
+  for (const col of collections) {
+    try {
+      const list = await db.listObjects(col);
+      objectsByCollection.set(col, list.map((o: { id: string }) => o.id));
+    } catch {
+      objectsByCollection.set(col, []);
+    }
   }
 
   // Calculate Deltas for Operations Throughput Rates
