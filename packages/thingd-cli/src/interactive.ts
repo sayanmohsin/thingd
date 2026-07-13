@@ -246,8 +246,8 @@ async function fetchResourcesFallback() {
     const nativeStreams = await db.listStreams();
 
     // Maintain default collections/streams for UI if none exist
-    const defaultCols = new Set<string>(["decisions", "load-test"]);
-    const defaultStrs = new Set<string>(["project:thingd", "load-events", "activity-log"]);
+    const defaultCols = new Set<string>();
+    const defaultStrs = new Set<string>();
 
     for (const c of nativeCollections) {
       defaultCols.add(c);
@@ -275,7 +275,7 @@ async function fetchResourcesFallback() {
     const listed = await db.listQueues();
     queues = (listed ?? []).sort();
   } catch {
-    queues = ["embed", "load-queue", "worker-queue"];
+    queues = [];
   }
 
   // Populate objectsByCollection from live data
@@ -319,12 +319,9 @@ async function fetchResources(): Promise<void> {
       totalDeadJobsCount =
         Number.isNaN(deadCount) || deadCount === 0 ? totalDeadJobsCount : deadCount;
 
-      collections = nativeCollections.length > 0 ? nativeCollections : ["decisions", "load-test"];
-      streams =
-        nativeStreams.length > 0
-          ? nativeStreams
-          : ["project:thingd", "load-events", "activity-log"];
-      queues = nativeQueues.length > 0 ? nativeQueues : ["embed", "load-queue", "worker-queue"];
+      collections = nativeCollections.length > 0 ? nativeCollections : [];
+      streams = nativeStreams.length > 0 ? nativeStreams : [];
+      queues = nativeQueues.length > 0 ? nativeQueues : [];
     } catch {
       // Fallback if sqlite3 fails
       await fetchResourcesFallback();
