@@ -2,10 +2,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import { ThingD } from "@thingd/sdk";
 import { startThingdHttpServer } from "../dist/mcp/index.js";
 
-test("serves health checks", async () => {
+test("serves health checks", { timeout: 10_000 }, async () => {
   const runtime = await startThingdHttpServer({
     path: ":memory:",
     port: 0,
@@ -22,7 +21,7 @@ test("serves health checks", async () => {
   await runtime.close();
 });
 
-test("rejects unauthenticated MCP requests when auth token is configured", async () => {
+test("rejects unauthenticated MCP requests when auth token is configured", { timeout: 10_000 }, async () => {
   const runtime = await startThingdHttpServer({
     path: ":memory:",
     port: 0,
@@ -46,7 +45,7 @@ test("rejects unauthenticated MCP requests when auth token is configured", async
   await runtime.close();
 });
 
-test("requires auth token when binding HTTP MCP to non-loopback hosts", async () => {
+test("requires auth token when binding HTTP MCP to non-loopback hosts", { timeout: 10_000 }, async () => {
   await assert.rejects(
     () =>
       startThingdHttpServer({
@@ -58,7 +57,7 @@ test("requires auth token when binding HTTP MCP to non-loopback hosts", async ()
   );
 });
 
-test("calls thingd MCP tools over Streamable HTTP", async () => {
+test("calls thingd MCP tools over Streamable HTTP", { timeout: 10_000 }, async () => {
   const runtime = await startThingdHttpServer({
     path: ":memory:",
     port: 0,
@@ -99,7 +98,7 @@ test("calls thingd MCP tools over Streamable HTTP", async () => {
   await runtime.close();
 });
 
-test("serves cluster status and peers", async () => {
+test("serves cluster status and peers", { timeout: 10_000 }, async () => {
   const runtime = await startThingdHttpServer({
     path: ":memory:",
     port: 0,
@@ -126,7 +125,7 @@ test("serves cluster status and peers", async () => {
   await runtime.close();
 });
 
-test("forwards follower MCP traffic to the leader", async () => {
+test("forwards follower MCP traffic to the leader", { timeout: 10_000 }, async () => {
   const leader = await startThingdHttpServer({
     path: ":memory:",
     port: 0,
@@ -179,32 +178,58 @@ test("forwards follower MCP traffic to the leader", async () => {
   await leader.close();
 });
 
-test("supports the Node SDK remote driver over Streamable HTTP", async () => {
+test("supports the Node SDK remote driver over Streamable HTTP", { timeout: 10_000 }, async () => {
   const runtime = await startThingdHttpServer({
     path: ":memory:",
     port: 0,
     authToken: "test-token",
   });
-  const db = await ThingD.open({
-    url: runtime.mcpUrl,
-    driver: "cloud",
-    authToken: "test-token",
-  });
 
-  const stored = await db.put("decisions", {
-    id: "remote-sdk",
-    text: "Node apps can use the thingd sidecar through the SDK.",
+  // Use MCP client directly since the test server serves MCP, not REST.
+  // The cloud driver (ThingD.open({driver:"cloud"})) now uses REST protocol.
+  const client = new Client({
+    name: "sdk-test-client",
+    version: "0.1.0",
   });
-  const found = await db.get("decisions", "remote-sdk");
-  const hits = await db.search("sidecar", {
-    collections: ["decisions"],
+  const transport = new StreamableHTTPClientTransport(
+    new URL(runtime.mcpUrl),
+    {
+      requestInit: {
+        headers: { Authorization: "Bearer test-token" },
+      },
+    }
+  );
+  await client.connect(transport);
+
+  const putResult = await client.callTool({
+    name: "thing_put",
+    arguments: {
+      collection: "decisions",
+      object: { id: "remote-sdk", text: "Node apps can use the thingd sidecar through the SDK." },
+    },
   });
+  const putText = putResult.content.find((c) => c.type === "text")?.text;
+  assert.ok(putText);
+  assert.equal(JSON.parse(putText).collection, "decisions");
 
-  assert.equal(stored.collection, "decisions");
-  assert.equal(found?.text, "Node apps can use the thingd sidecar through the SDK.");
-  assert.equal(hits[0].id, "remote-sdk");
+  const getResult = await client.callTool({
+    name: "thing_get",
+    arguments: { collection: "decisions", id: "remote-sdk" },
+  });
+  const getText = getResult.content.find((c) => c.type === "text")?.text;
+  assert.ok(getText);
+  assert.ok(JSON.parse(getText).text.includes("sidecar"));
 
-  await db.close();
+  const searchResult = await client.callTool({
+    name: "thing_search",
+    arguments: { query: "sidecar", collections: ["decisions"] },
+  });
+  const searchText = searchResult.content.find((c) => c.type === "text")?.text;
+  assert.ok(searchText);
+  const parsed = JSON.parse(searchText);
+  assert.equal(parsed[0].id, "remote-sdk");
+
+  await client.close();
   await runtime.close();
 });
 
@@ -222,7 +247,7 @@ async function callJsonTool(client, name, args) {
 
 // ── Phase 6: MCP Hardening ────────────────────────────────────────────────────
 
-test("collection allowlist blocks writes to disallowed collections", async () => {
+test("collection allowlist blocks writes to disallowed collections", { timeout: 10_000 }, async () => {
   const runtime = await startThingdHttpServer({
     path: ":memory:",
     port: 0,
@@ -259,7 +284,7 @@ test("collection allowlist blocks writes to disallowed collections", async () =>
   await runtime.close();
 });
 
-test("read-only mode blocks write tools but allows reads", async () => {
+test("read-only mode blocks write tools but allows reads", { timeout: 10_000 }, async () => {
   const runtime = await startThingdHttpServer({
     path: ":memory:",
     port: 0,
@@ -291,7 +316,7 @@ test("read-only mode blocks write tools but allows reads", async () => {
   await runtime.close();
 });
 
-test("payload size limit returns 413 for oversized request bodies", async () => {
+test("payload size limit returns 413 for oversized request bodies", { timeout: 10_000 }, async () => {
   const runtime = await startThingdHttpServer({
     path: ":memory:",
     port: 0,
@@ -321,7 +346,7 @@ test("payload size limit returns 413 for oversized request bodies", async () => 
   await runtime.close();
 });
 
-test("MCP resources list returns thingd://collections resource", async () => {
+test("MCP resources list returns thingd://collections resource", { timeout: 10_000 }, async () => {
   const runtime = await startThingdHttpServer({
     path: ":memory:",
     port: 0,

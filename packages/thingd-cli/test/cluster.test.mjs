@@ -1,14 +1,23 @@
 import assert from "node:assert/strict";
 import { existsSync, rmSync } from "node:fs";
 import { resolve } from "node:path";
-import test from "node:test";
+import test, { after } from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { ThingD } from "@thingd/sdk";
 import { startThingdHttpServer } from "../dist/mcp/index.js";
 
 // Speed up replication for tests: poll every 50ms (default is 500ms).
+// Restore after all tests to avoid polluting other test files.
+const ORIG_INTERVAL = process.env.THINGD_CLUSTER_REPLICATION_INTERVAL_MS;
 process.env.THINGD_CLUSTER_REPLICATION_INTERVAL_MS = "50";
+after(() => {
+  if (ORIG_INTERVAL === undefined) {
+    delete process.env.THINGD_CLUSTER_REPLICATION_INTERVAL_MS;
+  } else {
+    process.env.THINGD_CLUSTER_REPLICATION_INTERVAL_MS = ORIG_INTERVAL;
+  }
+});
 
 /**
  * Adaptive retry: poll `pollFn()` every `intervalMs` until it returns true
@@ -73,7 +82,7 @@ async function startFixed(httpOptions) {
   return runtime;
 }
 
-test("cluster replication sync replicates leader writes to follower", async () => {
+test("cluster replication sync replicates leader writes to follower", { timeout: 10_000 }, async () => {
   const dbPath = getDbPath("1");
   cleanupDb(dbPath);
 
@@ -140,7 +149,7 @@ test("cluster replication sync replicates leader writes to follower", async () =
   cleanupDb(dbPath);
 });
 
-test("cluster forwarding routes follower writes to leader and replicates back", async () => {
+test("cluster forwarding routes follower writes to leader and replicates back", { timeout: 10_000 }, async () => {
   const dbPath = getDbPath("2");
   cleanupDb(dbPath);
 
@@ -207,7 +216,7 @@ test("cluster forwarding routes follower writes to leader and replicates back", 
   cleanupDb(dbPath);
 });
 
-test("cluster status returns replication details and computed lag", async () => {
+test("cluster status returns replication details and computed lag", { timeout: 10_000 }, async () => {
   const dbPath = getDbPath("3");
   cleanupDb(dbPath);
 
@@ -296,7 +305,7 @@ test("cluster status returns replication details and computed lag", async () => 
 
 // ── Phase 8: Leader failover ─────────────────────────────────────────────────
 
-test("leader failover promotes next peer when leader is unreachable", async () => {
+test("leader failover promotes next peer when leader is unreachable", { timeout: 10_000 }, async () => {
   const dbPath = getDbPath("fo-1");
   cleanupDb(dbPath);
 
@@ -411,7 +420,7 @@ test("leader failover promotes next peer when leader is unreachable", async () =
   cleanupDb(dbPath);
 });
 
-test("leader failover does not trigger without leaderElection enabled", async () => {
+test("leader failover does not trigger without leaderElection enabled", { timeout: 10_000 }, async () => {
   const dbPath = getDbPath("fo-2");
   cleanupDb(dbPath);
 
