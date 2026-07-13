@@ -131,7 +131,8 @@ let formState: FormState | null = null;
 function openForm(
   title: string,
   fields: (Partial<FormField> & { id: string; label: string })[],
-  onSubmit: (vals: Record<string, string>) => Promise<void>
+  onSubmit: (vals: Record<string, string>) => Promise<void>,
+  keepViewer?: boolean
 ) {
   formState = {
     active: true,
@@ -167,6 +168,10 @@ function openForm(
       try {
         await onSubmit(vals);
         formState = null;
+        if (keepViewer) {
+          draw();
+          return;
+        }
         viewerLines = [];
         loadedItemId = ""; // Force reload
         await fetchResources();
@@ -1369,7 +1374,8 @@ async function handleSearch() {
         }),
       ];
       loadedItemId = "search_results";
-    }
+    },
+    true
   );
 }
 
