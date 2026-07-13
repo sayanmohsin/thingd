@@ -657,7 +657,7 @@ function buildTree(): TreeNode[] {
     depth: 0,
     expandable: true,
     children: [
-      { id: "maintenance:integrity", label: "Run Integrity Check" },
+      { id: "maintenance:integrity", label: "Run Health Check" },
       { id: "maintenance:checkpoint", label: "WAL Checkpoint" },
       { id: "maintenance:backup", label: "Create Backup" },
     ],
@@ -1430,7 +1430,7 @@ async function handleInfo() {
 
 async function handleMaintenance() {
   // Cycle through maintenance operations with each press of 'm'
-  const operations = ["integrity", "checkpoint", "backup"];
+  const operations = ["health", "checkpoint", "backup"];
   const idx = maintenanceCursor % operations.length;
   maintenanceCursor = (maintenanceCursor + 1) % operations.length;
   const op = operations[idx];
@@ -1470,16 +1470,23 @@ async function handleMaintenance() {
       ];
     }
   } else {
+    // Health check — verify read path
     try {
       if (typeof db !== "undefined" && typeof db.countObjects === "function") {
-        await db.countObjects();
-        viewerLines = [` Integrity check passed`, ``];
+        const objCount = await db.countObjects();
+        const evtCount = await db.countEvents();
+        const jobCount = typeof db.countActiveJobs === "function" ? await db.countActiveJobs() : 0;
+        viewerLines = [
+          ` Health check passed`,
+          ` Objects: ${objCount}, Events: ${evtCount}, Active jobs: ${jobCount}`,
+          ``,
+        ];
       } else {
-        viewerLines = [` Integrity check not available`, ``];
+        viewerLines = [` Health check not available`, ``];
       }
     } catch (err) {
       viewerLines = [
-        ` Integrity check failed: ${err instanceof Error ? err.message : String(err)}`,
+        ` Health check failed: ${err instanceof Error ? err.message : String(err)}`,
         ``,
       ];
     }
