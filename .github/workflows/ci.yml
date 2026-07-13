@@ -98,8 +98,12 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: native-${{ hashFiles('**/Cargo.lock') }}
       - run: pnpm install --frozen-lockfile
-      - run: pnpm --filter @thingd/sdk --filter @thingd/cli build
+      - run: pnpm --filter @thingd/sdk --filter @thingd/cli --filter @thingd/native build
       - run: pnpm test:cli
 
   # ── Cross-platform (push to main only) ───────────────
