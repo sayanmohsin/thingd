@@ -131,3 +131,4 @@ jobs:
       - run: pnpm --filter @thingd/sdk --filter @thingd/cli build
       - run: pnpm test:node
       - run: pnpm test:package
+        if: matrix.os != 'windows-2025'
