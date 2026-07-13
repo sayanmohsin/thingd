@@ -208,3 +208,39 @@ export async function pollCliAuth(
 ): Promise<{ token: string } | { status: string }> {
   return requestUnauthenticated(config.url ?? DEFAULT_API_URL, "/auth/cli/poll", { code });
 }
+
+// ── Instance auto-discovery ────────────────────────────────────────
+
+export type ResolvedInstance = {
+  mcpUrl: string;
+  projectSlug: string;
+  instanceSlug: string;
+};
+
+/**
+ * Fetch the first available cloud instance for the logged-in user.
+ * Returns null if no projects or instances exist.
+ */
+export async function resolveFirstInstance(config: CloudConfig): Promise<ResolvedInstance | null> {
+  try {
+    const { projects } = await listProjects(config);
+    for (const project of projects) {
+      try {
+        const { instances } = await listInstances(config, project.id);
+        const instance = instances[0];
+        if (instance?.mcpUrl) {
+          return {
+            mcpUrl: instance.mcpUrl,
+            projectSlug: project.slug,
+            instanceSlug: instance.slug,
+          };
+        }
+      } catch {
+        // Skip projects that fail to list instances
+      }
+    }
+  } catch {
+    // API unreachable or token invalid
+  }
+  return null;
+}

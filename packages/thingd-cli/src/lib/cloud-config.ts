@@ -10,6 +10,12 @@ export type CloudConfig = {
   url?: string;
   /** Currently active organization context (set by `thingd cloud org use`). */
   organizationId?: string;
+  /** Resolved MCP URL for the active cloud instance (auto-discovered or set by `thingd cloud instance use`). */
+  instanceUrl?: string;
+  /** Active project slug (set when instanceUrl is resolved). */
+  projectSlug?: string;
+  /** Active instance slug (set when instanceUrl is resolved). */
+  instanceSlug?: string;
 };
 
 export function cloudConfigPath(): string {
@@ -31,6 +37,24 @@ export function readCloudConfig(): CloudConfig | null {
 export function writeCloudConfig(config: CloudConfig): void {
   ensureThingdDir();
   writeFileSync(cloudConfigPath(), JSON.stringify(config, null, 2), "utf-8");
+}
+
+/**
+ * Returns the best available cloud MCP URL from saved config.
+ * Priority: instanceUrl > url (with /mcp appended if bare).
+ */
+export function resolveCloudUrl(config: CloudConfig): string | undefined {
+  if (config.instanceUrl) {
+    return config.instanceUrl;
+  }
+  if (config.url) {
+    const u = new URL(config.url);
+    if (u.pathname === "" || u.pathname === "/") {
+      u.pathname = "/mcp";
+    }
+    return u.toString();
+  }
+  return undefined;
 }
 
 export function removeCloudConfig(): void {

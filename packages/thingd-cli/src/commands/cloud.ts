@@ -17,6 +17,7 @@ import {
   listProjects,
   pollCliAuth,
   removeOrganizationMember,
+  resolveFirstInstance,
   startCliAuth,
 } from "../lib/cloud-api.js";
 import {
@@ -104,8 +105,21 @@ async function runLogin(context: CliContext): Promise<void> {
     const config: CloudConfig = { token, url: cliApiUrl(context) };
     try {
       const { user } = await getMe(config);
-      writeCloudConfig({ ...config, email: user.email });
+      const cloudConfig: CloudConfig = { ...config, email: user.email };
+      // Auto-discover first instance
+      const instance = await resolveFirstInstance(cloudConfig);
+      if (instance) {
+        cloudConfig.instanceUrl = instance.mcpUrl;
+        cloudConfig.projectSlug = instance.projectSlug;
+        cloudConfig.instanceSlug = instance.instanceSlug;
+      }
+      writeCloudConfig(cloudConfig);
       context.stdout.write(pc.green(`✓ Logged in as ${user.email}\n`));
+      if (instance) {
+        context.stdout.write(
+          `  Instance: ${pc.cyan(instance.projectSlug)}/${pc.cyan(instance.instanceSlug)}\n`
+        );
+      }
     } catch (err) {
       if (err instanceof CloudApiError && err.status === 401) {
         context.stderr.write(pc.red("Invalid token. Please try again.\n"));
@@ -153,8 +167,21 @@ async function runLogin(context: CliContext): Promise<void> {
         const tokenConfig: CloudConfig = { token: result.token, url: cliApiUrl(context) };
         try {
           const { user } = await getMe(tokenConfig);
-          writeCloudConfig({ ...tokenConfig, email: user.email });
+          const cloudConfig: CloudConfig = { ...tokenConfig, email: user.email };
+          // Auto-discover first instance
+          const instance = await resolveFirstInstance(cloudConfig);
+          if (instance) {
+            cloudConfig.instanceUrl = instance.mcpUrl;
+            cloudConfig.projectSlug = instance.projectSlug;
+            cloudConfig.instanceSlug = instance.instanceSlug;
+          }
+          writeCloudConfig(cloudConfig);
           context.stdout.write(pc.green(`\r✓ Logged in as ${user.email}\n`));
+          if (instance) {
+            context.stdout.write(
+              `  Instance: ${pc.cyan(instance.projectSlug)}/${pc.cyan(instance.instanceSlug)}\n`
+            );
+          }
           return;
         } catch {
           context.stderr.write(pc.red("\rToken received but verification failed. Try again.\n"));
@@ -196,6 +223,16 @@ async function runCloudStatus(context: CliContext): Promise<void> {
       `Logged in as ${pc.green(user.email)} (${user.role})\n` +
         `API: ${config.url ?? "https://api.thingd.cloud"}\n`
     );
+    if (config.projectSlug && config.instanceSlug && config.instanceUrl) {
+      context.stdout.write(
+        `Instance: ${pc.cyan(config.projectSlug)}/${pc.cyan(config.instanceSlug)}\n` +
+          `  ${pc.dim(config.instanceUrl)}\n`
+      );
+    } else {
+      context.stdout.write(
+        `Instance: ${pc.dim("none — set with thingd cloud instance use <project> <instance>")}\n`
+      );
+    }
     if (config.organizationId) {
       try {
         const { organization, role } = await getOrganization(config, config.organizationId);
@@ -378,10 +415,41 @@ async function runInstance(context: CliContext): Promise<void> {
       return;
     }
     for (const inst of instances) {
+      const active = inst.mcpUrl && inst.mcpUrl === config.instanceUrl ? pc.green(" ●") : "";
       context.stdout.write(
-        `${pc.cyan(inst.slug)}  ${inst.name}  ${pc.dim(inst.mcpUrl || "no URL")}\n`
+        `${pc.cyan(inst.slug)}  ${inst.name}  ${pc.dim(inst.mcpUrl || "no URL")}${active}\n`
       );
     }
+    return;
+  }
+
+  if (action === "use") {
+    const projectSlug = requiredToken(context.parsed, 3, "project");
+    const instanceSlug = requiredToken(context.parsed, 4, "instance");
+    const { projects } = await listProjects(config);
+    const project = projects.find((p) => p.slug === projectSlug || p.id === projectSlug);
+    if (!project) {
+      context.stderr.write(pc.red(`Project not found: ${projectSlug}\n`));
+      return;
+    }
+    const { instances } = await listInstances(config, project.id);
+    const instance = instances.find((i) => i.slug === instanceSlug || i.id === instanceSlug);
+    if (!instance) {
+      context.stderr.write(pc.red(`Instance not found: ${instanceSlug}\n`));
+      return;
+    }
+    if (!instance.mcpUrl) {
+      context.stderr.write(pc.red("Instance has no MCP URL. Is it running?\n"));
+      return;
+    }
+    config.instanceUrl = instance.mcpUrl;
+    config.projectSlug = project.slug;
+    config.instanceSlug = instance.slug;
+    writeCloudConfig(config);
+    context.stdout.write(
+      pc.green(`✓ Active instance: ${pc.cyan(project.slug)}/${pc.cyan(instance.slug)}\n`) +
+        `  ${pc.dim(instance.mcpUrl)}\n`
+    );
     return;
   }
 
@@ -399,7 +467,7 @@ async function runInstance(context: CliContext): Promise<void> {
     return;
   }
 
-  context.stderr.write(`Unknown instance action: ${action}. Available: list, create\n`);
+  context.stderr.write(`Unknown instance action: ${action}. Available: list, use, create\n`);
 }
 
 async function runApiKey(context: CliContext): Promise<void> {

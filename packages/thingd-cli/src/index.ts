@@ -20,7 +20,7 @@ import {
 } from "@thingd/sdk";
 import pc from "picocolors";
 import { runInteractiveCli } from "./interactive.js";
-import { readCloudConfig } from "./lib/cloud-config.js";
+import { readCloudConfig, resolveCloudUrl } from "./lib/cloud-config.js";
 import { logoLine } from "./logo.js";
 import { runMcp } from "./mcp.js";
 import { defaultThingdDbPath, ensureThingdDir } from "./paths.js";
@@ -1261,8 +1261,11 @@ export function resolveConnection(context: CliContext): ConnectionOptions {
   const resolvedAuthToken =
     stringFlag(context.parsed, "auth-token") ?? context.env.THINGD_AUTH_TOKEN ?? cloudCfg?.token;
 
+  // Prefer instanceUrl (resolved MCP endpoint) over raw cloudCfg.url (API base)
+  const resolvedCloudUrl = cloudCfg ? resolveCloudUrl(cloudCfg) : undefined;
+
   return {
-    path: cloudCfg?.url && !url ? cloudCfg.url : path,
+    path: resolvedCloudUrl && !url ? resolvedCloudUrl : path,
     driver,
     authToken: resolvedAuthToken,
     cloud,

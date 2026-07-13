@@ -7,7 +7,7 @@ import readline from "node:readline";
 import { type MemorySearchOptions, ThingD, type ThingDDriver } from "@thingd/sdk";
 import pc from "picocolors";
 import { listInstances, listProjects } from "./lib/cloud-api.js";
-import { readCloudConfig } from "./lib/cloud-config.js";
+import { readCloudConfig, resolveCloudUrl } from "./lib/cloud-config.js";
 import { logoText } from "./logo.js";
 
 // ── Helpers ──────────────────────────────────────────────────────────
@@ -1899,11 +1899,14 @@ export async function runInteractiveCli(): Promise<void> {
 
   // Auto-connect to cloud if credentials exist
   const cloudCfg = readCloudConfig();
-  if (cloudCfg?.token && cloudCfg?.url) {
-    try {
-      await connectToDriver("cloud", cloudCfg.url, cloudCfg.url, cloudCfg.token);
-    } catch {
-      // Auto-connect failed — fall through to environment selection
+  if (cloudCfg?.token) {
+    const cloudUrl = resolveCloudUrl(cloudCfg);
+    if (cloudUrl) {
+      try {
+        await connectToDriver("cloud", cloudUrl, cloudUrl, cloudCfg.token);
+      } catch {
+        // Auto-connect failed — fall through to environment selection
+      }
     }
   }
 
