@@ -1735,13 +1735,13 @@ async function handleConnect(node: TreeNode) {
         }
         viewerLines = [
           pc.yellow("No cloud instances found."),
-          pc.dim("Create one at https://thingd.cloud, or enter the MCP URL manually."),
+          pc.dim("Create one at https://thingd.cloud, or enter the Cloud URL manually."),
         ];
         draw();
       } catch {
         viewerLines = [
           pc.yellow("Could not fetch cloud instances."),
-          pc.dim("Enter the MCP URL manually."),
+          pc.dim("Enter the Cloud URL manually."),
         ];
         draw();
       }
@@ -1779,7 +1779,7 @@ async function handleConnect(node: TreeNode) {
             : [
                 {
                   id: "url",
-                  label: "MCP URL (from thingd.cloud dashboard)",
+                  label: "Cloud URL (from thingd.cloud dashboard)",
                   value: "",
                 },
                 {
@@ -1798,15 +1798,15 @@ async function handleConnect(node: TreeNode) {
             ]),
       ],
       async (vals) => {
-        let mcpUrl: string;
+        let cloudUrl: string;
         if (selectedDriver === "cloud") {
           if (isCloudWithConfig) {
             // Construct URL from project + instance slugs
-            mcpUrl = `${baseUrl}/mcp/${encodeURIComponent(vals.project || "")}/${encodeURIComponent(vals.instance || "")}`;
+            cloudUrl = `${baseUrl}/mcp/${encodeURIComponent(vals.project || "")}/${encodeURIComponent(vals.instance || "")}`;
           } else {
-            mcpUrl = vals.url || "";
+            cloudUrl = vals.url || "";
           }
-          await connectToDriver(selectedDriver, mcpUrl, mcpUrl, vals.token);
+          await connectToDriver(selectedDriver, cloudUrl, cloudUrl, vals.token);
         } else {
           await connectToDriver(selectedDriver, vals.path || "", undefined, undefined);
         }
