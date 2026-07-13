@@ -6,6 +6,7 @@ import { setTimeout as sleep } from "node:timers/promises";
 import { pathToFileURL } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { SDK_VERSION } from "@thingd/sdk";
 import {
   type ListObjectsOptions,
   type MemoryEvent,
@@ -600,7 +601,7 @@ async function runTools(context: CliContext): Promise<void> {
 
   const client = new Client({
     name: "thingd-cli",
-    version: "0.33.0",
+    version: SDK_VERSION,
   });
   const transport = new StreamableHTTPClientTransport(
     new URL(resolveCloudMcpUrl(connection.path)),
