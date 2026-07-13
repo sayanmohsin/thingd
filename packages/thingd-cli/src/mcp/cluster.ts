@@ -56,6 +56,7 @@ export type ThingdClusterStatus = {
   peers: string[];
   leaderElection: boolean;
   electionMaxFailures: number;
+  consecutiveFailures: number;
   replication:
     | {
         lastReplicatedSequence: number;
@@ -137,7 +138,8 @@ export function resolveClusterOptions(
 
 export async function getClusterStatus(
   cluster: ResolvedThingdClusterOptions,
-  db: ThingD
+  db: ThingD,
+  consecutiveFailures: number = 0
 ): Promise<ThingdClusterStatus> {
   let replication: ThingdClusterStatus["replication"] = "not-implemented";
 
@@ -185,6 +187,7 @@ export async function getClusterStatus(
     peers: cluster.peers,
     leaderElection: cluster.leaderElection,
     electionMaxFailures: cluster.electionMaxFailures,
+    consecutiveFailures,
     replication,
   };
 }

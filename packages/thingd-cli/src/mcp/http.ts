@@ -236,7 +236,7 @@ async function handleHealth(
     return;
   }
 
-  const status = await getClusterStatus(state.cluster, state.db);
+  const status = await getClusterStatus(state.cluster, state.db, state.consecutiveReplicationFailures);
   writeJson(
     response,
     200,
@@ -264,7 +264,7 @@ async function handleClusterStatus(
     return;
   }
 
-  const status = await getClusterStatus(state.cluster, state.db);
+  const status = await getClusterStatus(state.cluster, state.db, state.consecutiveReplicationFailures);
   writeJson(response, 200, status, request.method === "HEAD");
 }
 
@@ -534,7 +534,7 @@ function startReplicationRunner(state: RuntimeState) {
     return;
   }
 
-  const pullInterval = 500;
+  const pullInterval = parseInt(process.env.THINGD_CLUSTER_REPLICATION_INTERVAL_MS ?? "500", 10);
 
   async function runSync() {
     if (state.replicationStopped) {
@@ -628,10 +628,14 @@ function startReplicationRunner(state: RuntimeState) {
         void updateCachedLag(state, url, lastSeq);
         break;
       } catch (error) {
-        console.error(
-          `Replication from ${url} failed:`,
-          error instanceof Error ? error.message : String(error)
-        );
+        // Log replication failures periodically (once per electionMaxFailures)
+        // to avoid flooding logs when the leader is unreachable.
+        if (state.consecutiveReplicationFailures % state.cluster.electionMaxFailures === 0) {
+          console.error(
+            `Replication from ${url} failed:`,
+            error instanceof Error ? error.message : String(error)
+          );
+        }
       }
     }
 
@@ -641,6 +645,14 @@ function startReplicationRunner(state: RuntimeState) {
 
     if (!fetched) {
       state.consecutiveReplicationFailures++;
+
+      // Print "All leader URLs exhausted" only once per failure threshold
+      if (
+        state.consecutiveReplicationFailures === state.cluster.electionMaxFailures
+      ) {
+        console.error("All leader URLs exhausted for replication");
+      }
+
       if (
         state.cluster.leaderElection &&
         state.consecutiveReplicationFailures >= state.cluster.electionMaxFailures
@@ -652,8 +664,6 @@ function startReplicationRunner(state: RuntimeState) {
           return;
         }
         // leaderUrl was updated by failover; retry immediately.
-      } else {
-        console.error("All leader URLs exhausted for replication");
       }
     } else {
       state.consecutiveReplicationFailures = 0;

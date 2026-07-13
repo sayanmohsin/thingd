@@ -7,6 +7,25 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 import { ThingD } from "@thingd/sdk";
 import { startThingdHttpServer } from "../dist/mcp/index.js";
 
+// Speed up replication for tests: poll every 50ms (default is 500ms).
+process.env.THINGD_CLUSTER_REPLICATION_INTERVAL_MS = "50";
+
+/**
+ * Adaptive retry: poll `pollFn()` every `intervalMs` until it returns true
+ * or `timeoutMs` elapses. Throws on timeout.
+ */
+async function waitFor(pollFn, { timeoutMs = 8_000, intervalMs = 80 } = {}) {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    const ok = await pollFn();
+    if (ok) return;
+    await new Promise((r) => setTimeout(r, intervalMs));
+  }
+  throw new Error(
+    `waitFor timed out after ${timeoutMs}ms`
+  );
+}
+
 /** Pick an ephemeral port that should be free-ish for testing. */
 let _nextPort = 18_757;
 
@@ -93,14 +112,22 @@ test("cluster replication sync replicates leader writes to follower", async () =
   });
   assert.equal(put.id, "sync-obj");
 
-  // Wait for follower runner to pull
-  await new Promise((resolve) => setTimeout(resolve, 2500));
+  // Wait for follower to replicate the object
+  await waitFor(async () => {
+    const db = await ThingD.open({ path: dbPath, driver: "native" }).catch(
+      () => null
+    );
+    if (!db) return false;
+    const obj = await db.get("items", "sync-obj").catch(() => null);
+    await db.close();
+    return obj !== null;
+  });
 
   await client.close();
   await follower.close();
   await leader.close();
 
-  // Inspect follower db file
+  // Verify via follower db
   const followerDb = await ThingD.open({
     path: dbPath,
     driver: "native",
@@ -152,14 +179,22 @@ test("cluster forwarding routes follower writes to leader and replicates back", 
   });
   assert.equal(put.id, "forward-obj");
 
-  // Wait for follower runner to pull
-  await new Promise((resolve) => setTimeout(resolve, 2500));
+  // Wait for follower to replicate the object back from leader
+  await waitFor(async () => {
+    const db = await ThingD.open({ path: dbPath, driver: "native" }).catch(
+      () => null
+    );
+    if (!db) return false;
+    const obj = await db.get("items", "forward-obj").catch(() => null);
+    await db.close();
+    return obj !== null;
+  });
 
   await client.close();
   await follower.close();
   await leader.close();
 
-  // Inspect follower db file
+  // Verify via follower db
   const followerDb = await ThingD.open({
     path: dbPath,
     driver: "native",
@@ -214,8 +249,20 @@ test("cluster status returns replication details and computed lag", async () => 
     },
   });
 
-  // Wait for replication to sync up
-  await new Promise((resolve) => setTimeout(resolve, 2500));
+  // Wait for replication to sync (poll status endpoint)
+  await waitFor(async () => {
+    try {
+      const res = await fetch(`${follower.url}/cluster/status`);
+      const data = await res.json();
+      return (
+        data.replication?.lastReplicatedSequence > 0 &&
+        data.replication?.status === "syncing" &&
+        data.replication?.lag === 0
+      );
+    } catch {
+      return false;
+    }
+  });
 
   // Query follower cluster status
   const followerStatusRes = await fetch(`${follower.url}/cluster/status`);
@@ -297,15 +344,32 @@ test("leader failover promotes next peer when leader is unreachable", async () =
     object: { id: "pre-failover", text: "before" },
   });
 
-  // Wait for replication to sync.
-  await new Promise((r) => setTimeout(r, 2000));
+  // Wait for replication to sync (poll status)
+  await waitFor(async () => {
+    try {
+      const res = await fetch(`${follower.url}/cluster/status`);
+      const data = await res.json();
+      return data.replication?.lastReplicatedSequence > 0;
+    } catch {
+      return false;
+    }
+  });
 
   // Kill the leader.
   await leader.close();
   await client.close();
 
-  // Wait for failover to trigger (2 failures × 500ms + buffer).
-  await new Promise((r) => setTimeout(r, 3000));
+  // Wait for failover to trigger (2 failures × 50ms interval + buffer).
+  // Adaptive: poll until follower becomes leader.
+  await waitFor(async () => {
+    try {
+      const res = await fetch(`${follower.url}/cluster/status`);
+      const data = await res.json();
+      return data.mode === "leader";
+    } catch {
+      return false;
+    }
+  });
 
   // Follower should now be leader.
   const statusRes = await fetch(`${follower.url}/cluster/status`);
@@ -385,14 +449,31 @@ test("leader failover does not trigger without leaderElection enabled", async ()
     object: { id: "no-election-obj", text: "sync" },
   });
 
-  await new Promise((r) => setTimeout(r, 2000));
+  // Wait for replication
+  await waitFor(async () => {
+    try {
+      const res = await fetch(`${follower.url}/cluster/status`);
+      const data = await res.json();
+      return data.replication?.lastReplicatedSequence > 0;
+    } catch {
+      return false;
+    }
+  });
 
   // Kill the leader.
   await leader.close();
   await client.close();
 
-  // Wait long enough for failures to accumulate.
-  await new Promise((r) => setTimeout(r, 3000));
+  // Wait for replication failures to accumulate (leader is dead)
+  await waitFor(async () => {
+    try {
+      const res = await fetch(`${follower.url}/cluster/status`);
+      const data = await res.json();
+      return data.consecutiveFailures >= 4;
+    } catch {
+      return false;
+    }
+  });
 
   // Follower should still be follower (no election enabled).
   const statusRes = await fetch(`${follower.url}/cluster/status`);
