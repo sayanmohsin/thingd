@@ -53,6 +53,7 @@ type RuntimeState = {
   hardening?: ThingdMcpHardeningOptions;
   replicationTimer?: NodeJS.Timeout;
   replicationStopped?: boolean;
+  replicationAbort?: AbortController;
   consecutiveReplicationFailures: number;
 };
 
@@ -543,9 +544,12 @@ function startReplicationRunner(state: RuntimeState) {
   }
 
   const pullInterval = parseInt(process.env.THINGD_CLUSTER_REPLICATION_INTERVAL_MS ?? "500", 10);
+  const abort = new AbortController();
+  state.replicationAbort = abort;
+  const signal = abort.signal;
 
   async function runSync() {
-    if (state.replicationStopped) {
+    if (signal.aborted || state.replicationStopped) {
       return;
     }
 
@@ -558,7 +562,7 @@ function startReplicationRunner(state: RuntimeState) {
     let fetched = false;
 
     for (const url of resolveLeaderUrls(state.cluster)) {
-      if (state.replicationStopped) {
+      if (signal.aborted || state.replicationStopped) {
         return;
       }
       try {
@@ -595,7 +599,7 @@ function startReplicationRunner(state: RuntimeState) {
         };
         if (resData.success && Array.isArray(resData.events) && resData.events.length > 0) {
           for (const ev of resData.events) {
-            if (state.replicationStopped) {
+            if (signal.aborted || state.replicationStopped) {
               return;
             }
 
@@ -647,7 +651,7 @@ function startReplicationRunner(state: RuntimeState) {
       }
     }
 
-    if (state.replicationStopped) {
+    if (signal.aborted || state.replicationStopped) {
       return;
     }
 
@@ -675,7 +679,7 @@ function startReplicationRunner(state: RuntimeState) {
       state.consecutiveReplicationFailures = 0;
     }
 
-    if (!state.replicationStopped) {
+    if (!signal.aborted && !state.replicationStopped) {
       state.replicationTimer = setTimeout(() => {
         void runSync();
       }, pullInterval);
@@ -688,6 +692,7 @@ function startReplicationRunner(state: RuntimeState) {
 }
 
 function stopReplicationRunner(state: RuntimeState) {
+  state.replicationAbort?.abort();
   state.replicationStopped = true;
   if (state.replicationTimer) {
     clearTimeout(state.replicationTimer);
