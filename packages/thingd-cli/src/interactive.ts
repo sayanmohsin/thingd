@@ -87,6 +87,7 @@ let totalObjects = 0;
 let totalEventsCount = 0;
 let totalActiveJobsCount = 0;
 let totalDeadJobsCount = 0;
+let totalLinksCount = 0;
 let objectsHistory: number[] = [];
 let eventsHistory: number[] = [];
 let activeJobsHistory: number[] = [];
@@ -284,6 +285,13 @@ async function fetchResourcesFallback() {
     queues = [];
   }
 
+  // Link count
+  try {
+    totalLinksCount = await db.countLinks();
+  } catch {
+    totalLinksCount = 0;
+  }
+
   // Populate objectsByCollection from live data
   objectsByCollection.clear();
   for (const col of collections) {
@@ -305,6 +313,7 @@ async function fetchResources(): Promise<void> {
         evtCount,
         activeCount,
         deadCount,
+        linkCount,
         nativeCollections,
         nativeStreams,
         nativeQueues,
@@ -313,6 +322,7 @@ async function fetchResources(): Promise<void> {
         db.countEvents(),
         db.countActiveJobs(),
         db.countDeadJobs(),
+        db.countLinks(),
         db.listCollections(),
         db.listStreams(),
         db.listQueues?.() ?? Promise.resolve([]),
@@ -324,6 +334,7 @@ async function fetchResources(): Promise<void> {
         Number.isNaN(activeCount) || activeCount === 0 ? totalActiveJobsCount : activeCount;
       totalDeadJobsCount =
         Number.isNaN(deadCount) || deadCount === 0 ? totalDeadJobsCount : deadCount;
+      totalLinksCount = Number.isNaN(linkCount) ? totalLinksCount : linkCount;
 
       collections = nativeCollections.length > 0 ? nativeCollections : [];
       streams = nativeStreams.length > 0 ? nativeStreams : [];
@@ -808,13 +819,19 @@ async function loadContent(node: TreeNode): Promise<void> {
       content += ` ${pc.bold("Capacity & Storage")}\n`;
       content += ` ${pc.dim("Objects".padEnd(14))} ${pc.cyan(String(totalObjects).padEnd(6))} ${pc.dim("total")}\n`;
       content += ` ${pc.dim("Events".padEnd(14))} ${pc.green(String(totalEventsCount).padEnd(6))} ${pc.dim("total")}\n`;
+      content += ` ${pc.dim("Links".padEnd(14))} ${pc.blue(String(totalLinksCount).padEnd(6))} ${pc.dim("total")}\n`;
       content += ` ${pc.dim("Active Jobs".padEnd(14))} ${pc.yellow(String(totalActiveJobsCount).padEnd(6))} ${pc.dim("in flight")}\n`;
       content += ` ${pc.dim("Dead Jobs".padEnd(14))} ${pc.red(String(totalDeadJobsCount).padEnd(6))} ${pc.dim("failed")}\n\n`;
 
       content += ` ${pc.bold("Connection")}\n`;
       content += ` ${pc.dim("Driver".padEnd(14))} ${driverName}\n`;
       content += ` ${pc.dim("Path".padEnd(14))} ${dbPath || ":memory:"}\n`;
-      content += ` ${pc.dim("Size".padEnd(14))} ${dbSizeStr}\n\n`;
+      content += ` ${pc.dim("Size".padEnd(14))} ${dbSizeStr}\n`;
+      if (driver === "native") {
+        const sizeSpark = drawSparkline(dbSizeHistory, 5, Math.max(10, viewW - 55));
+        content += ` ${pc.dim("Size History".padEnd(14))} ${pc.cyan(sizeSpark)}\n`;
+      }
+      content += `\n`;
 
       // ── Throughput & Activity Metrics
       const currentWrite = objectWriteRateHistory[objectWriteRateHistory.length - 1] ?? 0;
