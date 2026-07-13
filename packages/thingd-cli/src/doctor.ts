@@ -72,9 +72,9 @@ export async function runDoctor(context: CliContext): Promise<void> {
     }
 
     try {
-      const normalizeUrl = (val: string) =>
-        val.startsWith("thingd://") ? `http://${val.slice("thingd://".length)}` : val;
-      const targetUrl = new URL(normalizeUrl(rawUrl));
+      const targetUrl = new URL(
+        rawUrl.startsWith("thingd://") ? `http://${rawUrl.slice("thingd://".length)}` : rawUrl
+      );
       if (targetUrl.pathname === "/mcp" || targetUrl.pathname === "") {
         targetUrl.pathname = "/healthz";
       } else {
