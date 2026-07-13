@@ -8,6 +8,7 @@ import { type MemorySearchOptions, ThingD, type ThingDDriver } from "@thingd/sdk
 import pc from "picocolors";
 import { listInstances, listProjects } from "./lib/cloud-api.js";
 import { readCloudConfig, resolveCloudUrl } from "./lib/cloud-config.js";
+import { defaultThingdDbPath } from "./paths.js";
 import { logoText } from "./logo.js";
 
 // ── Helpers ──────────────────────────────────────────────────────────
@@ -1812,7 +1813,7 @@ async function handleConnect(node: TreeNode) {
               {
                 id: "path",
                 label: "Database Path",
-                value: path.join(os.homedir(), "Downloads", "data.db"),
+                  value: defaultThingdDbPath(),
               },
             ]),
       ],
