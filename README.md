@@ -594,6 +594,13 @@ Full documentation: [docs/](./docs/)
 - [Node basic](./examples/node-basic) shows the intended SDK shape.
 - [NestJS basic](./examples/nestjs-basic) shows how `thingd` can sit behind a normal NestJS module, service, and controller setup.
 
+## Use Cases
+
+- [Clipboard History](./docs/use-cases/clipbuf.md) — Search your clipboard through MCP tools, backed by thingd objects and full-text search.
+- [Screenshot OCR Pipeline](./docs/use-cases/dartcam.md) — Queue-based OCR pipeline with searchable text extraction.
+- [Desktop Agent](./docs/use-cases/desktop-agent.md) — Frontend-less task manager with queue-based reminders.
+- [Cross-Device Sync](./docs/use-cases/cloud-backup.md) — Sync bookmarks and data across devices using thingd.cloud REST API.
+
 Quickstart guide: **[docs/quickstart.md](./docs/quickstart.md)**
 
 ## Local testing without npm publish
