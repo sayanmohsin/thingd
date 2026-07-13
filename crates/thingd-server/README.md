@@ -94,7 +94,7 @@ The binary embeds the `thingd` crate directly (no FFI, no subprocess). All MCP a
 |---|---|---|
 | Runtime | Standalone binary | Node.js (embedded or subprocess) |
 | Size | ~15 MB static binary | ~50 MB with Node + native addon |
-| MCP | All 27 tools native | All 27 tools via TypeScript |
+| MCP | All 31 tools native | All 31 tools via TypeScript |
 | REST | Yes (axum) | Yes (Express) |
 | Cluster | Status + peer discovery | Full leader election + forwarding |
 | Write approval | Not implemented | Available |
