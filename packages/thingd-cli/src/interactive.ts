@@ -1289,7 +1289,10 @@ async function handleDelete(selected: TreeNode | undefined) {
         if ((vals.confirm || "").toLowerCase() !== "yes") {
           throw new Error("Canceled");
         }
-        await db.delete(ref.collection, ref.id);
+        const result = await db.delete(ref.collection, ref.id);
+        if (result && !result.deleted) {
+          throw new Error(`Object '${ref.id}' not found in collection '${ref.collection}'`);
+        }
       }
     );
   } else if (selected.type === "queue" && selected.ref) {
