@@ -1821,10 +1821,20 @@ async function handleConnect(node: TreeNode) {
         let cloudUrl: string;
         if (selectedDriver === "cloud") {
           if (isCloudWithConfig) {
+            if (!vals.project || !vals.instance) {
+              viewerLines = [pc.red("Project and instance slugs are required.")];
+              draw();
+              return;
+            }
             // Construct URL from project + instance slugs
-            cloudUrl = `${baseUrl}/mcp/${encodeURIComponent(vals.project || "")}/${encodeURIComponent(vals.instance || "")}`;
+            cloudUrl = `${baseUrl}/mcp/${encodeURIComponent(vals.project)}/${encodeURIComponent(vals.instance)}`;
           } else {
-            cloudUrl = vals.url || "";
+            if (!vals.url) {
+              viewerLines = [pc.red("Cloud URL is required.")];
+              draw();
+              return;
+            }
+            cloudUrl = vals.url;
           }
           await connectToDriver(selectedDriver, cloudUrl, cloudUrl, vals.token);
         } else {
