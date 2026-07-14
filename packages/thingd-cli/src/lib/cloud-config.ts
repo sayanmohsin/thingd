@@ -41,18 +41,12 @@ export function writeCloudConfig(config: CloudConfig): void {
 
 /**
  * Returns the best available cloud MCP URL from saved config.
- * Priority: instanceUrl > url (with /mcp appended if bare).
+ * Only returns URL when a concrete instance endpoint is available
+ * (instanceUrl) — the bare API url is not enough for MCP connections.
  */
 export function resolveCloudUrl(config: CloudConfig): string | undefined {
   if (config.instanceUrl) {
     return config.instanceUrl;
-  }
-  if (config.url) {
-    const u = new URL(config.url);
-    if (u.pathname === "" || u.pathname === "/") {
-      u.pathname = "/mcp";
-    }
-    return u.toString();
   }
   return undefined;
 }
