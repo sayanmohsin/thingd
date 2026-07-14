@@ -1855,18 +1855,40 @@ async function handleConnect(node: TreeNode) {
           return;
         }
 
-        // No instances found — fall through to manual form
+        // No instances found — try saved URL or show error
+        if (cloudCfg.instanceUrl) {
+          await connectToDriver(
+            "cloud",
+            cloudCfg.instanceUrl,
+            cloudCfg.instanceUrl,
+            cloudCfg.token
+          );
+          return;
+        }
         viewerLines = [
           pc.yellow("No cloud instances found."),
-          pc.dim("Create one at https://thingd.cloud, or enter the Cloud URL manually."),
+          pc.dim(
+            "Create one at https://thingd.cloud, or press l to logout and re-enter credentials."
+          ),
         ];
         draw();
+        return;
       } catch {
+        if (cloudCfg.instanceUrl) {
+          await connectToDriver(
+            "cloud",
+            cloudCfg.instanceUrl,
+            cloudCfg.instanceUrl,
+            cloudCfg.token
+          );
+          return;
+        }
         viewerLines = [
           pc.yellow("Could not fetch cloud instances."),
-          pc.dim("Enter the Cloud URL manually."),
+          pc.dim("Check your network or press l to logout and re-enter credentials."),
         ];
         draw();
+        return;
       }
     }
   }
