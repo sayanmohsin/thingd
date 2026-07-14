@@ -32,10 +32,13 @@ type WritableLike = {
   write(chunk: string): void;
 };
 
+type ReadableLike = NodeJS.ReadableStream;
+
 export type RunCliOptions = {
   env?: CliEnv;
   stdout?: WritableLike;
   stderr?: WritableLike;
+  stdin?: ReadableLike;
 };
 
 export type ParsedArgs = {
@@ -49,6 +52,7 @@ export type CliContext = {
   env: CliEnv;
   stdout: WritableLike;
   stderr: WritableLike;
+  stdin: ReadableLike;
   pretty: boolean;
 };
 
@@ -233,6 +237,7 @@ export async function runCli(
     env: options.env ?? process.env,
     stdout: options.stdout ?? process.stdout,
     stderr: options.stderr ?? process.stderr,
+    stdin: options.stdin ?? process.stdin,
     pretty: hasFlag(parsed, "pretty"),
   };
 

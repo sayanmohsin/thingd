@@ -244,3 +244,33 @@ export async function resolveFirstInstance(config: CloudConfig): Promise<Resolve
   }
   return null;
 }
+
+/**
+ * Fetch all cloud instances across all projects for the logged-in user.
+ * Returns an empty array if no projects or instances exist.
+ */
+export async function resolveAllInstances(config: CloudConfig): Promise<ResolvedInstance[]> {
+  const all: ResolvedInstance[] = [];
+  try {
+    const { projects } = await listProjects(config);
+    for (const project of projects) {
+      try {
+        const { instances } = await listInstances(config, project.id);
+        for (const instance of instances) {
+          if (instance?.mcpUrl) {
+            all.push({
+              mcpUrl: instance.mcpUrl,
+              projectSlug: project.slug,
+              instanceSlug: instance.slug,
+            });
+          }
+        }
+      } catch {
+        // Skip projects that fail to list instances
+      }
+    }
+  } catch {
+    // API unreachable or token invalid
+  }
+  return all;
+}

@@ -1,4 +1,5 @@
 import { execSync } from "node:child_process";
+import { createInterface } from "node:readline/promises";
 import { setTimeout as sleep } from "node:timers/promises";
 import pc from "picocolors";
 import { type CliContext, requiredToken, stringFlag } from "../index.js";
@@ -16,8 +17,9 @@ import {
   listOrganizations,
   listProjects,
   pollCliAuth,
+  type ResolvedInstance,
   removeOrganizationMember,
-  resolveFirstInstance,
+  resolveAllInstances,
   startCliAuth,
 } from "../lib/cloud-api.js";
 import {
@@ -61,6 +63,52 @@ function openBrowser(url: string): void {
 
 function makeBaseConfig(context: CliContext): CloudConfig {
   return { token: "", url: cliApiUrl(context) };
+}
+
+async function askQuestion(context: CliContext, query: string): Promise<string> {
+  const rl = createInterface({
+    input: context.stdin as NodeJS.ReadableStream,
+    output: context.stderr as NodeJS.WritableStream,
+  });
+  try {
+    return await rl.question(query);
+  } finally {
+    rl.close();
+  }
+}
+
+async function pickAndSaveInstance(context: CliContext, cloudConfig: CloudConfig): Promise<void> {
+  const instances = await resolveAllInstances(cloudConfig);
+  if (instances.length === 0) {
+    return;
+  }
+
+  let selected: ResolvedInstance;
+  if (instances.length === 1) {
+    selected = instances[0] as ResolvedInstance;
+  } else {
+    context.stderr.write(`${pc.bold("Select an instance")}\n`);
+    for (let i = 0; i < instances.length; i++) {
+      const inst = instances[i] as ResolvedInstance;
+      context.stderr.write(
+        `  [${i + 1}] ${pc.cyan(inst.projectSlug)}/${pc.cyan(inst.instanceSlug)}\n`
+      );
+    }
+    const choice = await askQuestion(
+      context,
+      `Select instance [1-${instances.length}] (default 1): `
+    );
+    const index = Math.max(0, Math.min(instances.length - 1, (Number(choice.trim()) || 1) - 1));
+    selected = instances[index] as ResolvedInstance;
+  }
+
+  cloudConfig.instanceUrl = selected.mcpUrl;
+  cloudConfig.projectSlug = selected.projectSlug;
+  cloudConfig.instanceSlug = selected.instanceSlug;
+  writeCloudConfig(cloudConfig);
+  context.stdout.write(
+    `  Instance: ${pc.cyan(selected.projectSlug)}/${pc.cyan(selected.instanceSlug)}\n`
+  );
 }
 
 export async function runCloud(context: CliContext): Promise<void> {
@@ -109,17 +157,8 @@ async function runLogin(context: CliContext): Promise<void> {
       // Save config immediately so login always persists
       writeCloudConfig(cloudConfig);
       context.stdout.write(pc.green(`✓ Logged in as ${user.email}\n`));
-      // Auto-discover first instance (best-effort, won't affect persistence)
-      const instance = await resolveFirstInstance(cloudConfig);
-      if (instance) {
-        cloudConfig.instanceUrl = instance.mcpUrl;
-        cloudConfig.projectSlug = instance.projectSlug;
-        cloudConfig.instanceSlug = instance.instanceSlug;
-        writeCloudConfig(cloudConfig);
-        context.stdout.write(
-          `  Instance: ${pc.cyan(instance.projectSlug)}/${pc.cyan(instance.instanceSlug)}\n`
-        );
-      }
+      // Discover and select an instance (interactive if multiple)
+      await pickAndSaveInstance(context, cloudConfig);
     } catch (err) {
       if (err instanceof CloudApiError && err.status === 401) {
         context.stderr.write(pc.red("Invalid token. Please try again.\n"));
@@ -171,17 +210,8 @@ async function runLogin(context: CliContext): Promise<void> {
           // Save config immediately so login always persists
           writeCloudConfig(cloudConfig);
           context.stdout.write(pc.green(`\r✓ Logged in as ${user.email}\n`));
-          // Auto-discover first instance (best-effort, won't affect persistence)
-          const instance = await resolveFirstInstance(cloudConfig);
-          if (instance) {
-            cloudConfig.instanceUrl = instance.mcpUrl;
-            cloudConfig.projectSlug = instance.projectSlug;
-            cloudConfig.instanceSlug = instance.instanceSlug;
-            writeCloudConfig(cloudConfig);
-            context.stdout.write(
-              `  Instance: ${pc.cyan(instance.projectSlug)}/${pc.cyan(instance.instanceSlug)}\n`
-            );
-          }
+          // Discover and select an instance (interactive if multiple)
+          await pickAndSaveInstance(context, cloudConfig);
           return;
         } catch {
           context.stderr.write(pc.red("\rToken received but verification failed. Try again.\n"));
