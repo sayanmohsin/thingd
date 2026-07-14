@@ -1931,6 +1931,13 @@ async function handleConnect(node: TreeNode) {
             }
             // Construct URL from project + instance slugs
             cloudUrl = `${baseUrl}/mcp/${encodeURIComponent(vals.project)}/${encodeURIComponent(vals.instance)}`;
+            // Save selection to cloud config
+            const cfg = cloudCfg ?? { token: vals.token, url: baseUrl };
+            cfg.instanceUrl = cloudUrl;
+            cfg.projectSlug = vals.project;
+            cfg.instanceSlug = vals.instance;
+            if (vals.token) cfg.token = vals.token;
+            writeCloudConfig(cfg);
           } else {
             if (!vals.url) {
               viewerLines = [pc.red("Cloud URL is required.")];
@@ -1938,6 +1945,8 @@ async function handleConnect(node: TreeNode) {
               return;
             }
             cloudUrl = vals.url;
+            // Save manual credentials to cloud config
+            writeCloudConfig({ token: vals.token || "", url: cloudUrl });
           }
           await connectToDriver(selectedDriver, cloudUrl, cloudUrl, vals.token);
         } else {

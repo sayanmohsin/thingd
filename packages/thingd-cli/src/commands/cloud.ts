@@ -106,16 +106,16 @@ async function runLogin(context: CliContext): Promise<void> {
     try {
       const { user } = await getMe(config);
       const cloudConfig: CloudConfig = { ...config, email: user.email };
-      // Auto-discover first instance
+      // Save config immediately so login always persists
+      writeCloudConfig(cloudConfig);
+      context.stdout.write(pc.green(`✓ Logged in as ${user.email}\n`));
+      // Auto-discover first instance (best-effort, won't affect persistence)
       const instance = await resolveFirstInstance(cloudConfig);
       if (instance) {
         cloudConfig.instanceUrl = instance.mcpUrl;
         cloudConfig.projectSlug = instance.projectSlug;
         cloudConfig.instanceSlug = instance.instanceSlug;
-      }
-      writeCloudConfig(cloudConfig);
-      context.stdout.write(pc.green(`✓ Logged in as ${user.email}\n`));
-      if (instance) {
+        writeCloudConfig(cloudConfig);
         context.stdout.write(
           `  Instance: ${pc.cyan(instance.projectSlug)}/${pc.cyan(instance.instanceSlug)}\n`
         );
@@ -168,16 +168,16 @@ async function runLogin(context: CliContext): Promise<void> {
         try {
           const { user } = await getMe(tokenConfig);
           const cloudConfig: CloudConfig = { ...tokenConfig, email: user.email };
-          // Auto-discover first instance
+          // Save config immediately so login always persists
+          writeCloudConfig(cloudConfig);
+          context.stdout.write(pc.green(`\r✓ Logged in as ${user.email}\n`));
+          // Auto-discover first instance (best-effort, won't affect persistence)
           const instance = await resolveFirstInstance(cloudConfig);
           if (instance) {
             cloudConfig.instanceUrl = instance.mcpUrl;
             cloudConfig.projectSlug = instance.projectSlug;
             cloudConfig.instanceSlug = instance.instanceSlug;
-          }
-          writeCloudConfig(cloudConfig);
-          context.stdout.write(pc.green(`\r✓ Logged in as ${user.email}\n`));
-          if (instance) {
+            writeCloudConfig(cloudConfig);
             context.stdout.write(
               `  Instance: ${pc.cyan(instance.projectSlug)}/${pc.cyan(instance.instanceSlug)}\n`
             );
