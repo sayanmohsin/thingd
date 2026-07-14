@@ -1,3 +1,5 @@
+## [0.50.5](https://github.com/sayanmohsin/thingd/compare/v0.50.4...v0.50.5) (2026-07-14)
+
 ## [0.50.4](https://github.com/sayanmohsin/thingd/compare/v0.50.3...v0.50.4) (2026-07-14)
 
 ## [0.50.3](https://github.com/sayanmohsin/thingd/compare/v0.50.2...v0.50.3) (2026-07-14)
