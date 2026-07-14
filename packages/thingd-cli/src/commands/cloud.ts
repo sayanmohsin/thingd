@@ -1,5 +1,5 @@
 import { execSync } from "node:child_process";
-import { createInterface } from "node:readline/promises";
+import { createInterface, type Interface } from "node:readline/promises";
 import { setTimeout as sleep } from "node:timers/promises";
 import pc from "picocolors";
 import { type CliContext, requiredToken, stringFlag } from "../index.js";
@@ -65,16 +65,8 @@ function makeBaseConfig(context: CliContext): CloudConfig {
   return { token: "", url: cliApiUrl(context) };
 }
 
-async function askQuestion(context: CliContext, query: string): Promise<string> {
-  const rl = createInterface({
-    input: context.stdin as NodeJS.ReadableStream,
-    output: context.stderr as NodeJS.WritableStream,
-  });
-  try {
-    return await rl.question(query);
-  } finally {
-    rl.close();
-  }
+async function askQuestion(rl: Interface, query: string): Promise<string> {
+  return rl.question(query);
 }
 
 async function pickAndSaveInstance(context: CliContext, cloudConfig: CloudConfig): Promise<void> {
@@ -83,32 +75,38 @@ async function pickAndSaveInstance(context: CliContext, cloudConfig: CloudConfig
     return;
   }
 
-  let selected: ResolvedInstance;
-  if (instances.length === 1) {
-    selected = instances[0] as ResolvedInstance;
-  } else {
-    context.stderr.write(`${pc.bold("Select an instance")}\n`);
-    for (let i = 0; i < instances.length; i++) {
-      const inst = instances[i] as ResolvedInstance;
-      context.stderr.write(
-        `  [${i + 1}] ${pc.cyan(inst.projectSlug)}/${pc.cyan(inst.instanceSlug)}\n`
-      );
-    }
-    const choice = await askQuestion(
-      context,
-      `Select instance [1-${instances.length}] (default 1): `
-    );
-    const index = Math.max(0, Math.min(instances.length - 1, (Number(choice.trim()) || 1) - 1));
-    selected = instances[index] as ResolvedInstance;
-  }
+  const rl = createInterface({
+    input: context.stdin as NodeJS.ReadableStream,
+    output: context.stderr as NodeJS.WritableStream,
+  });
 
-  cloudConfig.instanceUrl = selected.mcpUrl;
-  cloudConfig.projectSlug = selected.projectSlug;
-  cloudConfig.instanceSlug = selected.instanceSlug;
-  writeCloudConfig(cloudConfig);
-  context.stdout.write(
-    `  Instance: ${pc.cyan(selected.projectSlug)}/${pc.cyan(selected.instanceSlug)}\n`
-  );
+  try {
+    let selected: ResolvedInstance;
+    if (instances.length === 1) {
+      selected = instances[0] as ResolvedInstance;
+    } else {
+      context.stderr.write(`${pc.bold("Select an instance")}\n`);
+      for (let i = 0; i < instances.length; i++) {
+        const inst = instances[i] as ResolvedInstance;
+        context.stderr.write(
+          `  [${i + 1}] ${pc.cyan(inst.projectSlug)}/${pc.cyan(inst.instanceSlug)}\n`
+        );
+      }
+      const choice = await askQuestion(rl, `Select instance [1-${instances.length}] (default 1): `);
+      const index = Math.max(0, Math.min(instances.length - 1, (Number(choice.trim()) || 1) - 1));
+      selected = instances[index] as ResolvedInstance;
+    }
+
+    cloudConfig.instanceUrl = selected.mcpUrl;
+    cloudConfig.projectSlug = selected.projectSlug;
+    cloudConfig.instanceSlug = selected.instanceSlug;
+    writeCloudConfig(cloudConfig);
+    context.stdout.write(
+      `  Instance: ${pc.cyan(selected.projectSlug)}/${pc.cyan(selected.instanceSlug)}\n`
+    );
+  } finally {
+    rl.close();
+  }
 }
 
 export async function runCloud(context: CliContext): Promise<void> {
