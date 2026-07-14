@@ -19,12 +19,20 @@ fn constant_time_eq(a: &str, b: &str) -> bool {
         == 0
 }
 
+/// Path prefixes that are exempt from authentication.
+/// Health, metrics, and cluster-status endpoints are safe to expose without auth.
+const PUBLIC_PATH_PREFIXES: &[&str] = &["/healthz", "/metrics", "/cluster/"];
+
+fn skip_auth_for_path(path: &str) -> bool {
+    PUBLIC_PATH_PREFIXES.iter().any(|p| path.starts_with(p))
+}
+
 pub async fn auth_middleware(
     State(state): State<Arc<AppState>>,
     req: Request,
     next: Next,
 ) -> Result<Response, AppError> {
-    if state.auth_token.is_empty() {
+    if state.auth_token.is_empty() || skip_auth_for_path(req.uri().path()) {
         return Ok(next.run(req).await);
     }
 
