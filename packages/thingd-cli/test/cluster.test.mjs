@@ -226,9 +226,6 @@ test("cluster status returns replication details and computed lag", { timeout: 1
     port: 0,
     cluster: {
       mode: "leader",
-      advertiseUrl: "http://127.0.0.1:8757",
-      peers: ["http://127.0.0.1:8757", "http://127.0.0.1:8758"],
-      discovery: "static",
     },
   });
 
