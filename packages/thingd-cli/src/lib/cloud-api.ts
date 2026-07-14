@@ -218,6 +218,15 @@ export type ResolvedInstance = {
 };
 
 /**
+ * Derive the REST base URL from an MCP gateway URL.
+ * 'https://api.thingd.cloud/mcp/proj/inst' → 'https://api.thingd.cloud'
+ * 'https://api.thingd.cloud' → 'https://api.thingd.cloud' (idempotent)
+ */
+export function deriveRestUrl(mcpUrl: string): string {
+  return new URL(mcpUrl).origin;
+}
+
+/**
  * Fetch the first available cloud instance for the logged-in user.
  * Returns null if no projects or instances exist.
  */

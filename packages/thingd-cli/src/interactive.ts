@@ -6,7 +6,7 @@ import * as path from "node:path";
 import readline from "node:readline";
 import { type MemorySearchOptions, ThingD, type ThingDDriver } from "@thingd/sdk";
 import pc from "picocolors";
-import { listInstances, listProjects } from "./lib/cloud-api.js";
+import { deriveRestUrl, listInstances, listProjects } from "./lib/cloud-api.js";
 import {
   readCloudConfig,
   removeCloudConfig,
@@ -1849,7 +1849,12 @@ async function handleConnect(node: TreeNode) {
               cloudCfg.instanceSlug = selected.instanceSlug;
               writeCloudConfig(cloudCfg);
 
-              await connectToDriver("cloud", selected.mcpUrl, selected.mcpUrl, cloudCfg.token);
+              await connectToDriver(
+                "cloud",
+                deriveRestUrl(selected.mcpUrl),
+                deriveRestUrl(selected.mcpUrl),
+                cloudCfg.token
+              );
             }
           );
           return;
@@ -1857,12 +1862,8 @@ async function handleConnect(node: TreeNode) {
 
         // No instances found — try saved URL or show error
         if (cloudCfg.instanceUrl) {
-          await connectToDriver(
-            "cloud",
-            cloudCfg.instanceUrl,
-            cloudCfg.instanceUrl,
-            cloudCfg.token
-          );
+          const restUrl = deriveRestUrl(cloudCfg.instanceUrl);
+          await connectToDriver("cloud", restUrl, restUrl, cloudCfg.token);
           return;
         }
         viewerLines = [
@@ -1875,12 +1876,8 @@ async function handleConnect(node: TreeNode) {
         return;
       } catch {
         if (cloudCfg.instanceUrl) {
-          await connectToDriver(
-            "cloud",
-            cloudCfg.instanceUrl,
-            cloudCfg.instanceUrl,
-            cloudCfg.token
-          );
+          const restUrl = deriveRestUrl(cloudCfg.instanceUrl);
+          await connectToDriver("cloud", restUrl, restUrl, cloudCfg.token);
           return;
         }
         viewerLines = [
@@ -1962,6 +1959,8 @@ async function handleConnect(node: TreeNode) {
               cfg.token = vals.token;
             }
             writeCloudConfig(cfg);
+            // Connect via REST (derive base URL from MCP URL)
+            cloudUrl = deriveRestUrl(cloudUrl);
           } else {
             if (!vals.url) {
               viewerLines = [pc.red("Cloud URL is required.")];
