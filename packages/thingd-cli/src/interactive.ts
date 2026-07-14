@@ -294,7 +294,9 @@ async function fetchResourcesFallback() {
   try {
     const listed = await db.listQueues();
     queues = (listed ?? []).sort();
-  } catch {
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    cloudError = cloudError ?? `Failed to load queues: ${msg}`;
     queues = [];
   }
 
@@ -867,6 +869,10 @@ async function loadContent(node: TreeNode): Promise<void> {
       content += ` ${pc.dim("Appends".padEnd(14))} ${pc.green(apLine)}  ${pc.green(String(currentAppend).padEnd(4))} ${pc.dim(`e/s`)}\n\n`;
 
       content += ` ${pc.dim("Shortcuts:")} ${pc.bold("[c]")} Create  ${pc.bold("[r]")} Refresh  ${pc.bold("[/]")} Search\n`;
+
+      if (cloudError) {
+        content += `\n ${pc.yellow("⚠")} ${pc.dim(cloudError)}\n`;
+      }
     } else if (node.type === "category") {
       content = pc.dim("Expand to browse items.");
     } else {
@@ -1428,41 +1434,68 @@ async function handleInfo() {
       const baseUrl = dbPath.startsWith("thingd://")
         ? `http://${dbPath.slice("thingd://".length)}`
         : dbPath;
-      const urlObj = new URL(baseUrl);
-      if (urlObj.pathname === "/mcp") {
-        urlObj.pathname = "/";
-      }
+      const apiRoot = baseUrl.replace(/\/+$/, "");
+
       const fetchJson = async (p: string) => {
-        const u = new URL(p, urlObj.toString());
+        const u = `${apiRoot}${p}`;
         const headers: Record<string, string> = {};
         if (authToken) {
           headers.Authorization = `Bearer ${authToken}`;
         }
         const res = await fetch(u, { headers });
+        const json = await res.json();
         if (!res.ok) {
-          throw new Error(`HTTP ${res.status}`);
+          const detail = json?.error?.detail ?? json?.error?.message ?? `HTTP ${res.status}`;
+          throw new Error(`${res.status}: ${detail}`);
         }
-        return res.json();
+        return json;
       };
 
-      const health = await fetchJson("/healthz");
-      const cluster = await fetchJson("/cluster/status");
+      // Health check
+      let healthError: string | null = null;
+      let health: unknown = null;
+      try {
+        health = await fetchJson("/v1/health");
+      } catch (err) {
+        healthError = err instanceof Error ? err.message : String(err);
+      }
+
+      // Collections check
+      let collectionsResult: string[] | null = null;
+      if (!healthError) {
+        try {
+          const colResp = await fetchJson("/v1/collections");
+          collectionsResult = (colResp as { data?: string[] })?.data ?? null;
+        } catch {
+          // collections endpoint may not be available on all setups
+        }
+      }
 
       lines.push("");
-      lines.push(` ${pc.bold("Cloud Health")}`);
-      lines.push(
-        ...JSON.stringify(health, null, 2)
-          .split("\n")
-          .map((l) => ` ${pc.dim(l)}`)
-      );
+      lines.push(` ${pc.bold("Cloud REST API")}`);
+      if (healthError) {
+        lines.push(` ${pc.red("Health check failed:")} ${healthError}`);
+        lines.push(` ${pc.dim("API URL:")} ${apiRoot}/v1/...`);
+        lines.push(
+          ` ${pc.dim("Auth:")} ${authToken ? pc.green("Bearer token set") : pc.red("No token")}`
+        );
+      } else {
+        const h = health as Record<string, unknown> | null;
+        const status =
+          (h?.data as Record<string, unknown> | undefined)?.status ?? h?.status ?? "ok";
+        lines.push(` ${pc.dim("Status:")} ${pc.green(String(status))}`);
+        lines.push(
+          ` ${pc.dim("Collections:")} ${collectionsResult ? pc.cyan(String(collectionsResult.length)) : pc.yellow("unknown")}`
+        );
+        if (collectionsResult && collectionsResult.length > 0) {
+          lines.push(` ${pc.dim("Names:")} ${collectionsResult.join(", ")}`);
+        }
+      }
 
-      lines.push("");
-      lines.push(` ${pc.bold("Cloud Cluster")}`);
-      lines.push(
-        ...JSON.stringify(cluster, null, 2)
-          .split("\n")
-          .map((l) => ` ${pc.dim(l)}`)
-      );
+      if (cloudError) {
+        lines.push("");
+        lines.push(` ${pc.yellow("⚠ Recent error:")} ${cloudError}`);
+      }
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err);
       lines.push("", ` ${pc.red("Cloud Query Failed:")} ${errMsg}`);
