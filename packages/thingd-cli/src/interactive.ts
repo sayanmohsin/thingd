@@ -1936,7 +1936,9 @@ async function handleConnect(node: TreeNode) {
             cfg.instanceUrl = cloudUrl;
             cfg.projectSlug = vals.project;
             cfg.instanceSlug = vals.instance;
-            if (vals.token) cfg.token = vals.token;
+            if (vals.token) {
+              cfg.token = vals.token;
+            }
             writeCloudConfig(cfg);
           } else {
             if (!vals.url) {
@@ -2082,8 +2084,13 @@ export async function runInteractiveCli(): Promise<void> {
     if (cloudUrl) {
       try {
         await connectToDriver("cloud", cloudUrl, cloudUrl, cloudCfg.token);
-      } catch {
-        // Auto-connect failed — fall through to environment selection
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        viewerLines = [
+          pc.yellow(`Auto-connect failed: ${msg}`),
+          pc.dim("Select an environment to connect, or press 'r' to retry."),
+        ];
+        draw();
       }
     }
   }
