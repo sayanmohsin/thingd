@@ -220,22 +220,29 @@ test("cluster status returns replication details and computed lag", { timeout: 1
   const dbPath = getDbPath("3");
   cleanupDb(dbPath);
 
+  const port1 = nextPort();
+  const port2 = nextPort();
+  const url1 = `http://127.0.0.1:${port1}`;
+  const url2 = `http://127.0.0.1:${port2}`;
+
   const leader = await startThingdHttpServer({
     path: ":memory:",
     driver: "native",
-    port: 0,
+    port: port1,
     cluster: {
       mode: "leader",
+      advertiseUrl: url1,
     },
   });
 
   const follower = await startThingdHttpServer({
     path: dbPath,
     driver: "native",
-    port: 0,
+    port: port2,
     cluster: {
       mode: "follower",
-      leaderUrl: leader.url,
+      advertiseUrl: url2,
+      leaderUrl: url1,
     },
   });
 
