@@ -225,99 +225,86 @@ test("cluster status returns replication details and computed lag", { timeout: 1
   const url1 = `http://127.0.0.1:${port1}`;
   const url2 = `http://127.0.0.1:${port2}`;
 
-  let leader, follower, client;
-  try {
-    leader = await startThingdHttpServer({
-      path: ":memory:",
-      driver: "native",
-      port: port1,
-      cluster: {
-        mode: "leader",
-        advertiseUrl: url1,
-      },
-    });
+  const leader = await startThingdHttpServer({
+    path: ":memory:",
+    driver: "native",
+    port: port1,
+    cluster: {
+      mode: "leader",
+      advertiseUrl: url1,
+    },
+  });
 
-    follower = await startThingdHttpServer({
-      path: dbPath,
-      driver: "native",
-      port: port2,
-      cluster: {
-        mode: "follower",
-        advertiseUrl: url2,
-        leaderUrl: url1,
-      },
-    });
+  const follower = await startThingdHttpServer({
+    path: dbPath,
+    driver: "native",
+    port: port2,
+    cluster: {
+      mode: "follower",
+      advertiseUrl: url2,
+      leaderUrl: url1,
+    },
+  });
 
-    console.error("DEBUG leader.url=", leader.url, "follower.url=", follower.url, "leader.mcpUrl=", leader.mcpUrl);
+  // Write an object to leader via direct client
+  const client = new Client({
+    name: "status-test-client",
+    version: "0.1.0",
+  });
+  const transport = new StreamableHTTPClientTransport(new URL(leader.mcpUrl));
+  await client.connect(transport);
 
-    // Write an object to leader via direct client
-    client = new Client({
-      name: "status-test-client",
-      version: "0.1.0",
-    });
-    const transport = new StreamableHTTPClientTransport(new URL(leader.mcpUrl));
-    await client.connect(transport);
+  await callJsonTool(client, "thing_put", {
+    collection: "items",
+    object: {
+      id: "status-obj",
+      text: "metrics",
+    },
+  });
 
-    await callJsonTool(client, "thing_put", {
-      collection: "items",
-      object: {
-        id: "status-obj",
-        text: "metrics",
-      },
-    });
+  // Wait for replication to sync (poll status endpoint)
+  await waitFor(async () => {
+    try {
+      const res = await fetch(`${follower.url}/cluster/status`);
+      const data = await res.json();
+      return (
+        data.replication?.lastReplicatedSequence > 0 &&
+        data.replication?.status === "syncing" &&
+        data.replication?.lag === 0
+      );
+    } catch {
+      return false;
+    }
+  });
 
-    // Wait for replication to sync (poll status endpoint)
-    await waitFor(async () => {
-      try {
-        const res = await fetch(`${follower.url}/cluster/status`);
-        const data = await res.json();
-        return (
-          data.replication?.lastReplicatedSequence > 0 &&
-          data.replication?.status === "syncing" &&
-          data.replication?.lag === 0
-        );
-      } catch (err) {
-        console.error("DEBUG waitFor poll error:", err);
-        return false;
-      }
-    });
+  // Query follower cluster status
+  const followerStatusRes = await fetch(`${follower.url}/cluster/status`);
+  const followerStatus = await followerStatusRes.json();
 
-    // Query follower cluster status
-    const followerStatusRes = await fetch(`${follower.url}/cluster/status`);
-    const followerStatus = await followerStatusRes.json();
+  assert.equal(followerStatusRes.status, 200);
+  assert.equal(followerStatus.mode, "follower");
+  assert.equal(followerStatus.writable, false);
+  assert.equal(followerStatus.forwarding, true);
+  assert.ok(followerStatus.replication);
+  assert.equal(followerStatus.replication.status, "syncing");
+  assert.ok(followerStatus.replication.lastReplicatedSequence > 0);
+  assert.equal(followerStatus.replication.lag, 0);
 
-    assert.equal(followerStatusRes.status, 200);
-    assert.equal(followerStatus.mode, "follower");
-    assert.equal(followerStatus.writable, false);
-    assert.equal(followerStatus.forwarding, true);
-    assert.ok(followerStatus.replication);
-    assert.equal(followerStatus.replication.status, "syncing");
-    assert.ok(followerStatus.replication.lastReplicatedSequence > 0);
-    assert.equal(followerStatus.replication.lag, 0);
+  // Query leader cluster status
+  const leaderStatusRes = await fetch(`${leader.url}/cluster/status`);
+  const leaderStatus = await leaderStatusRes.json();
 
-    // Query leader cluster status
-    const leaderStatusRes = await fetch(`${leader.url}/cluster/status`);
-    const leaderStatus = await leaderStatusRes.json();
+  assert.equal(leaderStatusRes.status, 200);
+  assert.equal(leaderStatus.mode, "leader");
+  assert.equal(leaderStatus.writable, true);
+  assert.ok(leaderStatus.replication);
+  assert.equal(leaderStatus.replication.status, "active");
+  assert.ok(leaderStatus.replication.lastReplicatedSequence > 0);
 
-    assert.equal(leaderStatusRes.status, 200);
-    assert.equal(leaderStatus.mode, "leader");
-    assert.equal(leaderStatus.writable, true);
-    assert.ok(leaderStatus.replication);
-    assert.equal(leaderStatus.replication.status, "active");
-    assert.ok(leaderStatus.replication.lastReplicatedSequence > 0);
-
-    await client.close();
-    await follower.close();
-    await leader.close();
-    cleanupDb(dbPath);
-  } catch (err) {
-    console.error("DEBUG test error:", err instanceof Error ? err.stack : err);
-    if (client) await client.close().catch(() => {});
-    if (follower) await follower.close().catch(() => {});
-    if (leader) await leader.close().catch(() => {});
-    cleanupDb(dbPath);
-    throw err;
-  }
+  await client.close();
+  await follower.close();
+  await leader.close();
+  cleanupDb(dbPath);
 });
 
 // ── Phase 8: Leader failover ─────────────────────────────────────────────────
