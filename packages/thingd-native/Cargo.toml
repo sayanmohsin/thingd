@@ -13,7 +13,7 @@ crate-type = ["cdylib"]
 path = "native/src/lib.rs"
 
 [dependencies]
-thingd = { path = "../../crates/thingd", version = "0.50", features = ["sqlite"] }
+thingd = { path = "../../crates/thingd", version = "0.51", features = ["sqlite"] }
 napi = { version = "3.10.5", default-features = false, features = ["napi4"] }
 napi-derive = "3.5.10"
 serde = { version = "1.0.228", features = ["derive"] }
