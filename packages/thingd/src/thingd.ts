@@ -1,4 +1,4 @@
-import { HttpThingStore } from "./client/http-thing-store.js";
+import { CloudThingStore } from "./stores/cloud-thing-store.js";
 import { InMemoryThingStore } from "./stores/in-memory-thing-store.js";
 import { NativeThingStore } from "./stores/native-thing-store.js";
 import type {
@@ -342,7 +342,7 @@ async function openStore(path: string, options: ResolvedThingDOpenOptions): Prom
   }
 
   if (options.driver === "cloud") {
-    return HttpThingStore.open({
+    return CloudThingStore.open({
       url: path,
       authToken: options.authToken,
     });

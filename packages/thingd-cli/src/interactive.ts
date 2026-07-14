@@ -7,7 +7,12 @@ import readline from "node:readline";
 import { type MemorySearchOptions, ThingD, type ThingDDriver } from "@thingd/sdk";
 import pc from "picocolors";
 import { listInstances, listProjects } from "./lib/cloud-api.js";
-import { readCloudConfig, resolveCloudUrl } from "./lib/cloud-config.js";
+import {
+  readCloudConfig,
+  removeCloudConfig,
+  resolveCloudUrl,
+  writeCloudConfig,
+} from "./lib/cloud-config.js";
 import { logoText } from "./logo.js";
 import { defaultThingdDbPath } from "./paths.js";
 
@@ -88,6 +93,7 @@ let totalEventsCount = 0;
 let totalActiveJobsCount = 0;
 let totalDeadJobsCount = 0;
 let totalLinksCount = 0;
+let cloudError: string | null = null;
 let objectsHistory: number[] = [];
 let eventsHistory: number[] = [];
 let activeJobsHistory: number[] = [];
@@ -248,6 +254,7 @@ function formatUptime(ms: number): string {
 }
 
 async function fetchResourcesFallback() {
+  cloudError = null;
   try {
     const nativeCollections = await db.listCollections();
     const nativeStreams = await db.listStreams();
@@ -271,10 +278,16 @@ async function fetchResourcesFallback() {
     totalEventsCount = await db.countEvents();
     totalActiveJobsCount = await db.countActiveJobs();
     totalDeadJobsCount = await db.countDeadJobs();
-  } catch {
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    cloudError = `Failed to load resources: ${msg}`;
     collections = [];
     streams = [];
     totalObjects = 0;
+    // Show error in viewer if it's currently showing the default message
+    if (viewerLines.length === 1 && viewerLines[0] === "Select an item to view details.") {
+      viewerLines = [pc.yellow(cloudError), pc.dim("Press 'r' to retry or 's' to switch driver.")];
+    }
   }
 
   // Queues
@@ -995,7 +1008,7 @@ function draw() {
   } else if (!connected) {
     help = ` ${pc.dim("↑↓")} nav  ${pc.dim("enter")} connect  ${pc.dim("q")} quit `;
   } else {
-    help = ` ${pc.dim("↑↓")} nav  ${pc.dim("←→")} toggle  ${pc.dim("c")} create  ${pc.dim("e")} edit  ${pc.dim("d")} delete  ${pc.dim("/")} search  ${pc.dim("i")} info  ${pc.dim("r")} refresh  ${pc.dim("s")} switch  ${pc.dim("q")} quit `;
+    help = ` ${pc.dim("↑↓")} nav  ${pc.dim("←→")} toggle  ${pc.dim("c")} create  ${pc.dim("e")} edit  ${pc.dim("d")} delete  ${pc.dim("/")} search  ${pc.dim("i")} info  ${pc.dim("r")} refresh  ${pc.dim("s")} switch  ${pc.dim("l")} logout  ${pc.dim("q")} quit `;
   }
   buf += `${pc.dim("─".repeat(W))}\n`;
   buf += padToWidth(help, W);
@@ -1733,6 +1746,8 @@ function setupKeypress() {
         await handleInfo();
       } else if (str === "m" || str === "M") {
         await handleMaintenance();
+      } else if (str === "l" || str === "L") {
+        await handleLogout();
       }
     }
   };
@@ -1772,26 +1787,75 @@ async function handleConnect(node: TreeNode) {
 
   const selectedDriver = node.ref.driver as ThingDDriver;
 
-  // Cloud with saved credentials — fetch projects/instances and connect
+  // Cloud with saved credentials — fetch projects/instances and let user pick
   if (selectedDriver === "cloud") {
     const cloudCfg = readCloudConfig();
-    if (cloudCfg?.token && cloudCfg?.url) {
+    if (cloudCfg?.token) {
       try {
         const { projects } = await listProjects(cloudCfg);
+        const instanceOptions: {
+          label: string;
+          mcpUrl: string;
+          projectSlug: string;
+          instanceSlug: string;
+        }[] = [];
+
         for (const project of projects) {
           try {
             const { instances } = await listInstances(cloudCfg, project.id);
-            if (instances.length > 0) {
-              const instance = instances[0];
-              if (instance?.mcpUrl) {
-                await connectToDriver("cloud", instance.mcpUrl, instance.mcpUrl, cloudCfg.token);
-                return;
+            for (const inst of instances) {
+              if (inst.mcpUrl) {
+                instanceOptions.push({
+                  label: `${project.slug}/${inst.slug}`,
+                  mcpUrl: inst.mcpUrl,
+                  projectSlug: project.slug,
+                  instanceSlug: inst.slug,
+                });
               }
             }
           } catch {
-            // Try next project
+            // Skip projects that fail to list instances
           }
         }
+
+        if (instanceOptions.length > 0) {
+          // Pre-select the saved instance if it exists
+          const savedIdx = cloudCfg.instanceUrl
+            ? instanceOptions.findIndex((o) => o.mcpUrl === cloudCfg.instanceUrl)
+            : -1;
+          const defaultVal =
+            savedIdx >= 0 ? instanceOptions[savedIdx]?.label : instanceOptions[0]?.label;
+
+          openForm(
+            "Connect to Cloud",
+            [
+              {
+                id: "instance",
+                label: "Instance",
+                value: defaultVal ?? "",
+                options: instanceOptions.map((o) => o.label),
+              },
+            ],
+            async (vals) => {
+              const selected = instanceOptions.find((o) => o.label === vals.instance);
+              if (!selected) {
+                viewerLines = [pc.red("No instance selected.")];
+                draw();
+                return;
+              }
+              // Save selection to cloud config
+              cloudCfg.instanceUrl = selected.mcpUrl;
+              cloudCfg.projectSlug = selected.projectSlug;
+              cloudCfg.instanceSlug = selected.instanceSlug;
+              writeCloudConfig(cloudCfg);
+
+              await connectToDriver("cloud", selected.mcpUrl, selected.mcpUrl, cloudCfg.token);
+            }
+          );
+          return;
+        }
+
+        // No instances found — fall through to manual form
         viewerLines = [
           pc.yellow("No cloud instances found."),
           pc.dim("Create one at https://thingd.cloud, or enter the Cloud URL manually."),
@@ -1937,6 +2001,42 @@ async function handleSwitch() {
   scrollOffset = 0;
   loadedItemId = "";
   viewerLines = ["Select an environment to connect."];
+
+  draw();
+  const tree = buildTree();
+  const first = tree[cursorIndex];
+  if (first) {
+    scheduleLoad(first);
+  }
+}
+
+async function handleLogout() {
+  // Close current connection if any
+  if (connected && db) {
+    try {
+      await db.close();
+    } catch {
+      // ignore close errors
+    }
+  }
+
+  // Remove cloud credentials from disk
+  removeCloudConfig();
+
+  // Reset state
+  connected = false;
+  driver = "";
+  dbPath = "";
+  authToken = "";
+  cloudError = null;
+  collections = [];
+  streams = [];
+  queues = [];
+  objectsByCollection = new Map();
+  cursorIndex = 0;
+  scrollOffset = 0;
+  loadedItemId = "";
+  viewerLines = [pc.green("Logged out."), pc.dim("Select an environment to connect.")];
 
   draw();
   const tree = buildTree();
