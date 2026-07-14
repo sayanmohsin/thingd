@@ -1886,7 +1886,7 @@ async function handleConnect(node: TreeNode) {
                 "cloud",
                 deriveRestUrl(selected.mcpUrl),
                 deriveRestUrl(selected.mcpUrl),
-                cloudCfg.token
+                cloudCfg.apiKey ?? cloudCfg.token
               );
             }
           );
@@ -1896,7 +1896,7 @@ async function handleConnect(node: TreeNode) {
         // No instances found — try saved URL or show error
         if (cloudCfg.instanceUrl) {
           const restUrl = deriveRestUrl(cloudCfg.instanceUrl);
-          await connectToDriver("cloud", restUrl, restUrl, cloudCfg.token);
+          await connectToDriver("cloud", restUrl, restUrl, cloudCfg.apiKey ?? cloudCfg.token);
           return;
         }
         viewerLines = [
@@ -1910,7 +1910,7 @@ async function handleConnect(node: TreeNode) {
       } catch {
         if (cloudCfg.instanceUrl) {
           const restUrl = deriveRestUrl(cloudCfg.instanceUrl);
-          await connectToDriver("cloud", restUrl, restUrl, cloudCfg.token);
+          await connectToDriver("cloud", restUrl, restUrl, cloudCfg.apiKey ?? cloudCfg.token);
           return;
         }
         viewerLines = [
@@ -2004,7 +2004,7 @@ async function handleConnect(node: TreeNode) {
             // Save manual credentials to cloud config
             writeCloudConfig({ token: vals.token || "", url: cloudUrl });
           }
-          await connectToDriver(selectedDriver, cloudUrl, cloudUrl, vals.token);
+          await connectToDriver(selectedDriver, cloudUrl, cloudUrl, cloudCfg?.apiKey ?? vals.token);
         } else {
           await connectToDriver(selectedDriver, vals.path || "", undefined, undefined);
         }
@@ -2137,7 +2137,8 @@ export async function runInteractiveCli(): Promise<void> {
     const cloudUrl = resolveCloudUrl(cloudCfg);
     if (cloudUrl) {
       try {
-        await connectToDriver("cloud", cloudUrl, cloudUrl, cloudCfg.token);
+        const restUrl = deriveRestUrl(cloudUrl);
+        await connectToDriver("cloud", restUrl, restUrl, cloudCfg.apiKey ?? cloudCfg.token);
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         viewerLines = [

@@ -124,10 +124,10 @@ export async function createApiKey(
   config: CloudConfig,
   projectId: string,
   name?: string
-): Promise<{ key: CloudApiKey }> {
+): Promise<{ key: CloudApiKey; token: string }> {
   return request(config, `/projects/${projectId}/api-keys`, {
     method: "POST",
-    body: { name: name ?? "CLI key" },
+    body: { name: name ?? "thingd CLI" },
   });
 }
 

@@ -6,6 +6,8 @@ const CONFIG_FILE = "cloud-config.json";
 
 export type CloudConfig = {
   token: string;
+  /** API key for data plane operations (REST/MCP) — created after login. */
+  apiKey?: string;
   email?: string;
   url?: string;
   /** Currently active organization context (set by `thingd cloud org use`). */

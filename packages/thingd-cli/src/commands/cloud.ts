@@ -109,6 +109,32 @@ async function pickAndSaveInstance(context: CliContext, cloudConfig: CloudConfig
   }
 }
 
+/**
+ * Ensure a data-plane API key exists in the cloud config.
+ * Best-effort — if creation fails, the JWT is still usable for management API.
+ */
+async function ensureApiKey(context: CliContext, cloudConfig: CloudConfig): Promise<void> {
+  if (cloudConfig.apiKey) {
+    return;
+  }
+  try {
+    const { projects } = await listProjects(cloudConfig);
+    if (projects.length === 0) {
+      return;
+    }
+    const project = projects[0];
+    if (!project) {
+      return;
+    }
+    const result = await createApiKey(cloudConfig, project.id);
+    cloudConfig.apiKey = result.token;
+    writeCloudConfig(cloudConfig);
+    context.stderr.write(`  ${pc.dim("API key created for data access\n")}`);
+  } catch {
+    // API key creation is best-effort
+  }
+}
+
 export async function runCloud(context: CliContext): Promise<void> {
   const sub = requiredToken(context.parsed, 1, "subcommand");
 
@@ -157,6 +183,8 @@ async function runLogin(context: CliContext): Promise<void> {
       context.stdout.write(pc.green(`✓ Logged in as ${user.email}\n`));
       // Discover and select an instance (interactive if multiple)
       await pickAndSaveInstance(context, cloudConfig);
+      // Create a data-plane API key for REST/MCP operations
+      await ensureApiKey(context, cloudConfig);
     } catch (err) {
       if (err instanceof CloudApiError && err.status === 401) {
         context.stderr.write(pc.red("Invalid token. Please try again.\n"));
@@ -210,6 +238,8 @@ async function runLogin(context: CliContext): Promise<void> {
           context.stdout.write(pc.green(`\r✓ Logged in as ${user.email}\n`));
           // Discover and select an instance (interactive if multiple)
           await pickAndSaveInstance(context, cloudConfig);
+          // Create a data-plane API key for REST/MCP operations
+          await ensureApiKey(context, cloudConfig);
           return;
         } catch {
           context.stderr.write(pc.red("\rToken received but verification failed. Try again.\n"));
