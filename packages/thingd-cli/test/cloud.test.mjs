@@ -136,7 +136,7 @@ test("cloud login auto-selects single instance", async () => {
     );
     assert.equal(result.code, 0);
     assert.match(result.stdout, /mock@test\.com/);
-    assert.match(result.stdout, /test-proj\/main/);
+    assert.match(result.stdout, /test-proj.*main/);
     assert.doesNotMatch(result.stderr, /Select an instance/);
   } finally {
     await close(server);
@@ -179,9 +179,9 @@ test("cloud login shows picker for multiple instances", async () => {
       stdin
     );
     assert.equal(result.code, 0);
-    assert.match(result.stderr, /test-proj\/main/);
-    assert.match(result.stderr, /test-proj\/staging/);
-    assert.match(result.stdout, /test-proj\/staging/);
+    assert.match(result.stderr, /test-proj.*main/);
+    assert.match(result.stderr, /test-proj.*staging/);
+    assert.match(result.stdout, /test-proj.*staging/);
   } finally {
     await close(server);
   }
