@@ -2183,5 +2183,5 @@ export async function runInteractiveCli(): Promise<void> {
         // Prevent unhandled rejection from killing the process
       }
     }
-  }, 2000);
+  }, 10_000);
 }
