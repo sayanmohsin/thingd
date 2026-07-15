@@ -1354,7 +1354,7 @@ function draw() {
   } else if (!connected) {
     help = ` ${pc.dim("↑↓")} nav  ${pc.dim("enter")} connect  ${pc.dim("q")} quit `;
   } else {
-    help = ` ${pc.dim("↑↓")} nav  ${pc.dim("←→")} toggle  ${pc.dim("c")} create  ${pc.dim("e")} edit  ${pc.dim("d")} delete  ${pc.dim("/")} search  ${pc.dim("n")} neighbors  ${pc.dim("N")} nlq  ${pc.dim("a")} agg  ${pc.dim("t")} ts  ${pc.dim("o")} options  ${pc.dim("b")} batch  ${pc.dim("i")} info  ${pc.dim("r")} refresh  ${pc.dim("s")} switch  ${pc.dim("l")} logout  ${pc.dim("q")} quit `;
+    help = ` ${pc.dim("↑↓")} nav  ${pc.dim("←→")} toggle  ${pc.dim("c")} create  ${pc.dim("e")} edit  ${pc.dim("d")} delete  ${pc.dim("/")} search  ${pc.dim("n")} neighbors  ${pc.dim("N")} nlq  ${pc.dim("a")} agg  ${pc.dim("t")} ts  ${pc.dim("o")} opts  ${pc.dim("b")} batch  ${pc.dim("x")} export  ${pc.dim("p")} import  ${pc.dim("w")} web  ${pc.dim("i")} info  ${pc.dim("r")} refresh  ${pc.dim("s")} switch  ${pc.dim("l")} logout  ${pc.dim("q")} quit `;
   }
   buf += `${pc.dim("─".repeat(W))}\n`;
   buf += padToWidth(help, W);
@@ -2540,6 +2540,84 @@ async function handleBatchOps(selected: TreeNode | undefined) {
   );
 }
 
+async function handleExport(selected: TreeNode | undefined) {
+  const colName =
+    selected?.type === "collection"
+      ? ((selected.ref as { name: string })?.name ?? "")
+      : selected?.type === "object"
+        ? ((selected.ref as { collection: string })?.collection ?? "")
+        : "";
+  if (!colName) {
+    viewerLines = [pc.yellow("Select a collection first, then press [x] to export.")];
+    loadedItemId = "export_info";
+    draw();
+    return;
+  }
+  openForm(
+    `Export: ${colName}`,
+    [{ id: "path", label: "Output File Path", placeholder: "/tmp/export.jsonl" }],
+    async (vals) => {
+      const filePath = (vals.path || "").trim();
+      if (!filePath) {
+        throw new Error("File path is required.");
+      }
+      const objs = await db.listObjects(colName);
+      const lines = objs.map((o) => JSON.stringify(o)).join("\n");
+      await fs.promises.writeFile(filePath, lines, "utf-8");
+      addToast(`Exported ${objs.length} objects to ${filePath}`);
+    }
+  );
+}
+
+async function handleImport(selected: TreeNode | undefined) {
+  const colName =
+    selected?.type === "collection"
+      ? ((selected.ref as { name: string })?.name ?? "")
+      : selected?.type === "object"
+        ? ((selected.ref as { collection: string })?.collection ?? "")
+        : "";
+  if (!colName) {
+    viewerLines = [pc.yellow("Select a collection first, then press [p] to import.")];
+    loadedItemId = "import_info";
+    draw();
+    return;
+  }
+  openForm(
+    `Import: ${colName}`,
+    [{ id: "path", label: "Input File Path (JSONL)", placeholder: "/tmp/export.jsonl" }],
+    async (vals) => {
+      const filePath = (vals.path || "").trim();
+      if (!filePath) {
+        throw new Error("File path is required.");
+      }
+      const text = await fs.promises.readFile(filePath, "utf-8");
+      const objects = text
+        .split("\n")
+        .filter(Boolean)
+        .map((line) => JSON.parse(line));
+      const result = await db.putBatch(colName, objects);
+      addToast(`Imported ${result.length} objects into ${colName}`);
+    }
+  );
+}
+
+async function handleDashboard() {
+  const bin = process.argv[1] || "thingd";
+  const args = ["dashboard", "--driver", driver];
+  if (dbPath) {
+    args.push("--path", dbPath);
+  }
+  if (authToken) {
+    args.push("--auth-token", authToken);
+  }
+  const child = spawn(bin, args, {
+    stdio: "inherit",
+    detached: true,
+  });
+  child.unref();
+  addToast(`Launching dashboard: ${bin} dashboard`);
+}
+
 async function handleMaintenance() {
   // Cycle through maintenance operations with each press of 'm'
   const operations = ["health", "checkpoint", "backup"];
@@ -2836,6 +2914,12 @@ function setupKeypress() {
         await handleCollectionOptions(tree[cursorIndex]);
       } else if (str === "b" || str === "B") {
         await handleBatchOps(tree[cursorIndex]);
+      } else if (str === "x" || str === "X") {
+        await handleExport(tree[cursorIndex]);
+      } else if (str === "p" || str === "P") {
+        await handleImport(tree[cursorIndex]);
+      } else if (str === "w" || str === "W") {
+        await handleDashboard();
       } else if (str === "m" || str === "M") {
         await handleMaintenance();
       } else if (str === "l" || str === "L") {
