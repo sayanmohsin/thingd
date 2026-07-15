@@ -139,7 +139,7 @@ npm install @thingd/sdk
 
 ```toml
 [dependencies]
-thingd = { version = "0.57", features = ["sqlite"] }
+thingd = { version = "0.58", features = ["sqlite"] }
 ```
 
 ### Subpath imports
