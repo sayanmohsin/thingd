@@ -94,6 +94,32 @@ let totalActiveJobsCount = 0;
 let totalDeadJobsCount = 0;
 let totalLinksCount = 0;
 let cloudError: string | null = null;
+const eventsByStream = new Map<
+  string,
+  { id: string; type: string; createdAt: string; stream: string; text?: string }[]
+>();
+const jobsByQueue = new Map<
+  string,
+  {
+    active: {
+      id: string;
+      status: string;
+      payload: Record<string, unknown>;
+      attempts: number;
+      maxAttempts: number;
+      createdAt: string;
+      lastError?: string;
+    }[];
+    dead: {
+      id: string;
+      payload: Record<string, unknown>;
+      attempts: number;
+      maxAttempts: number;
+      createdAt: string;
+      lastError?: string;
+    }[];
+  }
+>();
 let objectsHistory: number[] = [];
 let eventsHistory: number[] = [];
 let activeJobsHistory: number[] = [];
@@ -373,6 +399,33 @@ async function fetchResources(): Promise<void> {
     }
   }
 
+  // Populate events per stream
+  eventsByStream.clear();
+  await Promise.all(
+    streams.map(async (s) => {
+      try {
+        const evts = await db.events.list(s, { limit: 20 });
+        eventsByStream.set(s, evts);
+      } catch {
+        eventsByStream.set(s, []);
+      }
+    })
+  );
+
+  // Populate jobs per queue
+  jobsByQueue.clear();
+  await Promise.all(
+    queues.map(async (q) => {
+      try {
+        const active = await db.queue(q).list();
+        const dead = await db.queue(q).dead();
+        jobsByQueue.set(q, { active, dead });
+      } catch {
+        jobsByQueue.set(q, { active: [], dead: [] });
+      }
+    })
+  );
+
   // Calculate Deltas for Operations Throughput Rates
   const prevObjects =
     objectsHistory.length > 0
@@ -508,6 +561,8 @@ interface TreeNode {
     | "object"
     | "stream"
     | "queue"
+    | "event"
+    | "job"
     | "link"
     | "status"
     | "driver"
@@ -629,15 +684,40 @@ function buildTree(): TreeNode[] {
       });
     }
     for (const stream of streams) {
+      const sOpen = expandedSet.has(`stream:${stream}`);
       nodes.push({
         id: `stream:${stream}`,
         parentId: "cat:streams",
         type: "stream",
-        label: `${pc.green("●")} ${pc.green(stream)}`,
+        label: `${sOpen ? pc.cyan("▾") : pc.dim("▸")} ${pc.green(stream)}`,
         depth: 1,
-        expandable: false,
+        expandable: true,
         ref: { name: stream },
       });
+      if (sOpen) {
+        const evts = eventsByStream.get(stream) ?? [];
+        if (evts.length === 0) {
+          nodes.push({
+            id: `empty:evt:${stream}`,
+            parentId: `stream:${stream}`,
+            type: "status",
+            label: pc.dim("(no events)"),
+            depth: 2,
+            expandable: false,
+          });
+        }
+        for (const evt of evts) {
+          nodes.push({
+            id: `evt:${stream}:${evt.id}`,
+            parentId: `stream:${stream}`,
+            type: "event",
+            label: `${pc.dim("·")} ${pc.dim(evt.type || "unknown")}`,
+            depth: 2,
+            expandable: false,
+            ref: { stream: stream, eventId: evt.id, eventData: evt },
+          });
+        }
+      }
     }
   }
 
@@ -661,15 +741,89 @@ function buildTree(): TreeNode[] {
       });
     }
     for (const q of queues) {
+      const qOpen = expandedSet.has(`queue:${q}`);
       nodes.push({
         id: `queue:${q}`,
         parentId: "cat:queues",
         type: "queue",
-        label: `${pc.magenta("◇")} ${pc.magenta(q)}`,
+        label: `${qOpen ? pc.cyan("▾") : pc.dim("▸")} ${pc.magenta(q)}`,
         depth: 1,
-        expandable: false,
+        expandable: true,
         ref: { name: q },
       });
+      if (qOpen) {
+        const jobData = jobsByQueue.get(q);
+        const activeJobs = jobData?.active ?? [];
+        const deadJobs = jobData?.dead ?? [];
+
+        // Active jobs subcategory
+        const activeOpen = expandedSet.has(`queue:${q}:active`);
+        nodes.push({
+          id: `queue:${q}:active`,
+          parentId: `queue:${q}`,
+          type: "category",
+          label: `${activeOpen ? pc.cyan("▾") : pc.dim("▸")} ${pc.bold("Active")}  ${pc.dim(`(${activeJobs.length})`)}`,
+          depth: 2,
+          expandable: true,
+        });
+        if (activeOpen) {
+          if (activeJobs.length === 0) {
+            nodes.push({
+              id: `empty:active:${q}`,
+              parentId: `queue:${q}:active`,
+              type: "status",
+              label: pc.dim("(no active jobs)"),
+              depth: 3,
+              expandable: false,
+            });
+          }
+          for (const job of activeJobs) {
+            nodes.push({
+              id: `job:${q}:active:${job.id}`,
+              parentId: `queue:${q}:active`,
+              type: "job",
+              label: `${pc.cyan("●")} ${pc.dim(job.id.slice(0, 12))}`,
+              depth: 3,
+              expandable: false,
+              ref: { queue: q, jobId: job.id, status: "active", jobData: job },
+            });
+          }
+        }
+
+        // Dead jobs subcategory
+        const deadOpen = expandedSet.has(`queue:${q}:dead`);
+        nodes.push({
+          id: `queue:${q}:dead`,
+          parentId: `queue:${q}`,
+          type: "category",
+          label: `${deadOpen ? pc.cyan("▾") : pc.dim("▸")} ${pc.bold("Dead")}  ${pc.dim(`(${deadJobs.length})`)}`,
+          depth: 2,
+          expandable: true,
+        });
+        if (deadOpen) {
+          if (deadJobs.length === 0) {
+            nodes.push({
+              id: `empty:dead:${q}`,
+              parentId: `queue:${q}:dead`,
+              type: "status",
+              label: pc.dim("(no dead jobs)"),
+              depth: 3,
+              expandable: false,
+            });
+          }
+          for (const job of deadJobs) {
+            nodes.push({
+              id: `job:${q}:dead:${job.id}`,
+              parentId: `queue:${q}:dead`,
+              type: "job",
+              label: `${pc.red("○")} ${pc.dim(job.id.slice(0, 12))}`,
+              depth: 3,
+              expandable: false,
+              ref: { queue: q, jobId: job.id, status: "dead", jobData: job },
+            });
+          }
+        }
+      }
     }
   }
 
@@ -774,41 +928,78 @@ async function loadContent(node: TreeNode): Promise<void> {
       content = res;
     } else if (node.type === "stream" && node.ref) {
       const ref = node.ref as { name: string };
-      const events = await db.events.list(ref.name);
-      let res = `${pc.bold(ref.name)} ${pc.dim(`(${events.length} events)`)}\n\n`;
-
-      if (events.length === 0) {
-        res += pc.dim("No events in this stream.");
+      const evts = eventsByStream.get(ref.name) ?? [];
+      let res = `${pc.bold(ref.name)} ${pc.dim(`(${evts.length} events shown)`)}\n\n`;
+      res += pc.dim("Expand to browse individual events, or press [c] to append.\n");
+      content = res;
+    } else if (node.type === "event" && node.ref) {
+      const ref = node.ref as {
+        stream: string;
+        eventId: string;
+        eventData: {
+          id: string;
+          type: string;
+          createdAt: string;
+          stream: string;
+          text?: string;
+          [key: string]: unknown;
+        };
+      };
+      const evt = ref.eventData;
+      let res = `${pc.bold(evt.type || "unknown")} ${pc.dim(evt.id)}\n`;
+      res += ` ${pc.dim("Stream:")} ${pc.green(ref.stream)}\n`;
+      res += ` ${pc.dim("Created:")} ${pc.dim(evt.createdAt || "—")}\n\n`;
+      const display = { ...evt };
+      for (const k of ["id", "stream", "sequence", "createdAt", "idempotencyKey"]) {
+        delete (display as Record<string, unknown>)[k];
+      }
+      if (Object.keys(display).length > 0) {
+        res += highlightJson(display);
       } else {
-        const lines = events.map((e) => {
-          const ts = e.createdAt ? pc.dim(String(e.createdAt)) : "";
-          const type = pc.magenta(e.type || "unknown");
-          return ` ${ts} ${type}`;
-        });
-        res += lines.join("\n");
+        res += pc.dim("No payload.");
       }
       content = res;
     } else if (node.type === "queue" && node.ref) {
       const ref = node.ref as { name: string };
-      const queue = db.queue(ref.name);
-      const [active, dead] = await Promise.all([queue.list(), queue.dead()]);
-
+      const jobData = jobsByQueue.get(ref.name);
+      const active = jobData?.active ?? [];
+      const dead = jobData?.dead ?? [];
       let res = `${pc.bold(ref.name)}\n\n`;
       res += `${pc.cyan("Active")} ${pc.dim(`(${active.length})`)}\n`;
-      if (active.length === 0) {
-        res += pc.dim(" No jobs\n");
-      } else {
-        for (const j of active) {
-          res += ` ${pc.cyan("●")} ${j.id} ${pc.yellow(j.status)} ${pc.dim(`${j.attempts}/${j.maxAttempts}`)}\n`;
-        }
+      res += `${pc.red("Dead")} ${pc.dim(`(${dead.length})`)}\n\n`;
+      res += pc.dim("Expand Active or Dead to browse jobs, [c] to push new job.");
+      content = res;
+    } else if (node.type === "job" && node.ref) {
+      const ref = node.ref as {
+        queue: string;
+        jobId: string;
+        status: string;
+        jobData: {
+          id: string;
+          status?: string;
+          payload?: Record<string, unknown>;
+          attempts: number;
+          maxAttempts: number;
+          createdAt: string;
+          lastError?: string;
+        };
+      };
+      const job = ref.jobData;
+      let res = `${pc.bold(job.id)}  ${pc.yellow(job.status || ref.status)}\n`;
+      res += ` ${pc.dim("Queue:")} ${pc.magenta(ref.queue)}\n`;
+      res += ` ${pc.dim("Attempts:")} ${job.attempts}/${job.maxAttempts}\n`;
+      res += ` ${pc.dim("Created:")} ${pc.dim(job.createdAt || "—")}\n`;
+      if (job.lastError) {
+        res += ` ${pc.dim("Error:")} ${pc.red(job.lastError)}\n`;
       }
-      res += `${pc.red("Dead")} ${pc.dim(`(${dead.length})`)}\n`;
-      if (dead.length === 0) {
-        res += pc.dim(" No dead jobs\n");
+      res += "\n";
+      if (job.payload && Object.keys(job.payload).length > 0) {
+        res += highlightJson(job.payload);
       } else {
-        for (const j of dead) {
-          res += ` ${pc.red("○")} ${j.id} ${pc.dim(`${j.attempts}/${j.maxAttempts}`)}\n`;
-        }
+        res += pc.dim("No payload.");
+      }
+      if (ref.status === "dead") {
+        res += `\n\n${pc.dim("[e] Retry (ack)  [d] Nack (remove from dead letter)")}`;
       }
       content = res;
     } else if (node.type === "status") {
@@ -1369,6 +1560,45 @@ async function handleEdit(selected: TreeNode | undefined) {
         }
       }
     );
+  } else if (selected.type === "job" && selected.ref) {
+    const ref = selected.ref as { queue: string; jobId: string; status: string };
+    if (ref.status === "dead") {
+      openForm(
+        `Retry Dead Job: ${ref.jobId.slice(0, 12)}`,
+        [
+          {
+            id: "action",
+            label: "Action",
+            value: "ack",
+            options: ["ack", "nack"],
+          },
+          {
+            id: "error",
+            label: "Error message (for nack)",
+            placeholder: "Optional error",
+          },
+        ],
+        async (vals) => {
+          const action = vals.action || "";
+          if (action === "ack") {
+            await db.queue(ref.queue).ack(ref.jobId);
+          } else if (action === "nack") {
+            await db.queue(ref.queue).nack(ref.jobId, { error: vals.error || "Rejected" });
+          } else {
+            throw new Error("Action must be 'ack' or 'nack'.");
+          }
+        }
+      );
+    } else {
+      // Active job — nack to fail it back to ready
+      openForm(
+        `Nack Job: ${ref.jobId.slice(0, 12)}`,
+        [{ id: "error", label: "Error message", placeholder: "Optional" }],
+        async (vals) => {
+          await db.queue(ref.queue).nack(ref.jobId, { error: vals.error || "Nacked" });
+        }
+      );
+    }
   } else {
     openForm(
       "Edit Not Supported",
@@ -1446,6 +1676,38 @@ async function handleDelete(selected: TreeNode | undefined) {
         }
       }
     );
+  } else if (selected.type === "job" && selected.ref) {
+    const ref = selected.ref as { queue: string; jobId: string; status: string };
+    if (ref.status === "dead") {
+      openForm(
+        `Remove Dead Job: ${ref.jobId.slice(0, 12)}`,
+        [
+          {
+            id: "action",
+            label: "Action",
+            value: "nack",
+            options: ["ack", "nack"],
+          },
+          { id: "confirm", label: 'Type "yes" to confirm', placeholder: "yes" },
+        ],
+        async (vals) => {
+          if ((vals.confirm || "").toLowerCase() !== "yes") {
+            throw new Error("Canceled");
+          }
+          if (vals.action === "ack") {
+            await db.queue(ref.queue).ack(ref.jobId);
+          } else {
+            await db.queue(ref.queue).nack(ref.jobId, { error: "Removed from dead letter" });
+          }
+        }
+      );
+    } else {
+      openForm(
+        "Delete Not For Active Jobs",
+        [{ id: "msg", label: "Info", value: "Use [e] to nack an active job back to ready state." }],
+        async () => {}
+      );
+    }
   } else {
     openForm(
       "Delete Not Supported",
