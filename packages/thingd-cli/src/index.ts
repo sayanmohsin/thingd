@@ -21,6 +21,7 @@ import {
 } from "@thingd/sdk";
 import pc from "picocolors";
 import { runInteractiveCli } from "./interactive.js";
+import { deriveRestUrl } from "./lib/cloud-api.js";
 import { readCloudConfig, resolveCloudUrl } from "./lib/cloud-config.js";
 import { logoLine } from "./logo.js";
 import { runMcp } from "./mcp.js";
@@ -1245,7 +1246,7 @@ export function resolveConnection(context: CliContext): ConnectionOptions {
   const url = stringFlag(context.parsed, "url") ?? context.env.THINGD_URL;
   const path =
     url ?? stringFlag(context.parsed, "path") ?? context.env.THINGD_PATH ?? defaultThingdDbPath();
-  const cloud = isCloudPath(path);
+  let cloud = isCloudPath(path);
   let driver = parseDriver(stringFlag(context.parsed, "driver") ?? context.env.THINGD_DRIVER);
 
   if (!driver) {
@@ -1258,6 +1259,10 @@ export function resolveConnection(context: CliContext): ConnectionOptions {
     }
   }
 
+  if (driver === "cloud") {
+    cloud = true;
+  }
+
   if (!cloud && path === defaultThingdDbPath()) {
     ensureThingdDir();
   }
@@ -1265,13 +1270,18 @@ export function resolveConnection(context: CliContext): ConnectionOptions {
   // Fall back to saved cloud config when no explicit URL/token is provided
   const cloudCfg = cloud && !url ? readCloudConfig() : null;
   const resolvedAuthToken =
-    stringFlag(context.parsed, "auth-token") ?? context.env.THINGD_AUTH_TOKEN ?? cloudCfg?.token;
+    stringFlag(context.parsed, "auth-token") ??
+    context.env.THINGD_AUTH_TOKEN ??
+    cloudCfg?.apiKey ??
+    cloudCfg?.token;
 
   // Prefer instanceUrl (resolved MCP endpoint) over raw cloudCfg.url (API base)
   const resolvedCloudUrl = cloudCfg ? resolveCloudUrl(cloudCfg) : undefined;
+  const effectiveCloudUrl =
+    resolvedCloudUrl && driver === "cloud" ? deriveRestUrl(resolvedCloudUrl) : resolvedCloudUrl;
 
   return {
-    path: resolvedCloudUrl && !url ? resolvedCloudUrl : path,
+    path: effectiveCloudUrl && !url ? effectiveCloudUrl : path,
     driver,
     authToken: resolvedAuthToken,
     cloud,
