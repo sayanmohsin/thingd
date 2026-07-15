@@ -104,6 +104,7 @@ let eventAppendRateHistory: number[] = [];
 
 let viewerLines: string[] = ["Select an item to view details."];
 let viewerScroll = 0;
+let lastNeighborsRef = "";
 let loadedItemId = "";
 let loadTimer: ReturnType<typeof setTimeout> | null = null;
 let pollTimer: ReturnType<typeof setInterval> | null = null;
@@ -507,6 +508,7 @@ interface TreeNode {
     | "object"
     | "stream"
     | "queue"
+    | "link"
     | "status"
     | "driver"
     | "maintenance";
@@ -670,6 +672,15 @@ function buildTree(): TreeNode[] {
       });
     }
   }
+
+  // Links
+  nodes.push({
+    id: "node:links",
+    type: "link",
+    label: `${pc.blue("◈")} ${pc.dim("Links")}  ${pc.dim(`(${totalLinksCount})`)}`,
+    depth: 0,
+    expandable: false,
+  });
 
   // Metrics
   nodes.push({
@@ -872,6 +883,18 @@ async function loadContent(node: TreeNode): Promise<void> {
       if (cloudError) {
         content += `\n ${pc.yellow("⚠")} ${pc.dim(cloudError)}\n`;
       }
+    } else if (node.type === "link") {
+      content = [
+        ` ${pc.bold("Links")}  ${pc.dim(`(${totalLinksCount} total`)}${lastNeighborsRef ? pc.dim(`, last browsed: ${lastNeighborsRef}`) : ""})`,
+        "",
+        totalLinksCount === 0
+          ? ` ${pc.dim("No links yet.")}`
+          : ` ${pc.dim("Select an object and press")} ${pc.bold("n")} ${pc.dim("to browse its neighbors.")}`,
+        "",
+        ` ${pc.bold("Operations")}`,
+        ` ${pc.bold("[c]")} Create a new link`,
+        ` ${pc.bold("[d]")} Delete a link by ID`,
+      ].join("\n");
     } else if (node.type === "category") {
       content = pc.dim("Expand to browse items.");
     } else {
@@ -1013,7 +1036,7 @@ function draw() {
   } else if (!connected) {
     help = ` ${pc.dim("↑↓")} nav  ${pc.dim("enter")} connect  ${pc.dim("q")} quit `;
   } else {
-    help = ` ${pc.dim("↑↓")} nav  ${pc.dim("←→")} toggle  ${pc.dim("c")} create  ${pc.dim("e")} edit  ${pc.dim("d")} delete  ${pc.dim("/")} search  ${pc.dim("i")} info  ${pc.dim("r")} refresh  ${pc.dim("s")} switch  ${pc.dim("l")} logout  ${pc.dim("q")} quit `;
+    help = ` ${pc.dim("↑↓")} nav  ${pc.dim("←→")} toggle  ${pc.dim("c")} create  ${pc.dim("e")} edit  ${pc.dim("d")} delete  ${pc.dim("/")} search  ${pc.dim("n")} neighbors  ${pc.dim("i")} info  ${pc.dim("r")} refresh  ${pc.dim("s")} switch  ${pc.dim("l")} logout  ${pc.dim("q")} quit `;
   }
   buf += `${pc.dim("─".repeat(W))}\n`;
   buf += padToWidth(help, W);
@@ -1202,23 +1225,33 @@ async function handleCreate(selected: TreeNode | undefined) {
     [
       {
         id: "kind",
-        label: "Kind (object, event, queue)",
-        value: defaultStream ? "event" : defaultQueue ? "queue" : "object",
-        options: ["object", "event", "queue"],
+        label: "Kind (object, event, queue, link)",
+        value: defaultStream
+          ? "event"
+          : defaultQueue
+            ? "queue"
+            : selected?.type === "link"
+              ? "link"
+              : "object",
+        options: ["object", "event", "queue", "link"],
       },
       {
         id: "target",
-        label: "Target (Collection, Stream, or Queue Name)",
+        label: "Target (Collection, Stream, Queue, or From Reference)",
         value: defaultCol || defaultStream || defaultQueue,
         options: Array.from(new Set([...collections, ...streams, ...queues])).sort(),
         allowCustom: true,
       },
       {
         id: "objId",
-        label: "Object ID (only for objects, auto if blank)",
+        label: "Object / To Reference ID (auto if blank for objects)",
         placeholder: "Leave blank to auto-generate",
       },
-      { id: "payload", label: "Data (JSON or key=value)", placeholder: 'e.g. name="John" age=30' },
+      {
+        id: "payload",
+        label: "Data, Link Type, or JSON Fields",
+        placeholder: 'e.g. name="John" age=30 or {"linkType":"follows","weight":1}',
+      },
     ],
     async (vals) => {
       const kind = (vals.kind || "").toLowerCase();
@@ -1253,8 +1286,32 @@ async function handleCreate(selected: TreeNode | undefined) {
         const data = parsePayload(vals.payload);
         await db.queue(target).push(data);
         expandedSet.add("cat:queues");
+      } else if (kind === "link") {
+        const toRef = (vals.objId || "").trim();
+        if (!toRef) {
+          throw new Error("To Reference is required (use Object ID field).");
+        }
+        let linkType = "related";
+        let weight: number | undefined;
+        let metadataJson: string | undefined;
+        try {
+          const parsed = JSON.parse(vals.payload || "{}");
+          linkType = parsed.linkType || parsed.link_type || "related";
+          if (parsed.weight !== undefined) {
+            weight = Number(parsed.weight);
+          }
+          if (parsed.metadata || parsed.metadataJson) {
+            metadataJson =
+              typeof parsed.metadata === "string"
+                ? parsed.metadata
+                : JSON.stringify(parsed.metadata);
+          }
+        } catch {
+          linkType = (vals.payload || "").trim() || "related";
+        }
+        await db.links.create(target, linkType, toRef, weight, metadataJson);
       } else {
-        throw new Error("Kind must be 'object', 'event', or 'queue'.");
+        throw new Error("Kind must be 'object', 'event', 'queue', or 'link'.");
       }
     }
   );
@@ -1364,10 +1421,41 @@ async function handleDelete(selected: TreeNode | undefined) {
         }
       }
     );
+  } else if (selected.type === "link" || loadedItemId === "neighbors_result") {
+    openForm(
+      "Delete Link",
+      [
+        {
+          id: "linkId",
+          label: "Link ID",
+          placeholder: "Paste the link ID from the neighbors view",
+        },
+        { id: "confirm", label: 'Type "yes" to confirm deletion', placeholder: "yes" },
+      ],
+      async (vals) => {
+        const linkId = (vals.linkId || "").trim();
+        if (!linkId) {
+          throw new Error("Link ID is required.");
+        }
+        if ((vals.confirm || "").toLowerCase() !== "yes") {
+          throw new Error("Canceled");
+        }
+        const ok = await db.links.delete(linkId);
+        if (!ok) {
+          throw new Error(`Link '${linkId}' not found.`);
+        }
+      }
+    );
   } else {
     openForm(
       "Delete Not Supported",
-      [{ id: "msg", label: "Error", value: "Deletion is only available for Objects and Queues." }],
+      [
+        {
+          id: "msg",
+          label: "Error",
+          value: "Deletion is only available for Objects, Links, and Queues.",
+        },
+      ],
       async () => {}
     );
   }
@@ -1503,6 +1591,76 @@ async function handleInfo() {
 
   viewerLines = lines;
   loadedItemId = "info_status";
+}
+
+async function handleNeighbors(selected: TreeNode | undefined) {
+  if (selected?.type !== "object" || !selected.ref) {
+    viewerLines = [
+      ` ${pc.yellow("Neighbors")}`,
+      "",
+      ` ${pc.dim("Select an object first, then press")} ${pc.bold("n")} ${pc.dim("to browse its links.")}`,
+    ];
+    loadedItemId = "neighbors_info";
+    draw();
+    return;
+  }
+
+  const ref = selected.ref as { collection: string; id: string };
+  const fromRef = `${ref.collection}/${ref.id}`;
+
+  openForm(
+    `Neighbors of ${fromRef}`,
+    [
+      {
+        id: "direction",
+        label: "Direction",
+        value: "Both",
+        options: ["Both", "Outgoing", "Incoming"],
+      },
+      {
+        id: "linkType",
+        label: "Link Type (optional, leave blank for all)",
+        placeholder: "e.g. follows, owns",
+      },
+      {
+        id: "limit",
+        label: "Max Results (optional)",
+        placeholder: "50",
+      },
+    ],
+    async (vals) => {
+      const direction = (vals.direction || "Both") as "Outgoing" | "Incoming" | "Both";
+      const linkType = (vals.linkType || "").trim() || undefined;
+      const limitStr = vals.limit || "";
+      const limit = limitStr ? parseInt(limitStr, 10) || undefined : undefined;
+
+      const links = await db.links.neighbors(fromRef, direction, { linkType, limit });
+
+      lastNeighborsRef = fromRef;
+      viewerLines = [
+        ` ${pc.bold("Neighbors of")} ${pc.cyan(fromRef)}`,
+        ` ${pc.dim(
+          `(${links.length} link${links.length !== 1 ? "s" : ""}${
+            direction !== "Both" ? `, ${direction.toLowerCase()}` : ""
+          }${linkType ? `, type: ${linkType}` : ""})`
+        )}`,
+        "",
+        ...(links.length === 0 ? [` ${pc.dim("No links found.")}`] : []),
+        ...links.flatMap((link) => [
+          ` ${pc.blue("◈")} ${pc.dim(link.id)}`,
+          `   ${link.fromRef} ${pc.cyan(link.linkType)} ${link.toRef}`,
+          link.weight !== undefined ? `   ${pc.dim(`weight: ${link.weight}`)}` : "",
+          link.metadataJson && link.metadataJson !== "{}"
+            ? `   ${pc.dim(`metadata: ${link.metadataJson}`)}`
+            : "",
+          "",
+        ]),
+        pc.dim("[d] Delete a link by ID  [c] Create a new link"),
+      ];
+      loadedItemId = "neighbors_result";
+      draw();
+    }
+  );
 }
 
 async function handleMaintenance() {
@@ -1776,6 +1934,8 @@ function setupKeypress() {
         await handleSearch();
       } else if (str === "i" || str === "I") {
         await handleInfo();
+      } else if (str === "n" || str === "N") {
+        await handleNeighbors(tree[cursorIndex]);
       } else if (str === "m" || str === "M") {
         await handleMaintenance();
       } else if (str === "l" || str === "L") {
