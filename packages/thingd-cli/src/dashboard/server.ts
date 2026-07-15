@@ -144,7 +144,7 @@ export async function startDashboardServer(
         // POST /api/connect (Dynamic connection swapping)
         if (pathname === "/api/connect" && req.method === "POST") {
           const bodyStr = await readBody(req);
-          const { path, driver, authToken } = JSON.parse(bodyStr);
+          const { path, driver, authToken, instanceSlug } = JSON.parse(bodyStr);
 
           if (!path || !driver) {
             sendError(res, 400, "Fields 'path' and 'driver' are required.");
@@ -153,6 +153,7 @@ export async function startDashboardServer(
 
           const cloudMode = isCloudPath(path);
           const resolvedToken = authToken || (cloudMode ? readCloudConfig()?.token : undefined);
+          const resolvedInstanceSlug = instanceSlug || activeOptions.instanceSlug;
 
           // Safely shut down the old db instance
           await db.close();
@@ -163,6 +164,7 @@ export async function startDashboardServer(
             url: cloudMode ? path : undefined,
             driver,
             authToken: resolvedToken,
+            instanceSlug: resolvedInstanceSlug,
           });
 
           activeOptions = {
@@ -170,6 +172,7 @@ export async function startDashboardServer(
             driver,
             authToken: resolvedToken,
             cloud: cloudMode,
+            instanceSlug: resolvedInstanceSlug,
           };
 
           res.writeHead(200, { "Content-Type": "application/json" });
