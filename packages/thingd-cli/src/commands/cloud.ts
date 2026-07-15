@@ -7,6 +7,7 @@ import { type CliContext, requiredToken, stringFlag } from "../index.js";
 import {
   addOrganizationMember,
   CloudApiError,
+  cleanupSessions,
   createApiKey,
   createInstance,
   createOrganization,
@@ -139,7 +140,11 @@ export async function runCloud(context: CliContext): Promise<void> {
       await runInstance(context);
       return;
     case "api-key":
-      context.stderr.write(pc.yellow("Deprecated. Use `thingd cloud token create` for CLI tokens. Project API keys are managed in the dashboard.\n"));
+      context.stderr.write(
+        pc.yellow(
+          "Deprecated. Use `thingd cloud token create` for CLI tokens. Project API keys are managed in the dashboard.\n"
+        )
+      );
       await runApiKey(context);
       return;
     case "org":
@@ -165,10 +170,7 @@ async function runLogin(context: CliContext): Promise<void> {
       const { user } = await getMe({ ...config, token });
       // Create a permanent user token
       const hostname = os.hostname();
-      const { token: userToken } = await createUserToken(
-        { ...config, token },
-        `cli-${hostname}`
-      );
+      const { token: userToken } = await createUserToken({ ...config, token }, `cli-${hostname}`);
       // Save config with user token (not JWT)
       const cloudConfig: CloudConfig = { userToken, email: user.email, ...config };
       writeCloudConfig(cloudConfig);
@@ -291,9 +293,7 @@ async function runCloudStatus(context: CliContext): Promise<void> {
 
   try {
     const { user } = await getMe(config);
-    context.stdout.write(
-      `Logged in as ${pc.green(user.email)} (${user.role})\n`
-    );
+    context.stdout.write(`Logged in as ${pc.green(user.email)} (${user.role})\n`);
 
     // Show token info
     if (config.userToken) {
@@ -345,12 +345,20 @@ async function runCloudStatus(context: CliContext): Promise<void> {
 function formatTimeAgo(iso: string): string {
   const ms = Date.now() - new Date(iso).getTime();
   const s = Math.floor(ms / 1000);
-  if (s < 5) return "just now";
-  if (s < 60) return `${s}s ago`;
+  if (s < 5) {
+    return "just now";
+  }
+  if (s < 60) {
+    return `${s}s ago`;
+  }
   const m = Math.floor(s / 60);
-  if (m < 60) return `${m}m ago`;
+  if (m < 60) {
+    return `${m}m ago`;
+  }
   const h = Math.floor(m / 60);
-  if (h < 24) return `${h}h ago`;
+  if (h < 24) {
+    return `${h}h ago`;
+  }
   const d = Math.floor(h / 24);
   return `${d}d ago`;
 }
@@ -369,9 +377,7 @@ function requireLoggedInConfig(context: CliContext): CloudConfig {
 async function runToken(context: CliContext): Promise<void> {
   const sub = context.parsed.tokens[2];
   if (!sub) {
-    context.stderr.write(
-      "Usage: thingd cloud token <list|create|revoke|restrict|unrestricted>\n"
-    );
+    context.stderr.write("Usage: thingd cloud token <list|create|revoke|restrict|unrestricted>\n");
     return;
   }
 
@@ -391,10 +397,24 @@ async function runToken(context: CliContext): Promise<void> {
     case "unrestricted":
       await runTokenUnrestricted(context);
       return;
+    case "cleanup":
+      await runTokenCleanup(context);
+      return;
     default:
       context.stderr.write(
-        `Unknown token action: ${sub}. Available: list, create, revoke, restrict, unrestricted\n`
+        `Unknown token action: ${sub}. Available: list, create, revoke, restrict, unrestricted, cleanup\n`
       );
+  }
+}
+
+async function runTokenCleanup(context: CliContext): Promise<void> {
+  const config = requireLoggedInConfig(context);
+  try {
+    // Clean up expired sessions on the user's account
+    const { removed } = await cleanupSessions(config);
+    context.stdout.write(pc.green(`✓ Cleaned up ${removed} expired sessions\n`));
+  } catch (err) {
+    context.stderr.write(pc.red(`Failed to clean up sessions: ${err}\n`));
   }
 }
 
@@ -403,7 +423,9 @@ async function runTokenList(context: CliContext): Promise<void> {
   try {
     const { userTokens } = await listUserTokens(config);
     if (userTokens.length === 0) {
-      context.stdout.write("No CLI tokens found. Create one with `thingd cloud token create <name>`\n");
+      context.stdout.write(
+        "No CLI tokens found. Create one with `thingd cloud token create <name>`\n"
+      );
       return;
     }
     // Header
@@ -411,7 +433,9 @@ async function runTokenList(context: CliContext): Promise<void> {
     context.stdout.write(`${header}\n`);
     context.stdout.write(`${pc.dim("─".repeat(header.length))}\n`);
     for (const t of userTokens) {
-      if (t.revokedAt) continue; // Skip revoked tokens
+      if (t.revokedAt) {
+        continue; // Skip revoked tokens
+      }
       const access = t.projectAccess === "all" ? "All" : t.projectAccess;
       context.stdout.write(
         `${t.name.padEnd(18)} ${pc.dim(t.prefix.padEnd(22))} ${formatTimeAgo(t.createdAt).padEnd(14)} ${(t.lastUsedAt ? formatTimeAgo(t.lastUsedAt) : "never").padEnd(14)} ${pc.cyan(access)}\n`

@@ -284,16 +284,11 @@ export async function createUserToken(
   });
 }
 
-export async function listUserTokens(
-  config: CloudConfig
-): Promise<{ userTokens: UserTokenDto[] }> {
+export async function listUserTokens(config: CloudConfig): Promise<{ userTokens: UserTokenDto[] }> {
   return request(config, "/auth/user-tokens");
 }
 
-export async function revokeUserToken(
-  config: CloudConfig,
-  tokenId: string
-): Promise<void> {
+export async function revokeUserToken(config: CloudConfig, tokenId: string): Promise<void> {
   await request(config, `/auth/user-tokens/${tokenId}`, { method: "DELETE" });
 }
 
@@ -311,6 +306,10 @@ export async function updateUserToken(
 /**
  * Extract the token ID from a full user token string (md_user_<hexId>_<secret> → utk_<hexId>).
  */
+export async function cleanupSessions(config: CloudConfig): Promise<{ removed: number }> {
+  return request(config, "/auth/sessions/cleanup", { method: "DELETE" });
+}
+
 export function parseUserTokenId(userToken: string): string | null {
   const match = /^md_user_([a-f0-9]{20})_/.exec(userToken);
   if (!match?.[1]) {
