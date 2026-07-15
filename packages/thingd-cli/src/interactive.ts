@@ -1112,6 +1112,44 @@ async function loadContent(node: TreeNode): Promise<void> {
       content += ` ${pc.dim("Active Jobs".padEnd(14))} ${pc.yellow(String(totalActiveJobsCount).padEnd(6))} ${pc.dim("in flight")}\n`;
       content += ` ${pc.dim("Dead Jobs".padEnd(14))} ${pc.red(String(totalDeadJobsCount).padEnd(6))} ${pc.dim("failed")}\n\n`;
 
+      // Collection breakdown bar chart
+      if (collections.length > 0) {
+        content += ` ${pc.bold("Collections")}\n`;
+        const maxCount = Math.max(
+          1,
+          ...collections.map((c) => (objectsByCollection.get(c) ?? []).length)
+        );
+        const barMax = Math.max(5, viewW - 30);
+        for (const col of collections) {
+          const count = (objectsByCollection.get(col) ?? []).length;
+          const barLen = Math.max(1, Math.round((count / maxCount) * barMax));
+          const bar = barLen > 0 ? pc.cyan("█".repeat(barLen)) : "";
+          content += ` ${pc.dim(col.slice(0, 12).padEnd(12))} ${bar} ${pc.dim(String(count))}\n`;
+        }
+        content += "\n";
+      }
+
+      // Capacity gauge bar
+      const totalHistorical =
+        totalObjects +
+        totalEventsCount +
+        totalLinksCount +
+        totalActiveJobsCount +
+        totalDeadJobsCount;
+      if (totalHistorical > 0) {
+        const capBarW = Math.max(5, viewW - 20);
+        const objFrac = totalObjects / totalHistorical;
+        const evtFrac = totalEventsCount / totalHistorical;
+        const linkFrac = totalLinksCount / totalHistorical;
+        const objChars = Math.round(objFrac * capBarW);
+        const evtChars = Math.round(evtFrac * capBarW);
+        const linkChars = Math.round(linkFrac * capBarW);
+        const jobChars = capBarW - objChars - evtChars - linkChars;
+        content += ` ${pc.bold("Distribution")}\n`;
+        content += ` ${pc.dim(" ")}${pc.cyan("█".repeat(Math.max(0, objChars)))}${pc.green("█".repeat(Math.max(0, evtChars)))}${pc.blue("█".repeat(Math.max(0, linkChars)))}${pc.yellow("█".repeat(Math.max(0, jobChars)))}\n`;
+        content += ` ${pc.cyan("■")} objs ${pc.green("■")} evts ${pc.blue("■")} links ${pc.yellow("■")} jobs\n\n`;
+      }
+
       content += ` ${pc.bold("Connection")}\n`;
       content += ` ${pc.dim("Driver".padEnd(14))} ${driverName}\n`;
       content += ` ${pc.dim("Path".padEnd(14))} ${dbPath || ":memory:"}\n`;
