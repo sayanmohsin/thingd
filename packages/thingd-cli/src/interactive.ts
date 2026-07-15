@@ -140,6 +140,7 @@ let eventAppendRateHistory: number[] = [];
 
 let viewerLines: string[] = ["Select an item to view details."];
 let viewerScroll = 0;
+let showHelp = false;
 let lastNeighborsRef = "";
 let loadedItemId = "";
 let loadTimer: ReturnType<typeof setTimeout> | null = null;
@@ -1202,12 +1203,17 @@ function draw() {
   let buf = "\u001B[H"; // Move to top-left
 
   // Header — opencode style: clean, no inverse bar
-  if (!connected) {
-    buf += ` ${pc.cyan("◈")} ${pc.bold("thingd")}  ${pc.dim("Select Environment")}\n`;
+  if (showHelp) {
+    buf += ` ${pc.cyan("◈")} ${pc.bold("thingd")}  ${pc.dim("Help (press any key)")}\n`;
+  } else if (!connected) {
+    buf += ` ${pc.cyan("◈")} ${pc.bold("thingd")}  ${pc.dim("Select Environment")} ${pc.dim("[?] help")}\n`;
   } else if (formState?.active) {
-    buf += ` ${pc.cyan("◈")} ${pc.bold("thingd")}  ${pc.cyan(driver.toUpperCase())}  ${pc.dim("Input Mode")}\n`;
+    buf += ` ${pc.cyan("◈")} ${pc.bold("thingd")}  ${pc.cyan(driver.toUpperCase())}  ${pc.dim("Input Mode")} ${pc.dim("[?] help")}\n`;
   } else {
-    const label = ` ${pc.cyan("◈")} ${pc.bold("thingd")}  ${pc.cyan(driver.toUpperCase())} ${pc.dim(dbPath)}`;
+    const breadcrumb = computeBreadcrumbs();
+    const base = ` ${pc.cyan("◈")} ${pc.bold("thingd")}  ${pc.cyan(driver.toUpperCase())}`;
+    const dash = breadcrumb ? ` ${pc.dim("▸")} ` : "";
+    const label = `${base}${dash}${breadcrumb} ${pc.dim("[?] help")}`;
     buf += `${padToWidth(label, W)}\n`;
   }
   buf += `${pc.dim("─".repeat(W))}\n`;
@@ -1301,7 +1307,101 @@ function draw() {
   // Clear to end
   buf += "\u001B[J";
 
+  if (showHelp) {
+    buf += computeHelpOverlay(W, H);
+  }
+
   process.stdout.write(buf);
+}
+
+function computeBreadcrumbs(): string {
+  if (!connected) {
+    return "";
+  }
+  const tree = buildTree();
+  const node = tree[cursorIndex];
+  if (!node) {
+    return "";
+  }
+  const labels: string[] = [];
+  const climb = (id: string | undefined): void => {
+    if (!id) {
+      return;
+    }
+    const n = tree.find((t) => t.id === id);
+    if (!n) {
+      return;
+    }
+    if (n.parentId) {
+      climb(n.parentId);
+    }
+    const clean = n.label
+      .replace(/[▾▸●○·◇◈◉⬡]/g, "")
+      .trim()
+      .replace(/^\S+\s+/, "")
+      .trim();
+    if (clean && !clean.startsWith("(")) {
+      labels.push(clean);
+    }
+  };
+  climb(node.id);
+  return labels.length > 0 ? pc.dim(labels.join(" > ")) : "";
+}
+
+function computeHelpOverlay(W: number, H: number): string {
+  const lines = [
+    `${pc.bold("  thingd TUI Help")}`,
+    "",
+    `  ${pc.bold("Navigation")}`,
+    `  ${pc.dim("↑↓/j/k")}    Move cursor`,
+    `  ${pc.dim("←→/h/l")}   Expand/collapse tree`,
+    `  ${pc.dim("Enter")}      Toggle expand`,
+    "",
+    `  ${pc.bold("Operations")}`,
+    `  ${pc.dim("c")}         Create resource`,
+    `  ${pc.dim("e")}         Edit object/job`,
+    `  ${pc.dim("d")}         Delete object/link/job`,
+    `  ${pc.dim("r")}         Refresh data`,
+    `  ${pc.dim("i")}         Connection info`,
+    "",
+    `  ${pc.bold("Data Views")}`,
+    `  ${pc.dim("n")}         Object neighbors (links)`,
+    `  ${pc.dim("a")}         Aggregate (count/sum/avg/min/max)`,
+    `  ${pc.dim("t")}         Time-series query`,
+    `  ${pc.dim("N")}         Natural language query`,
+    `  ${pc.dim("/f")}        Search objects`,
+    `  ${pc.dim("o")}         Object listing options`,
+    `  ${pc.dim("b")}         Batch put/delete`,
+    "",
+    `  ${pc.bold("System")}`,
+    `  ${pc.dim("s")}         Switch driver`,
+    `  ${pc.dim("m")}         Maintenance`,
+    `  ${pc.dim("l")}         Logout`,
+    `  ${pc.dim("q")}         Quit`,
+    `  ${pc.dim("?")}         Toggle this help`,
+    "",
+    `  ${pc.dim("Press any key to close help.")}`,
+  ];
+  const helpW = 44;
+  const helpH = lines.length + 2;
+  const col = Math.max(0, Math.floor((W - helpW) / 2));
+  const row = Math.max(0, Math.floor((H - helpH) / 2));
+  let out = "";
+  for (let r = 0; r < H; r++) {
+    if (r >= row && r < row + helpH) {
+      const lineIdx = r - row;
+      if (lineIdx === 0 || lineIdx === helpH - 1) {
+        out += `${" ".repeat(col) + pc.dim(`┌${"─".repeat(helpW - 2)}┐`)}\n`;
+      } else {
+        const text = lines[lineIdx - 1] ?? "";
+        const padded = text + " ".repeat(Math.max(0, helpW - visibleWidth(text) - 2));
+        out += `${" ".repeat(col) + pc.dim("│")} ${padded} ${pc.dim("│")}\n`;
+      }
+    } else {
+      out += "\n";
+    }
+  }
+  return out;
 }
 
 /** Pad/truncate `text` to exactly `width` visible characters. */
@@ -2454,6 +2554,13 @@ function setupKeypress() {
       return;
     }
 
+    // Help overlay dismisses on any keypress
+    if (showHelp) {
+      showHelp = false;
+      draw();
+      return;
+    }
+
     // Quit
     if ((key.ctrl && key.name === "c") || key.name === "q") {
       if (formState?.active && key.name !== "q") {
@@ -2561,12 +2668,15 @@ function setupKeypress() {
         }
       }
     } else if (!connected) {
-      // Driver selection mode — only Enter works
+      // Driver selection mode — only Enter and ? work
       if (key.name === "return") {
         const node = tree[cursorIndex];
         if (node) {
           await handleConnect(node);
         }
+      } else if (str === "?") {
+        showHelp = !showHelp;
+        draw();
       }
     } else {
       // Connected mode — full set of shortcuts
@@ -2640,6 +2750,9 @@ function setupKeypress() {
         await handleDelete(tree[cursorIndex]);
       } else if (str === "/" || str === "f" || str === "F") {
         await handleSearch();
+      } else if (str === "?") {
+        showHelp = !showHelp;
+        draw();
       } else if (str === "i" || str === "I") {
         await handleInfo();
       } else if (str === "n") {
