@@ -141,7 +141,24 @@ let eventAppendRateHistory: number[] = [];
 let viewerLines: string[] = ["Select an item to view details."];
 let viewerScroll = 0;
 let showHelp = false;
+const loading = false;
+const toasts: string[] = [];
+
+function addToast(msg: string): void {
+  toasts.push(msg);
+  if (toasts.length > 3) {
+    toasts.shift();
+  }
+  setTimeout(() => {
+    const idx = toasts.indexOf(msg);
+    if (idx !== -1) {
+      toasts.splice(idx, 1);
+      draw();
+    }
+  }, 3000);
+}
 let lastNeighborsRef = "";
+
 let loadedItemId = "";
 let loadTimer: ReturnType<typeof setTimeout> | null = null;
 let pollTimer: ReturnType<typeof setInterval> | null = null;
@@ -1341,6 +1358,14 @@ function draw() {
   }
   buf += `${pc.dim("─".repeat(W))}\n`;
   buf += padToWidth(help, W);
+  if (loading) {
+    buf += `\n${pc.cyan("◇")} ${pc.dim("Working...")}`;
+  }
+  if (toasts.length > 0) {
+    for (const t of toasts) {
+      buf += `\n ${pc.green("●")} ${pc.dim(t)}`;
+    }
+  }
 
   // Clear to end
   buf += "\u001B[J";
@@ -1668,12 +1693,14 @@ async function handleCreate(selected: TreeNode | undefined) {
         await db.put(target, { id, ...data });
         expandedSet.add("cat:collections");
         expandedSet.add(`col:${target}`);
+        addToast(`Created object ${id} in ${target}`);
       } else if (kind === "event") {
         if (!vals.payload?.trim()) {
           throw new Error("Event Type is required (in Data field for events).");
         }
         await db.events.append(target, { type: vals.payload.trim() });
         expandedSet.add("cat:streams");
+        addToast(`Appended event to ${target}`);
       } else if (kind === "queue") {
         if (!vals.payload?.trim()) {
           throw new Error("Payload is required.");
@@ -1681,6 +1708,7 @@ async function handleCreate(selected: TreeNode | undefined) {
         const data = parsePayload(vals.payload);
         await db.queue(target).push(data);
         expandedSet.add("cat:queues");
+        addToast(`Pushed job to queue ${target}`);
       } else if (kind === "link") {
         const toRef = (vals.objId || "").trim();
         if (!toRef) {
@@ -1705,6 +1733,7 @@ async function handleCreate(selected: TreeNode | undefined) {
           linkType = (vals.payload || "").trim() || "related";
         }
         await db.links.create(target, linkType, toRef, weight, metadataJson);
+        addToast(`Created link: ${target} ${linkType} ${toRef}`);
       } else {
         throw new Error("Kind must be 'object', 'event', 'queue', or 'link'.");
       }
@@ -1830,6 +1859,7 @@ async function handleDelete(selected: TreeNode | undefined) {
         if (result && !result.deleted) {
           throw new Error(`Object '${ref.id}' not found in collection '${ref.collection}'`);
         }
+        addToast(`Deleted object ${ref.id}`);
       }
     );
   } else if (selected.type === "queue" && selected.ref) {
@@ -1878,6 +1908,7 @@ async function handleDelete(selected: TreeNode | undefined) {
         if (!ok) {
           throw new Error(`Link '${linkId}' not found.`);
         }
+        addToast(`Deleted link ${linkId}`);
       }
     );
   } else if (selected.type === "job" && selected.ref) {
