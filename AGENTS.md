@@ -202,3 +202,4 @@ cargo publish -p thingd --features sqlite
 - `/skill upgrade-deps-and-benchmark` — audit all deps, bump to latest, run benchmarks
 
 > Audit-after-change is not a skill — use the checklist under "Doc audit after every change" above.
+
