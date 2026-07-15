@@ -195,7 +195,7 @@ jobs:
 
       - name: Build thingd-server binary
         run: |
-          cargo build -p thingd-server --release
+          RUSTFLAGS="-C target-feature=+crt-static" cargo build -p thingd-server --release
           mkdir -p docker-context
           cp target/release/thingd-server docker-context/
 

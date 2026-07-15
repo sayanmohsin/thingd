@@ -12,6 +12,7 @@ allow = [
     "Unicode-3.0",
     "Unlicense",
     "Zlib",
+    "CDLA-Permissive-2.0",
 ]
 confidence-threshold = 0.8
 
@@ -28,15 +29,31 @@ skip = [
     { name = "getrandom", version = "0.2" },
     { name = "getrandom", version = "0.4" },
     { name = "hashlink", version = "0.10" },
+    { name = "hashlink", version = "0.12" },
     { name = "core-foundation", version = "0.9" },
     { name = "core-foundation", version = "0.10" },
     { name = "tower-http", version = "0.6" },
     { name = "tower-http", version = "0.7" },
-    { name = "hashlink", version = "0.12" },
     { name = "redox_syscall", version = "0.5" },
     { name = "redox_syscall", version = "0.9" },
     { name = "windows-sys", version = "0.48" },
     { name = "windows-sys", version = "0.61" },
+    { name = "windows-targets", version = "0.48" },
+    { name = "windows-targets", version = "0.52" },
+    { name = "windows_aarch64_gnullvm", version = "0.48" },
+    { name = "windows_aarch64_gnullvm", version = "0.52" },
+    { name = "windows_aarch64_msvc", version = "0.48" },
+    { name = "windows_aarch64_msvc", version = "0.52" },
+    { name = "windows_i686_gnu", version = "0.48" },
+    { name = "windows_i686_gnu", version = "0.52" },
+    { name = "windows_i686_msvc", version = "0.48" },
+    { name = "windows_i686_msvc", version = "0.52" },
+    { name = "windows_x86_64_gnu", version = "0.48" },
+    { name = "windows_x86_64_gnu", version = "0.52" },
+    { name = "windows_x86_64_gnullvm", version = "0.48" },
+    { name = "windows_x86_64_gnullvm", version = "0.52" },
+    { name = "windows_x86_64_msvc", version = "0.48" },
+    { name = "windows_x86_64_msvc", version = "0.52" },
 ]
 
 [sources]
