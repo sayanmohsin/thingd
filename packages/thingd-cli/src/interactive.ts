@@ -272,22 +272,36 @@ async function fetchResourcesFallback() {
 
     collections = Array.from(defaultCols).sort();
     streams = Array.from(defaultStrs).sort();
-
-    // Fallback totals
-    totalObjects = await db.countObjects();
-    totalEventsCount = await db.countEvents();
-    totalActiveJobsCount = await db.countActiveJobs();
-    totalDeadJobsCount = await db.countDeadJobs();
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     cloudError = `Failed to load resources: ${msg}`;
     collections = [];
     streams = [];
-    totalObjects = 0;
-    // Show error in viewer if it's currently showing the default message
     if (viewerLines.length === 1 && viewerLines[0] === "Select an item to view details.") {
       viewerLines = [pc.yellow(cloudError), pc.dim("Press 'r' to retry or 's' to switch driver.")];
     }
+  }
+
+  // Counts — independent try/catch so one failure doesn't clear collections
+  try {
+    totalObjects = await db.countObjects();
+  } catch {
+    totalObjects = 0;
+  }
+  try {
+    totalEventsCount = await db.countEvents();
+  } catch {
+    totalEventsCount = 0;
+  }
+  try {
+    totalActiveJobsCount = await db.countActiveJobs();
+  } catch {
+    totalActiveJobsCount = 0;
+  }
+  try {
+    totalDeadJobsCount = await db.countDeadJobs();
+  } catch {
+    totalDeadJobsCount = 0;
   }
 
   // Queues

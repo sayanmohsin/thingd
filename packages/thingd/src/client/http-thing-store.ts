@@ -263,8 +263,8 @@ export class HttpThingStore implements ThingStore {
 
   async countActiveJobs(): Promise<number> {
     const res = await this.request<unknown>("GET", "/health");
-    const counts = res as { queues?: number };
-    return counts.queues ?? 0;
+    const counts = res as { queues?: number } | undefined;
+    return counts?.queues ?? 0;
   }
 
   async countDeadJobs(): Promise<number> {
