@@ -711,7 +711,12 @@ function scheduleLoad(node: TreeNode) {
           ? ` Ephemeral in-memory database.\n All data is destroyed on exit.\n\n ${pc.dim("Best for: testing, prototyping")}\n\n ${pc.dim("Press")} ${pc.bold("Enter")} ${pc.dim("to connect.")}`
           : d === "native"
             ? ` Persistent SQLite database.\n Data is stored on disk.\n\n ${pc.dim("Best for: local development, single-node")}\n\n ${pc.dim("Press")} ${pc.bold("Enter")} ${pc.dim("to connect.")}`
-            : ` Connect to a remote thingd instance.\n Requires a URL and optional auth token.\n\n ${pc.dim("Best for: production, multi-node")}\n\n ${pc.dim("Press")} ${pc.bold("Enter")} ${pc.dim("to connect.")}`,
+            : (() => {
+                const hasCfg = !!readCloudConfig()?.token;
+                return hasCfg
+                  ? ` Connect to a remote thingd instance.\n Requires a URL and optional auth token.\n\n ${pc.dim("Best for: production, multi-node")}\n\n ${pc.dim("Press")} ${pc.bold("Enter")} ${pc.dim("to connect.")}`
+                  : ` ${pc.yellow("Not logged in to thingd Cloud.")}\n\n Run ${pc.cyan("thingd cloud login")} to authenticate, or\n press ${pc.bold("Enter")} to connect with a URL and token manually.`;
+              })(),
       ].join("\n");
       viewerLines = info.split("\n");
       loadedItemId = node.id;
