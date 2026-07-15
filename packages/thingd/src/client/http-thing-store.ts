@@ -32,6 +32,8 @@ import type {
 export type HttpThingStoreOptions = {
   url: string;
   authToken?: string;
+  /** Cloud instance slug for multi-instance routing. Sent as X-Instance-Slug header. */
+  instanceSlug?: string;
 };
 
 export class HttpThingStore implements ThingStore {
@@ -54,6 +56,9 @@ export class HttpThingStore implements ThingStore {
     }
     if (this.options.authToken) {
       headers.authorization = `Bearer ${this.options.authToken}`;
+    }
+    if (this.options.instanceSlug) {
+      headers["x-instance-slug"] = this.options.instanceSlug;
     }
     const res = await fetch(`${this.base}${path}`, {
       method,

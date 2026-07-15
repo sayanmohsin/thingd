@@ -41,6 +41,8 @@ export type ThingDOpenOptions = {
   authToken?: string;
   /** Alias for authToken. If both are set, authToken takes precedence. */
   apiKey?: string;
+  /** Cloud instance slug for multi-instance routing. Passed as X-Instance-Slug header. */
+  instanceSlug?: string;
 };
 
 export type ThingDOpenConfig = ThingDOpenOptions & {
@@ -345,6 +347,7 @@ async function openStore(path: string, options: ResolvedThingDOpenOptions): Prom
     return HttpThingStore.open({
       url: path,
       authToken: options.authToken,
+      instanceSlug: options.instanceSlug,
     });
   }
 

@@ -84,6 +84,7 @@ export async function startDashboardServer(
     url: activeOptions.cloud ? activeOptions.path : undefined,
     driver: activeOptions.driver,
     authToken: activeOptions.authToken,
+    instanceSlug: activeOptions.instanceSlug,
   });
 
   // 2. Create HTTP Server

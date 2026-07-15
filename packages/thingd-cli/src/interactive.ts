@@ -488,13 +488,15 @@ async function connectToDriver(
   selectedDriver: ThingDDriver,
   resolvedPath: string,
   url?: string,
-  token?: string
+  token?: string,
+  instanceSlug?: string
 ): Promise<void> {
   db = await ThingD.open({
     path: resolvedPath,
     url,
     driver: selectedDriver,
     authToken: token,
+    instanceSlug,
   });
 
   driver = selectedDriver;
@@ -1900,7 +1902,8 @@ async function handleConnect(node: TreeNode) {
                 "cloud",
                 deriveRestUrl(selected.mcpUrl),
                 deriveRestUrl(selected.mcpUrl),
-                cloudCfg.apiKey ?? cloudCfg.token
+                cloudCfg.apiKey ?? cloudCfg.token,
+                selected.instanceSlug
               );
             }
           );
@@ -1910,7 +1913,13 @@ async function handleConnect(node: TreeNode) {
         // No instances found — try saved URL or show error
         if (cloudCfg.instanceUrl) {
           const restUrl = deriveRestUrl(cloudCfg.instanceUrl);
-          await connectToDriver("cloud", restUrl, restUrl, cloudCfg.apiKey ?? cloudCfg.token);
+          await connectToDriver(
+            "cloud",
+            restUrl,
+            restUrl,
+            cloudCfg.apiKey ?? cloudCfg.token,
+            cloudCfg.instanceSlug
+          );
           return;
         }
         viewerLines = [
@@ -1924,7 +1933,13 @@ async function handleConnect(node: TreeNode) {
       } catch {
         if (cloudCfg.instanceUrl) {
           const restUrl = deriveRestUrl(cloudCfg.instanceUrl);
-          await connectToDriver("cloud", restUrl, restUrl, cloudCfg.apiKey ?? cloudCfg.token);
+          await connectToDriver(
+            "cloud",
+            restUrl,
+            restUrl,
+            cloudCfg.apiKey ?? cloudCfg.token,
+            cloudCfg.instanceSlug
+          );
           return;
         }
         viewerLines = [
@@ -1988,6 +2003,7 @@ async function handleConnect(node: TreeNode) {
       ],
       async (vals) => {
         let cloudUrl: string;
+        let instanceSlugVal: string | undefined;
         if (selectedDriver === "cloud") {
           if (isCloudWithConfig) {
             if (!vals.project || !vals.instance) {
@@ -1995,13 +2011,14 @@ async function handleConnect(node: TreeNode) {
               draw();
               return;
             }
+            instanceSlugVal = vals.instance;
             // Construct URL from project + instance slugs
             cloudUrl = `${baseUrl}/mcp/${encodeURIComponent(vals.project)}/${encodeURIComponent(vals.instance)}`;
             // Save selection to cloud config
             const cfg = cloudCfg ?? { token: vals.token, url: baseUrl };
             cfg.instanceUrl = cloudUrl;
             cfg.projectSlug = vals.project;
-            cfg.instanceSlug = vals.instance;
+            cfg.instanceSlug = instanceSlugVal;
             if (vals.token) {
               cfg.token = vals.token;
             }
@@ -2018,7 +2035,13 @@ async function handleConnect(node: TreeNode) {
             // Save manual credentials to cloud config
             writeCloudConfig({ token: vals.token || "", url: cloudUrl });
           }
-          await connectToDriver(selectedDriver, cloudUrl, cloudUrl, cloudCfg?.apiKey ?? vals.token);
+          await connectToDriver(
+            selectedDriver,
+            cloudUrl,
+            cloudUrl,
+            cloudCfg?.apiKey ?? vals.token,
+            instanceSlugVal
+          );
         } else {
           await connectToDriver(selectedDriver, vals.path || "", undefined, undefined);
         }
@@ -2152,7 +2175,13 @@ export async function runInteractiveCli(): Promise<void> {
     if (cloudUrl) {
       try {
         const restUrl = deriveRestUrl(cloudUrl);
-        await connectToDriver("cloud", restUrl, restUrl, cloudCfg.apiKey ?? cloudCfg.token);
+        await connectToDriver(
+          "cloud",
+          restUrl,
+          restUrl,
+          cloudCfg.apiKey ?? cloudCfg.token,
+          cloudCfg.instanceSlug
+        );
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         viewerLines = [

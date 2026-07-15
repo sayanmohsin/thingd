@@ -98,6 +98,8 @@ export type ConnectionOptions = {
   driver?: ThingDDriver;
   authToken?: string;
   cloud: boolean;
+  /** Cloud instance slug for multi-instance routing. */
+  instanceSlug?: string;
 };
 
 const HELP_TEXT = `${logoLine()}Admin and operator CLI for thingd.
@@ -1207,6 +1209,7 @@ export async function withDb(
     url: connection.cloud ? connection.path : undefined,
     driver: connection.driver,
     authToken: connection.authToken,
+    instanceSlug: connection.instanceSlug,
   });
 
   try {
@@ -1285,6 +1288,7 @@ export function resolveConnection(context: CliContext): ConnectionOptions {
     driver,
     authToken: resolvedAuthToken,
     cloud,
+    instanceSlug: cloudCfg?.instanceSlug,
   };
 }
 
