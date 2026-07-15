@@ -107,6 +107,7 @@ let viewerScroll = 0;
 let loadedItemId = "";
 let loadTimer: ReturnType<typeof setTimeout> | null = null;
 let pollTimer: ReturnType<typeof setInterval> | null = null;
+let polling = false;
 let keypressHandler: ((str: string, key: Record<string, unknown>) => void) | null = null;
 
 // ── Form State ───────────────────────────────────────────────────────
@@ -255,85 +256,63 @@ function formatUptime(ms: number): string {
 
 async function fetchResourcesFallback() {
   cloudError = null;
+
+  // Collections and streams — parallel fetch
+  let nativeCollections: string[];
+  let nativeStreams: string[];
   try {
-    const nativeCollections = await db.listCollections();
-    const nativeStreams = await db.listStreams();
-
-    // Maintain default collections/streams for UI if none exist
-    const defaultCols = new Set<string>();
-    const defaultStrs = new Set<string>();
-
-    for (const c of nativeCollections) {
-      defaultCols.add(c);
-    }
-    for (const s of nativeStreams) {
-      defaultStrs.add(s);
-    }
-
-    collections = Array.from(defaultCols).sort();
-    streams = Array.from(defaultStrs).sort();
+    [nativeCollections, nativeStreams] = await Promise.all([
+      db.listCollections(),
+      db.listStreams(),
+    ]);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     cloudError = `Failed to load resources: ${msg}`;
-    collections = [];
-    streams = [];
+    nativeCollections = [];
+    nativeStreams = [];
     if (viewerLines.length === 1 && viewerLines[0] === "Select an item to view details.") {
       viewerLines = [pc.yellow(cloudError), pc.dim("Press 'r' to retry or 's' to switch driver.")];
     }
   }
 
-  // Counts — independent try/catch so one failure doesn't clear collections
-  try {
-    totalObjects = await db.countObjects();
-  } catch {
-    totalObjects = 0;
-  }
-  try {
-    totalEventsCount = await db.countEvents();
-  } catch {
-    totalEventsCount = 0;
-  }
-  try {
-    totalActiveJobsCount = await db.countActiveJobs();
-  } catch {
-    totalActiveJobsCount = 0;
-  }
-  try {
-    totalDeadJobsCount = await db.countDeadJobs();
-  } catch {
-    totalDeadJobsCount = 0;
-  }
+  collections = [...new Set(nativeCollections)].sort();
+  streams = [...new Set(nativeStreams)].sort();
 
-  // Queues
-  try {
-    const listed = await db.listQueues();
-    queues = (listed ?? []).sort();
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    cloudError = cloudError ?? `Failed to load queues: ${msg}`;
-    queues = [];
-  }
+  // Counts, queues, links — all parallel, each with independent error handling
+  const [objCount, evtCount, activeCount, deadCount, listedQueues, linkCount] = await Promise.all([
+    db.countObjects().catch(() => 0),
+    db.countEvents().catch(() => 0),
+    db.countActiveJobs().catch(() => 0),
+    db.countDeadJobs().catch(() => 0),
+    db.listQueues().catch(() => {
+      cloudError = cloudError ?? "Failed to load queues";
+      return [] as string[];
+    }),
+    db.countLinks().catch(() => 0),
+  ]);
 
-  // Link count
-  try {
-    totalLinksCount = await db.countLinks();
-  } catch {
-    totalLinksCount = 0;
-  }
+  totalObjects = objCount;
+  totalEventsCount = evtCount;
+  totalActiveJobsCount = activeCount;
+  totalDeadJobsCount = deadCount;
+  queues = [...new Set(listedQueues ?? [])].sort();
+  totalLinksCount = linkCount;
 
-  // Populate objectsByCollection from live data
+  // Objects per collection — parallel
   objectsByCollection.clear();
-  for (const col of collections) {
-    try {
-      const list = await db.listObjects(col);
-      objectsByCollection.set(
-        col,
-        list.map((o: { id: string }) => o.id)
-      );
-    } catch {
-      objectsByCollection.set(col, []);
-    }
-  }
+  await Promise.all(
+    collections.map(async (col) => {
+      try {
+        const list = await db.listObjects(col);
+        objectsByCollection.set(
+          col,
+          list.map((o: { id: string }) => o.id)
+        );
+      } catch {
+        objectsByCollection.set(col, []);
+      }
+    })
+  );
 }
 
 async function fetchResources(): Promise<void> {
@@ -403,9 +382,8 @@ async function fetchResources(): Promise<void> {
       ? (eventsHistory[eventsHistory.length - 1] ?? totalEventsCount)
       : totalEventsCount;
 
-  // Polling is every 2000ms. Operations per second = delta / 2
-  const objectWriteRate = Math.max(0, Math.round((totalObjects - prevObjects) / 2));
-  const eventAppendRate = Math.max(0, Math.round((totalEventsCount - prevEvents) / 2));
+  const objectWriteRate = Math.max(0, Math.round((totalObjects - prevObjects) / 10));
+  const eventAppendRate = Math.max(0, Math.round((totalEventsCount - prevEvents) / 10));
 
   // Push Histories with Initial Pre-population to prevent misleading growth wiggles
   if (objectsHistory.length === 0) {
@@ -2205,20 +2183,41 @@ export async function runInteractiveCli(): Promise<void> {
 
   // Background polling loop for real-time updates
   pollTimer = setInterval(async () => {
-    if (connected && !formState?.active) {
-      try {
-        const snapItemId = loadedItemId;
-        await fetchResources();
-        draw();
-        const tree = buildTree();
-        const n = tree[cursorIndex];
-        // Silently reload content if the same node is still actively viewed
-        if (n && snapItemId === n.id && n.type !== "category") {
-          await loadContent(n).catch(() => {});
-        }
-      } catch {
-        // Prevent unhandled rejection from killing the process
+    if (!connected || formState?.active || polling) {
+      return;
+    }
+    polling = true;
+    try {
+      const snapItemId = loadedItemId;
+      const snapshot = JSON.stringify([
+        totalObjects,
+        totalEventsCount,
+        totalActiveJobsCount,
+        totalDeadJobsCount,
+        totalLinksCount,
+      ]);
+      await fetchResources();
+      const changed =
+        snapshot !==
+        JSON.stringify([
+          totalObjects,
+          totalEventsCount,
+          totalActiveJobsCount,
+          totalDeadJobsCount,
+          totalLinksCount,
+        ]);
+      const tree = buildTree();
+      const n = tree[cursorIndex];
+      if (n && snapItemId === n.id && n.type !== "category") {
+        await loadContent(n).catch(() => {});
       }
+      if (changed) {
+        draw();
+      }
+    } catch {
+      // Prevent unhandled rejection from killing the process
+    } finally {
+      polling = false;
     }
   }, 10_000);
 }
