@@ -213,6 +213,7 @@ export async function pollCliAuth(
 
 export type ResolvedInstance = {
   mcpUrl: string;
+  projectId: string;
   projectSlug: string;
   instanceSlug: string;
 };
@@ -240,6 +241,7 @@ export async function resolveFirstInstance(config: CloudConfig): Promise<Resolve
         if (instance?.mcpUrl) {
           return {
             mcpUrl: instance.mcpUrl,
+            projectId: project.id,
             projectSlug: project.slug,
             instanceSlug: instance.slug,
           };
@@ -269,6 +271,7 @@ export async function resolveAllInstances(config: CloudConfig): Promise<Resolved
           if (instance?.mcpUrl) {
             all.push({
               mcpUrl: instance.mcpUrl,
+              projectId: project.id,
               projectSlug: project.slug,
               instanceSlug: instance.slug,
             });

@@ -14,6 +14,8 @@ export type CloudConfig = {
   organizationId?: string;
   /** Resolved MCP URL for the active cloud instance (auto-discovered or set by `thingd cloud instance use`). */
   instanceUrl?: string;
+  /** Active project ID (set when instanceUrl is resolved). */
+  projectId?: string;
   /** Active project slug (set when instanceUrl is resolved). */
   projectSlug?: string;
   /** Active instance slug (set when instanceUrl is resolved). */

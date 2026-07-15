@@ -98,6 +98,7 @@ async function pickAndSaveInstance(context: CliContext, cloudConfig: CloudConfig
     }
 
     cloudConfig.instanceUrl = selected.mcpUrl;
+    cloudConfig.projectId = selected.projectId;
     cloudConfig.projectSlug = selected.projectSlug;
     cloudConfig.instanceSlug = selected.instanceSlug;
     writeCloudConfig(cloudConfig);
@@ -118,15 +119,18 @@ async function ensureApiKey(context: CliContext, cloudConfig: CloudConfig): Prom
     return;
   }
   try {
-    const { projects } = await listProjects(cloudConfig);
-    if (projects.length === 0) {
+    let projectId: string | undefined = cloudConfig.projectId;
+    if (!projectId) {
+      const { projects } = await listProjects(cloudConfig);
+      if (projects.length === 0) {
+        return;
+      }
+      projectId = projects[0]?.id;
+    }
+    if (!projectId) {
       return;
     }
-    const project = projects[0];
-    if (!project) {
-      return;
-    }
-    const result = await createApiKey(cloudConfig, project.id);
+    const result = await createApiKey(cloudConfig, projectId);
     cloudConfig.apiKey = result.token;
     writeCloudConfig(cloudConfig);
     context.stderr.write(`  ${pc.dim("API key created for data access\n")}`);
@@ -501,6 +505,7 @@ async function runInstance(context: CliContext): Promise<void> {
       return;
     }
     config.instanceUrl = instance.mcpUrl;
+    config.projectId = project.id;
     config.projectSlug = project.slug;
     config.instanceSlug = instance.slug;
     writeCloudConfig(config);
