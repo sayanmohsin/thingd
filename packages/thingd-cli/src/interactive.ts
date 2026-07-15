@@ -82,7 +82,8 @@ let authToken = "";
 let collections: string[] = [];
 let streams: string[] = [];
 let queues: string[] = [];
-let objectsByCollection = new Map<string, string[]>();
+let objectsByCollection = new Map<string, { id: string; createdAt: string }[]>();
+const collectionCounts = new Map<string, number>();
 const collectionOptions = new Map<
   string,
   {
@@ -309,6 +310,37 @@ function formatUptime(ms: number): string {
   return `${h}h ${m % 60}m`;
 }
 
+function formatRelativeTime(iso: string): string {
+  const ms = Date.now() - new Date(iso).getTime();
+  const s = Math.floor(ms / 1000);
+  if (s < 0) {
+    return "now";
+  }
+  if (s < 5) {
+    return "now";
+  }
+  if (s < 60) {
+    return `${s}s ago`;
+  }
+  const m = Math.floor(s / 60);
+  if (m < 60) {
+    return `${m}m ago`;
+  }
+  const h = Math.floor(m / 60);
+  if (h < 24) {
+    return `${h}h ago`;
+  }
+  const d = Math.floor(h / 24);
+  return `${d}d ago`;
+}
+
+function formatCount(n: number): string {
+  if (n >= 1000) {
+    return `${(n / 1000).toFixed(1).replace(/\.0$/, "")}k`;
+  }
+  return String(n);
+}
+
 async function fetchResourcesFallback() {
   cloudError = null;
 
@@ -378,7 +410,7 @@ async function fetchResourcesFallback() {
         );
         objectsByCollection.set(
           col,
-          list.map((o: { id: string }) => o.id)
+          list.map((o: { id: string; createdAt: string }) => ({ id: o.id, createdAt: o.createdAt }))
         );
       } catch {
         objectsByCollection.set(col, []);
@@ -454,7 +486,7 @@ async function fetchResources(): Promise<void> {
       );
       objectsByCollection.set(
         col,
-        list.map((o: { id: string }) => o.id)
+        list.map((o: { id: string; createdAt: string }) => ({ id: o.id, createdAt: o.createdAt }))
       );
     } catch {
       objectsByCollection.set(col, []);
@@ -487,6 +519,20 @@ async function fetchResources(): Promise<void> {
       }
     })
   );
+
+  // Fetch per-collection counts from schema
+  collectionCounts.clear();
+  try {
+    const schemas = await db.schema();
+    for (const s of schemas) {
+      collectionCounts.set(s.name, s.objectCount);
+    }
+  } catch {
+    // Fallback — count from objectsByCollection
+    for (const col of collections) {
+      collectionCounts.set(col, objectsByCollection.get(col)?.length ?? 0);
+    }
+  }
 
   // Calculate Deltas for Operations Throughput Rates
   const prevObjects =
@@ -690,11 +736,13 @@ function buildTree(): TreeNode[] {
     for (const col of collections) {
       const colId = `col:${col}`;
       const colOpen = expandedSet.has(colId);
+      const colCount = collectionCounts.get(col);
+      const colSuffix = colCount !== undefined ? pc.dim(` ${formatCount(colCount)}`) : "";
       nodes.push({
         id: colId,
         parentId: "cat:collections",
         type: "collection",
-        label: `${colOpen ? pc.cyan("▾") : pc.dim("▸")} ${pc.cyan(col)}`,
+        label: `${colOpen ? pc.cyan("▾") : pc.dim("▸")} ${pc.cyan(col)}${colSuffix}`,
         depth: 1,
         expandable: true,
         ref: { name: col },
@@ -711,15 +759,16 @@ function buildTree(): TreeNode[] {
             expandable: false,
           });
         }
-        for (const objId of objs) {
+        for (const objData of objs) {
+          const objAge = objData.createdAt ? pc.dim(formatRelativeTime(objData.createdAt)) : "";
           nodes.push({
-            id: `obj:${col}:${objId}`,
+            id: `obj:${col}:${objData.id}`,
             parentId: colId,
             type: "object",
-            label: `${pc.cyan("○")} ${objId}`,
+            label: `${pc.cyan("○")} ${objData.id}  ${objAge}`,
             depth: 2,
             expandable: false,
-            ref: { collection: col, id: objId },
+            ref: { collection: col, id: objData.id },
           });
         }
       }
@@ -747,11 +796,13 @@ function buildTree(): TreeNode[] {
     }
     for (const stream of streams) {
       const sOpen = expandedSet.has(`stream:${stream}`);
+      const evtCount = eventsByStream.get(stream)?.length ?? 0;
+      const evtSuffix = evtCount > 0 ? pc.dim(` ${formatCount(evtCount)}`) : "";
       nodes.push({
         id: `stream:${stream}`,
         parentId: "cat:streams",
         type: "stream",
-        label: `${sOpen ? pc.cyan("▾") : pc.dim("▸")} ${pc.green(stream)}`,
+        label: `${sOpen ? pc.cyan("▾") : pc.dim("▸")} ${pc.green(stream)}${evtSuffix}`,
         depth: 1,
         expandable: true,
         ref: { name: stream },
@@ -773,7 +824,7 @@ function buildTree(): TreeNode[] {
             id: `evt:${stream}:${evt.id}`,
             parentId: `stream:${stream}`,
             type: "event",
-            label: `${pc.dim("·")} ${pc.dim(evt.type || "unknown")}`,
+            label: `${pc.dim("·")} ${pc.dim(evt.type || "unknown")}  ${pc.dim(formatRelativeTime(evt.createdAt))}`,
             depth: 2,
             expandable: false,
             ref: { stream: stream, eventId: evt.id, eventData: evt },
@@ -804,11 +855,18 @@ function buildTree(): TreeNode[] {
     }
     for (const q of queues) {
       const qOpen = expandedSet.has(`queue:${q}`);
+      const qJobData = jobsByQueue.get(q);
+      const qActive = qJobData?.active.length ?? 0;
+      const qDead = qJobData?.dead.length ?? 0;
+      const qSuffix =
+        qActive > 0 || qDead > 0
+          ? ` ${qActive > 0 ? pc.cyan(String(qActive)) : pc.dim("0")}${pc.cyan(" ●")} ${qDead > 0 ? pc.red(String(qDead)) : pc.dim("0")}${pc.red(" ○")}`
+          : "";
       nodes.push({
         id: `queue:${q}`,
         parentId: "cat:queues",
         type: "queue",
-        label: `${qOpen ? pc.cyan("▾") : pc.dim("▸")} ${pc.magenta(q)}`,
+        label: `${qOpen ? pc.cyan("▾") : pc.dim("▸")} ${pc.magenta(q)}${qSuffix}`,
         depth: 1,
         expandable: true,
         ref: { name: q },
@@ -840,11 +898,13 @@ function buildTree(): TreeNode[] {
             });
           }
           for (const job of activeJobs) {
+            const jobStatus = pc.cyan(job.status ?? "ready");
+            const jobAttempts = pc.dim(`${job.attempts}/${job.maxAttempts}`);
             nodes.push({
               id: `job:${q}:active:${job.id}`,
               parentId: `queue:${q}:active`,
               type: "job",
-              label: `${pc.cyan("●")} ${pc.dim(job.id.slice(0, 12))}`,
+              label: `${pc.cyan("●")} ${pc.dim(job.id.slice(0, 12))}  ${jobAttempts}  ${jobStatus}`,
               depth: 3,
               expandable: false,
               ref: { queue: q, jobId: job.id, status: "active", jobData: job },
@@ -874,11 +934,13 @@ function buildTree(): TreeNode[] {
             });
           }
           for (const job of deadJobs) {
+            const jobAttempts = pc.dim(`${job.attempts}/${job.maxAttempts}`);
+            const lastErr = job.lastError ? pc.dim(job.lastError.slice(0, 20)) : "";
             nodes.push({
               id: `job:${q}:dead:${job.id}`,
               parentId: `queue:${q}:dead`,
               type: "job",
-              label: `${pc.red("○")} ${pc.dim(job.id.slice(0, 12))}`,
+              label: `${pc.red("○")} ${pc.dim(job.id.slice(0, 12))}  ${jobAttempts}${lastErr ? `  ${pc.red("⚠")} ${lastErr}` : ""}`,
               depth: 3,
               expandable: false,
               ref: { queue: q, jobId: job.id, status: "dead", jobData: job },
@@ -1006,7 +1068,10 @@ async function loadContent(node: TreeNode): Promise<void> {
       if (objs.length === 0) {
         res += pc.dim("No objects in this collection.");
       } else {
-        const lines = objs.map((id) => ` ${pc.cyan("○")} ${id}`);
+        const lines = objs.map(
+          (o) =>
+            ` ${pc.cyan("○")} ${o.id}${o.createdAt ? `  ${pc.dim(formatRelativeTime(o.createdAt))}` : ""}`
+        );
         res += lines.join("\n");
       }
       content = res;
@@ -3228,6 +3293,7 @@ async function handleSwitch() {
   streams = [];
   queues = [];
   objectsByCollection = new Map();
+  collectionCounts.clear();
   cursorIndex = 0;
   scrollOffset = 0;
   loadedItemId = "";
@@ -3264,6 +3330,7 @@ async function handleLogout() {
   streams = [];
   queues = [];
   objectsByCollection = new Map();
+  collectionCounts.clear();
   cursorIndex = 0;
   scrollOffset = 0;
   loadedItemId = "";
