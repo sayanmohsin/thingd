@@ -2169,14 +2169,18 @@ export async function runInteractiveCli(): Promise<void> {
   // Background polling loop for real-time updates
   pollTimer = setInterval(async () => {
     if (connected && !formState?.active) {
-      const snapItemId = loadedItemId;
-      await fetchResources();
-      draw();
-      const tree = buildTree();
-      const n = tree[cursorIndex];
-      // Silently reload content if the same node is still actively viewed
-      if (n && snapItemId === n.id && n.type !== "category") {
-        await loadContent(n).catch(() => {});
+      try {
+        const snapItemId = loadedItemId;
+        await fetchResources();
+        draw();
+        const tree = buildTree();
+        const n = tree[cursorIndex];
+        // Silently reload content if the same node is still actively viewed
+        if (n && snapItemId === n.id && n.type !== "category") {
+          await loadContent(n).catch(() => {});
+        }
+      } catch {
+        // Prevent unhandled rejection from killing the process
       }
     }
   }, 2000);
