@@ -407,6 +407,11 @@ async function runCommand(context: CliContext): Promise<void> {
     return;
   }
 
+  if (command === "completions") {
+    await runCompletions(context);
+    return;
+  }
+
   if (command === "db") {
     const sub = context.parsed.tokens[1];
     if (!sub) {
@@ -516,6 +521,41 @@ async function runDbIntegrity(context: CliContext): Promise<void> {
       );
     }
   });
+}
+
+async function runCompletions(context: CliContext): Promise<void> {
+  const shell = optionalToken(context.parsed, 1) ?? "bash";
+  const cmds = [
+    "status",
+    "search",
+    "mcp",
+    "cloud",
+    "objects",
+    "events",
+    "collections",
+    "streams",
+    "queues",
+    "links",
+    "schema",
+    "nlq",
+    "aggregate",
+    "timeseries",
+    "metrics",
+    "dashboard",
+    "export",
+    "import",
+    "snapshot",
+    "backup",
+    "db",
+    "completions",
+  ];
+  const script =
+    shell === "zsh"
+      ? `#compdef thingd\ncompdef _thingd thingd\n_thingd() {\n  _describe 'thingd commands' ${JSON.stringify(cmds.map((c) => `${c}:thingd ${c}`))}\n}\n`
+      : shell === "fish"
+        ? `complete -c thingd -f\n${cmds.map((c) => `complete -c thingd -n '__fish_use_subcommand' -a ${c}`).join("\n")}\n`
+        : `_thingd() {\n  local cur=${"${COMP_WORDS[COMP_CWORD]}"}\n  if [ $COMP_CWORD -eq 1 ]; then\n    COMPREPLY=($(compgen -W "${cmds.join(" ")}" -- "$cur"))\n  fi\n}\ncomplete -F _thingd thingd\n`;
+  writeText(context.stdout, script);
 }
 
 async function runStatus(context: CliContext): Promise<void> {
