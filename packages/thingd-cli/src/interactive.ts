@@ -1958,7 +1958,9 @@ async function handleConnect(node: TreeNode) {
     const isCloudWithConfig = selectedDriver === "cloud" && cloudCfg?.token;
 
     openForm(
-      `Connect to ${selectedDriver}`,
+      selectedDriver === "cloud" && !isCloudWithConfig
+        ? `Connect to ${selectedDriver} — enter credentials below or run ${pc.cyan("thingd cloud login")} first`
+        : `Connect to ${selectedDriver}`,
       [
         ...(selectedDriver === "cloud"
           ? isCloudWithConfig
@@ -2191,6 +2193,12 @@ export async function runInteractiveCli(): Promise<void> {
         draw();
       }
     }
+  } else {
+    viewerLines = [
+      pc.cyan("Not logged in to thingd Cloud."),
+      pc.dim("Press 'c' to connect to a local database, or run thingd cloud login first."),
+    ];
+    draw();
   }
 
   setupKeypress();

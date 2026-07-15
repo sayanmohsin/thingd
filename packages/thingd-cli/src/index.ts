@@ -1272,6 +1272,14 @@ export function resolveConnection(context: CliContext): ConnectionOptions {
 
   // Fall back to saved cloud config when no explicit URL/token is provided
   const cloudCfg = cloud && !url ? readCloudConfig() : null;
+
+  if (driver === "cloud" && !url && !cloudCfg) {
+    context.stderr.write(
+      `${pc.red("Not logged in.")} Run ${pc.cyan("thingd cloud login")} first, or use ${pc.cyan("--url")} and ${pc.cyan("--auth-token")} to connect directly.\n`
+    );
+    throw new Error("not_logged_in");
+  }
+
   const resolvedAuthToken =
     stringFlag(context.parsed, "auth-token") ??
     context.env.THINGD_AUTH_TOKEN ??
