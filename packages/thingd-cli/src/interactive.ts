@@ -83,6 +83,16 @@ let collections: string[] = [];
 let streams: string[] = [];
 let queues: string[] = [];
 let objectsByCollection = new Map<string, string[]>();
+const collectionOptions = new Map<
+  string,
+  {
+    sortBy?: string;
+    sortDir?: string;
+    limit?: number;
+    offset?: number;
+    filter?: Record<string, unknown>;
+  }
+>();
 const expandedSet = new Set<string>(["cat:collections", "cat:streams", "cat:queues"]);
 let cursorIndex = 0;
 let maintenanceCursor = 0;
@@ -330,7 +340,24 @@ async function fetchResourcesFallback() {
   await Promise.all(
     collections.map(async (col) => {
       try {
-        const list = await db.listObjects(col);
+        const opts = collectionOptions.get(col);
+        const listOpts: Record<string, unknown> = {};
+        if (opts?.sortBy) {
+          listOpts.sortBy = { field: opts.sortBy, direction: opts.sortDir ?? "asc" };
+        }
+        if (opts?.limit) {
+          listOpts.limit = opts.limit;
+        }
+        if (opts?.offset) {
+          listOpts.offset = opts.offset;
+        }
+        if (opts?.filter) {
+          listOpts.filter = opts.filter;
+        }
+        const list = await db.listObjects(
+          col,
+          Object.keys(listOpts).length > 0 ? (listOpts as any) : undefined
+        );
         objectsByCollection.set(
           col,
           list.map((o: { id: string }) => o.id)
@@ -389,7 +416,24 @@ async function fetchResources(): Promise<void> {
   objectsByCollection.clear();
   for (const col of collections) {
     try {
-      const list = await db.listObjects(col);
+      const opts = collectionOptions.get(col);
+      const listOpts: Record<string, unknown> = {};
+      if (opts?.sortBy) {
+        listOpts.sortBy = { field: opts.sortBy, direction: opts.sortDir ?? "asc" };
+      }
+      if (opts?.limit) {
+        listOpts.limit = opts.limit;
+      }
+      if (opts?.offset) {
+        listOpts.offset = opts.offset;
+      }
+      if (opts?.filter) {
+        listOpts.filter = opts.filter;
+      }
+      const list = await db.listObjects(
+        col,
+        Object.keys(listOpts).length > 0 ? (listOpts as any) : undefined
+      );
       objectsByCollection.set(
         col,
         list.map((o: { id: string }) => o.id)
@@ -1249,7 +1293,7 @@ function draw() {
   } else if (!connected) {
     help = ` ${pc.dim("↑↓")} nav  ${pc.dim("enter")} connect  ${pc.dim("q")} quit `;
   } else {
-    help = ` ${pc.dim("↑↓")} nav  ${pc.dim("←→")} toggle  ${pc.dim("c")} create  ${pc.dim("e")} edit  ${pc.dim("d")} delete  ${pc.dim("/")} search  ${pc.dim("n")} neighbors  ${pc.dim("N")} nlq  ${pc.dim("a")} aggregate  ${pc.dim("t")} timeseries  ${pc.dim("i")} info  ${pc.dim("r")} refresh  ${pc.dim("s")} switch  ${pc.dim("l")} logout  ${pc.dim("q")} quit `;
+    help = ` ${pc.dim("↑↓")} nav  ${pc.dim("←→")} toggle  ${pc.dim("c")} create  ${pc.dim("e")} edit  ${pc.dim("d")} delete  ${pc.dim("/")} search  ${pc.dim("n")} neighbors  ${pc.dim("N")} nlq  ${pc.dim("a")} agg  ${pc.dim("t")} ts  ${pc.dim("o")} options  ${pc.dim("b")} batch  ${pc.dim("i")} info  ${pc.dim("r")} refresh  ${pc.dim("s")} switch  ${pc.dim("l")} logout  ${pc.dim("q")} quit `;
   }
   buf += `${pc.dim("─".repeat(W))}\n`;
   buf += padToWidth(help, W);
@@ -2185,6 +2229,148 @@ async function handleNlq(selected: TreeNode | undefined) {
   );
 }
 
+async function handleCollectionOptions(selected: TreeNode | undefined) {
+  const colName =
+    selected?.type === "collection"
+      ? ((selected.ref as { name: string })?.name ?? "")
+      : selected?.type === "object"
+        ? ((selected.ref as { collection: string })?.collection ?? "")
+        : "";
+
+  if (!colName) {
+    viewerLines = [pc.yellow("Select a collection first, then press [o] to set listing options.")];
+    loadedItemId = "options_info";
+    draw();
+    return;
+  }
+
+  const current = collectionOptions.get(colName) ?? {};
+
+  openForm(
+    `Listing Options: ${colName}`,
+    [
+      {
+        id: "sortBy",
+        label: "Sort By",
+        value: current.sortBy ?? "",
+        options: ["", "id", "created_at", "updated_at", "version"],
+        allowCustom: true,
+      },
+      {
+        id: "sortDir",
+        label: "Sort Direction",
+        value: current.sortDir ?? "asc",
+        options: ["asc", "desc"],
+      },
+      { id: "limit", label: "Limit", value: String(current.limit ?? ""), placeholder: "50" },
+      { id: "offset", label: "Offset", value: String(current.offset ?? ""), placeholder: "0" },
+      {
+        id: "filter",
+        label: "Filter (JSON)",
+        value: current.filter ? JSON.stringify(current.filter) : "",
+        placeholder: '{"status":"active"}',
+      },
+    ],
+    async (vals) => {
+      const opts: Record<string, unknown> = {};
+      if (vals.sortBy) {
+        opts.sortBy = vals.sortBy;
+        opts.sortDir = vals.sortDir || "asc";
+      }
+      if (vals.limit) {
+        opts.limit = parseInt(vals.limit, 10) || 50;
+      }
+      if (vals.offset) {
+        opts.offset = parseInt(vals.offset, 10) || 0;
+      }
+      if (vals.filter?.trim()) {
+        opts.filter = JSON.parse(vals.filter.trim());
+      }
+      if (Object.keys(opts).length > 0) {
+        collectionOptions.set(colName, opts as any);
+      } else {
+        collectionOptions.delete(colName);
+      }
+      await fetchResources();
+      const tree = buildTree();
+      const idx = tree.findIndex((n) => n.id === `col:${colName}`);
+      if (idx !== -1) {
+        cursorIndex = idx;
+      }
+      const n = tree[cursorIndex];
+      if (n) {
+        scheduleLoad(n);
+      }
+    }
+  );
+}
+
+async function handleBatchOps(selected: TreeNode | undefined) {
+  const colName =
+    selected?.type === "collection"
+      ? ((selected.ref as { name: string })?.name ?? "")
+      : selected?.type === "object"
+        ? ((selected.ref as { collection: string })?.collection ?? "")
+        : "";
+
+  if (!colName) {
+    viewerLines = [pc.yellow("Select a collection first, then press [b] for batch operations.")];
+    loadedItemId = "batch_info";
+    draw();
+    return;
+  }
+
+  openForm(
+    `Batch Ops: ${colName}`,
+    [
+      {
+        id: "action",
+        label: "Action",
+        value: "put",
+        options: ["put", "delete"],
+      },
+      {
+        id: "input",
+        label: "JSON File Path or IDs (comma-sep for delete)",
+        placeholder: "/path/to/file.json or id1,id2,id3",
+      },
+    ],
+    async (vals) => {
+      const action = vals.action || "";
+      const input = (vals.input || "").trim();
+      if (!input) {
+        throw new Error("Input is required.");
+      }
+
+      if (action === "put") {
+        const data = JSON.parse(await fs.promises.readFile(input, "utf-8"));
+        const objects = Array.isArray(data) ? data : (data.objects ?? [data]);
+        const result = await db.putBatch(colName, objects);
+        viewerLines = [
+          ` ${pc.bold("Batch Put Complete")}`,
+          ` ${pc.dim(`Collection: ${colName}`)}`,
+          ` ${pc.dim(`Objects: ${result.length}`)}`,
+        ];
+        loadedItemId = "batch_result";
+        draw();
+      } else if (action === "delete") {
+        const ids = input
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean);
+        const count = await db.deleteBatch(colName, ids);
+        viewerLines = [
+          ` ${pc.bold("Batch Delete Complete")}`,
+          ` ${pc.dim(`Collection: ${colName}`)}`,
+          ` ${pc.dim(`Deleted: ${count} objects`)}`,
+        ];
+        loadedItemId = "batch_result";
+        draw();
+      }
+    }
+  );
+}
+
 async function handleMaintenance() {
   // Cycle through maintenance operations with each press of 'm'
   const operations = ["health", "checkpoint", "backup"];
@@ -2464,6 +2650,10 @@ function setupKeypress() {
         await handleAggregate(tree[cursorIndex]);
       } else if (str === "t" || str === "T") {
         await handleTimeseries(tree[cursorIndex]);
+      } else if (str === "o" || str === "O") {
+        await handleCollectionOptions(tree[cursorIndex]);
+      } else if (str === "b" || str === "B") {
+        await handleBatchOps(tree[cursorIndex]);
       } else if (str === "m" || str === "M") {
         await handleMaintenance();
       } else if (str === "l" || str === "L") {
