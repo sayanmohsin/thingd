@@ -919,6 +919,28 @@ async function loadContent(node: TreeNode): Promise<void> {
       const objs = objectsByCollection.get(ref.name) ?? [];
       let res = `${pc.bold(ref.name)} ${pc.dim(`(${objs.length} objects)`)}\n\n`;
 
+      // Schema info
+      try {
+        const schemas = await db.schema(ref.name);
+        if (schemas.length > 0) {
+          const fields = schemas[0]?.fields ?? [];
+          if (fields.length > 0) {
+            res += `${pc.bold("Fields")}\n`;
+            for (const f of fields) {
+              const icon = f.nullable ? pc.dim("⊙") : pc.cyan("◎");
+              const sample =
+                f.sampleValues.length > 0
+                  ? pc.dim(` e.g. ${String(f.sampleValues[0]).slice(0, 20)}`)
+                  : "";
+              res += ` ${icon} ${f.name}: ${f.type}${sample}\n`;
+            }
+            res += "\n";
+          }
+        }
+      } catch {
+        // Schema not available for this store
+      }
+
       if (objs.length === 0) {
         res += pc.dim("No objects in this collection.");
       } else {
@@ -1227,7 +1249,7 @@ function draw() {
   } else if (!connected) {
     help = ` ${pc.dim("↑↓")} nav  ${pc.dim("enter")} connect  ${pc.dim("q")} quit `;
   } else {
-    help = ` ${pc.dim("↑↓")} nav  ${pc.dim("←→")} toggle  ${pc.dim("c")} create  ${pc.dim("e")} edit  ${pc.dim("d")} delete  ${pc.dim("/")} search  ${pc.dim("n")} neighbors  ${pc.dim("i")} info  ${pc.dim("r")} refresh  ${pc.dim("s")} switch  ${pc.dim("l")} logout  ${pc.dim("q")} quit `;
+    help = ` ${pc.dim("↑↓")} nav  ${pc.dim("←→")} toggle  ${pc.dim("c")} create  ${pc.dim("e")} edit  ${pc.dim("d")} delete  ${pc.dim("/")} search  ${pc.dim("n")} neighbors  ${pc.dim("N")} nlq  ${pc.dim("a")} aggregate  ${pc.dim("t")} timeseries  ${pc.dim("i")} info  ${pc.dim("r")} refresh  ${pc.dim("s")} switch  ${pc.dim("l")} logout  ${pc.dim("q")} quit `;
   }
   buf += `${pc.dim("─".repeat(W))}\n`;
   buf += padToWidth(help, W);
@@ -1925,6 +1947,244 @@ async function handleNeighbors(selected: TreeNode | undefined) {
   );
 }
 
+async function handleAggregate(selected: TreeNode | undefined) {
+  const defaultCol =
+    selected?.type === "collection"
+      ? ((selected.ref as { name: string })?.name ?? "")
+      : selected?.type === "object"
+        ? ((selected.ref as { collection: string })?.collection ?? "")
+        : "";
+
+  openForm(
+    "Aggregate",
+    [
+      {
+        id: "function",
+        label: "Function",
+        value: "count",
+        options: ["count", "sum", "avg", "min", "max"],
+      },
+      {
+        id: "collection",
+        label: "Collection",
+        value: defaultCol,
+        options: collections,
+        allowCustom: true,
+      },
+      { id: "field", label: "Field (for sum/avg/min/max)", placeholder: "field name" },
+      { id: "groupBy", label: "Group By (optional field)", placeholder: "field name" },
+      { id: "filter", label: "Filter (optional JSON)", placeholder: '{"status":"active"}' },
+    ],
+    async (vals) => {
+      const func = vals.function || "count";
+      const collection = (vals.collection || "").trim();
+      if (!collection) {
+        throw new Error("Collection is required.");
+      }
+      const field = (vals.field || "").trim() || undefined;
+      const groupBy = (vals.groupBy || "").trim() || undefined;
+      const filter = vals.filter?.trim() ? JSON.parse(vals.filter.trim()) : undefined;
+
+      const options = { groupBy, filter };
+      const a = db.aggregate as {
+        count: (
+          c: string,
+          o?: Record<string, unknown>
+        ) => Promise<{ total: number; groups: { key: string; value: number }[] }>;
+        sum: (
+          c: string,
+          f: string,
+          o?: Record<string, unknown>
+        ) => Promise<{ total: number; groups: { key: string; value: number }[] }>;
+        avg: (
+          c: string,
+          f: string,
+          o?: Record<string, unknown>
+        ) => Promise<{ total: number; groups: { key: string; value: number }[] }>;
+        min: (
+          c: string,
+          f: string,
+          o?: Record<string, unknown>
+        ) => Promise<{ total: number; groups: { key: string; value: number }[] }>;
+        max: (
+          c: string,
+          f: string,
+          o?: Record<string, unknown>
+        ) => Promise<{ total: number; groups: { key: string; value: number }[] }>;
+      };
+      const result =
+        func === "count"
+          ? await a.count(collection, options)
+          : func === "sum"
+            ? await a.sum(collection, field!, options)
+            : func === "avg"
+              ? await a.avg(collection, field!, options)
+              : func === "min"
+                ? await a.min(collection, field!, options)
+                : await a.max(collection, field!, options);
+
+      const lines = [
+        ` ${pc.bold("Aggregate")}  ${pc.cyan(func)} ${pc.dim(`on ${collection}`)}`,
+        "",
+        ` ${pc.dim("Total:")} ${pc.bold(String(result.total))}`,
+        "",
+      ];
+      if (result.groups && result.groups.length > 0) {
+        lines.push(` ${pc.bold("Groups")}`);
+        const maxVal = Math.max(...result.groups.map((g) => g.value));
+        for (const g of result.groups) {
+          const barLen = Math.max(1, Math.round((g.value / maxVal) * 20));
+          const bar = pc.cyan("█".repeat(barLen));
+          lines.push(` ${g.key}: ${bar} ${pc.dim(String(g.value))}`);
+        }
+      }
+      viewerLines = lines;
+      loadedItemId = "aggregate_result";
+      draw();
+    }
+  );
+}
+
+async function handleTimeseries(selected: TreeNode | undefined) {
+  const defaultCol =
+    selected?.type === "collection"
+      ? ((selected.ref as { name: string })?.name ?? "")
+      : selected?.type === "object"
+        ? ((selected.ref as { collection: string })?.collection ?? "")
+        : "";
+
+  openForm(
+    "Time Series",
+    [
+      {
+        id: "function",
+        label: "Function",
+        value: "count",
+        options: ["count", "sum", "avg", "min", "max"],
+      },
+      {
+        id: "collection",
+        label: "Collection",
+        value: defaultCol,
+        options: collections,
+        allowCustom: true,
+      },
+      { id: "field", label: "Field (optional)", placeholder: "field name" },
+      {
+        id: "bucket",
+        label: "Bucket",
+        value: "day",
+        options: ["hour", "day", "week", "month"],
+      },
+      { id: "from", label: "From (ISO date, optional)", placeholder: "2024-01-01" },
+      { id: "to", label: "To (ISO date, optional)", placeholder: "2024-12-31" },
+      { id: "filter", label: "Filter (optional JSON)", placeholder: '{"status":"active"}' },
+    ],
+    async (vals) => {
+      const func = vals.function || "count";
+      const collection = (vals.collection || "").trim();
+      if (!collection) {
+        throw new Error("Collection is required.");
+      }
+      const field = (vals.field || "").trim() || undefined;
+      const bucket = (vals.bucket || "day") as "hour" | "day" | "week" | "month";
+      const from = (vals.from || "").trim() || undefined;
+      const to = (vals.to || "").trim() || undefined;
+      const filter = vals.filter?.trim() ? JSON.parse(vals.filter.trim()) : undefined;
+
+      const result = await db.timeseries(collection, {
+        function: func as "count" | "sum" | "avg" | "min" | "max",
+        field,
+        bucket,
+        from,
+        to,
+        filter,
+      });
+
+      const lines = [
+        ` ${pc.bold("Time Series")}  ${pc.cyan(func)} ${pc.dim(`on ${collection}, ${bucket}ly`)}`,
+        "",
+      ];
+      if (result.buckets.length === 0) {
+        lines.push(pc.dim("No data for the selected range."));
+      } else {
+        const maxVal = Math.max(...result.buckets.map((b) => b.value));
+        for (const b of result.buckets) {
+          const barLen = Math.max(1, Math.round((b.value / maxVal) * 20));
+          const bar = pc.green("█".repeat(barLen));
+          lines.push(` ${b.label}: ${bar} ${pc.dim(String(b.value))}`);
+        }
+      }
+      viewerLines = lines;
+      loadedItemId = "timeseries_result";
+      draw();
+    }
+  );
+}
+
+async function handleNlq(selected: TreeNode | undefined) {
+  const defaultCol =
+    selected?.type === "collection"
+      ? ((selected.ref as { name: string })?.name ?? "")
+      : selected?.type === "object"
+        ? ((selected.ref as { collection: string })?.collection ?? "")
+        : "";
+
+  openForm(
+    "Natural Language Query",
+    [
+      { id: "question", label: "Question", placeholder: "How many active users?" },
+      {
+        id: "collection",
+        label: "Collection (optional)",
+        value: defaultCol,
+        options: collections,
+        allowCustom: true,
+      },
+    ],
+    async (vals) => {
+      const question = (vals.question || "").trim();
+      if (!question) {
+        throw new Error("Question is required.");
+      }
+      const collection = (vals.collection || "").trim() || undefined;
+
+      const result = await (db as any).nlq.query(question, {
+        collection,
+      });
+
+      const intent = result.intent;
+      const lines = [
+        ` ${pc.bold("NLQ Result")}`,
+        ` ${pc.dim(`Question: ${question}`)}`,
+        "",
+        ` ${result.answer}`,
+        "",
+      ];
+      if (intent) {
+        lines.push(
+          ` ${pc.dim("Interpreted as:")} ${intent.action} ${pc.dim("on")} ${pc.cyan(intent.collection)}`
+        );
+        if (intent.function) {
+          lines.push(` ${pc.dim("Function:")} ${intent.function}`);
+        }
+        if (intent.field) {
+          lines.push(` ${pc.dim("Field:")} ${intent.field}`);
+        }
+        if (intent.query) {
+          lines.push(` ${pc.dim("Query:")} ${intent.query}`);
+        }
+      }
+      if (result.data !== undefined && result.data !== null) {
+        lines.push("", highlightJson(result.data));
+      }
+      viewerLines = lines;
+      loadedItemId = "nlq_result";
+      draw();
+    }
+  );
+}
+
 async function handleMaintenance() {
   // Cycle through maintenance operations with each press of 'm'
   const operations = ["health", "checkpoint", "backup"];
@@ -2196,8 +2456,14 @@ function setupKeypress() {
         await handleSearch();
       } else if (str === "i" || str === "I") {
         await handleInfo();
-      } else if (str === "n" || str === "N") {
+      } else if (str === "n") {
         await handleNeighbors(tree[cursorIndex]);
+      } else if (str === "N") {
+        await handleNlq(tree[cursorIndex]);
+      } else if (str === "a" || str === "A") {
+        await handleAggregate(tree[cursorIndex]);
+      } else if (str === "t" || str === "T") {
+        await handleTimeseries(tree[cursorIndex]);
       } else if (str === "m" || str === "M") {
         await handleMaintenance();
       } else if (str === "l" || str === "L") {
