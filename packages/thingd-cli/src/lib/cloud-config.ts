@@ -5,10 +5,11 @@ import { defaultThingdDir, ensureThingdDir } from "../paths.js";
 const CONFIG_FILE = "cloud-config.json";
 
 export type CloudConfig = {
-  token: string;
-  /** API key for data plane operations (REST/MCP) — created after login. */
-  apiKey?: string;
+  /** Primary credential — user token (md_user_*) created on login. */
+  userToken?: string;
+  /** Email of the logged-in user. */
   email?: string;
+  /** API base URL (defaults to https://api.thingd.cloud). */
   url?: string;
   /** Currently active organization context (set by `thingd cloud org use`). */
   organizationId?: string;
@@ -20,6 +21,10 @@ export type CloudConfig = {
   projectSlug?: string;
   /** Active instance slug (set when instanceUrl is resolved). */
   instanceSlug?: string;
+  /** @deprecated Old JWT — still read as fallback if no userToken. */
+  token?: string;
+  /** @deprecated Old project API key — still read as fallback if no userToken or token. */
+  apiKey?: string;
 };
 
 export function cloudConfigPath(): string {

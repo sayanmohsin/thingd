@@ -1323,6 +1323,7 @@ export function resolveConnection(context: CliContext): ConnectionOptions {
   const resolvedAuthToken =
     stringFlag(context.parsed, "auth-token") ??
     context.env.THINGD_AUTH_TOKEN ??
+    cloudCfg?.userToken ??
     cloudCfg?.apiKey ??
     cloudCfg?.token;
 

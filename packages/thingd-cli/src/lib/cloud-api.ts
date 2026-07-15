@@ -30,6 +30,16 @@ export type CloudApiKey = {
   createdAt: string;
 };
 
+export type UserTokenDto = {
+  id: string;
+  name: string;
+  prefix: string;
+  projectAccess: string;
+  createdAt: string;
+  lastUsedAt: string | null;
+  revokedAt: string | null;
+};
+
 export type CloudOrganization = {
   id: string;
   name: string;
@@ -56,10 +66,15 @@ export class CloudApiError extends Error {
   }
 }
 
+function resolveAuthToken(config: CloudConfig): string {
+  return config.userToken ?? config.token ?? config.apiKey ?? "";
+}
+
 async function request<T>(config: CloudConfig, path: string, opts: ApiOptions = {}): Promise<T> {
   const url = `${config.url ?? DEFAULT_API_URL}${path}`;
+  const authToken = resolveAuthToken(config);
   const headers: Record<string, string> = {
-    authorization: `Bearer ${config.token}`,
+    authorization: `Bearer ${authToken}`,
     "content-type": "application/json",
   };
 
@@ -254,6 +269,54 @@ export async function resolveFirstInstance(config: CloudConfig): Promise<Resolve
     // API unreachable or token invalid
   }
   return null;
+}
+
+// ── User Token API ──────────────────────────────────────────────────
+
+export async function createUserToken(
+  config: CloudConfig,
+  name: string,
+  projectAccess?: string
+): Promise<{ token: string; userToken: UserTokenDto }> {
+  return request(config, "/auth/user-tokens", {
+    method: "POST",
+    body: { name, projectAccess },
+  });
+}
+
+export async function listUserTokens(
+  config: CloudConfig
+): Promise<{ userTokens: UserTokenDto[] }> {
+  return request(config, "/auth/user-tokens");
+}
+
+export async function revokeUserToken(
+  config: CloudConfig,
+  tokenId: string
+): Promise<void> {
+  await request(config, `/auth/user-tokens/${tokenId}`, { method: "DELETE" });
+}
+
+export async function updateUserToken(
+  config: CloudConfig,
+  tokenId: string,
+  updates: { name?: string; projectAccess?: string }
+): Promise<{ userToken: UserTokenDto }> {
+  return request(config, `/auth/user-tokens/${tokenId}`, {
+    method: "PATCH",
+    body: updates,
+  });
+}
+
+/**
+ * Extract the token ID from a full user token string (md_user_<hexId>_<secret> → utk_<hexId>).
+ */
+export function parseUserTokenId(userToken: string): string | null {
+  const match = /^md_user_([a-f0-9]{20})_/.exec(userToken);
+  if (!match?.[1]) {
+    return null;
+  }
+  return `utk_${match[1]}`;
 }
 
 /**

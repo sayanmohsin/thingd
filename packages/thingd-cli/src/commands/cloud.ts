@@ -1,4 +1,5 @@
 import { execSync } from "node:child_process";
+import * as os from "node:os";
 import { createInterface, type Interface } from "node:readline/promises";
 import { setTimeout as sleep } from "node:timers/promises";
 import pc from "picocolors";
@@ -10,17 +11,22 @@ import {
   createInstance,
   createOrganization,
   createProject,
+  createUserToken,
   getMe,
   getOrganization,
   listInstances,
   listOrganizationMembers,
   listOrganizations,
   listProjects,
+  listUserTokens,
+  parseUserTokenId,
   pollCliAuth,
   type ResolvedInstance,
   removeOrganizationMember,
   resolveAllInstances,
+  revokeUserToken,
   startCliAuth,
+  updateUserToken,
 } from "../lib/cloud-api.js";
 import {
   type CloudConfig,
@@ -62,7 +68,7 @@ function openBrowser(url: string): void {
 }
 
 function makeBaseConfig(context: CliContext): CloudConfig {
-  return { token: "", url: cliApiUrl(context) };
+  return { url: cliApiUrl(context) };
 }
 
 async function askQuestion(rl: Interface, query: string): Promise<string> {
@@ -110,35 +116,6 @@ async function pickAndSaveInstance(context: CliContext, cloudConfig: CloudConfig
   }
 }
 
-/**
- * Ensure a data-plane API key exists in the cloud config.
- * Best-effort — if creation fails, the JWT is still usable for management API.
- */
-async function ensureApiKey(context: CliContext, cloudConfig: CloudConfig): Promise<void> {
-  if (cloudConfig.apiKey) {
-    return;
-  }
-  try {
-    let projectId: string | undefined = cloudConfig.projectId;
-    if (!projectId) {
-      const { projects } = await listProjects(cloudConfig);
-      if (projects.length === 0) {
-        return;
-      }
-      projectId = projects[0]?.id;
-    }
-    if (!projectId) {
-      return;
-    }
-    const result = await createApiKey(cloudConfig, projectId);
-    cloudConfig.apiKey = result.token;
-    writeCloudConfig(cloudConfig);
-    context.stderr.write(`  ${pc.dim("API key created for data access\n")}`);
-  } catch {
-    // API key creation is best-effort
-  }
-}
-
 export async function runCloud(context: CliContext): Promise<void> {
   const sub = requiredToken(context.parsed, 1, "subcommand");
 
@@ -152,6 +129,9 @@ export async function runCloud(context: CliContext): Promise<void> {
     case "status":
       await runCloudStatus(context);
       return;
+    case "token":
+      await runToken(context);
+      return;
     case "project":
       await runProject(context);
       return;
@@ -159,6 +139,7 @@ export async function runCloud(context: CliContext): Promise<void> {
       await runInstance(context);
       return;
     case "api-key":
+      context.stderr.write(pc.yellow("Deprecated. Use `thingd cloud token create` for CLI tokens. Project API keys are managed in the dashboard.\n"));
       await runApiKey(context);
       return;
     case "org":
@@ -167,7 +148,7 @@ export async function runCloud(context: CliContext): Promise<void> {
     default:
       context.stderr.write(
         `Unknown cloud subcommand: ${sub}\n` +
-          "Available: login, logout, status, org, project, instance, api-key\n"
+          "Available: login, logout, status, token, org, project, instance, api-key\n"
       );
   }
 }
@@ -178,17 +159,22 @@ async function runLogin(context: CliContext): Promise<void> {
 
   // ── Manual --code --token flow (fallback) ─────────────────────────
   if (code && token) {
-    const config: CloudConfig = { token, url: cliApiUrl(context) };
+    const config: CloudConfig = { url: cliApiUrl(context) };
     try {
-      const { user } = await getMe(config);
-      const cloudConfig: CloudConfig = { ...config, email: user.email };
-      // Save config immediately so login always persists
+      // Verify JWT and get user info
+      const { user } = await getMe({ ...config, token });
+      // Create a permanent user token
+      const hostname = os.hostname();
+      const { token: userToken } = await createUserToken(
+        { ...config, token },
+        `cli-${hostname}`
+      );
+      // Save config with user token (not JWT)
+      const cloudConfig: CloudConfig = { userToken, email: user.email, ...config };
       writeCloudConfig(cloudConfig);
       context.stdout.write(pc.green(`✓ Logged in as ${user.email}\n`));
       // Discover and select an instance (interactive if multiple)
       await pickAndSaveInstance(context, cloudConfig);
-      // Create a data-plane API key for REST/MCP operations
-      await ensureApiKey(context, cloudConfig);
     } catch (err) {
       if (err instanceof CloudApiError && err.status === 401) {
         context.stderr.write(pc.red("Invalid token. Please try again.\n"));
@@ -233,17 +219,23 @@ async function runLogin(context: CliContext): Promise<void> {
       const result = await pollCliAuth(baseConfig, deviceCode);
 
       if ("token" in result) {
-        const tokenConfig: CloudConfig = { token: result.token, url: cliApiUrl(context) };
+        const jwt = result.token;
+        const tokenConfig: CloudConfig = { url: cliApiUrl(context) };
         try {
-          const { user } = await getMe(tokenConfig);
-          const cloudConfig: CloudConfig = { ...tokenConfig, email: user.email };
-          // Save config immediately so login always persists
+          // Verify temporary JWT
+          const { user } = await getMe({ ...tokenConfig, token: jwt });
+          // Create permanent user token
+          const hostname = os.hostname();
+          const { token: userToken } = await createUserToken(
+            { ...tokenConfig, token: jwt },
+            `cli-${hostname}`
+          );
+          // Save config with user token (not JWT)
+          const cloudConfig: CloudConfig = { userToken, email: user.email, ...tokenConfig };
           writeCloudConfig(cloudConfig);
           context.stdout.write(pc.green(`\r✓ Logged in as ${user.email}\n`));
           // Discover and select an instance (interactive if multiple)
           await pickAndSaveInstance(context, cloudConfig);
-          // Create a data-plane API key for REST/MCP operations
-          await ensureApiKey(context, cloudConfig);
           return;
         } catch {
           context.stderr.write(pc.red("\rToken received but verification failed. Try again.\n"));
@@ -268,6 +260,17 @@ async function runLogin(context: CliContext): Promise<void> {
 }
 
 async function runLogout(context: CliContext): Promise<void> {
+  const config = readCloudConfig();
+  if (config?.userToken) {
+    try {
+      const tokenId = parseUserTokenId(config.userToken);
+      if (tokenId) {
+        await revokeUserToken(config, tokenId);
+      }
+    } catch {
+      // Best-effort — token may already be revoked or API unreachable
+    }
+  }
   removeCloudConfig();
   context.stdout.write(pc.green("✓ Logged out\n"));
 }
@@ -279,12 +282,39 @@ async function runCloudStatus(context: CliContext): Promise<void> {
     return;
   }
 
+  // Warn about old config format
+  if (config.token && !config.userToken) {
+    context.stdout.write(
+      `${pc.yellow("Your credentials use an older format.")} Run ${pc.cyan("thingd cloud login")} to upgrade to a persistent CLI token.\n\n`
+    );
+  }
+
   try {
     const { user } = await getMe(config);
     context.stdout.write(
-      `Logged in as ${pc.green(user.email)} (${user.role})\n` +
-        `API: ${config.url ?? "https://api.thingd.cloud"}\n`
+      `Logged in as ${pc.green(user.email)} (${user.role})\n`
     );
+
+    // Show token info
+    if (config.userToken) {
+      try {
+        const { userTokens } = await listUserTokens(config);
+        const active = userTokens.find((t) => !t.revokedAt);
+        if (active) {
+          context.stdout.write(
+            `CLI Token: ${pc.cyan(active.name)}\n` +
+              `  Prefix:   ${pc.dim(active.prefix)}\n` +
+              `  Created:  ${pc.dim(formatTimeAgo(active.createdAt))}\n` +
+              `  Last used:${pc.dim(active.lastUsedAt ? formatTimeAgo(active.lastUsedAt) : "never")}\n` +
+              `  Access:   ${pc.dim(active.projectAccess === "all" ? "All projects" : active.projectAccess)}\n`
+          );
+        }
+      } catch {
+        context.stdout.write(`  ${pc.dim("(token info unavailable)")}\n`);
+      }
+    }
+
+    context.stdout.write(`API: ${config.url ?? "https://api.thingd.cloud"}\n`);
     if (config.projectSlug && config.instanceSlug && config.instanceUrl) {
       context.stdout.write(
         `Instance: ${pc.cyan(config.projectSlug)}/${pc.cyan(config.instanceSlug)}\n` +
@@ -309,6 +339,159 @@ async function runCloudStatus(context: CliContext): Promise<void> {
     }
   } catch {
     context.stdout.write(`Token expired. Run ${pc.cyan("thingd cloud login")}\n`);
+  }
+}
+
+function formatTimeAgo(iso: string): string {
+  const ms = Date.now() - new Date(iso).getTime();
+  const s = Math.floor(ms / 1000);
+  if (s < 5) return "just now";
+  if (s < 60) return `${s}s ago`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  const d = Math.floor(h / 24);
+  return `${d}d ago`;
+}
+
+// ── Token subcommands ────────────────────────────────────────────────
+
+function requireLoggedInConfig(context: CliContext): CloudConfig {
+  const config = readCloudConfig();
+  if (!config?.userToken && !config?.token) {
+    context.stderr.write(pc.yellow("Not logged in. Run thingd cloud login first.\n"));
+    throw new Error("not_logged_in");
+  }
+  return config;
+}
+
+async function runToken(context: CliContext): Promise<void> {
+  const sub = context.parsed.tokens[2];
+  if (!sub) {
+    context.stderr.write(
+      "Usage: thingd cloud token <list|create|revoke|restrict|unrestricted>\n"
+    );
+    return;
+  }
+
+  switch (sub) {
+    case "list":
+      await runTokenList(context);
+      return;
+    case "create":
+      await runTokenCreate(context);
+      return;
+    case "revoke":
+      await runTokenRevoke(context);
+      return;
+    case "restrict":
+      await runTokenRestrict(context);
+      return;
+    case "unrestricted":
+      await runTokenUnrestricted(context);
+      return;
+    default:
+      context.stderr.write(
+        `Unknown token action: ${sub}. Available: list, create, revoke, restrict, unrestricted\n`
+      );
+  }
+}
+
+async function runTokenList(context: CliContext): Promise<void> {
+  const config = requireLoggedInConfig(context);
+  try {
+    const { userTokens } = await listUserTokens(config);
+    if (userTokens.length === 0) {
+      context.stdout.write("No CLI tokens found. Create one with `thingd cloud token create <name>`\n");
+      return;
+    }
+    // Header
+    const header = `${pc.bold("Name".padEnd(18))} ${pc.bold("Prefix".padEnd(22))} ${pc.bold("Created".padEnd(14))} ${pc.bold("Last Used".padEnd(14))} ${pc.bold("Access")}`;
+    context.stdout.write(`${header}\n`);
+    context.stdout.write(`${pc.dim("─".repeat(header.length))}\n`);
+    for (const t of userTokens) {
+      if (t.revokedAt) continue; // Skip revoked tokens
+      const access = t.projectAccess === "all" ? "All" : t.projectAccess;
+      context.stdout.write(
+        `${t.name.padEnd(18)} ${pc.dim(t.prefix.padEnd(22))} ${formatTimeAgo(t.createdAt).padEnd(14)} ${(t.lastUsedAt ? formatTimeAgo(t.lastUsedAt) : "never").padEnd(14)} ${pc.cyan(access)}\n`
+      );
+    }
+  } catch (err) {
+    context.stderr.write(pc.red(`Failed to list tokens: ${err}\n`));
+  }
+}
+
+async function runTokenCreate(context: CliContext): Promise<void> {
+  const config = requireLoggedInConfig(context);
+  const name = context.parsed.tokens[3] ?? "cli-token";
+  try {
+    const { token: userToken } = await createUserToken(config, name);
+    context.stdout.write(
+      `\n${pc.green("✓ Token created")}\n\n` +
+        `${pc.bold(userToken)}\n\n` +
+        `${pc.yellow("⚠ This token will only be shown once. Copy it now.\n")}` +
+        `${pc.dim("Press Enter to continue...")}\n`
+    );
+    // Wait for user to acknowledge
+    const rl = createInterface({
+      input: context.stdin as NodeJS.ReadableStream,
+      output: context.stderr as NodeJS.WritableStream,
+    });
+    await rl.question("");
+    rl.close();
+  } catch (err) {
+    context.stderr.write(pc.red(`Failed to create token: ${err}\n`));
+  }
+}
+
+async function runTokenRevoke(context: CliContext): Promise<void> {
+  const config = requireLoggedInConfig(context);
+  const tokenId = requiredToken(context.parsed, 3, "token-id");
+  try {
+    await revokeUserToken(config, tokenId);
+    context.stdout.write(pc.green(`✓ Token ${tokenId} revoked\n`));
+  } catch (err) {
+    if (err instanceof CloudApiError && err.status === 404) {
+      context.stderr.write(pc.red("Token not found.\n"));
+    } else {
+      context.stderr.write(pc.red(`Failed to revoke token: ${err}\n`));
+    }
+  }
+}
+
+async function runTokenRestrict(context: CliContext): Promise<void> {
+  const config = requireLoggedInConfig(context);
+  const tokenId = requiredToken(context.parsed, 3, "token-id");
+  const projectSlug = requiredToken(context.parsed, 4, "project");
+  try {
+    const { userToken } = await updateUserToken(config, tokenId, {
+      projectAccess: projectSlug,
+    });
+    context.stdout.write(pc.green(`✓ Token "${userToken.name}" restricted to: ${projectSlug}\n`));
+  } catch (err) {
+    if (err instanceof CloudApiError && err.status === 404) {
+      context.stderr.write(pc.red("Token not found.\n"));
+    } else {
+      context.stderr.write(pc.red(`Failed to update token: ${err}\n`));
+    }
+  }
+}
+
+async function runTokenUnrestricted(context: CliContext): Promise<void> {
+  const config = requireLoggedInConfig(context);
+  const tokenId = requiredToken(context.parsed, 3, "token-id");
+  try {
+    const { userToken } = await updateUserToken(config, tokenId, {
+      projectAccess: "all",
+    });
+    context.stdout.write(pc.green(`✓ Token "${userToken.name}" now has access to all projects\n`));
+  } catch (err) {
+    if (err instanceof CloudApiError && err.status === 404) {
+      context.stderr.write(pc.red("Token not found.\n"));
+    } else {
+      context.stderr.write(pc.red(`Failed to update token: ${err}\n`));
+    }
   }
 }
 

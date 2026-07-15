@@ -1001,7 +1001,8 @@ function scheduleLoad(node: TreeNode) {
           : d === "native"
             ? ` Persistent SQLite database.\n Data is stored on disk.\n\n ${pc.dim("Best for: local development, single-node")}\n\n ${pc.dim("Press")} ${pc.bold("Enter")} ${pc.dim("to connect.")}`
             : (() => {
-                const hasCfg = !!readCloudConfig()?.token;
+                const cfg = readCloudConfig();
+                const hasCfg = !!(cfg?.userToken ?? cfg?.token);
                 return hasCfg
                   ? ` Connect to a remote thingd instance.\n Requires a URL and optional auth token.\n\n ${pc.dim("Best for: production, multi-node")}\n\n ${pc.dim("Press")} ${pc.bold("Enter")} ${pc.dim("to connect.")}`
                   : ` ${pc.yellow("Not logged in to thingd Cloud.")}\n\n Run ${pc.cyan("thingd cloud login")} to authenticate, or\n press ${pc.bold("Enter")} to connect with a URL and token manually.`;
@@ -3094,7 +3095,7 @@ async function handleConnect(node: TreeNode) {
                 "cloud",
                 deriveRestUrl(selected.mcpUrl),
                 deriveRestUrl(selected.mcpUrl),
-                cloudCfg.apiKey ?? cloudCfg.token,
+                cloudCfg.userToken ?? cloudCfg.apiKey ?? cloudCfg.token,
                 selected.instanceSlug
               );
             }
@@ -3109,7 +3110,7 @@ async function handleConnect(node: TreeNode) {
             "cloud",
             restUrl,
             restUrl,
-            cloudCfg.apiKey ?? cloudCfg.token,
+            cloudCfg.userToken ?? cloudCfg.apiKey ?? cloudCfg.token,
             cloudCfg.instanceSlug
           );
           return;
@@ -3129,7 +3130,7 @@ async function handleConnect(node: TreeNode) {
             "cloud",
             restUrl,
             restUrl,
-            cloudCfg.apiKey ?? cloudCfg.token,
+            cloudCfg.userToken ?? cloudCfg.apiKey ?? cloudCfg.token,
             cloudCfg.instanceSlug
           );
           return;
@@ -3366,7 +3367,7 @@ export async function runInteractiveCli(): Promise<void> {
 
   // Auto-connect to cloud if credentials exist
   const cloudCfg = readCloudConfig();
-  if (cloudCfg?.token) {
+  if (cloudCfg?.userToken ?? cloudCfg?.token) {
     const cloudUrl = resolveCloudUrl(cloudCfg);
     if (cloudUrl) {
       try {
@@ -3375,7 +3376,7 @@ export async function runInteractiveCli(): Promise<void> {
           "cloud",
           restUrl,
           restUrl,
-          cloudCfg.apiKey ?? cloudCfg.token,
+          cloudCfg.userToken ?? cloudCfg.apiKey ?? cloudCfg.token,
           cloudCfg.instanceSlug
         );
       } catch (err) {
