@@ -167,10 +167,36 @@ no URL and no native driver:
 
 `thingd cloud login [--code <code> --token <token>]`
   Authenticate with thingd Cloud (opens browser for device-code flow).
+  Automatically creates a persistent CLI token (md_user_*) on success.
+
+`thingd cloud logout`
+  Revokes the current CLI token and clears saved credentials.
+
+`thingd cloud status`
+  Show logged-in user, active CLI token info, and current instance.
+
+`thingd cloud token list`
+  List all CLI tokens with their prefix, last used time, and project access.
+
+`thingd cloud token create <name>`
+  Create a new CLI token (md_user_*) for use with the CLI or TUI.
+  Shows the full token once — copy it immediately.
+
+`thingd cloud token revoke <id>`
+  Revoke a CLI token — it will no longer authenticate.
+
+`thingd cloud token restrict <id> <project-slug>`
+  Limit a CLI token to a specific project.
+
+`thingd cloud token unrestricted <id>`
+  Allow a CLI token to access all projects.
+
+`thingd cloud token cleanup`
+  Remove expired login sessions from your account.
 
 `thingd cloud api-key create <project> <name>`
-  Create a persistent API key for MCP or SDK access. Returns the key once.
-  The key survives cloud deployments (unlike ephemeral test tokens).
+  [DEPRECATED] Use `thingd cloud token create` for CLI tokens.
+  Project API keys are managed in the web dashboard.
 
 `thingd cloud project list`
   List projects in your thingd Cloud account.

@@ -111,9 +111,10 @@ In `~/.config/Code/User/mcp.json` (macOS/Linux) or `%APPDATA%\Code\User\mcp.json
 }
 ```
 
-**Option B — Cloud HTTP endpoint (use a persistent API key):**
+**Option B — Cloud HTTP endpoint (use a project API key):**
 
-Connect to your thingd Cloud instance. Create an API key with:
+Connect to your thingd Cloud instance. Create a project API key from
+the web dashboard (Project Settings → API Keys), or use the CLI:
 
 ```bash
 thingd cloud login
@@ -136,9 +137,9 @@ Then add to `mcp.json`:
 }
 ```
 
-> **Warning:** Test tokens (`md_test_...`) are ephemeral and expire on cloud
-> deployments. Always use a persistent API key for production or development
-> that must survive redeploys.
+> **Note:** Project API keys (`md_pk_...`) persist across cloud deployments.
+> Use `thingd cloud token create` for CLI/TUI access. Project API keys are
+> managed in the web dashboard under Project Settings → API Keys.
 
 **Option C — Both (redundant fallback):**
 

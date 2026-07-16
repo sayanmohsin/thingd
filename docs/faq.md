@@ -370,11 +370,15 @@ It's the easiest way to get a production thingd instance without managing server
 
 ### Why does my VS Code MCP stop working after a cloud deployment?
 
-Your MCP config most likely uses a **test token** (`md_test_...`). These tokens are
-ephemeral and are regenerated on every cloud deployment. When thingd Cloud redeploys,
-the old test token is invalidated and your editor loses connection.
+Your MCP config may be using an old or expired credential. thingd Cloud uses two
+types of tokens:
 
-**Fix:** Use a persistent API key instead:
+- **Project API keys** (`md_pk_...`) — used for MCP/SDK access. Created in the
+  web dashboard (Project Settings → API Keys). Persist across deployments.
+- **CLI tokens** (`md_user_...`) — used by the CLI/TUI. Created automatically
+  on `thingd cloud login`. Revocable via `thingd cloud token revoke`.
+
+**Fix:** Create a project API key from the dashboard, or use the CLI to get one:
 
 ```bash
 thingd cloud login
@@ -397,7 +401,7 @@ Then update your editor's `mcp.json` with the returned key:
 }
 ```
 
-The API key is stored in the cloud database and survives redeploys.
+Project API keys are stored in the cloud database and survive redeploys.
 
 **Pro tip:** Add a local stdio MCP server as a fallback in the same `mcp.json` —
 it keeps working even when the cloud is down or deploying.
@@ -421,22 +425,25 @@ it keeps working even when the cloud is down or deploying.
 }
 ```
 
-### How do I create a persistent API key?
+### How do I create a project API key?
 
 ```bash
 thingd cloud login
 thingd cloud api-key create <project> <name>
 ```
 
-This returns a token once. Save it — it will not be shown again. The key persists
+This returns a key once. Save it — it will not be shown again. The key persists
 across cloud deployments and can be revoked via the cloud dashboard.
 
-### What's the difference between a test token and an API key?
+For CLI and TUI access, use `thingd cloud token create <name>` instead.
 
-| | Test token (`md_test_...`) | API key |
+### What's the difference between token types?
+
+| | CLI Token (`md_user_*`) | Project API Key (`md_pk_*`) |
 |---|---|---|
-| Created by | Automatic on instance creation | `thingd cloud api-key create` |
-| Survives deploy? | ❌ regenerated | ✅ persists |
-| Visible in config? | Yes, in cloud-config.json | Shown once on creation |
-| Use case | Quick testing | Development, CI, production |
-| Revocable? | ❌ (auto-regenerated) | ✅ via cloud dashboard |
+| Created by | `thingd cloud token create` or auto on login | Auto on project create, or dashboard/CLI |
+| Used for | CLI, TUI, cloud API | MCP, SDK, programmatic access |
+| Scope | User-level (all user's projects) | Project-level with granular scopes |
+| Persists across deploys? | ✅ | ✅ |
+| Revocable? | ✅ via `thingd cloud token revoke` | ✅ via dashboard |
+| Shown once? | ✅ for manual create | ✅ |
