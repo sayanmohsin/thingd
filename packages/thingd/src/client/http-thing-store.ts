@@ -146,6 +146,9 @@ export class HttpThingStore implements ThingStore {
     if (options?.limit) {
       params.set("limit", String(options.limit));
     }
+    if (options?.since) {
+      params.set("since", options.since);
+    }
     return this.request<T[]>("GET", `/events?${params}`);
   }
 

@@ -387,6 +387,7 @@ fn handle_thing_events_list(
     let opts = thingd::ListEventsOptions {
         from_sequence: arg_u64(args, "fromSequence"),
         limit: arg_u64(args, "limit"),
+        since: args.get("since").and_then(|v| v.as_str()).map(String::from),
     };
     let events = g.list_events(stream_opt, opts)?;
     Ok(
@@ -976,7 +977,7 @@ static ALL_TOOLS: LazyLock<Vec<ToolEntry>> = LazyLock::new(|| {
         ToolEntry {
             name: "thing_events_list",
             description: "List events in a stream",
-            properties: json!({ "stream": str_prop("Optional stream name (lists all if omitted)"), "fromSequence": int_prop("Starting sequence"), "limit": int_prop("Max results") }),
+            properties: json!({ "stream": str_prop("Optional stream name (lists all if omitted)"), "fromSequence": int_prop("Starting sequence"), "limit": int_prop("Max results"), "since": str_prop("ISO 8601 timestamp to filter from (e.g. 2026-07-17T00:00:00.000Z)") }),
             required: &[],
             handler: handle_thing_events_list,
             is_write: false,

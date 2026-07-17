@@ -165,6 +165,7 @@ where
     let from_opts = ListEventsOptions {
         from_sequence: Some(midpoint),
         limit: None,
+        since: None,
     };
     let started = Instant::now();
     let tail = store.list_events(Some(STREAM), from_opts)?;
@@ -176,6 +177,7 @@ where
     let limit_event_opts = ListEventsOptions {
         from_sequence: None,
         limit: Some(100),
+        since: None,
     };
     let started = Instant::now();
     let limited_events = store.list_events(Some(STREAM), limit_event_opts)?;

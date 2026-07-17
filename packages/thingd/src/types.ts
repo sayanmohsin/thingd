@@ -159,6 +159,7 @@ export type MemoryQueue = {
 export type ListEventsOptions = {
   fromSequence?: number;
   limit?: number;
+  since?: string;
 };
 
 export type SortDirection = "asc" | "desc";

@@ -331,12 +331,13 @@ export async function handleRestRequest(
       return;
     }
 
-    // GET /v1/events?stream=...&fromSequence=...&limit=...
+    // GET /v1/events?stream=...&fromSequence=...&limit=...&since=...
     if (pathname === "/v1/events" && method === "GET") {
       const stream = url.searchParams.get("stream") ?? undefined;
       const fromSequence = parseIntParam(url.searchParams.get("fromSequence"));
       const limit = parseIntParam(url.searchParams.get("limit"));
-      const events = await db.events.list(stream, { fromSequence, limit });
+      const since = url.searchParams.get("since") ?? undefined;
+      const events = await db.events.list(stream, { fromSequence, limit, since });
       sendDataList(res, events);
       return;
     }

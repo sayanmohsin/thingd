@@ -150,6 +150,10 @@ export class InMemoryThingStore implements ThingStore {
     if (options?.fromSequence) {
       items = items.filter((e) => e.sequence > (options.fromSequence ?? 0));
     }
+    if (options?.since) {
+      const since = options.since;
+      items = items.filter((e) => e.createdAt >= since);
+    }
     if (options?.limit) {
       items = items.slice(0, options.limit);
     }

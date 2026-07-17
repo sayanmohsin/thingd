@@ -50,6 +50,7 @@ export type StoredMemoryEvent = MemoryEvent & {
 export type ListEventsOptions = {
   fromSequence?: number;
   limit?: number;
+  since?: string;
 };
 
 // ── Queues ───────────────────────────────────────────

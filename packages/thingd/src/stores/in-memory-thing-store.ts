@@ -205,6 +205,10 @@ export class InMemoryThingStore implements ThingStore {
     if (fromSeq) {
       events = events.filter((event) => (event as unknown as StoredMemoryEvent).sequence > fromSeq);
     }
+    if (options?.since) {
+      const since = options.since;
+      events = events.filter((event) => (event as unknown as StoredMemoryEvent).createdAt >= since);
+    }
     if (options?.limit) {
       events = events.slice(0, options.limit);
     }

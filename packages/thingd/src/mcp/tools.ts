@@ -229,11 +229,12 @@ export function registerThingdTools(
     {
       title: "List Events",
       description:
-        "List events from a thingd stream, optionally filtered by stream name, starting from a specific sequence number, with a configurable limit. Use this to review recent activity, replay events, or audit changes. Returns an array of events ordered by sequence.",
+        "List events from a thingd stream, optionally filtered by stream name, starting from a specific sequence number, with a configurable limit, or filtered by timestamp. Use this to review recent activity, replay events, or audit changes. Returns an array of events ordered by sequence.",
       inputSchema: {
         stream: z.string().min(1).optional(),
         fromSequence: z.number().int().positive().optional(),
         limit: z.number().int().positive().optional(),
+        since: z.string().optional(),
       },
       annotations: {
         readOnlyHint: true,
@@ -242,8 +243,8 @@ export function registerThingdTools(
         openWorldHint: false,
       },
     },
-    async ({ stream, fromSequence, limit }) =>
-      jsonResult(await db.events.list(stream, { fromSequence, limit }))
+    async ({ stream, fromSequence, limit, since }) =>
+      jsonResult(await db.events.list(stream, { fromSequence, limit, since }))
   );
 
   server.registerTool(

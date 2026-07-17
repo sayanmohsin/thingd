@@ -172,6 +172,7 @@ impl NativeThingStore {
         stream: Option<String>,
         from_sequence: Option<i64>,
         limit: Option<i64>,
+        since: Option<String>,
     ) -> Result<String> {
         let store = self.lock_store()?;
         let events = store
@@ -180,6 +181,7 @@ impl NativeThingStore {
                 ListEventsOptions {
                     from_sequence: from_sequence.map(|v| v as u64),
                     limit: limit.map(|v| v as u64),
+                    since,
                 },
             )
             .map_err(napi_error)?

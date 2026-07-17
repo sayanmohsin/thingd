@@ -40,7 +40,7 @@ type NativeThingStoreBinding = {
   ): string;
   deleteObject(collection: string, id: string): boolean;
   appendEventJson(stream: string, body: string): string;
-  listEventsJson(stream?: string, fromSequence?: number, limit?: number): string;
+  listEventsJson(stream?: string, fromSequence?: number, limit?: number, since?: string): string;
   pushJobJson(
     queue: string,
     id: string,
@@ -263,7 +263,7 @@ export class NativeThingStore implements ThingStore {
     options?: ListEventsOptions
   ): Promise<T[]> {
     return parseJson<NativeEventRecord[]>(
-      this.binding.listEventsJson(stream, options?.fromSequence, options?.limit)
+      this.binding.listEventsJson(stream, options?.fromSequence, options?.limit, options?.since)
     ).map(eventFromNative) as T[];
   }
 

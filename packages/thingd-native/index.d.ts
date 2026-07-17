@@ -13,7 +13,7 @@ export class NativeThingStore {
   ): string;
   deleteObject(collection: string, id: string): boolean;
   appendEventJson(stream: string, body: string): string;
-  listEventsJson(stream?: string, fromSequence?: number, limit?: number): string;
+  listEventsJson(stream?: string, fromSequence?: number, limit?: number, since?: string): string;
   pushJobJson(
     queue: string,
     id: string,

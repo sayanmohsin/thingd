@@ -192,6 +192,8 @@ pub struct ListEventsOptions {
     pub from_sequence: Option<u64>,
     /// Maximum number of events to return.
     pub limit: Option<u64>,
+    /// Only return events created at or after this ISO 8601 timestamp.
+    pub since: Option<String>,
 }
 
 /// Sort direction for list queries.

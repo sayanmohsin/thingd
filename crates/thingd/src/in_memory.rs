@@ -248,6 +248,12 @@ impl EventLog for MemoryEngine {
             .iter()
             .filter(|event| stream.is_none_or(|target| event.stream == target))
             .filter(|event| options.from_sequence.is_none_or(|seq| event.sequence > seq))
+            .filter(|event| {
+                options
+                    .since
+                    .as_ref()
+                    .is_none_or(|since| event.created_at.as_str() >= since.as_str())
+            })
             .cloned()
             .collect::<Vec<_>>();
 

@@ -146,6 +146,9 @@ export class CloudThingStore implements ThingStore {
     if (options?.limit) {
       params.limit = options.limit;
     }
+    if (options?.since) {
+      params.since = options.since;
+    }
     return this.callTool("thing_events_list", params);
   }
 

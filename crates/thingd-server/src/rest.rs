@@ -307,6 +307,10 @@ pub async fn list_events(
     let opts = ListEventsOptions {
         from_sequence: params.get("fromSequence").and_then(|v| v.as_u64()),
         limit: params.get("limit").and_then(|v| v.as_u64()),
+        since: params
+            .get("since")
+            .and_then(|v| v.as_str())
+            .map(String::from),
     };
     let e = state.pool.get_reader("");
     let g = e.lock();

@@ -18,7 +18,7 @@ use crate::{
 };
 
 /// Current `SQLite` schema version.
-pub const SQLITE_SCHEMA_VERSION: u32 = 5;
+pub const SQLITE_SCHEMA_VERSION: u32 = 6;
 
 /// `SQLite`-backed memory store.
 pub struct SqliteThingStore {
@@ -144,6 +144,12 @@ impl SqliteThingStore {
 
         if current_version < 5 {
             self.apply_schema_v5()?;
+        }
+
+        let current_version = self.schema_version()?;
+
+        if current_version < 6 {
+            self.apply_schema_v6()?;
         }
 
         if current_version > SQLITE_SCHEMA_VERSION {
@@ -407,6 +413,25 @@ impl SqliteThingStore {
             .execute(
                 "INSERT OR IGNORE INTO thingd_schema_migrations (version, name, applied_at)
                  VALUES (5, 'performance_indexes', strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))",
+                [],
+            )
+            .map_err(ThingdError::from)?;
+        Ok(())
+    }
+
+    fn apply_schema_v6(&self) -> ThingdResult<()> {
+        self.connection
+            .execute_batch(
+                r"
+                CREATE INDEX IF NOT EXISTS idx_events_stream_created_at
+                    ON events (stream, created_at);
+                ",
+            )
+            .map_err(ThingdError::from)?;
+        self.connection
+            .execute(
+                "INSERT OR IGNORE INTO thingd_schema_migrations (version, name, applied_at)
+                 VALUES (6, 'events_stream_created_at_index', strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))",
                 [],
             )
             .map_err(ThingdError::from)?;
@@ -1194,6 +1219,12 @@ impl EventLog for SqliteThingStore {
             let idx = param_values.len() + 1;
             write!(sql, " AND sequence > ?{idx}").unwrap();
             param_values.push(Box::new(from_sequence.cast_signed()));
+        }
+
+        if let Some(ref since) = options.since {
+            let idx = param_values.len() + 1;
+            write!(sql, " AND created_at >= ?{idx}").unwrap();
+            param_values.push(Box::new(since.clone()));
         }
 
         sql.push_str(" ORDER BY sequence");
