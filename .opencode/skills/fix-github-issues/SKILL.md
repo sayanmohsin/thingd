@@ -35,14 +35,47 @@ gh issue view <number> --json title,body,labels,comments
 Explore the codebase to understand the root cause. Look at relevant source
 files, tests, and docs. Form a plan before writing code.
 
-### 4. Implement
+### 4. Evaluate fit
+
+Before writing any code, assess whether the issue aligns with the product
+vision. thingd is a **fast object-first data engine** — it prioritizes
+performance, simplicity, and a small surface area. Ask:
+
+- **Does this solve a real user problem?** Skip issues that are speculative
+  or solutions in search of a problem.
+- **Is this in scope?** thingd is an engine + SDK + CLI. Issues about
+  auth, billing, tenancy, or SaaS features belong in thingd-cloud, not here.
+- **Does it preserve simplicity?** Reject requests that add heavyweight
+  deps, complex protocols, or niche features with narrow appeal.
+- **Is the approach sound?** If the proposed implementation conflicts with
+  existing architecture (e.g. adding HTTP/MCP knowledge to the engine crate),
+  push back or propose an alternative in the issue comments.
+- **Can it be done well in one layer?** Per AGENTS.md, every feature must
+  ship in all layers. If the scope is too large for a single pass, break it
+  down or defer.
+
+If the issue is a **bad fit**, close it with a comment explaining why:
+
+```bash
+gh issue close <number> -c "Closing — <reason>. This belongs in thingd-cloud / is out of scope because..."
+```
+
+If it's a **good fit but needs clarification**, comment and leave open:
+
+```bash
+gh issue comment <number> -m "Could you clarify <question>? This would help determine the right approach."
+```
+
+Only proceed to implementation if the issue is a clear yes.
+
+### 5. Implement
 
 Apply the fix. Follow the repo conventions:
 - Rust (edition 2024, cargo fmt, clippy -D warnings)
 - TypeScript (ESM, double quotes, semicolons, trailing commas es5, line width 100)
 - Conventional commits (fix:, feat:, refactor:, chore:)
 
-### 5. Verify
+### 6. Verify
 
 ```bash
 cargo test --workspace --all-targets --all-features
@@ -53,7 +86,7 @@ pnpm test:node
 pnpm test:cli
 ```
 
-### 6. Commit and push
+### 7. Commit and push
 
 ```bash
 git add -A
@@ -66,7 +99,7 @@ git push
 
 The `Closes #<number>` in the commit message auto-closes the issue on push.
 
-### 7. Verify issue is closed
+### 8. Verify issue is closed
 
 ```bash
 gh issue view <number> --json number,state,title
