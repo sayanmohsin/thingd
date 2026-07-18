@@ -47,7 +47,8 @@ type NativeThingStoreBinding = {
     id: string,
     body: string,
     maxAttempts: number,
-    delayMs: number
+    delayMs: number,
+    priority?: number
   ): string;
   claimJobJson(queue: string, leaseMs: number): string | null;
   ackJobJson(queue: string, id: string): string;
@@ -141,6 +142,7 @@ type NativeQueueJobRecord = {
   deadAtMs?: number;
   createdAt: string;
   lastError: string;
+  priority?: number;
 };
 
 type NativeLinkRecord = {
@@ -288,7 +290,8 @@ export class NativeThingStore implements ThingStore {
         options.idempotencyKey ?? randomUUID(),
         JSON.stringify(payload),
         options.maxAttempts ?? 3,
-        options.delayMs ?? 0
+        options.delayMs ?? 0,
+        options.priority
       )
     );
 
@@ -653,6 +656,7 @@ function jobFromNative(record: NativeQueueJobRecord): QueueJob {
     completedAt: optionalTimestampToIso(record.completedAtMs),
     deadAt: optionalTimestampToIso(record.deadAtMs),
     lastError: record.lastError || undefined,
+    priority: record.priority ?? 0,
   };
 }
 

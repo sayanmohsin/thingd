@@ -403,6 +403,8 @@ impl QueueStore for MemoryEngine {
         };
 
         let now = unix_timestamp_millis();
+        jobs.make_contiguous()
+            .sort_by_key(|b| std::cmp::Reverse(b.priority));
         let Some(job) = jobs.iter_mut().find(|candidate| {
             candidate.status == QueueJobStatus::Ready && candidate.available_at_ms <= now
         }) else {

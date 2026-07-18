@@ -200,10 +200,14 @@ impl NativeThingStore {
         body: String,
         max_attempts: u32,
         delay_ms: i64,
+        priority: Option<i32>,
     ) -> Result<String> {
         let mut job = QueueJob::new(queue, id, body, max_attempts);
         if delay_ms > 0 {
             job = job.delay_by_ms(delay_ms as u64);
+        }
+        if let Some(p) = priority {
+            job = job.with_priority(p);
         }
 
         let mut store = self.lock_store()?;

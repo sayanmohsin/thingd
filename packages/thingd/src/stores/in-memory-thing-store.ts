@@ -237,6 +237,7 @@ export class InMemoryThingStore implements ThingStore {
         maxAttempts: options.maxAttempts ?? 3,
         createdAt: now,
         availableAt: new Date(Date.now() + (options.delayMs ?? 0)).toISOString(),
+        priority: options.priority ?? 0,
       };
 
       const existing = jobs.find((candidate) => candidate.id === job.id);
@@ -254,11 +255,14 @@ export class InMemoryThingStore implements ThingStore {
       this.releaseExpiredLeases(queue);
 
       const now = new Date();
-      const job = this.queues
+      const candidates = this.queues
         .get(queue)
-        ?.find(
+        ?.filter(
           (candidate) => candidate.status === "ready" && candidate.availableAt <= now.toISOString()
-        );
+        )
+        ?.sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0));
+
+      const job = candidates?.[0] ?? null;
 
       if (!job) {
         return null;

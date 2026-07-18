@@ -167,6 +167,7 @@ export class CloudThingStore implements ThingStore {
       idempotencyKey: options.idempotencyKey,
       maxAttempts: options.maxAttempts,
       delayMs: options.delayMs,
+      priority: options.priority,
     });
   }
 

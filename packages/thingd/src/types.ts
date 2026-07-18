@@ -42,12 +42,16 @@ export type QueueJob = {
   completedAt?: string;
   deadAt?: string;
   lastError?: string;
+  /** Priority for claim ordering (higher = claimed sooner). Default: 0. */
+  priority?: number;
 };
 
 export type QueueJobOptions = {
   idempotencyKey?: string;
   maxAttempts?: number;
   delayMs?: number;
+  /** Priority for claim ordering (higher = claimed sooner). Default: 0. */
+  priority?: number;
 };
 
 export type QueueClaimOptions = {

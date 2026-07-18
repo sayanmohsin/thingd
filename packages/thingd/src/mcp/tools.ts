@@ -259,6 +259,7 @@ export function registerThingdTools(
         idempotencyKey: z.string().min(1).optional(),
         maxAttempts: z.number().int().positive().max(100).optional(),
         delayMs: z.number().int().min(0).optional(),
+        priority: z.number().int().min(0).optional(),
         ...auditInputSchema,
       },
       annotations: {
@@ -268,12 +269,13 @@ export function registerThingdTools(
         openWorldHint: false,
       },
     },
-    async ({ queue, payload, idempotencyKey, maxAttempts, delayMs, actor, source }) => {
+    async ({ queue, payload, idempotencyKey, maxAttempts, delayMs, priority, actor, source }) => {
       assertWriteAllowed();
       const job = await db.queue(queue).push(payload, {
         idempotencyKey,
         maxAttempts,
         delayMs,
+        priority,
       });
       await appendMcpAuditEvent(db, audit, {
         action: "queue.push",

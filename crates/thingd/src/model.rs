@@ -142,6 +142,8 @@ pub struct QueueJob {
     pub created_at: String,
     /// Error message from last nack. Empty if not set.
     pub last_error: String,
+    /// Priority for claim ordering (higher = claimed sooner). Default: 0.
+    pub priority: i32,
 }
 
 impl QueueJob {
@@ -166,7 +168,15 @@ impl QueueJob {
             dead_at_ms: None,
             created_at: String::new(),
             last_error: String::new(),
+            priority: 0,
         }
+    }
+
+    /// Set the priority for this job (higher = claimed sooner).
+    #[must_use]
+    pub const fn with_priority(mut self, priority: i32) -> Self {
+        self.priority = priority;
+        self
     }
 
     /// Make this job available after a delay.

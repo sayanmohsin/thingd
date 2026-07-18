@@ -451,6 +451,9 @@ fn handle_thing_queue_push(
     {
         job = job.delay_by_ms(delay);
     }
+    if let Some(priority) = args.get("priority").and_then(|v| v.as_i64()) {
+        job = job.with_priority(i32::try_from(priority).unwrap_or(i32::MAX));
+    }
     let result = g.push_job(job)?;
     emit_audit_event(_state, &mut g, _tool_name, args, "success");
     Ok(
@@ -1070,7 +1073,7 @@ static ALL_TOOLS: LazyLock<Vec<ToolEntry>> = LazyLock::new(|| {
         ToolEntry {
             name: "thing_queue_push",
             description: "Push a job to a queue",
-            properties: json!({ "queue": str_prop("Queue name"), "payload": obj_prop("Job payload"), "idempotencyKey": str_prop("Idempotency key"), "maxAttempts": int_prop("Max retry attempts (default 3, max 100)"), "delayMs": int_prop("Delay in ms before job is available"), "actor": str_prop("Who performed the action"), "source": str_prop("Where the action originated") }),
+            properties: json!({ "queue": str_prop("Queue name"), "payload": obj_prop("Job payload"), "idempotencyKey": str_prop("Idempotency key"), "maxAttempts": int_prop("Max retry attempts (default 3, max 100)"), "delayMs": int_prop("Delay in ms before job is available"), "priority": int_prop("Priority for claim ordering (higher = claimed sooner)"), "actor": str_prop("Who performed the action"), "source": str_prop("Where the action originated") }),
             required: &["queue", "payload"],
             handler: handle_thing_queue_push,
             is_write: true,

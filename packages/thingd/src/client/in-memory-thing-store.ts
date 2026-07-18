@@ -180,6 +180,7 @@ export class InMemoryThingStore implements ThingStore {
       maxAttempts: options.maxAttempts ?? 3,
       createdAt: timestamp,
       availableAt: new Date(Date.now() + (options.delayMs ?? 0)).toISOString(),
+      priority: options.priority ?? 0,
     };
     const queueJobs = this.jobs.get(queue) ?? [];
     queueJobs.push(job);
@@ -194,14 +195,14 @@ export class InMemoryThingStore implements ThingStore {
     }
 
     const now_ = new Date();
-    const idx = queueJobs.findIndex(
+    const ready = queueJobs.filter(
       (c) => c.status === "ready" && c.availableAt <= now_.toISOString()
     );
-    if (idx === -1) {
+    if (ready.length === 0) {
       return null;
     }
-
-    const job = queueJobs[idx] as JobRow;
+    ready.sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0));
+    const job = ready[0] as JobRow;
     job.status = "leased";
     job.attempts += 1;
     job.leasedAt = now_.toISOString();
