@@ -169,10 +169,20 @@ export type SortBy = {
   direction?: SortDirection;
 };
 
+export type FilterOperator = {
+  $gt?: unknown;
+  $gte?: unknown;
+  $lt?: unknown;
+  $lte?: unknown;
+  $ne?: unknown;
+  $in?: unknown[];
+  $like?: string;
+};
+
 export type ListObjectsOptions = {
   limit?: number;
   offset?: number;
-  filter?: Record<string, unknown>;
+  filter?: Record<string, unknown | FilterOperator>;
   sortBy?: SortBy;
 };
 

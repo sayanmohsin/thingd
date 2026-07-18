@@ -89,25 +89,72 @@ impl ObjectStore for MemoryEngine {
         collections: Option<&[String]>,
         options: &ListObjectsOptions,
     ) -> ThingdResult<Vec<MemoryObject>> {
-        let mut objects: Vec<MemoryObject> =
-            self.objects
-                .values()
-                .filter(|object| {
-                    collections.is_none_or(|allowed| allowed.contains(&object.key.collection))
-                })
-                .filter(|object| {
-                    if options.filter.is_empty() {
-                        return true;
+        let mut objects: Vec<MemoryObject> = self
+            .objects
+            .values()
+            .filter(|object| {
+                collections.is_none_or(|allowed| allowed.contains(&object.key.collection))
+            })
+            .filter(|object| {
+                if options.filter.is_empty() {
+                    return true;
+                }
+                let Ok(body) = serde_json::from_str::<serde_json::Value>(&object.body) else {
+                    return false;
+                };
+                options.filter.iter().all(|(key, expected)| {
+                    let field_val = body.get(key.as_str());
+                    match expected {
+                        serde_json::Value::Object(ops)
+                            if ops.keys().any(|k| {
+                                matches!(
+                                    k.as_str(),
+                                    "$gt" | "$gte" | "$lt" | "$lte" | "$ne" | "$in" | "$like"
+                                )
+                            }) =>
+                        {
+                            let Some(fv) = field_val else {
+                                return false;
+                            };
+                            ops.iter().all(|(op, operand)| match op.as_str() {
+                                "$gt" => value_compare(fv, operand) == std::cmp::Ordering::Greater,
+                                "$gte" => matches!(
+                                    value_compare(fv, operand),
+                                    std::cmp::Ordering::Greater | std::cmp::Ordering::Equal
+                                ),
+                                "$lt" => value_compare(fv, operand) == std::cmp::Ordering::Less,
+                                "$lte" => matches!(
+                                    value_compare(fv, operand),
+                                    std::cmp::Ordering::Less | std::cmp::Ordering::Equal
+                                ),
+                                "$ne" => value_compare(fv, operand) != std::cmp::Ordering::Equal,
+                                "$in" => {
+                                    if let serde_json::Value::Array(items) = operand {
+                                        items.iter().any(|item| fv == item)
+                                    } else {
+                                        false
+                                    }
+                                },
+                                "$like" => {
+                                    if let (
+                                        serde_json::Value::String(s),
+                                        serde_json::Value::String(pat),
+                                    ) = (fv, operand)
+                                    {
+                                        like_match(s, pat)
+                                    } else {
+                                        false
+                                    }
+                                },
+                                _ => true,
+                            })
+                        },
+                        _ => field_val.is_some_and(|v| v == expected),
                     }
-                    let Ok(body) = serde_json::from_str::<serde_json::Value>(&object.body) else {
-                        return false;
-                    };
-                    options.filter.iter().all(|(key, expected)| {
-                        body.get(key.as_str()).is_some_and(|v| v == expected)
-                    })
                 })
-                .cloned()
-                .collect();
+            })
+            .cloned()
+            .collect();
 
         // Apply sort if requested
         if let Some(ref sort_by) = options.sort_by {
@@ -901,6 +948,37 @@ fn infer_json_type(value: &serde_json::Value) -> String {
         serde_json::Value::Array(_) => "array".to_string(),
         serde_json::Value::Object(_) => "object".to_string(),
     }
+}
+
+fn value_compare(a: &serde_json::Value, b: &serde_json::Value) -> std::cmp::Ordering {
+    match (a, b) {
+        (serde_json::Value::Number(a), serde_json::Value::Number(b)) => {
+            let a_f = a.as_f64().unwrap_or(0.0);
+            let b_f = b.as_f64().unwrap_or(0.0);
+            a_f.partial_cmp(&b_f).unwrap_or(std::cmp::Ordering::Equal)
+        },
+        (serde_json::Value::String(a), serde_json::Value::String(b)) => a.cmp(b),
+        (serde_json::Value::Bool(a), serde_json::Value::Bool(b)) => a.cmp(b),
+        _ => format!("{a}").cmp(&format!("{b}")),
+    }
+}
+
+fn like_match(s: &str, pattern: &str) -> bool {
+    // Simple SQL LIKE pattern match: % matches any chars, _ matches single char
+    let parts = pattern.split('%');
+    let mut pos = 0;
+    for part in parts {
+        if part.is_empty() {
+            continue;
+        }
+        // Handle _ wildcard within the part (simplified: treat as exact match for non-% parts)
+        if let Some(idx) = s[pos..].find(part) {
+            pos += idx + part.len();
+        } else {
+            return false;
+        }
+    }
+    true
 }
 
 #[cfg(test)]

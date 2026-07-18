@@ -885,21 +885,70 @@ impl ObjectStore for SqliteThingStore {
                     "Invalid filter key: '{key}'. Only alphanumeric, underscore, and dot characters are allowed."
                 )));
             }
-            conditions.push(format!("json_extract(body, '$.{key}') = ?"));
-            let sql_val: Box<dyn rusqlite::types::ToSql> = match value {
-                serde_json::Value::String(s) => Box::new(s.clone()),
-                serde_json::Value::Number(n) => {
-                    if let Some(i) = n.as_i64() {
-                        Box::new(i)
-                    } else {
-                        Box::new(n.as_f64().unwrap_or(0.0))
+            let json_path = format!("json_extract(body, '$.{key}')");
+
+            // Check if value is an operator object: { "$gt": 100, "$lt": 200 }
+            if let serde_json::Value::Object(ops) = value {
+                let has_operator = ops.keys().any(|k| {
+                    matches!(
+                        k.as_str(),
+                        "$gt" | "$gte" | "$lt" | "$lte" | "$ne" | "$in" | "$like"
+                    )
+                });
+                if has_operator {
+                    for (op, operand) in ops {
+                        match op.as_str() {
+                            "$gt" => {
+                                conditions.push(format!("{json_path} > ?"));
+                                bound_values.push(json_value_to_sql(operand));
+                            },
+                            "$gte" => {
+                                conditions.push(format!("{json_path} >= ?"));
+                                bound_values.push(json_value_to_sql(operand));
+                            },
+                            "$lt" => {
+                                conditions.push(format!("{json_path} < ?"));
+                                bound_values.push(json_value_to_sql(operand));
+                            },
+                            "$lte" => {
+                                conditions.push(format!("{json_path} <= ?"));
+                                bound_values.push(json_value_to_sql(operand));
+                            },
+                            "$ne" => {
+                                conditions.push(format!("{json_path} != ?"));
+                                bound_values.push(json_value_to_sql(operand));
+                            },
+                            "$in" => {
+                                if let serde_json::Value::Array(items) = operand {
+                                    if items.is_empty() {
+                                        conditions.push("1 = 0".to_string());
+                                    } else {
+                                        let placeholders = items
+                                            .iter()
+                                            .map(|_| "?")
+                                            .collect::<Vec<_>>()
+                                            .join(", ");
+                                        conditions.push(format!("{json_path} IN ({placeholders})"));
+                                        for item in items {
+                                            bound_values.push(json_value_to_sql(item));
+                                        }
+                                    }
+                                }
+                            },
+                            "$like" => {
+                                conditions.push(format!("{json_path} LIKE ?"));
+                                bound_values.push(json_value_to_sql(operand));
+                            },
+                            _ => {},
+                        }
                     }
-                },
-                serde_json::Value::Bool(b) => Box::new(i64::from(*b)),
-                serde_json::Value::Null => Box::new(rusqlite::types::Null),
-                other => Box::new(other.to_string()),
-            };
-            bound_values.push(sql_val);
+                    continue;
+                }
+            }
+
+            // Exact equality (default)
+            conditions.push(format!("{json_path} = ?"));
+            bound_values.push(json_value_to_sql(value));
         }
 
         let where_clause = if conditions.is_empty() {
@@ -2479,6 +2528,22 @@ fn row_to_link(row: &rusqlite::Row<'_>) -> rusqlite::Result<crate::Link> {
         metadata_json: row.get(5)?,
         created_at: row.get(6)?,
     })
+}
+
+fn json_value_to_sql(val: &serde_json::Value) -> Box<dyn rusqlite::types::ToSql> {
+    match val {
+        serde_json::Value::String(s) => Box::new(s.clone()),
+        serde_json::Value::Number(n) => {
+            if let Some(i) = n.as_i64() {
+                Box::new(i)
+            } else {
+                Box::new(n.as_f64().unwrap_or(0.0))
+            }
+        },
+        serde_json::Value::Bool(b) => Box::new(i64::from(*b)),
+        serde_json::Value::Null => Box::new(rusqlite::types::Null),
+        other => Box::new(other.to_string()),
+    }
 }
 
 fn row_to_object(row: &rusqlite::Row<'_>) -> rusqlite::Result<MemoryObject> {
