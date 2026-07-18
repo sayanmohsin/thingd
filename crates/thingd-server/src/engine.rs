@@ -1,6 +1,5 @@
-#![allow(unexpected_cfgs)]
-
 use std::collections::HashMap;
+use std::path::Path;
 use std::sync::Arc;
 
 use parking_lot::{Mutex, RwLock};
@@ -21,19 +20,19 @@ pub fn create_engine(
 
     // Auto-migrate from SQLite if old file exists and Fjall doesn't
     #[cfg(feature = "migrate")]
-    if !Path::new(fjall_path).exists() {
-        if let Some(sqlite_path) = find_old_sqlite(fjall_path) {
-            tracing::info!("thingd: migrating SQLite → Fjall: {sqlite_path} → {fjall_path}");
-            let result = migrate_from_sqlite(&sqlite_path, fjall_path);
-            match result {
-                Ok(engine) => {
-                    tracing::info!("thingd: migration complete. SQLite file retained as backup.");
-                    return Ok(engine);
-                },
-                Err(e) => {
-                    tracing::error!("thingd: migration FAILED: {e}. Starting fresh.");
-                },
-            }
+    if !Path::new(fjall_path).exists()
+        && let Some(sqlite_path) = find_old_sqlite(fjall_path)
+    {
+        tracing::info!("thingd: migrating SQLite → Fjall: {sqlite_path} → {fjall_path}");
+        let result = migrate_from_sqlite(&sqlite_path, fjall_path);
+        match result {
+            Ok(engine) => {
+                tracing::info!("thingd: migration complete. SQLite file retained as backup.");
+                return Ok(engine);
+            },
+            Err(e) => {
+                tracing::error!("thingd: migration FAILED: {e}. Starting fresh.");
+            },
         }
     }
 
@@ -64,7 +63,7 @@ fn migrate_from_sqlite(
     sqlite_path: &str,
     fjall_path: &str,
 ) -> Result<Box<dyn ThingStore + Send>, Box<dyn std::error::Error>> {
-    use thingd::store::{EventLog, LinkStore, ObjectStore, QueueStore};
+    use thingd::{EventLog, LinkStore, ObjectStore, QueueStore};
     use thingd::{ListEventsOptions, ListObjectsOptions};
 
     let source = SqliteThingStore::open(sqlite_path)?;
@@ -76,7 +75,7 @@ fn migrate_from_sqlite(
         let mut offset = 0u64;
         loop {
             let batch = source.list_objects(
-                Some(&[collection.clone()]),
+                Some(std::slice::from_ref(collection)),
                 &ListObjectsOptions {
                     limit: Some(100),
                     offset: Some(offset),

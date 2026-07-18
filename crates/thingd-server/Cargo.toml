@@ -10,6 +10,9 @@ readme = "README.md"
 keywords = ["mcp", "database", "server", "sidecar", "thingd"]
 categories = ["database-implementations", "web-programming::http-server"]
 
+[features]
+migrate = ["thingd/migrate"]
+
 [dependencies]
 thingd = { path = "../thingd", version = "0.65", features = ["fjall", "search", "migrate", "connectors"] }
 axum = { version = "0.8", features = ["json", "macros"] }
