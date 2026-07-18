@@ -535,6 +535,14 @@ export class InMemoryThingStore implements ThingStore {
     return Array.from(this.queues.keys()).sort();
   }
 
+  async createIndex(_collection: string, _field: string): Promise<void> {
+    // No-op for in-memory store
+  }
+
+  async listIndexes(): Promise<Array<[string, string]>> {
+    return [];
+  }
+
   async listStreams(): Promise<string[]> {
     const streams = new Set<string>();
     for (const event of this.events) {

@@ -606,6 +606,46 @@ export function registerThingdTools(
   );
 
   server.registerTool(
+    "thing_create_index",
+    {
+      title: "Create Index",
+      description:
+        "Create a functional index on a JSON body field for a collection. Subsequent listObjects calls with filter on this field will use the index for O(log n) lookups instead of full table scans. Idempotent — recreating an existing index is a no-op.",
+      inputSchema: {
+        collection: z.string().describe("Collection name"),
+        field: z.string().describe("JSON body field name to index"),
+      },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async ({ collection, field }) => {
+      await db.createIndex(collection, field);
+      return jsonResult({ created: true });
+    }
+  );
+
+  server.registerTool(
+    "thing_list_indexes",
+    {
+      title: "List Indexes",
+      description:
+        "List all custom functional indexes. Returns an array of [collection, field] pairs.",
+      inputSchema: {},
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async () => jsonResult(await db.listIndexes())
+  );
+
+  server.registerTool(
     "thing_objects_put_batch",
     {
       title: "Put Objects Batch",

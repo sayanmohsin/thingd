@@ -164,6 +164,33 @@ pub trait ObjectStore {
     /// Returns an error when the backing store cannot list collections.
     fn list_collections(&self) -> ThingdResult<Vec<String>>;
 
+    /// Create a functional index on a JSON body field for a collection.
+    ///
+    /// Creates a `SQLite` expression index on `json_extract(body, '$.field')`
+    /// filtered to the given collection. Subsequent `list_objects` calls with
+    /// `filter: { field: value }` will use this index for O(log n) lookups
+    /// instead of full table scans.
+    ///
+    /// This is a no-op for in-memory stores (they already scan in-memory maps).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the backing store cannot create the index.
+    fn create_index(&mut self, _collection: &str, _field: &str) -> ThingdResult<()> {
+        Ok(())
+    }
+
+    /// List all custom functional indexes.
+    ///
+    /// Returns `(collection, field)` pairs for each created index.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the backing store cannot list indexes.
+    fn list_indexes(&self) -> ThingdResult<Vec<(String, String)>> {
+        Ok(vec![])
+    }
+
     /// Reflect the schema of all or one collection by sampling stored objects.
     ///
     /// Returns inferred field names, types, and sample values. When `collection`

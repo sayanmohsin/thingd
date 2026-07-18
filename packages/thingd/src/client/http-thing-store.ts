@@ -304,6 +304,14 @@ export class HttpThingStore implements ThingStore {
     return this.request("GET", "/queues");
   }
 
+  async createIndex(collection: string, field: string): Promise<void> {
+    await this.request("POST", "/indexes", { collection, field });
+  }
+
+  async listIndexes(): Promise<Array<[string, string]>> {
+    return this.request("GET", "/indexes");
+  }
+
   async close(): Promise<void> {}
 
   async listConnectors(): Promise<string[]> {

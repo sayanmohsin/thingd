@@ -131,6 +131,32 @@ curl http://localhost:8757/v1/queues
 { "data": ["email-queue", "sync-queue"] }
 ```
 
+### `GET /v1/indexes`
+
+List all custom functional indexes. Returns `[collection, field]` pairs.
+
+```bash
+curl http://localhost:8757/v1/indexes
+```
+
+```json
+{ "data": [["users", "email"], ["orders", "status"]] }
+```
+
+### `POST /v1/indexes`
+
+Create a functional index on a JSON body field for a collection. Idempotent.
+
+```bash
+curl -X POST http://localhost:8757/v1/indexes \
+  -H "Content-Type: application/json" \
+  -d '{"collection": "users", "field": "email"}'
+```
+
+```json
+{ "created": true }
+```
+
 ### `GET /v1/collections/schema`
 
 Reflect the schema of all collections that have objects. Returns the inferred

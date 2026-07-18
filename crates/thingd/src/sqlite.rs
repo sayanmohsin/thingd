@@ -18,7 +18,7 @@ use crate::{
 };
 
 /// Current `SQLite` schema version.
-pub const SQLITE_SCHEMA_VERSION: u32 = 6;
+pub const SQLITE_SCHEMA_VERSION: u32 = 7;
 
 /// `SQLite`-backed memory store.
 pub struct SqliteThingStore {
@@ -150,6 +150,12 @@ impl SqliteThingStore {
 
         if current_version < 6 {
             self.apply_schema_v6()?;
+        }
+
+        let current_version = self.schema_version()?;
+
+        if current_version < 7 {
+            self.apply_schema_v7()?;
         }
 
         if current_version > SQLITE_SCHEMA_VERSION {
@@ -432,6 +438,29 @@ impl SqliteThingStore {
             .execute(
                 "INSERT OR IGNORE INTO thingd_schema_migrations (version, name, applied_at)
                  VALUES (6, 'events_stream_created_at_index', strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))",
+                [],
+            )
+            .map_err(ThingdError::from)?;
+        Ok(())
+    }
+
+    fn apply_schema_v7(&self) -> ThingdResult<()> {
+        self.connection
+            .execute_batch(
+                r"
+                CREATE TABLE IF NOT EXISTS object_indexes (
+                    collection TEXT NOT NULL,
+                    field TEXT NOT NULL,
+                    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+                    PRIMARY KEY (collection, field)
+                );
+                ",
+            )
+            .map_err(ThingdError::from)?;
+        self.connection
+            .execute(
+                "INSERT OR IGNORE INTO thingd_schema_migrations (version, name, applied_at)
+                 VALUES (7, 'object_indexes_table', strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))",
                 [],
             )
             .map_err(ThingdError::from)?;
@@ -999,6 +1028,42 @@ impl ObjectStore for SqliteThingStore {
             collections.push(row.map_err(ThingdError::from)?);
         }
         Ok(collections)
+    }
+
+    fn create_index(&mut self, collection: &str, field: &str) -> ThingdResult<()> {
+        let index_name = format!("idx_{collection}_{field}");
+        let json_path = format!("$.{field}");
+        let sql = format!(
+            "CREATE INDEX IF NOT EXISTS {index_name} ON objects(json_extract(body, '{json_path}')) WHERE collection = ?1"
+        );
+        self.connection
+            .execute(&sql, params![collection])
+            .map_err(ThingdError::from)?;
+        self.connection
+            .execute(
+                "INSERT OR IGNORE INTO object_indexes (collection, field) VALUES (?1, ?2)",
+                params![collection, field],
+            )
+            .map_err(ThingdError::from)?;
+        Ok(())
+    }
+
+    fn list_indexes(&self) -> ThingdResult<Vec<(String, String)>> {
+        let mut statement = self
+            .connection
+            .prepare("SELECT collection, field FROM object_indexes ORDER BY collection, field")
+            .map_err(ThingdError::from)?;
+        let rows = statement
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })
+            .map_err(ThingdError::from)?;
+
+        let mut indexes = Vec::new();
+        for row in rows {
+            indexes.push(row.map_err(ThingdError::from)?);
+        }
+        Ok(indexes)
     }
 
     fn schema(

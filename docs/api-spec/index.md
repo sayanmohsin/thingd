@@ -32,7 +32,7 @@ thingd is a fast, object-first data engine for applications and AI agents. It su
           ▼            ▼            ▼            ▼            ▼
     ┌─────────────────────────────────────────────────────────────┐
     │           Protocol Adapters (per-language)                   │
-    │  REST API (/v1/*)  │  MCP Server (32 tools)                 │
+    │  REST API (/v1/*)  │  MCP Server (34 tools)                 │
     └─────────────────────────┬───────────────────────────────────┘
                               │
                   ┌───────────┼───────────┐
@@ -93,6 +93,8 @@ MCP server endpoints use the same Bearer token scheme.
 | REST | `POST /v1/queues/:queue/nack` | Nack job |
 | REST | `GET /v1/queues/:queue/jobs` | List jobs |
 | REST | `GET /v1/queues/:queue/dead` | Dead-letter jobs |
+| REST | `GET /v1/indexes` | List indexes |
+| REST | `POST /v1/indexes` | Create index |
 | REST | `POST /v1/links` | Create link |
 | REST | `GET /v1/links?id=` | Get link |
 | REST | `GET /v1/links?reference=` | Get neighbors |
@@ -125,3 +127,5 @@ MCP server endpoints use the same Bearer token scheme.
 | MCP | `thing_list_collections` | List collections |
 | MCP | `thing_list_streams` | List streams |
 | MCP | `thing_list_queues` | List queues |
+| MCP | `thing_create_index` | Create functional index |
+| MCP | `thing_list_indexes` | List functional indexes |

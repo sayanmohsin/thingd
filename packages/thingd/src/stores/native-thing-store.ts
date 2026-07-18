@@ -96,6 +96,8 @@ type NativeThingStoreBinding = {
   schemaJson(collection?: string, sampleSize?: number): string;
   walCheckpoint(): string;
   backupTo(path: string): void;
+  createIndexJson(collection: string, field: string): void;
+  listIndexesJson(): string;
 };
 
 type NativeThingStoreConstructor = {
@@ -481,6 +483,14 @@ export class NativeThingStore implements ThingStore {
 
   async listQueues(): Promise<string[]> {
     return parseJson<string[]>(await this.binding.listQueuesJson());
+  }
+
+  async createIndex(collection: string, field: string): Promise<void> {
+    this.binding.createIndexJson(collection, field);
+  }
+
+  async listIndexes(): Promise<Array<[string, string]>> {
+    return parseJson<Array<[string, string]>>(this.binding.listIndexesJson());
   }
 
   async aggregate(collection: string, options: AggregateOptions): Promise<AggregateResult> {

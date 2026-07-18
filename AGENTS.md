@@ -4,7 +4,7 @@
 
 **thingd** is a fast object-first data engine for applications and AI agents.
 It provides object storage, durable queues, event streams, full-text search,
-graph links, and 32 MCP tools — all in one binary. Runs embedded (Rust/Node),
+graph links, and 34 MCP tools — all in one binary. Runs embedded (Rust/Node),
 as a sidecar MCP server, in Docker, or in Kubernetes.
 
 **thingd Cloud** (at [thingd.cloud](https://thingd.cloud), private repo

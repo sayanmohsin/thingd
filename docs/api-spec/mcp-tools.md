@@ -1,8 +1,8 @@
 # MCP Tools Reference
 
-thingd exposes 32 MCP tools for AI agents. All tools are available via the stdio MCP server or Streamable HTTP endpoint.
+thingd exposes 34 MCP tools for AI agents. All tools are available via the stdio MCP server or Streamable HTTP endpoint.
 
-**Tool count:** 31 (20 read-only, 11 write — 3 of which are destructive)
+**Tool count:** 34 (22 read-only, 12 write — 3 of which are destructive)
 
 ---
 
@@ -334,6 +334,33 @@ List all queue names.
 ```
 
 **Returns:** `string[]`
+
+---
+
+### `thing_create_index`
+
+Create a functional index on a JSON body field for a collection. Subsequent `thing_objects_list` calls with filter on this field will use the index for O(log n) lookups instead of full table scans. Idempotent — recreating an existing index is a no-op.
+
+```json
+{
+  "collection": "users",
+  "field": "email"
+}
+```
+
+**Returns:** `{ "created": true }`
+
+---
+
+### `thing_list_indexes`
+
+List all custom functional indexes. Returns an array of `[collection, field]` pairs.
+
+```json
+{}
+```
+
+**Returns:** `[["users", "email"], ["orders", "status"]]`
 
 ---
 

@@ -324,6 +324,14 @@ export class CloudThingStore implements ThingStore {
     return this.callTool("thing_list_queues", {});
   }
 
+  async createIndex(collection: string, field: string): Promise<void> {
+    await this.callTool("thing_create_index", { collection, field });
+  }
+
+  async listIndexes(): Promise<Array<[string, string]>> {
+    return this.callTool("thing_list_indexes", {});
+  }
+
   async close(): Promise<void> {
     await this.client.close();
   }

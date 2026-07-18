@@ -657,6 +657,36 @@ fn handle_thing_list_queues(
     )
 }
 
+fn handle_thing_create_index(
+    state: &AppState,
+    _tool_name: &str,
+    args: &Value,
+) -> Result<Value, AppError> {
+    let collection = args["collection"]
+        .as_str()
+        .ok_or_else(|| AppError::bad_request("collection is required"))?;
+    let field = args["field"]
+        .as_str()
+        .ok_or_else(|| AppError::bad_request("field is required"))?;
+    let e = state.pool.get_writer("");
+    let mut g = e.lock();
+    g.create_index(collection, field)?;
+    Ok(json!({ "content": [{ "type": "text", "text": "{\"created\":true}" }] }))
+}
+
+fn handle_thing_list_indexes(
+    state: &AppState,
+    _tool_name: &str,
+    _args: &Value,
+) -> Result<Value, AppError> {
+    let e = state.pool.get_writer("");
+    let g = e.lock();
+    let indexes = g.list_indexes()?;
+    Ok(
+        json!({ "content": [{ "type": "text", "text": serde_json::to_string(&indexes).unwrap_or_default() }] }),
+    )
+}
+
 // ─── Link tools ──────────────────────────────────────────────────
 
 fn handle_thing_link_create(
@@ -1155,6 +1185,26 @@ static ALL_TOOLS: LazyLock<Vec<ToolEntry>> = LazyLock::new(|| {
             destructive: false,
             needs_collection: false,
         },
+        ToolEntry {
+            name: "thing_create_index",
+            description: "Create a functional index on a JSON body field for a collection",
+            properties: json!({ "collection": str_prop("Collection name"), "field": str_prop("JSON body field name to index") }),
+            required: &["collection", "field"],
+            handler: handle_thing_create_index,
+            is_write: true,
+            destructive: false,
+            needs_collection: true,
+        },
+        ToolEntry {
+            name: "thing_list_indexes",
+            description: "List all custom functional indexes",
+            properties: json!({}),
+            required: &[],
+            handler: handle_thing_list_indexes,
+            is_write: false,
+            destructive: false,
+            needs_collection: false,
+        },
         // Link tools (5)
         ToolEntry {
             name: "thing_link_create",
@@ -1400,8 +1450,8 @@ mod tests {
         let tools = result["result"]["tools"].as_array().unwrap();
         assert_eq!(
             tools.len(),
-            32,
-            "expected 32 MCP tools, got {}",
+            34,
+            "expected 34 MCP tools, got {}",
             tools.len()
         );
         let names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
@@ -1429,6 +1479,8 @@ mod tests {
             "thing_list_collections",
             "thing_list_streams",
             "thing_list_queues",
+            "thing_create_index",
+            "thing_list_indexes",
             "thing_link_create",
             "thing_link_get",
             "thing_link_delete",

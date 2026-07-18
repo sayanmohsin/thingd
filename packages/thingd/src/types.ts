@@ -313,6 +313,8 @@ export interface ThingDConnection {
   listCollections(): Promise<string[]>;
   listStreams(): Promise<string[]>;
   listQueues(): Promise<string[]>;
+  createIndex(collection: string, field: string): Promise<void>;
+  listIndexes(): Promise<Array<[string, string]>>;
   listConnectors(): Promise<string[]>;
   discoverConnectorSchema(
     type: string,
@@ -395,6 +397,8 @@ export interface ThingStore {
   listCollections?(): Promise<string[]>;
   listStreams?(): Promise<string[]>;
   listQueues?(): Promise<string[]>;
+  createIndex?(collection: string, field: string): Promise<void>;
+  listIndexes?(): Promise<Array<[string, string]>>;
   listConnectors?(): Promise<string[]>;
   discoverConnectorSchema?(
     type: string,

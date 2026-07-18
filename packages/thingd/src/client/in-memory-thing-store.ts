@@ -375,6 +375,14 @@ export class InMemoryThingStore implements ThingStore {
     return Array.from(this.jobs.keys());
   }
 
+  async createIndex(_collection: string, _field: string): Promise<void> {
+    // No-op for in-memory client store
+  }
+
+  async listIndexes(): Promise<Array<[string, string]>> {
+    return [];
+  }
+
   async close(): Promise<void> {}
 
   private findJob(queue: string, jobId: string): QueueJob | undefined {

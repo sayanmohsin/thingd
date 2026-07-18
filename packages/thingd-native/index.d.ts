@@ -52,6 +52,8 @@ export class NativeThingStore {
   countLinksJson(): Promise<number>;
   listCollectionsJson(): Promise<string>;
   listStreamsJson(): Promise<string>;
+  createIndexJson(collection: string, field: string): void;
+  listIndexesJson(): string;
   aggregateJson(
     collection: string,
     function_: string,

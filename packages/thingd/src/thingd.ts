@@ -268,6 +268,16 @@ export class ThingD implements ThingDConnection {
     return this.store.listQueues?.() ?? [];
   }
 
+  /** Create a functional index on a JSON body field for a collection. */
+  async createIndex(collection: string, field: string): Promise<void> {
+    await this.store.createIndex?.(collection, field);
+  }
+
+  /** List all custom functional indexes. */
+  async listIndexes(): Promise<Array<[string, string]>> {
+    return this.store.listIndexes?.() ?? [];
+  }
+
   /** List available connector types. Requires sidecar/HTTP store (returns [] for in-memory/native). */
   async listConnectors(): Promise<string[]> {
     return this.store.listConnectors?.() ?? [];

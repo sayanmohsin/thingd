@@ -112,6 +112,19 @@ impl NativeThingStore {
         to_json(&records)
     }
 
+    #[napi(js_name = "createIndexJson")]
+    pub fn create_index_json(&self, collection: String, field: String) -> Result<()> {
+        let mut store = self.lock_store()?;
+        store.create_index(&collection, &field).map_err(napi_error)
+    }
+
+    #[napi(js_name = "listIndexesJson")]
+    pub fn list_indexes_json(&self) -> Result<String> {
+        let store = self.lock_store()?;
+        let indexes = store.list_indexes().map_err(napi_error)?;
+        to_json(&indexes)
+    }
+
     #[napi(js_name = "listObjectsJson")]
     pub fn list_objects_json(
         &self,

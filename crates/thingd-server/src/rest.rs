@@ -104,6 +104,30 @@ pub async fn list_queues(State(state): State<Arc<AppState>>) -> Result<Json<Valu
         .map_err(|e| AppError::internal(e.to_string()))?)
 }
 
+pub async fn list_indexes(State(state): State<Arc<AppState>>) -> Result<Json<Value>, AppError> {
+    let e = state.pool.get_writer("");
+    let g = e.lock();
+    ok(g.list_indexes()
+        .map_err(|e| AppError::internal(e.to_string()))?)
+}
+
+pub async fn create_index(
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, AppError> {
+    let collection = body["collection"]
+        .as_str()
+        .ok_or_else(|| AppError::bad_request("collection is required"))?;
+    let field = body["field"]
+        .as_str()
+        .ok_or_else(|| AppError::bad_request("field is required"))?;
+    let e = state.pool.get_writer("");
+    let mut g = e.lock();
+    g.create_index(collection, field)
+        .map_err(|e| AppError::internal(e.to_string()))?;
+    ok(json!({ "created": true }))
+}
+
 // ─── Objects ────────────────────────────────────────────────────
 
 pub async fn list_objects(

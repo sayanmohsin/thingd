@@ -128,6 +128,18 @@ export async function handleRestRequest(
       return;
     }
 
+    // ─── Indexes ─────────────────────────────────────────────────
+    if (pathname === "/v1/indexes" && method === "GET") {
+      sendDataList(res, await db.listIndexes());
+      return;
+    }
+    if (pathname === "/v1/indexes" && method === "POST") {
+      const body = JSON.parse(await readBody(req));
+      await db.createIndex(body.collection, body.field);
+      sendData(res, { created: true });
+      return;
+    }
+
     // ─── Objects ─────────────────────────────────────────────────
     // GET /v1/objects?collection=...&filter.x=...&sortBy=...&limit=...&offset=...
     if (pathname === "/v1/objects" && method === "GET") {
