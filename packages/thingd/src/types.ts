@@ -165,7 +165,8 @@ export type ListEventsOptions = {
 export type SortDirection = "asc" | "desc";
 
 export type SortBy = {
-  field: "id" | "collection" | "created_at" | "updated_at" | "version";
+  /** Column name or JSON path like "$.price" for body field sorting */
+  field: string;
   direction?: SortDirection;
 };
 

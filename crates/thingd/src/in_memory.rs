@@ -161,13 +161,30 @@ impl ObjectStore for MemoryEngine {
             use crate::model::SortDirection;
             let asc = sort_by.direction == SortDirection::Asc;
             objects.sort_by(|a, b| {
-                let cmp = match sort_by.field.as_str() {
-                    "id" => a.key.id.cmp(&b.key.id),
-                    "collection" => a.key.collection.cmp(&b.key.collection),
-                    "created_at" => a.created_at.cmp(&b.created_at),
-                    "updated_at" => a.updated_at.cmp(&b.updated_at),
-                    "version" => a.version.cmp(&b.version),
-                    _ => std::cmp::Ordering::Equal,
+                let cmp = if sort_by.field.starts_with("$.") {
+                    // Sort by JSON body field
+                    let path = sort_by.field.trim_start_matches('$');
+                    let a_val = serde_json::from_str::<serde_json::Value>(&a.body)
+                        .ok()
+                        .and_then(|v| v.get(path).cloned());
+                    let b_val = serde_json::from_str::<serde_json::Value>(&b.body)
+                        .ok()
+                        .and_then(|v| v.get(path).cloned());
+                    match (&a_val, &b_val) {
+                        (Some(a), Some(b)) => value_compare(a, b),
+                        (Some(_), None) => std::cmp::Ordering::Greater,
+                        (None, Some(_)) => std::cmp::Ordering::Less,
+                        (None, None) => std::cmp::Ordering::Equal,
+                    }
+                } else {
+                    match sort_by.field.as_str() {
+                        "id" => a.key.id.cmp(&b.key.id),
+                        "collection" => a.key.collection.cmp(&b.key.collection),
+                        "created_at" => a.created_at.cmp(&b.created_at),
+                        "updated_at" => a.updated_at.cmp(&b.updated_at),
+                        "version" => a.version.cmp(&b.version),
+                        _ => std::cmp::Ordering::Equal,
+                    }
                 };
                 if asc { cmp } else { cmp.reverse() }
             });

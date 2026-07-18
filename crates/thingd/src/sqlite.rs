@@ -978,13 +978,17 @@ impl ObjectStore for SqliteThingStore {
         let order_clause = options.sort_by.as_ref().map_or_else(
             || "ORDER BY collection, id".to_string(),
             |sort_by| {
-                let col = match sort_by.field.as_str() {
-                    "id" => "id",
-                    "collection" => "collection",
-                    "created_at" => "created_at",
-                    "updated_at" => "updated_at",
-                    "version" => "version",
-                    _ => "collection, id",
+                let col = if sort_by.field.starts_with("$.") {
+                    format!("json_extract(body, '{}')", sort_by.field)
+                } else {
+                    match sort_by.field.as_str() {
+                        "id" => "id".to_string(),
+                        "collection" => "collection".to_string(),
+                        "created_at" => "created_at".to_string(),
+                        "updated_at" => "updated_at".to_string(),
+                        "version" => "version".to_string(),
+                        _ => "collection, id".to_string(),
+                    }
                 };
                 let dir = match sort_by.direction {
                     crate::model::SortDirection::Asc => "ASC",
