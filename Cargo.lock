@@ -2786,6 +2786,7 @@ dependencies = [
  "serde",
  "serde_json",
  "thingd",
+ "uuid",
 ]
 
 [[package]]

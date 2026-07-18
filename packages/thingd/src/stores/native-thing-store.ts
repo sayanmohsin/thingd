@@ -96,8 +96,6 @@ type NativeThingStoreBinding = {
     filterJson?: string
   ): string;
   schemaJson(collection?: string, sampleSize?: number): string;
-  walCheckpoint(): string;
-  backupTo(path: string): void;
   createIndexJson(collection: string, field: string): void;
   listIndexesJson(): string;
 };
@@ -426,14 +424,6 @@ export class NativeThingStore implements ThingStore {
 
   async countLinks(): Promise<number> {
     return this.binding.countLinksJson();
-  }
-
-  walCheckpoint(): { framesBefore: number; framesAfter: number } {
-    return JSON.parse(this.binding.walCheckpoint());
-  }
-
-  backupTo(path: string): void {
-    this.binding.backupTo(path);
   }
 
   async putBatch(collection: string, objects: MemoryObject[]): Promise<StoredMemoryObject[]> {

@@ -49,10 +49,11 @@ impl NativeThingStore {
     #[napi(factory)]
     pub fn open(path: String) -> Result<Self> {
         let store = if path == ":memory:" || path.is_empty() {
-            // Use a temp directory for ephemeral databases
-            let tmp = std::env::temp_dir().join("thingd-native");
-            let _ = std::fs::create_dir_all(&tmp);
-            FjallEngine::open(tmp).map_err(napi_error)?
+            // Use a unique temp directory per ephemeral database
+            let tmp = std::env::temp_dir().join(format!("thingd-native-{}", std::process::id()));
+            let unique = tmp.join(uuid::Uuid::new_v4().to_string());
+            std::fs::create_dir_all(&unique).map_err(|e| Error::from_reason(format!("{e}")))?;
+            FjallEngine::open(&unique).map_err(|e| Error::from_reason(format!("{e}")))?
         } else {
             FjallEngine::open(path).map_err(napi_error)?
         };

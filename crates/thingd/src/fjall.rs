@@ -82,6 +82,7 @@ impl FjallEngine {
             }
         }
 
+        #[cfg(feature = "search")]
         let search_index = Self::init_search_index(path.as_ref());
 
         Ok(Self {
@@ -208,9 +209,7 @@ impl ObjectStore for FjallEngine {
         if let Some(existing) = value_to_vec(self.objects.get(&key)?) {
             let existing_obj: MemoryObject = Self::deserialize(&existing)?;
             object.version = existing_obj.version + 1;
-            if existing_obj.created_at > object.created_at {
-                object.created_at.clone_from(&existing_obj.created_at);
-            }
+            object.created_at.clone_from(&existing_obj.created_at);
         } else {
             object.version = 1;
         }
@@ -755,6 +754,24 @@ impl QueueStore for FjallEngine {
     ) -> ThingdResult<Option<QueueJob>> {
         let now = unix_timestamp_millis();
 
+        // Release expired leases and re-index into ready_jobs
+        let qprefix = Self::make_queue_key(queue, "");
+        for kv in self.queue_jobs.prefix(&qprefix) {
+            let (key, value) = guard_data(kv)?;
+            let mut job: QueueJob = Self::deserialize(&value)?;
+            if job.status == QueueJobStatus::Leased
+                && job.lease_expires_at_ms.is_some_and(|exp| exp <= now)
+            {
+                job.status = QueueJobStatus::Ready;
+                job.leased_at_ms = None;
+                job.lease_expires_at_ms = None;
+                let data = Self::serialize(&job)?;
+                self.queue_jobs.insert(&key, &data)?;
+                let rkey = Self::make_ready_key(&job.queue, job.priority, &job.created_at, &job.id);
+                self.ready_jobs.insert(&rkey, [])?;
+            }
+        }
+
         // Scan ready_jobs index — first entry is highest priority, oldest
         let prefix = format!("{queue}\0");
         let mut best_ready_key: Option<Vec<u8>> = None;
@@ -802,6 +819,7 @@ impl QueueStore for FjallEngine {
 
             // Claim the job
             job.status = QueueJobStatus::Leased;
+            job.attempts = job.attempts.saturating_add(1);
             job.leased_at_ms = Some(now);
             job.lease_expires_at_ms = Some(now + options.lease_ms as i64);
             let data = Self::serialize(&job)?;
@@ -843,7 +861,6 @@ impl QueueStore for FjallEngine {
                 if job.status != QueueJobStatus::Leased {
                     return Ok(None);
                 }
-                job.attempts = job.attempts.saturating_add(1);
                 job.last_error = options.error;
                 job.leased_at_ms = None;
                 job.lease_expires_at_ms = None;
