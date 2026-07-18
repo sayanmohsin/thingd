@@ -25,26 +25,24 @@ See the [full feature status and roadmap](https://github.com/sayanmohsin/thingd-
 
 ### Shipped
 
-- **Rust engine** (`thingd` — crates.io) — memory + SQLite adapters, FTS5 search, queue lifecycle, graph links, SQLite schema migrations, startup integrity check, auto‑backup before migrations
+- **Rust engine** (`thingd` — crates.io) — memory + Fjall adapters, Tantivy FTS, embedvec vector search, queue lifecycle, graph links, aggregate analytics, NLQ
 - **Node.js SDK** (`@thingd/sdk`) — three drivers: memory (default in-memory TS store), native (napi-rs Rust SQLite), cloud (remote HTTP REST)
 - **Browser/Edge client** (`@thingd/client`) — zero-dependency REST client for browsers, Cloudflare Workers, AWS Lambda, Bun, Deno
 - **CLI** (`@thingd/cli`) — TUI dashboard, 30+ subcommands (search, objects, events, queues, export/import/snapshot/backup, doctor, bench, db maintenance). Support for importing from Postgres/MySQL via sidecar REST.
-- **MCP server** — 32 tools, stdio + Streamable HTTP, audit events, collection allowlists, read-only mode (tool count defined in packages/thingd/src/constants.ts)
+- **MCP server** — 35 tools, stdio + Streamable HTTP, audit events, collection allowlists, read-only mode (tool count defined in packages/thingd/src/constants.ts)
 - **Docker** — multi-stage image, compose + K8s for leader/follower cluster
 - **CI/tooling** — semantic-release, biome, lefthook, doc tests, cargo audit, cargo deny, CodeQL
 
 ### What's next
 
-- Production packaging and deployment hardening
-- Public native driver prebuilds
-- Vector search integration
-- Priority queues and advanced scheduling
-- Immutable audit trails and compliance reporting
-- TLS termination (roadmap — use reverse proxy for now)
+- Full-text search with BM25 ranking, stemming, and metadata filters
+- In-process vector search for semantic agent memory
+- Browser and edge runtime via WASM compilation
+- Leader/follower clustering for high availability
 
 The default public Node.js SDK path uses the TypeScript in-memory store for
-API exploration and local integration tests. The Rust core has SQLite-backed
-object, event, and queue persistence behind the `sqlite` feature. Node apps can
+API exploration and local integration tests. The Rust core has Fjall-backed
+object, event, and queue persistence (pure Rust LSM-tree, 100K+ ops/s). Node apps can
 use the cloud driver to talk to a `thingd` sidecar through `THINGD_URL`.
 
 For browsers, edge runtimes, and non-Node.js environments, use the standalone
@@ -433,12 +431,12 @@ const hits = await db.search("customers who upgraded after a failed deployment",
 });
 ```
 
-**Current behavior:** Search is powered by a high-performance database-native SQLite **FTS5** virtual table with Porter word stemming, custom metadata key-value filters, and dynamic recency-weighted ranking.
+**Current behavior:** Search is powered by Tantivy — a pure Rust full-text search engine with BM25 ranking, custom metadata filters, and dynamic recency-weighted ranking.
 
 ## MCP-native access
 
-thingd ships with 29 built-in MCP tools (search,
-objects, events, queues, links, aggregate). Every primitive is accessible through stdio
+thingd ships with 35 built-in MCP tools (search,
+objects, events, queues, links, aggregate, schema, NLQ, vector). Every primitive is accessible through stdio
 or Streamable HTTP — see the [MCP tools reference](docs/api-spec/mcp-tools.md)
 for all tools with schemas and examples.
 
@@ -561,10 +559,10 @@ Rust core (crates/thingd)
   |-- object store
   |-- event log
   |-- queue engine
-  |-- search indexes
+  |-- search indexes (Tantivy FTS + embedvec vector)
   |-- storage adapters
-      |-- in-memory engine
-      |-- SQLite objects/events/queues adapter
+      |-- MemoryEngine (cache, WASM)
+      |-- FjallEngine (persistent LSM-tree)
 ```
 
 Package layout:
@@ -577,7 +575,7 @@ crates/
 packages/
   thingd/            Node.js SDK (@thingd/sdk)
   thingd-client/     Zero-dep REST client (@thingd/client)
-  thingd-native/     Private native Node.js binding package
+  thingd-native/     Native Node.js binding (napi-rs to Rust engine)
   thingd-cli/        Interactive Dashboard, JSON CLI, & MCP servers
 
 examples/
@@ -694,12 +692,13 @@ pnpm release:dry-run
 
 | Tool | Great at | Why thingd is different |
 | --- | --- | --- |
-| SQLite | local relational storage | object API, MCP tools, events, queues, full-text search |
-| MongoDB | flexible documents | local-first tiny runtime, Rust core, MCP-native |
-| Redis / BullMQ | fast queues and workers | durable local engine without requiring Redis |
-| Postgres job queues | reliable jobs on Postgres | lighter local deployment for Node apps |
-| LanceDB / vector DBs | vector search | broader memory runtime with events and queues |
+| SQLite | local relational storage | object API, MCP tools, events, queues, FTS + vector search, graph |
+| MongoDB | flexible documents | local-first tiny binary, Rust core, MCP-native, built-in queues |
+| Redis / BullMQ | fast queues and workers | durable local engine with persist, same API for queues + storage |
+| Postgres job queues | reliable jobs on Postgres | lighter local deployment, no connection pool needed |
+| LanceDB / vector DBs | vector search | broader engine: vectors + objects + queues + events + graph |
 | MCP servers | exposing tools to clients | storage engine designed around MCP from the start |
+| RedDB | multi-model database | MIT/Apache open source, pure Rust, pluggable backends |
 
 ## Development
 

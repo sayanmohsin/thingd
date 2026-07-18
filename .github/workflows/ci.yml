@@ -84,7 +84,7 @@ jobs:
           const r2 = await store.listObjectsJson('["test"]', '{"status":"active"}', null, null, null, null);
           if (JSON.parse(r2).length !== 1) throw new Error('Matching filter returned wrong count');
           console.log('Native filter test passed');
-          try { require('node:fs').unlinkSync(path); } catch {}
+          try { require('node:fs').rmSync(path, { recursive: true, force: true }); } catch {}
           })()
 
   # ── CLI + integration tests (only after unit passes) ──

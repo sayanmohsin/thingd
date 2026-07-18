@@ -26,7 +26,7 @@ Yes, and the last write wins. There is no distributed lock per object. For singl
 
 ### What does "atomic write" mean in thingd?
 
-Each SDK operation (`put`, `delete`, `appendEvent`, `queue.push`, `queue.ack`, `queue.nack`) is atomic within a single SQLite transaction. Object updates also atomically update the FTS5 search index.
+Each SDK operation (`put`, `delete`, `appendEvent`, `queue.push`, `queue.ack`, `queue.nack`) is atomic within a single transaction. Object updates also atomically update the search index.
 
 Cross-collection atomicity (e.g., put an object and append an event in one atomic operation) is not supported — they are separate SDK calls.
 
@@ -60,7 +60,7 @@ SQLite corruption is rare but possible (hardware faults, improper shutdown). Rec
 
 ### How large can datasets grow before performance degrades?
 
-thingd is designed for small-to-medium datasets (hundreds of MB to low GBs). SQLite itself can handle terabytes, but thingd's queue polling and FTS5 search performance should be validated against your workload. Benchmarks publish per-operation latency at small scale; we do not yet have published degradation curves for large datasets.
+thingd is designed for small-to-medium datasets (hundreds of MB to low GBs). The Fjall LSM-tree backend handles multi-GB datasets efficiently, and Tantivy BM25 search performs well into millions of rows on modern hardware. Benchmarks publish per-operation latency at small scale; we do not yet have published degradation curves for large datasets.
 
 ## Performance
 
@@ -87,7 +87,7 @@ See [benchmarks.md](./benchmarks.md) for full methodology.
 
 ### How does search scale with millions of records?
 
-FTS5 with BM25 scoring performs well into millions of rows on modern hardware. Metadata filtering adds a post-query pass — performance depends on the selectivity of the filter. We recommend testing with your specific data shape and query patterns.
+Tantivy BM25 search performs well into millions of rows on modern hardware. Metadata filtering is evaluated during the index scan — performance depends on the selectivity of the filter. We recommend testing with your specific data shape and query patterns.
 
 ### Are queues O(1) or do they degrade with backlog size?
 
@@ -161,7 +161,7 @@ CLI commands: `thingd queues dead <queue>` lists dead jobs. To replay, delete an
 
 ### What MCP tools are exposed?
 
-32 tools — see the [API spec — MCP tools reference](api-spec/mcp-tools.md) for the full list with schemas.
+35 tools — see the [API spec — MCP tools reference](api-spec/mcp-tools.md) for the full list with schemas.
 
 ### Can agents bypass allowlists accidentally?
 

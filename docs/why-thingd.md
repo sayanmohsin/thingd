@@ -53,9 +53,9 @@ await db.events.append("project:thingd", {
 });
 ```
 
-### Search — FTS5 with metadata filters
+### Search — Tantivy BM25 with metadata filters
 
-SQLite FTS5 with Porter stemming, metadata key-value filters, and recency-decay
+Tantivy (pure Rust BM25) with stemming, metadata key-value filters, and recency-decay
 scoring. No external search index to deploy.
 
 ```ts
@@ -85,8 +85,8 @@ thingd runs everywhere with the same API:
 
 | Mode | What you get |
 |---|---|
-| **In-memory** | Zero setup, fast tests, REPL-style exploration |
-| **SQLite** | Durable persistence, FTS5, WAL mode — one file |
+| **In-memory** | Zero setup, fast tests, REPL-style exploration, WASM target |
+| **Fjall** | Durable persistence, pure Rust LSM-tree, 100K+ ops/s |
 | **Docker** | Sidecar server, ~15MB image, instant startup |
 | **Embedded** | In-process with your Node.js app, zero network calls |
 

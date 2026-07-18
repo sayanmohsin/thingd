@@ -1,6 +1,6 @@
 # Search
 
-thingd uses SQLite FTS5 with Porter word stemming for full-text search across objects and events. Search is available via MCP (`thing_search`) and REST (`POST /v1/search`).
+thingd uses Tantivy (pure Rust BM25) for full-text search across objects and events. Search is available via MCP (`thing_search`) and REST (`POST /v1/search`).
 
 ## Query Syntax
 
@@ -62,7 +62,7 @@ This only works for indexed columns. In thingd, the search index is built from t
 
 ## Porter Stemming
 
-FTS5 uses the Porter stemmer, which reduces words to their root form:
+Tantivy uses a configurable tokenizer with stemming. The default English stemmer reduces words to their root form:
 
 | Query | Matches |
 |-------|---------|
@@ -163,10 +163,10 @@ Each search result is either an object or an event:
 
 ## Performance
 
-- SQLite FTS5 is used for indexing and querying
-- BM25 scoring is computed in SQL for efficiency
-- Stemming is done at insert time (not query time)
-- In-memory mode uses simple substring matching (no FTS5)
+- Tantivy is used for indexing and querying (pure Rust BM25)
+- BM25 scoring is computed at query time
+- Stemming is done at index time (not query time)
+- In-memory mode uses simple substring matching (no Tantivy)
 - Performance is comparable to dedicated search engines for < 1M documents
 
 ## Examples

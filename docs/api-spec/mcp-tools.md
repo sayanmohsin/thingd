@@ -10,7 +10,7 @@ thingd exposes 35 MCP tools for AI agents. All tools are available via the stdio
 
 ### `thing_search`
 
-Full-text search across objects and events using SQLite FTS5 with Porter stemming. `limit` defaults to 10, max 100.
+Full-text search across objects and events using Tantivy BM25 (pure Rust). `limit` defaults to 10, max 100.
 
 ```json
 {

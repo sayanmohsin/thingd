@@ -150,7 +150,7 @@ spec:
 | Feature | Bun + HTTP | Node.js Native |
 |---------|-----------|----------------|
 | SQLite persistence | ✅ via sidecar | ✅ in-process |
-| Full-text search (FTS5) | ✅ via sidecar | ✅ in-process |
+| Full-text search (Tantivy BM25) | ✅ via sidecar | ✅ in-process |
 | Performance | Network hop (<1ms local) | In-process (zero-copy) |
 | `backupTo()` | ❌ sidecar API call | ✅ direct |
 | `walCheckpoint()` | ❌ sidecar API call | ✅ direct |

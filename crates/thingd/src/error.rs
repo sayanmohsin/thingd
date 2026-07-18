@@ -35,9 +35,16 @@ impl Display for ThingdError {
 
 impl Error for ThingdError {}
 
-#[cfg(feature = "sqlite")]
+#[cfg(feature = "migrate")]
 impl From<rusqlite::Error> for ThingdError {
     fn from(error: rusqlite::Error) -> Self {
+        Self::Storage(error.to_string())
+    }
+}
+
+#[cfg(feature = "fjall")]
+impl From<fjall::Error> for ThingdError {
+    fn from(error: fjall::Error) -> Self {
         Self::Storage(error.to_string())
     }
 }

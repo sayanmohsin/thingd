@@ -154,7 +154,7 @@ Expected output:
 ✔ MCP server: reachable
 ```
 
-Once connected, your agent can call all 32 tools — search, objects, events, queues, links, aggregate, schema, NLQ, and discovery.
+Once connected, your agent can call all 35 tools — search, objects, events, queues, links, aggregate, schema, NLQ, vector, and discovery.
 
 **Example: agent searches before writing**
 

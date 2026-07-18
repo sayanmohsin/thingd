@@ -35,11 +35,11 @@ Implemented:
 
 ### Search behavior
 
-`thing_search` uses a high-performance database-native SQLite **FTS5** virtual table with Porter word stemming, custom metadata key-value filters, and dynamic recency-weighted ranking.
+`thing_search` uses Tantivy — a pure Rust full-text search engine with BM25 ranking, custom metadata key-value filters, and dynamic recency-weighted ranking.
 
 ## Tool Surface
 
-All 32 tools are documented in the [API spec — MCP tools reference](api-spec/mcp-tools.md)
+All 35 tools are documented in the [API spec — MCP tools reference](api-spec/mcp-tools.md)
 with JSON schemas, input/output types, and return formats.
 
 ### Categories

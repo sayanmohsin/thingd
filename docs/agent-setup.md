@@ -25,8 +25,8 @@ Claude Desktop setup. The install, config, and verification steps are identical.
 npx thingd install
 ```
 
-Your agent can then call all 31 `thing_*` tools (search, objects, events, queues,
-links, counts, aggregate, schema, NLQ, discovery). See the [MCP tools reference](api-spec/mcp-tools.md)
+Your agent can then call all 35 `thing_*` tools (search, objects, events, queues,
+links, counts, aggregate, schema, NLQ, vector, discovery). See the [MCP tools reference](api-spec/mcp-tools.md)
 for the full list.
 
 ### 1b. Cloud MCP (Cursor / Claude Desktop / Antigravity IDE)

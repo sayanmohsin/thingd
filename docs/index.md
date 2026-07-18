@@ -1,13 +1,13 @@
 ---
 layout: home
 title: thingd — Open-Source Rust Data Engine for AI Agents
-description: thingd is an open-source Rust data engine for AI agents. Object-shaped storage, durable queues, event streams, full-text search, graph links, and 29 MCP tools — all in one binary. Built by Sayan Mohsin.
+description: thingd is an open-source Rust data engine for AI agents. Object-shaped storage, durable queues, event streams, full-text search, vector search, graph links, and 35 MCP tools — all in one binary. Built by Sayan Mohsin.
 # MCP tool count: update docs/.vitepress/config.ts (mcpToolCount) and packages/thingd/src/constants.ts
 
 hero:
   name: thingd
   text: Open-source Rust data engine for AI agents
-  tagline: Object-shaped storage, durable queues, event streams, full-text search, graph links, and 29 MCP-native tools — all in one static binary. No stitching together separate infrastructure.
+  tagline: Object-shaped storage, durable queues, event streams, full-text search, vector search, graph links, and 35 MCP-native tools — all in one static binary. No stitching together separate infrastructure.
   # MCP tool count: update docs/.vitepress/config.ts (mcpToolCount) and packages/thingd/src/constants.ts
   actions:
     - theme: brand
@@ -32,14 +32,20 @@ features:
     details: Append-only timelines with auto-incrementing sequences. Built for audit and replication.
   - icon: 🔍
     title: Full-text Search
-    details: SQLite FTS5 with Porter stemming, metadata filters, and recency-weighted BM25 ranking.
+    details: Tantivy (pure Rust BM25) with metadata filters, stemming, and recency-weighted ranking.
+  - icon: 🧠
+    title: Vector Search
+    details: Semantic search via embedvec HNSW index. Hybrid ranking with keyword FTS. Agent memory retrieval.
   - icon: 🤖
     title: MCP-native
-    details: 29 built-in MCP tools. AI agents read, write, search, and process jobs without custom code.
+    details: 35 built-in MCP tools. AI agents read, write, search, and process jobs without custom code.
     # MCP tool count: update docs/.vitepress/config.ts (mcpToolCount) and packages/thingd/src/constants.ts
   - icon: ⚡
     title: Multi-mode
-    details: Embedded, sidecar, or cluster. In-memory or persistent SQLite. Same API everywhere.
+    details: Embedded, sidecar, or cluster. In-memory ~675K ops/s cache or persistent Fjall LSM engine. Same API everywhere.
+  - icon: 🌐
+    title: WASM-ready
+    details: Compiles to wasm32 for browser agents and edge workers. Same API, in-memory backend.
 
 ---
 

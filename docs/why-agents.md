@@ -53,7 +53,7 @@ thingd dashboard
 ```
 
 Opens a live browser dashboard at `http://localhost:8758`. Browse all collections,
-event streams, active and dead-letter queue jobs, and run full-text FTS5 queries
+event streams, active and dead-letter queue jobs, and run full-text queries
 interactively. Useful for debugging agent memory during a session.
 
 ### One layer for app and agent
@@ -79,7 +79,7 @@ Chat is the CPU; `thingd` is persistence and coordination.
 ## Honest limits
 
 - Agents must be configured to call MCP tools.
-- Search is powered by high-performance native SQLite FTS5 with Porter stemming and metadata filtering.
+- Search is powered by Tantivy (pure Rust BM25) with stemming and metadata filtering.
 - Schedulers need an external heartbeat (Automation, cron, `/loop`) — `thingd`
   stores and queues work; it does not replace a clock.
 - Queues are at-least-once — consumers must be idempotent.

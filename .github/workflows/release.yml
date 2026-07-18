@@ -255,6 +255,6 @@ jobs:
           fi
 
       - name: Publish to crates.io
-        run: cargo publish -p thingd --features sqlite
+        run: cargo publish -p thingd --features fjall,search
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}

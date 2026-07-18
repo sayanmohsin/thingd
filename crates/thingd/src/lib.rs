@@ -2,8 +2,7 @@
 //!
 //! This crate owns the durable engine boundary: object storage, append-only
 //! events, and queue storage. The default implementation is in-memory, with a
-//! feature-gated `SQLite` adapter available for durable object, event, and
-//! queue storage.
+//! feature-gated `Fjall` adapter for persistent storage.
 //!
 //! # Feature Flags
 //!
@@ -17,7 +16,8 @@
     clippy::manual_let_else
 )]
 //! |---------|---------|-------------|
-//! | `sqlite` | No | Enables [`SqliteThingStore`] with FTS5 search, WAL mode, and auto-migration |
+//! | `fjall` | Yes | Enables [`FjallEngine`] — pure Rust LSM-tree persistent storage |
+//! | `migrate` | No | Enables [`SqliteThingStore`] for one-time migration from `SQLite` |
 //! | `connectors` | No | Enables CSV/JSON file connectors for data import |
 //!
 //! # Example (in-memory)
@@ -37,18 +37,15 @@
 //! engine.append_event(event).unwrap();
 //! ```
 //!
-//! # Example (`SQLite` — requires `sqlite` feature)
+//! # Example (persistent — Fjall)
 //!
 //! ```rust,no_run
-//! #[cfg(feature = "sqlite")]
-//! {
-//!     use thingd::{SqliteThingStore, ObjectStore, MemoryObject};
+//! use thingd::{FjallEngine, ObjectStore, MemoryObject};
 //!
-//!     let mut db = SqliteThingStore::open_in_memory().unwrap();
-//!     db.put_object(MemoryObject::new("users", "alice", r#"{"name":"Alice"}"#)).unwrap();
-//!     let user = db.get_object("users", "alice").unwrap();
-//!     assert_eq!(user.unwrap().body, r#"{"name":"Alice"}"#);
-//! }
+//! let mut db = FjallEngine::open("/tmp/thingd-data").unwrap();
+//! db.put_object(MemoryObject::new("users", "alice", r#"{"name":"Alice"}"#)).unwrap();
+//! let user = db.get_object("users", "alice").unwrap();
+//! assert_eq!(user.unwrap().body, r#"{"name":"Alice"}"#);
 //! ```
 
 #![forbid(unsafe_code)]
@@ -62,9 +59,11 @@ pub mod connector;
 #[cfg(feature = "connectors")]
 pub mod connectors;
 mod error;
+#[cfg(feature = "fjall")]
+mod fjall;
 mod in_memory;
 mod model;
-#[cfg(feature = "sqlite")]
+#[cfg(feature = "migrate")]
 mod sqlite;
 mod store;
 
@@ -76,6 +75,9 @@ pub use connector::{
 #[cfg(feature = "connectors")]
 pub use connectors::{MysqlConnector, PostgresConnector};
 pub use error::{ThingdError, ThingdResult};
+#[cfg(feature = "fjall")]
+#[cfg_attr(docsrs, doc(cfg(feature = "fjall")))]
+pub use fjall::FjallEngine;
 pub use in_memory::MemoryEngine;
 pub use model::{
     AggregateFunction, AggregateGroupResult, AggregateOptions, AggregateResult, CollectionSchema,
@@ -84,9 +86,9 @@ pub use model::{
     QueueJob, QueueJobStatus, QueueNackOptions, SchemaOptions, SearchHit, SearchOptions, SortBy,
     SortDirection, TimeBucket, TimeSeriesBucket, TimeSeriesOptions, TimeSeriesResult,
 };
-#[cfg(feature = "sqlite")]
-#[cfg_attr(docsrs, doc(cfg(feature = "sqlite")))]
-pub use sqlite::{SQLITE_SCHEMA_VERSION, SqliteThingStore};
+#[cfg(feature = "migrate")]
+#[cfg_attr(docsrs, doc(cfg(feature = "migrate")))]
+pub use sqlite::SqliteThingStore;
 pub use store::{
     AggregateStore, EventLog, LinkStore, ObjectStore, QueueStore, Searcher, ThingStore,
 };

@@ -133,10 +133,14 @@ Migrations are applied automatically when a database is opened with an older sch
 
 ### Migration History
 
+> Note: These SQLite schema versions apply to the deprecated SQLite backend.
+> The current Fjall backend has no manual schema management — schema is defined
+> by the Rust struct layout and evolved through code changes.
+
 | Version | Name | Changes |
 |---------|------|---------|
 | 1 | `initial_objects_events_queues` | Creates `objects`, `events`, `queue_jobs` tables |
-| 2 | `fts5_search_index` | Adds FTS5 full-text search virtual table |
+| 2 | `fts5_search_index` | Adds FTS5 full-text search virtual table (replaced by Tantivy) |
 | 3 | `queue_jobs_last_error` | Adds `last_error` column to `queue_jobs` |
 | 4 | `graph_links` | Creates `links` table with graph relationship support |
 

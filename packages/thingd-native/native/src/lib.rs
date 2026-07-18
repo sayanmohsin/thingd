@@ -6,10 +6,10 @@ use napi_derive::napi;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use thingd::{
-    AggregateFunction, AggregateOptions, AggregateStore, EventLog, Link, LinkDirection,
-    LinkQueryOptions, LinkStore, ListEventsOptions, ListObjectsOptions, MemoryEvent, MemoryObject,
-    ObjectStore, PutObjectOptions, QueueClaimOptions, QueueJob, QueueJobStatus, QueueNackOptions,
-    QueueStore, SchemaOptions, SearchOptions, Searcher, SqliteThingStore, TimeSeriesOptions,
+    AggregateFunction, AggregateOptions, AggregateStore, EventLog, FjallEngine, Link,
+    LinkDirection, LinkQueryOptions, LinkStore, ListEventsOptions, ListObjectsOptions, MemoryEvent,
+    MemoryObject, ObjectStore, PutObjectOptions, QueueClaimOptions, QueueJob, QueueJobStatus,
+    QueueNackOptions, QueueStore, SchemaOptions, SearchOptions, Searcher, TimeSeriesOptions,
 };
 
 #[derive(Deserialize)]
@@ -41,19 +41,21 @@ struct BatchJobInput {
 #[napi]
 #[derive(Clone)]
 pub struct NativeThingStore {
-    store: Arc<Mutex<SqliteThingStore>>,
+    store: Arc<Mutex<FjallEngine>>,
 }
 
 #[napi]
 impl NativeThingStore {
     #[napi(factory)]
     pub fn open(path: String) -> Result<Self> {
-        let store = if path == ":memory:" {
-            SqliteThingStore::open_in_memory()
+        let store = if path == ":memory:" || path.is_empty() {
+            // Use a temp directory for ephemeral databases
+            let tmp = std::env::temp_dir().join("thingd-native");
+            let _ = std::fs::create_dir_all(&tmp);
+            FjallEngine::open(tmp).map_err(napi_error)?
         } else {
-            SqliteThingStore::open(path)
-        }
-        .map_err(napi_error)?;
+            FjallEngine::open(path).map_err(napi_error)?
+        };
 
         Ok(Self {
             store: Arc::new(Mutex::new(store)),
@@ -315,25 +317,6 @@ impl NativeThingStore {
         let store = self.lock_store()?;
         let queues = store.list_queues().map_err(napi_error)?;
         to_json(&queues)
-    }
-
-    #[napi(js_name = "walCheckpoint")]
-    pub fn wal_checkpoint(&self) -> Result<String> {
-        let store = self.lock_store()?;
-        let (frames, pages) = store.wal_checkpoint().map_err(napi_error)?;
-        to_json(&serde_json::json!({ "framesBefore": frames, "framesAfter": pages }))
-    }
-
-    #[napi(js_name = "optimizeSearchIndex")]
-    pub fn optimize_search_index(&self) -> Result<()> {
-        let store = self.lock_store()?;
-        store.optimize_search_index().map_err(napi_error)
-    }
-
-    #[napi(js_name = "backupTo")]
-    pub fn backup_to(&self, path: String) -> Result<()> {
-        let store = self.lock_store()?;
-        store.backup_to(&path).map_err(napi_error)
     }
 
     #[napi(js_name = "putObjectsBatchJson")]
@@ -631,7 +614,7 @@ use napi::bindgen_prelude::AsyncTask;
 use napi::{Env, Task};
 
 pub struct ListObjectsTask {
-    store: Arc<Mutex<SqliteThingStore>>,
+    store: Arc<Mutex<FjallEngine>>,
     collections_json: Option<String>,
     filter_json: Option<String>,
     limit: Option<i64>,
@@ -697,7 +680,7 @@ impl Task for ListObjectsTask {
 }
 
 pub struct CountObjectsTask {
-    store: Arc<Mutex<SqliteThingStore>>,
+    store: Arc<Mutex<FjallEngine>>,
 }
 #[napi]
 impl Task for CountObjectsTask {
@@ -717,7 +700,7 @@ impl Task for CountObjectsTask {
 }
 
 pub struct CountObjectsInCollectionTask {
-    store: Arc<Mutex<SqliteThingStore>>,
+    store: Arc<Mutex<FjallEngine>>,
     collection: String,
 }
 #[napi]
@@ -740,7 +723,7 @@ impl Task for CountObjectsInCollectionTask {
 }
 
 pub struct CountEventsTask {
-    store: Arc<Mutex<SqliteThingStore>>,
+    store: Arc<Mutex<FjallEngine>>,
 }
 #[napi]
 impl Task for CountEventsTask {
@@ -760,7 +743,7 @@ impl Task for CountEventsTask {
 }
 
 pub struct CountActiveJobsTask {
-    store: Arc<Mutex<SqliteThingStore>>,
+    store: Arc<Mutex<FjallEngine>>,
 }
 #[napi]
 impl Task for CountActiveJobsTask {
@@ -780,7 +763,7 @@ impl Task for CountActiveJobsTask {
 }
 
 pub struct CountDeadJobsTask {
-    store: Arc<Mutex<SqliteThingStore>>,
+    store: Arc<Mutex<FjallEngine>>,
 }
 #[napi]
 impl Task for CountDeadJobsTask {
@@ -800,7 +783,7 @@ impl Task for CountDeadJobsTask {
 }
 
 pub struct ListCollectionsTask {
-    store: Arc<Mutex<SqliteThingStore>>,
+    store: Arc<Mutex<FjallEngine>>,
 }
 #[napi]
 impl Task for ListCollectionsTask {
@@ -820,7 +803,7 @@ impl Task for ListCollectionsTask {
 }
 
 pub struct ListStreamsTask {
-    store: Arc<Mutex<SqliteThingStore>>,
+    store: Arc<Mutex<FjallEngine>>,
 }
 #[napi]
 impl Task for ListStreamsTask {
@@ -903,7 +886,7 @@ impl NativeThingStore {
 }
 
 impl NativeThingStore {
-    fn lock_store(&self) -> Result<MutexGuard<'_, SqliteThingStore>> {
+    fn lock_store(&self) -> Result<MutexGuard<'_, FjallEngine>> {
         self.store
             .lock()
             .map_err(|_| Error::from_reason("native memory store lock was poisoned"))
@@ -1014,7 +997,7 @@ struct TimeSeriesBucketRecord {
 }
 
 pub struct CountLinksTask {
-    store: Arc<Mutex<SqliteThingStore>>,
+    store: Arc<Mutex<FjallEngine>>,
 }
 #[napi]
 impl Task for CountLinksTask {
@@ -1103,7 +1086,7 @@ fn link_record(link: Link) -> NativeLinkRecord {
 }
 
 fn current_job_status(
-    store: &SqliteThingStore,
+    store: &FjallEngine,
     queue: &str,
     id: &str,
 ) -> Result<Option<QueueJobStatus>> {

@@ -1,6 +1,7 @@
-//! `SQLite`-backed storage adapter.
+//! `SQLite`-backed storage adapter (temporary — migration only).
 //!
 //! This adapter implements durable object, event, and queue storage.
+#![allow(unreachable_pub)]
 
 use std::collections::HashMap;
 use std::fmt::Write as _;
@@ -18,7 +19,8 @@ use crate::{
 };
 
 /// Current `SQLite` schema version.
-pub const SQLITE_SCHEMA_VERSION: u32 = 9;
+#[allow(clippy::redundant_pub_crate)]
+pub(crate) const SQLITE_SCHEMA_VERSION: u32 = 9;
 
 /// `SQLite`-backed memory store.
 pub struct SqliteThingStore {

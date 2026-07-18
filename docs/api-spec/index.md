@@ -9,7 +9,7 @@ thingd is a fast, object-first data engine for applications and AI agents. It su
 - [Data Model](data-model.md) — entity definitions: objects, events, queues, links
 - [REST API](rest-api.md) — HTTP endpoints for app SDKs
 - [MCP Tools](mcp-tools.md) — tool schemas for AI agents
-- [Search](search.md) — FTS5 query syntax, filters, scoring
+- [Search](search.md) — Tantivy query syntax, filters, scoring
 - [Errors](errors.md) — error codes, HTTP mapping, MCP error format
 
 ## Architecture
