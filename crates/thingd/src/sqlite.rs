@@ -18,7 +18,7 @@ use crate::{
 };
 
 /// Current `SQLite` schema version.
-pub const SQLITE_SCHEMA_VERSION: u32 = 7;
+pub const SQLITE_SCHEMA_VERSION: u32 = 8;
 
 /// `SQLite`-backed memory store.
 pub struct SqliteThingStore {
@@ -156,6 +156,12 @@ impl SqliteThingStore {
 
         if current_version < 7 {
             self.apply_schema_v7()?;
+        }
+
+        let current_version = self.schema_version()?;
+
+        if current_version < 8 {
+            self.apply_schema_v8()?;
         }
 
         if current_version > SQLITE_SCHEMA_VERSION {
@@ -461,6 +467,25 @@ impl SqliteThingStore {
             .execute(
                 "INSERT OR IGNORE INTO thingd_schema_migrations (version, name, applied_at)
                  VALUES (7, 'object_indexes_table', strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))",
+                [],
+            )
+            .map_err(ThingdError::from)?;
+        Ok(())
+    }
+
+    fn apply_schema_v8(&self) -> ThingdResult<()> {
+        self.connection
+            .execute_batch(
+                r"
+                CREATE INDEX IF NOT EXISTS idx_objects_updated_at
+                    ON objects (updated_at);
+                ",
+            )
+            .map_err(ThingdError::from)?;
+        self.connection
+            .execute(
+                "INSERT OR IGNORE INTO thingd_schema_migrations (version, name, applied_at)
+                 VALUES (8, 'objects_updated_at_index', strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))",
                 [],
             )
             .map_err(ThingdError::from)?;
