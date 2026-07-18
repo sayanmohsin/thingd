@@ -82,6 +82,10 @@ test("cloud login with --code and --token verifies against API", async () => {
       );
       return;
     }
+    if (req.method === "POST" && req.url === "/auth/user-tokens") {
+      res.end(JSON.stringify({ token: "mock-user-token", userToken: { id: "t1", name: "cli-test" } }));
+      return;
+    }
     res.statusCode = 404;
     res.end(JSON.stringify({ error: "not_found" }));
   });
@@ -113,6 +117,8 @@ test("cloud login auto-selects single instance", async () => {
     res.setHeader("Content-Type", "application/json");
     if (req.url === "/users/me") {
       res.end(JSON.stringify({ user: { id: "1", email: "mock@test.com" } }));
+    } else if (req.method === "POST" && req.url === "/auth/user-tokens") {
+      res.end(JSON.stringify({ token: "mock-user-token", userToken: { id: "t1", name: "cli-test" } }));
     } else if (req.url === "/projects") {
       res.end(JSON.stringify({
         projects: [{ id: "p1", name: "Test", slug: "test-proj" }],
@@ -148,6 +154,8 @@ test("cloud login shows picker for multiple instances", async () => {
     res.setHeader("Content-Type", "application/json");
     if (req.url === "/users/me") {
       res.end(JSON.stringify({ user: { id: "1", email: "mock@test.com" } }));
+    } else if (req.method === "POST" && req.url === "/auth/user-tokens") {
+      res.end(JSON.stringify({ token: "mock-user-token", userToken: { id: "t1", name: "cli-test" } }));
     } else if (req.url === "/projects") {
       res.end(JSON.stringify({
         projects: [{ id: "p1", name: "Test", slug: "test-proj" }],
