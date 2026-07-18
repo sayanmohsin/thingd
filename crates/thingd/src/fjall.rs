@@ -573,6 +573,9 @@ impl EventLog for FjallEngine {
         let data = Self::serialize(&event)?;
         self.events.insert(&ekey, &data)?;
 
+        #[cfg(feature = "search")]
+        self.index_event_for_search(&event);
+
         if !event.idempotency_key.is_empty() {
             self.event_idempotency_keys.insert(
                 (event.stream.clone(), event.idempotency_key.clone()),
@@ -995,6 +998,32 @@ impl FjallEngine {
     }
 
     #[cfg(feature = "search")]
+    fn index_event_for_search(&self, event: &MemoryEvent) {
+        let Some(ref index) = self.search_index else {
+            return;
+        };
+        let schema = index.schema();
+        let body_field = schema.get_field("body").unwrap();
+        let collection_field = schema.get_field("collection").unwrap();
+        let id_field = schema.get_field("id").unwrap();
+        let kind_field = schema.get_field("kind").unwrap();
+
+        let mut writer = match index.writer(50_000_000) {
+            Ok(w) => w,
+            Err(_) => return,
+        };
+
+        let mut doc = tantivy::TantivyDocument::new();
+        doc.add_text(collection_field, &event.stream);
+        doc.add_text(id_field, &event.sequence.to_string());
+        doc.add_text(body_field, &event.body);
+        doc.add_text(kind_field, "event");
+
+        let _ = writer.add_document(doc);
+        let _ = writer.commit();
+    }
+
+    #[cfg(feature = "search")]
     fn search_tantivy(
         &self,
         index: &tantivy::Index,
@@ -1068,25 +1097,50 @@ impl FjallEngine {
                 continue;
             }
 
+            let col = collection.clone();
+            let doc_id = id.clone();
+            let doc_body = body.clone();
+
             if kind == "object"
                 && let Some(obj_data) = self
                     .objects
-                    .get(Self::make_object_key(&collection, &id))
+                    .get(Self::make_object_key(&col, &doc_id))
                     .ok()
                     .and_then(value_to_vec)
                 && let Ok(obj) = Self::deserialize::<MemoryObject>(&obj_data)
             {
                 hits.push(SearchHit {
                     kind: "object".to_string(),
-                    collection,
-                    id,
-                    text: body.clone(),
+                    collection: col,
+                    id: doc_id,
+                    text: doc_body.clone(),
                     score: 1.0,
-                    body,
+                    body: doc_body,
                     version: Some(obj.version),
                     created_at: obj.created_at,
                     updated_at: Some(obj.updated_at),
                     event_type: None,
+                });
+            } else if kind == "event"
+                && let Ok(seq) = id.parse::<u64>()
+                && let Some(ev_data) = self
+                    .events
+                    .get(Self::make_event_key(&collection, seq))
+                    .ok()
+                    .and_then(value_to_vec)
+                && let Ok(event) = Self::deserialize::<MemoryEvent>(&ev_data)
+            {
+                hits.push(SearchHit {
+                    kind: "event".to_string(),
+                    collection: collection.clone(),
+                    id: seq.to_string(),
+                    text: body.clone(),
+                    score: 1.0,
+                    body: body.clone(),
+                    version: None,
+                    created_at: event.created_at,
+                    updated_at: None,
+                    event_type: Some(event.event_type),
                 });
             }
         }
