@@ -90,13 +90,14 @@ jobs:
           const path = require('node:os').tmpdir() + '/thingd-filter-test.db';
           const store = NativeThingStore.open(path);
           store.putObjectJson('test', '1', JSON.stringify({status:'active'}));
+          (async () => {
           const r1 = await store.listObjectsJson('["test"]', '{"status":"nonexistent"}', null, null, null, null);
           if (JSON.parse(r1).length !== 0) throw new Error('Non-matching filter returned non-empty');
           const r2 = await store.listObjectsJson('["test"]', '{"status":"active"}', null, null, null, null);
           if (JSON.parse(r2).length !== 1) throw new Error('Matching filter returned wrong count');
           console.log('Native filter test passed on', process.platform, process.arch);
           try { require('node:fs').unlinkSync(path); } catch {}
-          EOF
+          })()
       - uses: actions/upload-artifact@v7
         with:
           name: prebuild-${{ matrix.platform }}-${{ matrix.arch }}

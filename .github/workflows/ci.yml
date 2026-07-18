@@ -74,6 +74,7 @@ jobs:
       - name: Verify native filter
         run: |
           node << 'EOF'
+          (async () => {
           const { NativeThingStore } = require('./packages/thingd-native');
           const path = require('node:os').tmpdir() + '/thingd-filter-test.db';
           const store = NativeThingStore.open(path);
@@ -84,7 +85,7 @@ jobs:
           if (JSON.parse(r2).length !== 1) throw new Error('Matching filter returned wrong count');
           console.log('Native filter test passed');
           try { require('node:fs').unlinkSync(path); } catch {}
-          EOF
+          })()
 
   # ── CLI + integration tests (only after unit passes) ──
   node-cli:
