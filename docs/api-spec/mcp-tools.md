@@ -1,6 +1,6 @@
 # MCP Tools Reference
 
-thingd exposes 31 MCP tools for AI agents. All tools are available via the stdio MCP server or Streamable HTTP endpoint.
+thingd exposes 32 MCP tools for AI agents. All tools are available via the stdio MCP server or Streamable HTTP endpoint.
 
 **Tool count:** 31 (20 read-only, 11 write — 3 of which are destructive)
 
@@ -112,6 +112,18 @@ Delete multiple objects by ID. Max 1000 IDs per call. Emits audit event `objects
 ```
 
 **Returns:** `{ deleted: number }`
+
+---
+
+### `thing_objects_get_batch`
+
+Read multiple objects by ID in a single operation. Max 1000 IDs per call. Returns an array of objects (null for missing IDs), preserving input order.
+
+```json
+{ "collection": "users", "ids": ["user-001", "user-002", "user-999"] }
+```
+
+**Returns:** `(object | null)[]`
 
 ---
 
@@ -519,3 +531,4 @@ All MCP tools include annotations in the `tools/list` response:
 | `thing_queue_push` | `maxAttempts` | Max 100 |
 | `thing_objects_put_batch` | `objects` | Min 1, max 1000 |
 | `thing_objects_delete_batch` | `ids` | Min 1, max 1000 |
+| `thing_objects_get_batch` | `ids` | Min 1, max 1000 |

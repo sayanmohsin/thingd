@@ -70,6 +70,10 @@ export class InMemoryThingStore implements ThingStore {
     return row ? (row.data as T) : null;
   }
 
+  async getBatch<T = StoredMemoryObject>(collection: string, ids: string[]): Promise<(T | null)[]> {
+    return Promise.all(ids.map((id) => this.get<T>(collection, id)));
+  }
+
   async delete(_collection: string, _id: string): Promise<ThingDeleteResult> {
     const deleted = this.objects.delete(`${_collection}:${_id}`);
     return { deleted };

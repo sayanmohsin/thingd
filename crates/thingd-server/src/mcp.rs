@@ -333,6 +333,34 @@ fn handle_thing_objects_delete_batch(
     Ok(json!({ "content": [{ "type": "text", "text": format!("{deleted}") }] }))
 }
 
+fn handle_thing_objects_get_batch(
+    _state: &AppState,
+    _tool_name: &str,
+    args: &Value,
+) -> Result<Value, AppError> {
+    let e = _state.pool.get_reader("");
+    let g = e.lock();
+    let collection = arg_str(args, "collection");
+    let ids = args
+        .get("ids")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+    if ids.is_empty() || ids.len() > 1000 {
+        return Err(AppError::bad_request(
+            "ids must contain between 1 and 1000 items",
+        ));
+    }
+    let id_strings: Vec<String> = ids
+        .iter()
+        .filter_map(|v| v.as_str().map(String::from))
+        .collect();
+    let results = g.get_objects_batch(&collection, &id_strings)?;
+    Ok(
+        json!({ "content": [{ "type": "text", "text": serde_json::to_string(&results).unwrap_or_default() }] }),
+    )
+}
+
 // ─── Event tools ─────────────────────────────────────────────────
 
 fn handle_thing_events_append(
@@ -963,6 +991,16 @@ static ALL_TOOLS: LazyLock<Vec<ToolEntry>> = LazyLock::new(|| {
             destructive: true,
             needs_collection: true,
         },
+        ToolEntry {
+            name: "thing_objects_get_batch",
+            description: "Batch read up to 1000 objects by ID",
+            properties: json!({ "collection": str_prop("Collection name"), "ids": arr_prop("Array of object IDs (1-1000)") }),
+            required: &["collection", "ids"],
+            handler: handle_thing_objects_get_batch,
+            is_write: false,
+            destructive: false,
+            needs_collection: true,
+        },
         // Event tools (2)
         ToolEntry {
             name: "thing_events_append",
@@ -1362,8 +1400,8 @@ mod tests {
         let tools = result["result"]["tools"].as_array().unwrap();
         assert_eq!(
             tools.len(),
-            31,
-            "expected 31 MCP tools, got {}",
+            32,
+            "expected 32 MCP tools, got {}",
             tools.len()
         );
         let names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
@@ -1375,6 +1413,7 @@ mod tests {
             "thing_objects_list",
             "thing_objects_put_batch",
             "thing_objects_delete_batch",
+            "thing_objects_get_batch",
             "thing_events_append",
             "thing_events_list",
             "thing_queue_push",

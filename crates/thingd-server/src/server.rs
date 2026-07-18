@@ -43,7 +43,7 @@ pub fn build_router(state: Arc<AppState>, config: &Config) -> Router {
         .route("/v1/queues", get(rest::list_queues))
         // Objects
         .route("/v1/objects", get(rest::list_objects))
-        .route("/v1/objects/batch", put(rest::put_batch).delete(rest::delete_batch))
+        .route("/v1/objects/batch", get(rest::get_batch).put(rest::put_batch).delete(rest::delete_batch))
         .route("/v1/objects/{collection}/{id}", put(rest::put_object).get(rest::get_object).delete(rest::delete_object))
         // Search
         .route("/v1/search", post(rest::search))

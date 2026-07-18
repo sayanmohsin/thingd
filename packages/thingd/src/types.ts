@@ -282,6 +282,7 @@ export interface ThingDConnection {
   searchObjects<T = StoredMemoryObject>(query: string, options?: MemorySearchOptions): Promise<T[]>;
   putBatch(collection: string, objects: MemoryObject[]): Promise<StoredMemoryObject[]>;
   deleteBatch(collection: string, ids: string[]): Promise<number>;
+  getBatch<T = StoredMemoryObject>(collection: string, ids: string[]): Promise<(T | null)[]>;
   readonly events: {
     append(stream: string, event: MemoryEvent): Promise<StoredMemoryEvent>;
     list<T = StoredMemoryEvent>(stream?: string, options?: ListEventsOptions): Promise<T[]>;
@@ -390,6 +391,7 @@ export interface ThingStore {
   ): Promise<Link[]>;
   putBatch?(collection: string, objects: MemoryObject[]): Promise<StoredMemoryObject[]>;
   deleteBatch?(collection: string, ids: string[]): Promise<number>;
+  getBatch?(collection: string, ids: string[]): Promise<(StoredMemoryObject | null)[]>;
   listCollections?(): Promise<string[]>;
   listStreams?(): Promise<string[]>;
   listQueues?(): Promise<string[]>;

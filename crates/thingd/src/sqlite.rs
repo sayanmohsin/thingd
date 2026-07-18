@@ -751,6 +751,54 @@ impl ObjectStore for SqliteThingStore {
             .map_err(ThingdError::from)
     }
 
+    fn get_objects_batch(
+        &self,
+        collection: &str,
+        ids: &[String],
+    ) -> ThingdResult<Vec<Option<MemoryObject>>> {
+        use std::fmt::Write;
+
+        if ids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let mut sql = String::from(
+            "SELECT collection, id, body, version, created_at, updated_at FROM objects WHERE collection = ?1 AND id IN (",
+        );
+        let mut param_values: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+        param_values.push(Box::new(collection.to_string()));
+        for (i, id) in ids.iter().enumerate() {
+            if i > 0 {
+                sql.push_str(", ");
+            }
+            let idx = param_values.len() + 1;
+            let _ = write!(sql, "?{idx}");
+            param_values.push(Box::new(id.clone()));
+        }
+        sql.push(')');
+
+        let mut statement = self.connection.prepare(&sql).map_err(ThingdError::from)?;
+
+        let param_refs: Vec<&dyn rusqlite::types::ToSql> =
+            param_values.iter().map(AsRef::as_ref).collect();
+
+        let rows = statement
+            .query_map(param_refs.as_slice(), row_to_object)
+            .map_err(ThingdError::from)?;
+
+        let mut found: std::collections::HashMap<String, MemoryObject> =
+            std::collections::HashMap::new();
+        for row in rows {
+            let obj = row.map_err(ThingdError::from)?;
+            found.insert(obj.key.id.clone(), obj);
+        }
+
+        let results: Vec<Option<MemoryObject>> =
+            ids.iter().map(|id| found.remove(id.as_str())).collect();
+
+        Ok(results)
+    }
+
     fn list_objects(
         &self,
         collections: Option<&[String]>,

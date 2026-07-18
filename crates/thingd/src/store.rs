@@ -82,6 +82,29 @@ pub trait ObjectStore {
     /// Returns an error when the backing store cannot read the object.
     fn get_object(&self, collection: &str, id: &str) -> ThingdResult<Option<MemoryObject>>;
 
+    /// Read multiple objects by collection and id in a single query.
+    ///
+    /// Returns objects in the same order as the input keys. Missing IDs
+    /// produce `None` entries, preserving the order of the request.
+    ///
+    /// The default implementation loops calling `get_object`. The `SQLite`
+    /// adapter overrides this with a single `WHERE id IN (...)` query.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the backing store cannot read the objects.
+    fn get_objects_batch(
+        &self,
+        collection: &str,
+        ids: &[String],
+    ) -> ThingdResult<Vec<Option<MemoryObject>>> {
+        let mut results = Vec::with_capacity(ids.len());
+        for id in ids {
+            results.push(self.get_object(collection, id)?);
+        }
+        Ok(results)
+    }
+
     /// List objects in one or more collections, with optional filtering, limit, and offset.
     ///
     /// Pass an empty `ListObjectsOptions` to return all objects across all collections.

@@ -109,6 +109,11 @@ export class InMemoryThingStore implements ThingStore {
     return (this.collections.get(collection)?.get(id) as T | null) ?? null;
   }
 
+  async getBatch<T = StoredMemoryObject>(collection: string, ids: string[]): Promise<(T | null)[]> {
+    const records = this.collections.get(collection);
+    return ids.map((id) => (records?.get(id) as T) ?? null);
+  }
+
   async delete(collection: string, id: string): Promise<ThingDeleteResult> {
     return this.withLock(() => ({
       deleted: this.collections.get(collection)?.delete(id) ?? false,

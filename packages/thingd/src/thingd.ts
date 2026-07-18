@@ -112,6 +112,13 @@ export class ThingD implements ThingDConnection {
     );
   }
 
+  async getBatch<T = StoredMemoryObject>(collection: string, ids: string[]): Promise<(T | null)[]> {
+    return (
+      (this.store.getBatch?.(collection, ids) as Promise<(T | null)[]>) ??
+      Promise.reject(new Error("Batch get not supported by this driver"))
+    );
+  }
+
   readonly events = {
     append: (stream: string, event: MemoryEvent): Promise<StoredMemoryEvent> =>
       this.store.appendEvent(stream, event),

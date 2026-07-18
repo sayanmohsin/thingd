@@ -319,6 +319,31 @@ curl -X DELETE "http://localhost:8757/v1/objects/batch?collection=users" \
 { "data": { "deleted": 2 } }
 ```
 
+### `GET /v1/objects/batch` — Batch read
+
+**Query parameter:** `collection` (required)
+
+**Body:** array of IDs or `{ "ids": [...] }`
+
+```bash
+curl -X GET "http://localhost:8757/v1/objects/batch?collection=users" \
+  -H "Content-Type: application/json" \
+  -d '["user-010", "user-011", "user-999"]'
+```
+
+```json
+{
+  "data": [
+    { "id": "user-010", "collection": "users", "body": { "..." : "..." } },
+    { "id": "user-011", "collection": "users", "body": { "..." : "..." } },
+    null
+  ]
+}
+```
+
+Missing IDs return `null` entries, preserving input order.
+```
+
 ---
 
 ## Search

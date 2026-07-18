@@ -673,6 +673,26 @@ export function registerThingdTools(
   );
 
   server.registerTool(
+    "thing_objects_get_batch",
+    {
+      title: "Get Objects Batch",
+      description:
+        "Read multiple objects by ID in a single operation. Returns an array of objects (null for missing IDs). More efficient than calling thing_get repeatedly.",
+      inputSchema: {
+        collection: z.string().min(1),
+        ids: z.array(z.string().min(1)).min(1).max(1000),
+      },
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async ({ collection, ids }) => jsonResult(await db.getBatch(collection, ids))
+  );
+
+  server.registerTool(
     "thing_link_create",
     {
       title: "Create Link",

@@ -99,6 +99,19 @@ impl NativeThingStore {
         Ok(object)
     }
 
+    #[napi(js_name = "getObjectsBatchJson")]
+    pub fn get_objects_batch_json(&self, collection: String, ids: Vec<String>) -> Result<String> {
+        let store = self.lock_store()?;
+        let objects = store
+            .get_objects_batch(&collection, &ids)
+            .map_err(napi_error)?;
+        let records: Vec<Option<NativeObjectRecord>> = objects
+            .into_iter()
+            .map(|opt| opt.map(object_record))
+            .collect();
+        to_json(&records)
+    }
+
     #[napi(js_name = "listObjectsJson")]
     pub fn list_objects_json(
         &self,

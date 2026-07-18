@@ -30,6 +30,7 @@ type NativeThingStoreBinding = {
   putObjectJson(collection: string, id: string, body: string, expectedVersion?: number): string;
   optimizeSearchIndex(): void;
   getObjectJson(collection: string, id: string): string | null;
+  getObjectsBatchJson(collection: string, ids: string[]): string;
   listObjectsJson(
     collectionsJson?: string,
     filterJson?: string,
@@ -222,6 +223,12 @@ export class NativeThingStore implements ThingStore {
     const record = this.binding.getObjectJson(collection, id);
 
     return record ? (objectFromNative(parseJson<NativeObjectRecord>(record)) as T) : null;
+  }
+
+  async getBatch<T = StoredMemoryObject>(collection: string, ids: string[]): Promise<(T | null)[]> {
+    return parseJson<(NativeObjectRecord | null)[]>(
+      this.binding.getObjectsBatchJson(collection, ids)
+    ).map((record) => (record ? (objectFromNative(record) as T) : null));
   }
 
   async delete(collection: string, id: string): Promise<ThingDeleteResult> {

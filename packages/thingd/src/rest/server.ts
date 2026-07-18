@@ -178,6 +178,24 @@ export async function handleRestRequest(
       return;
     }
 
+    // GET /v1/objects/batch?collection=...
+    if (pathname === "/v1/objects/batch" && method === "GET") {
+      const collection = url.searchParams.get("collection");
+      if (!collection) {
+        sendError(res, 400, "bad_request", "Query parameter 'collection' is required");
+        return;
+      }
+      const body = JSON.parse(await readBody(req));
+      const ids = Array.isArray(body) ? body : body.ids;
+      if (!Array.isArray(ids)) {
+        sendError(res, 400, "bad_request", "Body must be an array or { ids: [...] }");
+        return;
+      }
+      const objects = await db.getBatch(collection, ids);
+      sendDataList(res, objects);
+      return;
+    }
+
     // PUT /v1/objects/batch?collection=...
     if (pathname === "/v1/objects/batch" && method === "PUT") {
       const collection = url.searchParams.get("collection");

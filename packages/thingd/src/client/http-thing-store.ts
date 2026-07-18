@@ -95,6 +95,14 @@ export class HttpThingStore implements ThingStore {
     }
   }
 
+  async getBatch<T = StoredMemoryObject>(collection: string, ids: string[]): Promise<(T | null)[]> {
+    return this.request<(T | null)[]>(
+      "GET",
+      `/objects/batch?collection=${encodeURIComponent(collection)}`,
+      ids
+    );
+  }
+
   async delete(collection: string, id: string): Promise<ThingDeleteResult> {
     const result = await this.request<ThingDeleteResult>(
       "DELETE",

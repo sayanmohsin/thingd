@@ -104,6 +104,10 @@ export class CloudThingStore implements ThingStore {
     });
   }
 
+  getBatch<T = StoredMemoryObject>(collection: string, ids: string[]): Promise<(T | null)[]> {
+    return this.callTool("thing_objects_get_batch", { collection, ids });
+  }
+
   delete(collection: string, id: string): Promise<ThingDeleteResult> {
     return this.callTool("thing_delete", {
       collection,

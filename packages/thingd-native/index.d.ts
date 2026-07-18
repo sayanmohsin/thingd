@@ -3,6 +3,7 @@ export class NativeThingStore {
 
   putObjectJson(collection: string, id: string, body: string): string;
   getObjectJson(collection: string, id: string): string | null;
+  getObjectsBatchJson(collection: string, ids: string[]): string;
   listObjectsJson(
     collectionsJson?: string,
     filterJson?: string,

@@ -236,6 +236,54 @@ pub async fn put_batch(
         .map_err(|e| AppError::internal(e.to_string()))?)
 }
 
+pub async fn get_batch(
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<Value>,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, AppError> {
+    let collection = params["collection"]
+        .as_str()
+        .ok_or_else(|| AppError::bad_request("Missing collection"))?;
+    let ids: Vec<String> = body
+        .as_array()
+        .map(|a| {
+            a.iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect()
+        })
+        .or_else(|| {
+            body["ids"].as_array().map(|a| {
+                a.iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect()
+            })
+        })
+        .unwrap_or_default();
+    let e = state.pool.get_reader("");
+    let g = e.lock();
+    let results = g
+        .get_objects_batch(collection, &ids)
+        .map_err(|e| AppError::internal(e.to_string()))?;
+    let items: Vec<Value> = results
+        .into_iter()
+        .map(|opt| {
+            opt.map(|obj| {
+                let body_val: Value = serde_json::from_str(&obj.body).unwrap_or(Value::Null);
+                json!({
+                    "id": obj.key.id,
+                    "collection": obj.key.collection,
+                    "body": body_val,
+                    "version": obj.version,
+                    "createdAt": obj.created_at,
+                    "updatedAt": obj.updated_at,
+                })
+            })
+            .unwrap_or(Value::Null)
+        })
+        .collect();
+    ok(items)
+}
+
 pub async fn delete_batch(
     State(state): State<Arc<AppState>>,
     Query(params): Query<Value>,

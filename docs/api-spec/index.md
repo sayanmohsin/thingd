@@ -32,7 +32,7 @@ thingd is a fast, object-first data engine for applications and AI agents. It su
           ▼            ▼            ▼            ▼            ▼
     ┌─────────────────────────────────────────────────────────────┐
     │           Protocol Adapters (per-language)                   │
-    │  REST API (/v1/*)  │  MCP Server (31 tools)                 │
+    │  REST API (/v1/*)  │  MCP Server (32 tools)                 │
     └─────────────────────────┬───────────────────────────────────┘
                               │
                   ┌───────────┼───────────┐
@@ -83,6 +83,7 @@ MCP server endpoints use the same Bearer token scheme.
 | REST | `DELETE /v1/objects/:collection/:id` | Delete object |
 | REST | `GET /v1/objects?collection=` | List objects |
 | REST | `PUT /v1/objects/batch?collection=` | Batch create |
+| REST | `GET /v1/objects/batch?collection=` | Batch read |
 | REST | `POST /v1/search` | Full-text search |
 | REST | `POST /v1/events/:stream` | Append event |
 | REST | `GET /v1/events?stream=` | List events |
@@ -111,6 +112,7 @@ MCP server endpoints use the same Bearer token scheme.
 | MCP | `thing_objects_list` | List objects |
 | MCP | `thing_objects_put_batch` | Batch put |
 | MCP | `thing_objects_delete_batch` | Batch delete |
+| MCP | `thing_objects_get_batch` | Batch read |
 | MCP | `thing_link_create` | Create link |
 | MCP | `thing_link_delete` | Delete link |
 | MCP | `thing_link_get` | Get link |
