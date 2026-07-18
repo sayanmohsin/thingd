@@ -712,6 +712,29 @@ impl Task for CountObjectsTask {
     }
 }
 
+pub struct CountObjectsInCollectionTask {
+    store: Arc<Mutex<SqliteThingStore>>,
+    collection: String,
+}
+#[napi]
+impl Task for CountObjectsInCollectionTask {
+    type Output = u32;
+    type JsValue = u32;
+    fn compute(&mut self) -> Result<Self::Output> {
+        let store = self
+            .store
+            .lock()
+            .map_err(|_| Error::from_reason("poisoned"))?;
+        let count = store
+            .count_objects_in_collection(&self.collection)
+            .map_err(napi_error)?;
+        Ok(u32::try_from(count).unwrap_or(u32::MAX))
+    }
+    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
+        Ok(output)
+    }
+}
+
 pub struct CountEventsTask {
     store: Arc<Mutex<SqliteThingStore>>,
 }
@@ -818,6 +841,17 @@ impl NativeThingStore {
     pub fn count_objects_json(&self) -> Result<AsyncTask<CountObjectsTask>> {
         Ok(AsyncTask::new(CountObjectsTask {
             store: self.store.clone(),
+        }))
+    }
+
+    #[napi(js_name = "countObjectsInCollectionJson")]
+    pub fn count_objects_in_collection_json(
+        &self,
+        collection: String,
+    ) -> Result<AsyncTask<CountObjectsInCollectionTask>> {
+        Ok(AsyncTask::new(CountObjectsInCollectionTask {
+            store: self.store.clone(),
+            collection,
         }))
     }
 

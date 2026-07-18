@@ -196,6 +196,15 @@ impl ObjectStore for MemoryEngine {
         Ok(self.objects.len() as u64)
     }
 
+    fn count_objects_in_collection(&self, collection: &str) -> ThingdResult<u64> {
+        let count = self
+            .objects
+            .keys()
+            .filter(|key| key.collection == collection)
+            .count();
+        Ok(count as u64)
+    }
+
     fn list_collections(&self) -> ThingdResult<Vec<String>> {
         let mut collections: Vec<String> = self
             .objects

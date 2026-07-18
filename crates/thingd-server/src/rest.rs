@@ -69,6 +69,17 @@ pub async fn count_objects(State(state): State<Arc<AppState>>) -> Result<Json<Va
     ok(json!({ "count": g.count_objects().map_err(|e| AppError::internal(e.to_string()))? }))
 }
 
+pub async fn count_objects_in_collection(
+    State(state): State<Arc<AppState>>,
+    Path(collection): Path<String>,
+) -> Result<Json<Value>, AppError> {
+    let e = state.pool.get_reader("");
+    let g = e.lock();
+    ok(
+        json!({ "count": g.count_objects_in_collection(&collection).map_err(|e| AppError::internal(e.to_string()))? }),
+    )
+}
+
 pub async fn count_events(State(state): State<Arc<AppState>>) -> Result<Json<Value>, AppError> {
     let e = state.pool.get_reader("");
     let g = e.lock();

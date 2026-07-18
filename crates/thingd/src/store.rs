@@ -157,6 +157,18 @@ pub trait ObjectStore {
     /// Returns an error when the backing store cannot count objects.
     fn count_objects(&self) -> ThingdResult<u64>;
 
+    /// Count objects in a specific collection.
+    ///
+    /// Uses `SELECT COUNT(*) FROM objects WHERE collection = ?` for O(log n)
+    /// performance via the existing `idx_objects_collection` index.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the backing store cannot count objects.
+    fn count_objects_in_collection(&self, _collection: &str) -> ThingdResult<u64> {
+        self.count_objects()
+    }
+
     /// List all unique collection names.
     ///
     /// # Errors

@@ -55,6 +55,7 @@ type NativeThingStoreBinding = {
   listJobsJson(queue: string): string;
   listDeadJobsJson(queue: string): string;
   countObjectsJson(): Promise<number>;
+  countObjectsInCollectionJson(collection: string): Promise<number>;
   countEventsJson(): Promise<number>;
   countActiveJobsJson(): Promise<number>;
   countDeadJobsJson(): Promise<number>;
@@ -402,6 +403,10 @@ export class NativeThingStore implements ThingStore {
 
   async countObjects(): Promise<number> {
     return this.binding.countObjectsJson();
+  }
+
+  async countObjectsInCollection(collection: string): Promise<number> {
+    return this.binding.countObjectsInCollectionJson(collection);
   }
 
   async countEvents(): Promise<number> {

@@ -218,6 +218,10 @@ export class CloudThingStore implements ThingStore {
     return this.callTool("thing_count_objects", {});
   }
 
+  async countObjectsInCollection(collection: string): Promise<number> {
+    return this.callTool("thing_count_objects_in_collection", { collection });
+  }
+
   async countEvents(): Promise<number> {
     return this.callTool("thing_count_events", {});
   }

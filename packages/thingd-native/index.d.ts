@@ -46,6 +46,7 @@ export class NativeThingStore {
   getLinkJson(id: string): string | null;
   getNeighborsJson(reference: string, direction: string, linkType?: string, limit?: number): string;
   countObjectsJson(): Promise<number>;
+  countObjectsInCollectionJson(collection: string): Promise<number>;
   countEventsJson(): Promise<number>;
   countActiveJobsJson(): Promise<number>;
   countDeadJobsJson(): Promise<number>;

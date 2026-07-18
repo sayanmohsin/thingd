@@ -573,6 +573,20 @@ fn handle_thing_count_objects(
     Ok(json!({ "content": [{ "type": "text", "text": count.to_string() }] }))
 }
 
+fn handle_thing_count_objects_in_collection(
+    state: &AppState,
+    _tool_name: &str,
+    args: &Value,
+) -> Result<Value, AppError> {
+    let collection = args["collection"]
+        .as_str()
+        .ok_or_else(|| AppError::bad_request("collection is required"))?;
+    let e = state.pool.get_reader("");
+    let g = e.lock();
+    let count = g.count_objects_in_collection(collection)?;
+    Ok(json!({ "content": [{ "type": "text", "text": count.to_string() }] }))
+}
+
 fn handle_thing_count_events(
     _state: &AppState,
     _tool_name: &str,
@@ -1113,7 +1127,7 @@ static ALL_TOOLS: LazyLock<Vec<ToolEntry>> = LazyLock::new(|| {
             destructive: false,
             needs_collection: false,
         },
-        // Count tools (4)
+        // Count tools (5)
         ToolEntry {
             name: "thing_count_objects",
             description: "Count all objects",
@@ -1123,6 +1137,16 @@ static ALL_TOOLS: LazyLock<Vec<ToolEntry>> = LazyLock::new(|| {
             is_write: false,
             destructive: false,
             needs_collection: false,
+        },
+        ToolEntry {
+            name: "thing_count_objects_in_collection",
+            description: "Count objects in a specific collection",
+            properties: json!({ "collection": str_prop("Collection name") }),
+            required: &["collection"],
+            handler: handle_thing_count_objects_in_collection,
+            is_write: false,
+            destructive: false,
+            needs_collection: true,
         },
         ToolEntry {
             name: "thing_count_events",
@@ -1450,8 +1474,8 @@ mod tests {
         let tools = result["result"]["tools"].as_array().unwrap();
         assert_eq!(
             tools.len(),
-            34,
-            "expected 34 MCP tools, got {}",
+            35,
+            "expected 35 MCP tools, got {}",
             tools.len()
         );
         let names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
@@ -1473,6 +1497,7 @@ mod tests {
             "thing_queue_list",
             "thing_queue_dead",
             "thing_count_objects",
+            "thing_count_objects_in_collection",
             "thing_count_events",
             "thing_count_active_jobs",
             "thing_count_dead_jobs",

@@ -338,6 +338,16 @@ export class InMemoryThingStore implements ThingStore {
     return this.objects.size;
   }
 
+  async countObjectsInCollection(collection: string): Promise<number> {
+    let count = 0;
+    for (const [key] of this.objects) {
+      if (key.startsWith(`${collection}:`)) {
+        count++;
+      }
+    }
+    return count;
+  }
+
   async countEvents(): Promise<number> {
     return Array.from(this.events.values()).reduce((acc, e) => acc + e.length, 0);
   }

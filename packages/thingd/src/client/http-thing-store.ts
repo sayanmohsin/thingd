@@ -272,6 +272,14 @@ export class HttpThingStore implements ThingStore {
     return result.count;
   }
 
+  async countObjectsInCollection(collection: string): Promise<number> {
+    const result = await this.request<{ count: number }>(
+      "GET",
+      `/counts/objects/${encodeURIComponent(collection)}`
+    );
+    return result.count;
+  }
+
   async countEvents(): Promise<number> {
     const result = await this.request<{ count: number }>("GET", "/counts/events");
     return result.count;

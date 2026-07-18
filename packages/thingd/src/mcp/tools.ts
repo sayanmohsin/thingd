@@ -504,6 +504,25 @@ export function registerThingdTools(
   );
 
   server.registerTool(
+    "thing_count_objects_in_collection",
+    {
+      title: "Count Objects in Collection",
+      description:
+        "Count objects in a specific collection. Returns a single number. Uses an indexed query for O(log n) performance.",
+      inputSchema: {
+        collection: z.string().describe("Collection name to count"),
+      },
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async ({ collection }) => jsonResult(await db.countObjectsInCollection(collection))
+  );
+
+  server.registerTool(
     "thing_count_events",
     {
       title: "Count Events",

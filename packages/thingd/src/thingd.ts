@@ -240,6 +240,10 @@ export class ThingD implements ThingDConnection {
     return this.store.countObjects?.() ?? 0;
   }
 
+  async countObjectsInCollection(collection: string): Promise<number> {
+    return this.store.countObjectsInCollection?.(collection) ?? 0;
+  }
+
   async countEvents(): Promise<number> {
     return this.store.countEvents?.() ?? 0;
   }

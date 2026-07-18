@@ -81,6 +81,12 @@ export async function handleRestRequest(
       sendData(res, { count: await db.countObjects() });
       return;
     }
+    const collectionCountMatch = pathname.match(/^\/v1\/counts\/objects\/([^/]+)$/);
+    if (collectionCountMatch && method === "GET" && collectionCountMatch[1]) {
+      const collection = decodeURIComponent(collectionCountMatch[1]);
+      sendData(res, { count: await db.countObjectsInCollection(collection) });
+      return;
+    }
     if (pathname === "/v1/counts/events" && method === "GET") {
       sendData(res, { count: await db.countEvents() });
       return;

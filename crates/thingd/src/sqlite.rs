@@ -1088,6 +1088,18 @@ impl ObjectStore for SqliteThingStore {
         Ok(u64::try_from(count).unwrap_or(0))
     }
 
+    fn count_objects_in_collection(&self, collection: &str) -> ThingdResult<u64> {
+        let count: i64 = self
+            .connection
+            .query_row(
+                "SELECT COUNT(*) FROM objects WHERE collection = ?1",
+                params![collection],
+                |row| row.get(0),
+            )
+            .map_err(ThingdError::from)?;
+        Ok(u64::try_from(count).unwrap_or(0))
+    }
+
     fn list_collections(&self) -> ThingdResult<Vec<String>> {
         let mut statement = self
             .connection

@@ -33,6 +33,7 @@ pub fn build_router(state: Arc<AppState>, config: &Config) -> Router {
         .route("/metrics", get(rest::metrics))
         .route("/v1/health", get(rest::health))
         .route("/v1/counts/objects", get(rest::count_objects))
+        .route("/v1/counts/objects/{collection}", get(rest::count_objects_in_collection))
         .route("/v1/counts/events", get(rest::count_events))
         .route("/v1/counts/links", get(rest::count_links))
         // Collections / Streams / Queues

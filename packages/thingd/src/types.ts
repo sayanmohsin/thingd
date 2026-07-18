@@ -300,6 +300,7 @@ export interface ThingDConnection {
   queue(name: string): MemoryQueue;
   close(): Promise<void>;
   countObjects(): Promise<number>;
+  countObjectsInCollection(collection: string): Promise<number>;
   countEvents(): Promise<number>;
   countActiveJobs(): Promise<number>;
   countDeadJobs(): Promise<number>;
@@ -383,6 +384,7 @@ export interface ThingStore {
   listDeadJobs(queue: string): Promise<QueueJob[]>;
   search(query: string, options?: MemorySearchOptions): Promise<MemorySearchResult[]>;
   countObjects?(): Promise<number>;
+  countObjectsInCollection?(collection: string): Promise<number>;
   countEvents?(): Promise<number>;
   countActiveJobs?(): Promise<number>;
   countDeadJobs?(): Promise<number>;

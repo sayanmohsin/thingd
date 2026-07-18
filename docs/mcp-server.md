@@ -9,7 +9,7 @@ knowing SQL or internal storage details.
 
 ## Current Status
 
-**34 MCP tools** exposed via stdio and Streamable HTTP.
+**35 MCP tools** exposed via stdio and Streamable HTTP.
 
 The package implements the local stdio server plus a remote-capable Streamable
 HTTP runtime.

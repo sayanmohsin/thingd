@@ -1,6 +1,6 @@
 import { defineConfig } from "vitepress";
 
-const mcpToolCount = 34;
+const mcpToolCount = 35;
 
 export default defineConfig({
   title: "thingd — Open-Source Rust Data Engine for AI Agents",
