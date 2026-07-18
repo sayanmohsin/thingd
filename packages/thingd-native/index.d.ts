@@ -11,7 +11,7 @@ export class NativeThingStore {
     offset?: number,
     sortField?: string,
     sortDirection?: string
-  ): string;
+  ): Promise<string>;
   deleteObject(collection: string, id: string): boolean;
   appendEventJson(stream: string, body: string): string;
   listEventsJson(stream?: string, fromSequence?: number, limit?: number, since?: string): string;

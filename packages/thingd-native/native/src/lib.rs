@@ -134,42 +134,16 @@ impl NativeThingStore {
         offset: Option<i64>,
         sort_field: Option<String>,
         sort_direction: Option<String>,
-    ) -> Result<String> {
-        let collections = parse_optional_string_array(collections_json)?;
-
-        let filter_pairs: Vec<(String, Value)> = filter_json
-            .map(|json| {
-                let obj: serde_json::Map<String, Value> =
-                    serde_json::from_str(&json).map_err(napi_error)?;
-                Ok::<_, Error>(obj.into_iter().collect())
-            })
-            .transpose()?
-            .unwrap_or_default();
-
-        let sort_by = sort_field.map(|field| {
-            let direction = match sort_direction.as_deref() {
-                Some("desc") => thingd::SortDirection::Desc,
-                _ => thingd::SortDirection::Asc,
-            };
-            thingd::SortBy { field, direction }
-        });
-
-        let options = ListObjectsOptions {
-            filter: filter_pairs,
-            sort_by,
-            limit: limit.map(|v| v as u64),
-            offset: offset.map(|v| v as u64),
-        };
-
-        let store = self.lock_store()?;
-        let objects = store
-            .list_objects(collections.as_deref(), &options)
-            .map_err(napi_error)?
-            .into_iter()
-            .map(object_record)
-            .collect::<Vec<_>>();
-
-        to_json(&objects)
+    ) -> Result<AsyncTask<ListObjectsTask>> {
+        Ok(AsyncTask::new(ListObjectsTask {
+            store: self.store.clone(),
+            collections_json,
+            filter_json,
+            limit,
+            offset,
+            sort_field,
+            sort_direction,
+        }))
     }
 
     #[napi(js_name = "deleteObject")]
@@ -651,6 +625,72 @@ impl NativeThingStore {
 
 use napi::bindgen_prelude::AsyncTask;
 use napi::{Env, Task};
+
+pub struct ListObjectsTask {
+    store: Arc<Mutex<SqliteThingStore>>,
+    collections_json: Option<String>,
+    filter_json: Option<String>,
+    limit: Option<i64>,
+    offset: Option<i64>,
+    sort_field: Option<String>,
+    sort_direction: Option<String>,
+}
+
+#[napi]
+impl Task for ListObjectsTask {
+    type Output = String;
+    type JsValue = String;
+
+    fn compute(&mut self) -> Result<Self::Output> {
+        let collections = parse_optional_string_array(self.collections_json.clone())?;
+
+        let filter_pairs: Vec<(String, Value)> = self
+            .filter_json
+            .as_ref()
+            .map(|json| {
+                let obj: serde_json::Map<String, Value> =
+                    serde_json::from_str(json).map_err(napi_error)?;
+                Ok::<_, Error>(obj.into_iter().collect())
+            })
+            .transpose()?
+            .unwrap_or_default();
+
+        let sort_by = self.sort_field.as_ref().map(|field| {
+            let direction = match self.sort_direction.as_deref() {
+                Some("desc") => thingd::SortDirection::Desc,
+                _ => thingd::SortDirection::Asc,
+            };
+            thingd::SortBy {
+                field: field.clone(),
+                direction,
+            }
+        });
+
+        let options = ListObjectsOptions {
+            filter: filter_pairs,
+            sort_by,
+            limit: self.limit.map(|v| v as u64),
+            offset: self.offset.map(|v| v as u64),
+        };
+
+        let store = self
+            .store
+            .lock()
+            .map_err(|_| Error::from_reason("poisoned"))?;
+        let objects = store
+            .list_objects(collections.as_deref(), &options)
+            .map_err(napi_error)?
+            .into_iter()
+            .map(object_record)
+            .collect::<Vec<_>>();
+
+        to_json(&objects)
+    }
+
+    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
+        Ok(output)
+    }
+}
 
 pub struct CountObjectsTask {
     store: Arc<Mutex<SqliteThingStore>>,

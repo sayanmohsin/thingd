@@ -38,7 +38,7 @@ type NativeThingStoreBinding = {
     offset?: number,
     sortField?: string,
     sortDirection?: string
-  ): string;
+  ): Promise<string>;
   deleteObject(collection: string, id: string): boolean;
   appendEventJson(stream: string, body: string): string;
   listEventsJson(stream?: string, fromSequence?: number, limit?: number, since?: string): string;
@@ -248,7 +248,7 @@ export class NativeThingStore implements ThingStore {
     const sortField = options?.sortBy?.field;
     const sortDirection = options?.sortBy?.direction;
     return parseJson<NativeObjectRecord[]>(
-      this.binding.listObjectsJson(
+      await this.binding.listObjectsJson(
         collectionsJson,
         filterJson,
         options?.limit,
