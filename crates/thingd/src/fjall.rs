@@ -1015,7 +1015,7 @@ impl FjallEngine {
 
         let mut doc = tantivy::TantivyDocument::new();
         doc.add_text(collection_field, &event.stream);
-        doc.add_text(id_field, &event.sequence.to_string());
+        doc.add_text(id_field, event.sequence.to_string());
         doc.add_text(body_field, &event.body);
         doc.add_text(kind_field, "event");
 
