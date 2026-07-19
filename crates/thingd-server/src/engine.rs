@@ -20,20 +20,8 @@ pub fn create_engine(
 
     // Auto-migrate from SQLite if old file exists and Fjall doesn't
     #[cfg(feature = "migrate")]
-    if !Path::new(fjall_path).exists()
-        && let Some(sqlite_path) = find_old_sqlite(fjall_path)
-    {
-        tracing::info!("thingd: migrating SQLite → Fjall: {sqlite_path} → {fjall_path}");
-        let result = migrate_from_sqlite(&sqlite_path, fjall_path);
-        match result {
-            Ok(engine) => {
-                tracing::info!("thingd: migration complete. SQLite file retained as backup.");
-                return Ok(engine);
-            },
-            Err(e) => {
-                tracing::error!("thingd: migration FAILED: {e}. Starting fresh.");
-            },
-        }
+    if let Some(engine) = try_auto_migrate(fjall_path) {
+        return Ok(engine);
     }
 
     match FjallEngine::open(fjall_path) {
@@ -42,6 +30,29 @@ pub fn create_engine(
             tracing::warn!("Failed to open Fjall at {fjall_path}: {e}. Falling back to memory.");
             Ok(Box::new(MemoryEngine::new()))
         },
+    }
+}
+
+/// Try to auto-migrate from an existing SQLite file to Fjall.
+/// Returns `Some(engine)` if migration was successful, `None` if no migration was needed.
+#[cfg(feature = "migrate")]
+fn try_auto_migrate(fjall_path: &str) -> Option<Box<dyn ThingStore + Send>> {
+    if !Path::new(fjall_path).exists()
+        && let Some(sqlite_path) = find_old_sqlite(fjall_path)
+    {
+        tracing::info!("thingd: migrating SQLite → Fjall: {sqlite_path} → {fjall_path}");
+        match migrate_from_sqlite(&sqlite_path, fjall_path) {
+            Ok(engine) => {
+                tracing::info!("thingd: migration complete. SQLite file retained as backup.");
+                Some(engine)
+            },
+            Err(e) => {
+                tracing::error!("thingd: migration FAILED: {e}. Starting fresh.");
+                None
+            },
+        }
+    } else {
+        None
     }
 }
 
