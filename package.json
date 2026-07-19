@@ -9,8 +9,8 @@
     "postinstall": "lefthook install 2>/dev/null || true",
     "build": "pnpm -r --if-present build",
     "bench:node": "pnpm build && node packages/thingd/bench/node-bench.mjs",
-    "bench:rust": "cargo run --release -p thingd --example storage_bench --features sqlite",
-    "bench:rust:smoke": "cargo run --release -p thingd --example storage_bench --features sqlite -- 100",
+    "bench:rust": "cargo run --release -p thingd --example storage_bench --features fjall,search",
+    "bench:rust:smoke": "cargo run --release -p thingd --example storage_bench --features fjall,search -- 100",
     "check": "biome check .",
     "check:write": "biome check --write .",
     "format": "biome format --write .",
@@ -36,7 +36,7 @@
     "test:rust": "cargo test --workspace --all-targets --all-features"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.5.3",
+    "@biomejs/biome": "2.5.4",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@semantic-release/changelog": "^6.0.3",
     "@semantic-release/commit-analyzer": "13.0.1",
@@ -49,7 +49,7 @@
     "conventional-changelog-conventionalcommits": "10.2.1",
     "cross-spawn": "^7.0.6",
     "lefthook": "^2.1.10",
-    "semantic-release": "25.0.7",
+    "semantic-release": "25.0.8",
     "typescript": "7.0.2"
   }
 }

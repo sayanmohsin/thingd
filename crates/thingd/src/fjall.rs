@@ -108,10 +108,7 @@ impl FjallEngine {
         let _ = std::fs::create_dir_all(&search_dir);
 
         let mut schema_builder = tantivy::schema::Schema::builder();
-        schema_builder.add_text_field(
-            "doc_key",
-            tantivy::schema::STRING | tantivy::schema::STORED,
-        );
+        schema_builder.add_text_field("doc_key", tantivy::schema::STRING | tantivy::schema::STORED);
         schema_builder.add_text_field(
             "collection",
             tantivy::schema::STRING | tantivy::schema::STORED,
@@ -1045,10 +1042,11 @@ impl FjallEngine {
         let schema = index.schema();
         let doc_key_field = schema.get_field("doc_key").unwrap();
 
-        let mut writer: tantivy::IndexWriter<tantivy::TantivyDocument> = match index.writer(50_000_000) {
-            Ok(w) => w,
-            Err(_) => return,
-        };
+        let mut writer: tantivy::IndexWriter<tantivy::TantivyDocument> =
+            match index.writer(50_000_000) {
+                Ok(w) => w,
+                Err(_) => return,
+            };
 
         let doc_key = format!("{collection}/{id}");
         let term = tantivy::Term::from_field_text(doc_key_field, &doc_key);
@@ -1675,9 +1673,7 @@ fn bucket_label_for_date(iso_date: &str, bucket: TimeBucket) -> String {
 #[allow(clippy::float_cmp, clippy::cast_precision_loss)]
 mod tests {
     use super::*;
-    use crate::store::{
-        AggregateStore, EventLog, LinkStore, ObjectStore, QueueStore, Searcher,
-    };
+    use crate::store::{AggregateStore, EventLog, LinkStore, ObjectStore, QueueStore, Searcher};
     use crate::{
         Link, ListObjectsOptions, MemoryEvent, MemoryObject, QueueClaimOptions, QueueJob,
         QueueJobStatus, QueueNackOptions, SearchOptions, TimeBucket,
@@ -2043,10 +2039,7 @@ mod tests {
     fn fjall_does_not_claim_delayed_jobs() {
         let (mut engine, _dir) = setup();
         engine
-            .push_job(
-                QueueJob::new("embed", "job-1", "doc-1", 3)
-                    .delay_by_ms(60_000),
-            )
+            .push_job(QueueJob::new("embed", "job-1", "doc-1", 3).delay_by_ms(60_000))
             .unwrap();
         assert!(engine.claim_job("embed").unwrap().is_none());
     }
@@ -2211,7 +2204,11 @@ mod tests {
             .put_object(MemoryObject::new("docs", "a", r#"{"text":"hello world"}"#))
             .unwrap();
         engine
-            .put_object(MemoryObject::new("docs", "b", r#"{"text":"goodbye world"}"#))
+            .put_object(MemoryObject::new(
+                "docs",
+                "b",
+                r#"{"text":"goodbye world"}"#,
+            ))
             .unwrap();
         engine
             .append_event(MemoryEvent::new("audit", "test", "hello event"))
@@ -2248,12 +2245,20 @@ mod tests {
     fn fjall_search_indexes_on_put() {
         let (mut engine, _dir) = setup();
         engine
-            .put_object(MemoryObject::new("docs", "a", r#"{"text":"unique_search_term_xyz"}"#))
+            .put_object(MemoryObject::new(
+                "docs",
+                "a",
+                r#"{"text":"unique_search_term_xyz"}"#,
+            ))
             .unwrap();
         let results = engine
             .search("unique_search_term_xyz", SearchOptions::default())
             .unwrap();
-        assert_eq!(results.len(), 1, "search must find indexed content immediately after put");
+        assert_eq!(
+            results.len(),
+            1,
+            "search must find indexed content immediately after put"
+        );
         assert_eq!(results[0].id, "a");
     }
 
@@ -2262,7 +2267,11 @@ mod tests {
     fn fjall_search_removes_on_delete() {
         let (mut engine, _dir) = setup();
         engine
-            .put_object(MemoryObject::new("docs", "to-delete", r#"{"text":"deletable_content"}"#))
+            .put_object(MemoryObject::new(
+                "docs",
+                "to-delete",
+                r#"{"text":"deletable_content"}"#,
+            ))
             .unwrap();
         // Should be findable after put
         assert_eq!(
@@ -2277,7 +2286,11 @@ mod tests {
         let after = engine
             .search("deletable_content", SearchOptions::default())
             .unwrap();
-        assert_eq!(after.len(), 0, "deleted object must not appear in search results");
+        assert_eq!(
+            after.len(),
+            0,
+            "deleted object must not appear in search results"
+        );
     }
 
     #[cfg(feature = "search")]
@@ -2285,10 +2298,18 @@ mod tests {
     fn fjall_search_deleted_batch_removes_from_index() {
         let (mut engine, _dir) = setup();
         engine
-            .put_object(MemoryObject::new("docs", "a", r#"{"text":"batch_deleted_a"}"#))
+            .put_object(MemoryObject::new(
+                "docs",
+                "a",
+                r#"{"text":"batch_deleted_a"}"#,
+            ))
             .unwrap();
         engine
-            .put_object(MemoryObject::new("docs", "b", r#"{"text":"batch_deleted_b"}"#))
+            .put_object(MemoryObject::new(
+                "docs",
+                "b",
+                r#"{"text":"batch_deleted_b"}"#,
+            ))
             .unwrap();
         assert_eq!(
             engine
@@ -2305,7 +2326,11 @@ mod tests {
         let after = engine
             .search("batch_deleted", SearchOptions::default())
             .unwrap();
-        assert_eq!(after.len(), 0, "batch-deleted objects must be removed from search index");
+        assert_eq!(
+            after.len(),
+            0,
+            "batch-deleted objects must be removed from search index"
+        );
     }
 
     // ── AggregateStore ────────────────────────────────────────────────────
@@ -2323,26 +2348,35 @@ mod tests {
             .put_object(MemoryObject::new("stats", "c", r#"{"val":30}"#))
             .unwrap();
         let count = engine
-            .aggregate("stats", &AggregateOptions {
-                function: AggregateFunction::Count,
-                ..Default::default()
-            })
+            .aggregate(
+                "stats",
+                &AggregateOptions {
+                    function: AggregateFunction::Count,
+                    ..Default::default()
+                },
+            )
             .unwrap();
         assert_eq!(count.total, 3.0);
         let sum = engine
-            .aggregate("stats", &AggregateOptions {
-                function: AggregateFunction::Sum,
-                field: Some("val".into()),
-                ..Default::default()
-            })
+            .aggregate(
+                "stats",
+                &AggregateOptions {
+                    function: AggregateFunction::Sum,
+                    field: Some("val".into()),
+                    ..Default::default()
+                },
+            )
             .unwrap();
         assert_eq!(sum.total, 60.0);
         let avg = engine
-            .aggregate("stats", &AggregateOptions {
-                function: AggregateFunction::Avg,
-                field: Some("val".into()),
-                ..Default::default()
-            })
+            .aggregate(
+                "stats",
+                &AggregateOptions {
+                    function: AggregateFunction::Avg,
+                    field: Some("val".into()),
+                    ..Default::default()
+                },
+            )
             .unwrap();
         assert_eq!(avg.total, 20.0);
     }
@@ -2351,21 +2385,36 @@ mod tests {
     fn fjall_aggregate_group_by() {
         let (mut engine, _dir) = setup();
         engine
-            .put_object(MemoryObject::new("sales", "a", r#"{"region":"EU","val":100}"#))
+            .put_object(MemoryObject::new(
+                "sales",
+                "a",
+                r#"{"region":"EU","val":100}"#,
+            ))
             .unwrap();
         engine
-            .put_object(MemoryObject::new("sales", "b", r#"{"region":"US","val":200}"#))
+            .put_object(MemoryObject::new(
+                "sales",
+                "b",
+                r#"{"region":"US","val":200}"#,
+            ))
             .unwrap();
         engine
-            .put_object(MemoryObject::new("sales", "c", r#"{"region":"EU","val":50}"#))
+            .put_object(MemoryObject::new(
+                "sales",
+                "c",
+                r#"{"region":"EU","val":50}"#,
+            ))
             .unwrap();
         let result = engine
-            .aggregate("sales", &AggregateOptions {
-                function: AggregateFunction::Sum,
-                field: Some("val".into()),
-                group_by: Some("region".into()),
-                ..Default::default()
-            })
+            .aggregate(
+                "sales",
+                &AggregateOptions {
+                    function: AggregateFunction::Sum,
+                    field: Some("val".into()),
+                    group_by: Some("region".into()),
+                    ..Default::default()
+                },
+            )
             .unwrap();
         assert_eq!(result.total, 350.0);
         assert_eq!(result.groups.len(), 2);
@@ -2388,11 +2437,14 @@ mod tests {
             .put_object(MemoryObject::new("events", "b", r#"{"val":2}"#))
             .unwrap();
         let result = engine
-            .timeseries("events", &TimeSeriesOptions {
-                function: AggregateFunction::Count,
-                bucket: TimeBucket::Day,
-                ..Default::default()
-            })
+            .timeseries(
+                "events",
+                &TimeSeriesOptions {
+                    function: AggregateFunction::Count,
+                    bucket: TimeBucket::Day,
+                    ..Default::default()
+                },
+            )
             .unwrap();
         assert_eq!(result.buckets.len(), 1);
         assert_eq!(result.buckets[0].value, 2.0);
@@ -2420,7 +2472,10 @@ mod tests {
         engine.claim_job("q").unwrap();
         let prefix = b"q\0";
         let count = engine.ready_jobs.prefix(prefix).count();
-        assert_eq!(count, 0, "ready_jobs must be empty after claiming the only job");
+        assert_eq!(
+            count, 0,
+            "ready_jobs must be empty after claiming the only job"
+        );
     }
 
     #[test]

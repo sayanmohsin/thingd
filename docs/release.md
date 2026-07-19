@@ -65,7 +65,7 @@ On every release, the workflow publishes `thingd` to [crates.io](https://crates.
 
 ```toml
 [dependencies]
-thingd = { version = "0.41", features = ["sqlite"] }
+thingd = { version = "0.41", features = ["fjall", "search"] }
 ```
 
 The publish runs in parallel with npm and Docker publishing.

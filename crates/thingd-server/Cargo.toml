@@ -11,11 +11,9 @@ keywords = ["mcp", "database", "server", "sidecar", "thingd"]
 categories = ["database-implementations", "web-programming::http-server"]
 
 [features]
-default = ["migrate"]
-migrate = ["thingd/migrate"]
 
 [dependencies]
-thingd = { path = "../thingd", version = "0.65", features = ["fjall", "search", "migrate", "connectors"] }
+thingd = { path = "../thingd", version = "0.65", features = ["fjall", "search", "connectors"] }
 axum = { version = "0.8", features = ["json", "macros"] }
 tokio = { version = "1", features = ["full"] }
 serde = { version = "1", features = ["derive"] }

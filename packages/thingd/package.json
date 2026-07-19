@@ -18,7 +18,7 @@
     "memory",
     "queue",
     "durable-queues",
-    "sqlite",
+    "fjall",
     "rust",
     "local-first",
     "data-engine",

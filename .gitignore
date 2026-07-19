@@ -50,3 +50,5 @@ tmp/
 .env
 .env.local
 .env.*.local
+*.jsonl
+test-snapshot.json

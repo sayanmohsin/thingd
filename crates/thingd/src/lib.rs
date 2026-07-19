@@ -17,7 +17,6 @@
 )]
 //! |---------|---------|-------------|
 //! | `fjall` | Yes | Enables [`FjallEngine`] — pure Rust LSM-tree persistent storage |
-//! | `migrate` | No | Enables [`SqliteThingStore`] for one-time migration from `SQLite` |
 //! | `connectors` | No | Enables CSV/JSON file connectors for data import |
 //!
 //! # Example (in-memory)
@@ -63,8 +62,6 @@ mod error;
 mod fjall;
 mod in_memory;
 mod model;
-#[cfg(feature = "migrate")]
-mod sqlite;
 mod store;
 
 #[cfg(feature = "connectors")]
@@ -86,9 +83,6 @@ pub use model::{
     QueueJob, QueueJobStatus, QueueNackOptions, SchemaOptions, SearchHit, SearchOptions, SortBy,
     SortDirection, TimeBucket, TimeSeriesBucket, TimeSeriesOptions, TimeSeriesResult,
 };
-#[cfg(feature = "migrate")]
-#[cfg_attr(docsrs, doc(cfg(feature = "migrate")))]
-pub use sqlite::SqliteThingStore;
 pub use store::{
     AggregateStore, EventLog, LinkStore, ObjectStore, QueueStore, Searcher, ThingStore,
 };

@@ -1,10 +1,7 @@
 use std::collections::HashMap;
-use std::path::Path;
 use std::sync::Arc;
 
 use parking_lot::{Mutex, RwLock};
-#[cfg(feature = "migrate")]
-use thingd::SqliteThingStore;
 use thingd::{FjallEngine, MemoryEngine, ThingStore};
 
 pub type SharedEngine = Arc<Mutex<Box<dyn ThingStore + Send>>>;
@@ -16,131 +13,13 @@ pub fn create_engine(
         return Ok(Box::new(MemoryEngine::new()));
     }
 
-    let fjall_path = db_path.trim_end_matches(".sqlite").trim_end_matches(".db");
-
-    // Auto-migrate from SQLite if old file exists and Fjall doesn't
-    #[cfg(feature = "migrate")]
-    if let Some(engine) = try_auto_migrate(fjall_path) {
-        return Ok(engine);
-    }
-
-    match FjallEngine::open(fjall_path) {
+    match FjallEngine::open(db_path) {
         Ok(engine) => Ok(Box::new(engine)),
         Err(e) => {
-            tracing::warn!("Failed to open Fjall at {fjall_path}: {e}. Falling back to memory.");
+            tracing::warn!("Failed to open Fjall at {db_path}: {e}. Falling back to memory.");
             Ok(Box::new(MemoryEngine::new()))
         },
     }
-}
-
-/// Try to auto-migrate from an existing SQLite file to Fjall.
-/// Returns `Some(engine)` if migration was successful, `None` if no migration was needed.
-#[cfg(feature = "migrate")]
-fn try_auto_migrate(fjall_path: &str) -> Option<Box<dyn ThingStore + Send>> {
-    if !Path::new(fjall_path).exists()
-        && let Some(sqlite_path) = find_old_sqlite(fjall_path)
-    {
-        tracing::info!("thingd: migrating SQLite → Fjall: {sqlite_path} → {fjall_path}");
-        match migrate_from_sqlite(&sqlite_path, fjall_path) {
-            Ok(engine) => {
-                tracing::info!("thingd: migration complete. SQLite file retained as backup.");
-                Some(engine)
-            },
-            Err(e) => {
-                tracing::error!("thingd: migration FAILED: {e}. Starting fresh.");
-                None
-            },
-        }
-    } else {
-        None
-    }
-}
-
-/// Find an old SQLite database file at or near the given path.
-#[cfg(feature = "migrate")]
-fn find_old_sqlite(fjall_path: &str) -> Option<String> {
-    let candidates = vec![format!("{fjall_path}.sqlite"), format!("{fjall_path}.db")];
-    for candidate in &candidates {
-        if Path::new(candidate).exists() {
-            return Some(candidate.clone());
-        }
-    }
-    None
-}
-
-/// Read all data from a SQLite file and write it to a new Fjall database.
-#[cfg(feature = "migrate")]
-fn migrate_from_sqlite(
-    sqlite_path: &str,
-    fjall_path: &str,
-) -> Result<Box<dyn ThingStore + Send>, Box<dyn std::error::Error>> {
-    use thingd::{EventLog, LinkStore, ObjectStore, QueueStore};
-    use thingd::{ListEventsOptions, ListObjectsOptions};
-
-    let source = SqliteThingStore::open(sqlite_path)?;
-    let mut dest = FjallEngine::open(fjall_path)?;
-
-    // Migrate objects
-    let collections = source.list_collections()?;
-    for collection in &collections {
-        let mut offset = 0u64;
-        loop {
-            let batch = source.list_objects(
-                Some(std::slice::from_ref(collection)),
-                &ListObjectsOptions {
-                    limit: Some(100),
-                    offset: Some(offset),
-                    ..Default::default()
-                },
-            )?;
-            if batch.is_empty() {
-                break;
-            }
-            dest.put_objects_batch(batch)?;
-            offset += 100;
-        }
-        tracing::info!("  migrated collection '{collection}': {offset} objects");
-    }
-
-    // Migrate events
-    let streams = source.list_streams()?;
-    for stream in &streams {
-        let mut seq = 0u64;
-        loop {
-            let batch = source.list_events(
-                Some(stream),
-                ListEventsOptions {
-                    from_sequence: Some(seq),
-                    limit: Some(100),
-                    ..Default::default()
-                },
-            )?;
-            if batch.is_empty() {
-                break;
-            }
-            seq = batch.last().map(|e| e.sequence).unwrap_or(seq);
-            dest.append_events_batch(batch)?;
-        }
-        tracing::info!("  migrated stream '{stream}': {seq} events");
-    }
-
-    // Migrate queues
-    let queues = source.list_queues()?;
-    for queue in &queues {
-        let jobs = source.list_jobs(queue)?;
-        if !jobs.is_empty() {
-            dest.push_jobs_batch(jobs)?;
-            tracing::info!("  migrated queue '{queue}': jobs");
-        }
-    }
-
-    // Migrate links (skip — auto-generated IDs won't match)
-    let link_count = source.count_links()?;
-    if link_count > 0 {
-        tracing::warn!("  skipped {link_count} links (auto-generated IDs). Recreate if needed.");
-    }
-
-    Ok(Box::new(dest))
 }
 
 pub struct EnginePool {

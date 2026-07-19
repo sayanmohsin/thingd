@@ -39,7 +39,7 @@ struct BatchJobInput {
     delay_ms: i64,
 }
 
-/// Wraps a MutexGuard on `Option<FjallEngine>`. 
+/// Wraps a MutexGuard on `Option<FjallEngine>`.
 /// Derefs to `FjallEngine` — panics on access after `close()`.
 struct EngineGuard<'a>(MutexGuard<'a, Option<FjallEngine>>);
 
