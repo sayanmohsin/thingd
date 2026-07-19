@@ -34,8 +34,7 @@ async fn shutdown_signal() {
 }
 
 #[tokio::main]
-async /// Entry point for thingd-server — the HTTP sidecar for thingd.
-fn main() {
+async fn main() {
     tracing_subscriber::fmt()
         .with_env_filter(
             EnvFilter::from_default_env().add_directive("thingd_server=info".parse().unwrap()),
