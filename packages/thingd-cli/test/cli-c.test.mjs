@@ -23,11 +23,15 @@ function makeEnv(label) {
   };
 }
 
-test("thingd export, import and redact work correctly", { skip: "Fjall single-process: needs close() support" }, async () => {
+test("thingd export, import and redact work correctly", async () => {
   const { env, cleanup } = makeEnv("export-import");
-  const run = (args) => runCli(args, {
-    env, stdout: { write: (c) => {} }, stderr: { write: (c) => {} },
-  });
+  const run = async (args) => {
+    let s = "";
+    const code = await runCli(args, {
+      env, stdout: { write: (c) => { s += c; } }, stderr: { write: (c) => {} },
+    });
+    return { code, stdout: s };
+  };
   try { cleanup(); } catch {}
   
   // 1. Put object containing sensitive data
@@ -70,11 +74,15 @@ test("thingd export, import and redact work correctly", { skip: "Fjall single-pr
   cleanup();
 });
 
-test("thingd export events works", { skip: "Fjall single-process: needs close() support" }, async () => {
+test("thingd export events works", async () => {
   const { env, cleanup } = makeEnv("export-events");
-  const run = (args) => runCli(args, {
-    env, stdout: { write: (c) => {} }, stderr: { write: (c) => {} },
-  });
+  const run = async (args) => {
+    let s = "";
+    const code = await runCli(args, {
+      env, stdout: { write: (c) => { s += c; } }, stderr: { write: (c) => {} },
+    });
+    return { code, stdout: s };
+  };
   try { cleanup(); } catch {}
 
   // 1. Append event
@@ -98,11 +106,15 @@ test("thingd export events works", { skip: "Fjall single-process: needs close() 
   cleanup();
 });
 
-test("thingd snapshot create and restore works", { skip: "Fjall single-process: needs close() support" }, async () => {
+test("thingd snapshot create and restore works", async () => {
   const { env, cleanup } = makeEnv("snapshot");
-  const run = (args) => runCli(args, {
-    env, stdout: { write: (c) => {} }, stderr: { write: (c) => {} },
-  });
+  const run = async (args) => {
+    let s = "";
+    const code = await runCli(args, {
+      env, stdout: { write: (c) => { s += c; } }, stderr: { write: (c) => {} },
+    });
+    return { code, stdout: s };
+  };
   try { cleanup(); } catch {}
 
   // 1. Put an object and append an event

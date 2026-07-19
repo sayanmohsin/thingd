@@ -22,7 +22,7 @@ if (nativeAvailable) {
     }),
   );
 
-  test("native: persists objects across reopen", { skip: "Fjall is single-process, cannot reopen same path" }, async () => {
+  test("native: persists objects across reopen", async () => {
     const directory = await mkdtemp(join(tmpdir(), "thingd-native-"));
     const path = join(directory, "thingd.db");
 

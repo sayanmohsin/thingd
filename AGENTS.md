@@ -51,7 +51,7 @@ packages/
 
 | Layer | Location |
 |-------|----------|
-| Engine (Rust) | `crates/thingd/src/` (store.rs, model.rs, in_memory.rs, sqlite.rs) |
+| Engine (Rust) | `crates/thingd/src/` (store.rs, model.rs, in_memory.rs, fjall.rs) |
 | Native binding (Rust napi) | `packages/thingd-native/native/src/lib.rs` |
 | Sidecar REST (Rust axum) | `crates/thingd-server/src/rest.rs` |
 | Sidecar MCP (Rust) | `crates/thingd-server/src/mcp.rs` |
@@ -77,9 +77,9 @@ pnpm check                    # biome lint
 pnpm check:write              # biome auto-fix
 pnpm test:node                # 69 Node SDK tests
 pnpm test:cli                 # 44 CLI tests
-pnpm test:rust                # cargo test --workspace --all-features (231 tests — 129 engine + 95 server + 7 integration)
+pnpm test:rust                # cargo test --workspace --all-features (220 tests — 38 fjall unit tests)
 pnpm test:local               # check → build → node+cli+package tests
-pnpm bench:rust               # full Rust benchmark (in-memory + sqlite)
+pnpm bench:rust               # full Rust benchmark (in-memory + fjall)
 pnpm bench:rust:smoke         # quick Rust benchmark (100 iters)
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 ```
@@ -194,7 +194,7 @@ Manual first publish (for new scoped packages):
 pnpm --filter @thingd/sdk publish --access public --no-git-checks
 pnpm --filter @thingd/cli publish --access public --no-git-checks
 pnpm --filter @thingd/native publish --access public --no-git-checks
-cargo publish -p thingd --features sqlite
+cargo publish -p thingd --features fjall,search
 ```
 
 ## Skills

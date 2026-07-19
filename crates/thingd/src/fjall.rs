@@ -109,6 +109,10 @@ impl FjallEngine {
 
         let mut schema_builder = tantivy::schema::Schema::builder();
         schema_builder.add_text_field(
+            "doc_key",
+            tantivy::schema::STRING | tantivy::schema::STORED,
+        );
+        schema_builder.add_text_field(
             "collection",
             tantivy::schema::STRING | tantivy::schema::STORED,
         );
@@ -411,6 +415,8 @@ impl ObjectStore for FjallEngine {
         let key = Self::make_object_key(collection, id);
         let existed = self.objects.get(&key)?.is_some();
         let _ = self.objects.remove(&key);
+        #[cfg(feature = "search")]
+        self.delete_object_from_search_index(collection, id);
         Ok(existed)
     }
 
@@ -422,6 +428,8 @@ impl ObjectStore for FjallEngine {
                 self.objects.remove(&key)?;
                 count += 1;
             }
+            #[cfg(feature = "search")]
+            self.delete_object_from_search_index(collection, id);
         }
         Ok(count)
     }
@@ -977,6 +985,7 @@ impl FjallEngine {
             return;
         };
         let schema = index.schema();
+        let doc_key_field = schema.get_field("doc_key").unwrap();
         let body_field = schema.get_field("body").unwrap();
         let collection_field = schema.get_field("collection").unwrap();
         let id_field = schema.get_field("id").unwrap();
@@ -988,6 +997,8 @@ impl FjallEngine {
         };
 
         let mut doc = tantivy::TantivyDocument::new();
+        let doc_key = format!("{}/{}", object.key.collection, object.key.id);
+        doc.add_text(doc_key_field, &doc_key);
         doc.add_text(collection_field, &object.key.collection);
         doc.add_text(id_field, &object.key.id);
         doc.add_text(body_field, &object.body);
@@ -1003,6 +1014,7 @@ impl FjallEngine {
             return;
         };
         let schema = index.schema();
+        let doc_key_field = schema.get_field("doc_key").unwrap();
         let body_field = schema.get_field("body").unwrap();
         let collection_field = schema.get_field("collection").unwrap();
         let id_field = schema.get_field("id").unwrap();
@@ -1014,12 +1026,33 @@ impl FjallEngine {
         };
 
         let mut doc = tantivy::TantivyDocument::new();
+        let doc_key = format!("event:{}/{}", event.stream, event.sequence);
+        doc.add_text(doc_key_field, &doc_key);
         doc.add_text(collection_field, &event.stream);
         doc.add_text(id_field, event.sequence.to_string());
         doc.add_text(body_field, &event.body);
         doc.add_text(kind_field, "event");
 
         let _ = writer.add_document(doc);
+        let _ = writer.commit();
+    }
+
+    #[cfg(feature = "search")]
+    fn delete_object_from_search_index(&self, collection: &str, id: &str) {
+        let Some(ref index) = self.search_index else {
+            return;
+        };
+        let schema = index.schema();
+        let doc_key_field = schema.get_field("doc_key").unwrap();
+
+        let mut writer: tantivy::IndexWriter<tantivy::TantivyDocument> = match index.writer(50_000_000) {
+            Ok(w) => w,
+            Err(_) => return,
+        };
+
+        let doc_key = format!("{collection}/{id}");
+        let term = tantivy::Term::from_field_text(doc_key_field, &doc_key);
+        let _ = writer.delete_term(term);
         let _ = writer.commit();
     }
 
@@ -1635,5 +1668,862 @@ fn bucket_label_for_date(iso_date: &str, bucket: TimeBucket) -> String {
         }
     } else {
         iso_date.to_string()
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::float_cmp, clippy::cast_precision_loss)]
+mod tests {
+    use super::*;
+    use crate::store::{
+        AggregateStore, EventLog, LinkStore, ObjectStore, QueueStore, Searcher,
+    };
+    use crate::{
+        Link, ListObjectsOptions, MemoryEvent, MemoryObject, QueueClaimOptions, QueueJob,
+        QueueJobStatus, QueueNackOptions, SearchOptions, TimeBucket,
+    };
+
+    /// Create a test engine with a temp directory that stays alive for the caller.
+    fn setup() -> (FjallEngine, tempfile::TempDir) {
+        let dir = tempfile::tempdir().unwrap();
+        let engine = FjallEngine::open(dir.path()).unwrap();
+        (engine, dir)
+    }
+
+    // ── ObjectStore ───────────────────────────────────────────────────────
+
+    #[test]
+    fn fjall_stores_and_reads_objects() {
+        let (mut engine, _dir) = setup();
+        let object = engine
+            .put_object(MemoryObject::new(
+                "decisions",
+                "rust-core",
+                r#"{"text":"Use Rust"}"#,
+            ))
+            .unwrap();
+        let stored = engine
+            .get_object("decisions", "rust-core")
+            .unwrap()
+            .unwrap();
+        assert_eq!(object.version, 1);
+        assert_eq!(stored.key.collection, "decisions");
+        assert_eq!(stored.key.id, "rust-core");
+    }
+
+    #[test]
+    fn fjall_object_created_at_preserved_on_update() {
+        let (mut engine, _dir) = setup();
+        let first = engine
+            .put_object(MemoryObject::new("col", "id", r#"{"v":1}"#))
+            .unwrap();
+        assert!(!first.created_at.is_empty());
+        let second = engine
+            .put_object(MemoryObject::new("col", "id", r#"{"v":2}"#))
+            .unwrap();
+        assert_eq!(second.created_at, first.created_at);
+        assert!(second.updated_at >= first.created_at);
+    }
+
+    #[test]
+    fn fjall_object_version_increments_on_update() {
+        let (mut engine, _dir) = setup();
+        let v1 = engine
+            .put_object(MemoryObject::new("col", "x", "{}"))
+            .unwrap();
+        assert_eq!(v1.version, 1);
+        let v2 = engine
+            .put_object(MemoryObject::new("col", "x", r#"{"v":2}"#))
+            .unwrap();
+        assert_eq!(v2.version, 2);
+    }
+
+    #[test]
+    fn fjall_lists_objects_with_filter() {
+        let (mut engine, _dir) = setup();
+        engine
+            .put_object(MemoryObject::new("w", "a", r#"{"color":"red","size":1}"#))
+            .unwrap();
+        engine
+            .put_object(MemoryObject::new("w", "b", r#"{"color":"blue","size":2}"#))
+            .unwrap();
+        engine
+            .put_object(MemoryObject::new("w", "c", r#"{"color":"red","size":3}"#))
+            .unwrap();
+        let opts = ListObjectsOptions {
+            filter: vec![("color".into(), serde_json::json!("red"))],
+            ..Default::default()
+        };
+        let results = engine
+            .list_objects(Some(&["w".to_string()]), &opts)
+            .unwrap();
+        assert_eq!(results.len(), 2);
+        assert!(results.iter().all(|o| o.body.contains("\"red\"")));
+    }
+
+    #[test]
+    fn fjall_list_objects_pagination() {
+        let (mut engine, _dir) = setup();
+        for i in 0..5u32 {
+            engine
+                .put_object(MemoryObject::new("col", format!("id-{i}"), "{}"))
+                .unwrap();
+        }
+        let limit_opts = ListObjectsOptions {
+            limit: Some(3),
+            ..Default::default()
+        };
+        assert_eq!(
+            engine
+                .list_objects(Some(&["col".to_string()]), &limit_opts)
+                .unwrap()
+                .len(),
+            3
+        );
+        let offset_opts = ListObjectsOptions {
+            offset: Some(3),
+            ..Default::default()
+        };
+        assert_eq!(
+            engine
+                .list_objects(Some(&["col".to_string()]), &offset_opts)
+                .unwrap()
+                .len(),
+            2
+        );
+    }
+
+    #[test]
+    fn fjall_list_objects_sort_by_created_at_desc() {
+        let (mut engine, _dir) = setup();
+        engine
+            .put_object(MemoryObject::new("w", "a", r#"{"x":1}"#))
+            .unwrap();
+        engine
+            .put_object(MemoryObject::new("w", "b", r#"{"x":2}"#))
+            .unwrap();
+        engine
+            .put_object(MemoryObject::new("w", "c", r#"{"x":3}"#))
+            .unwrap();
+        let opts = ListObjectsOptions {
+            sort_by: Some(crate::SortBy::desc("created_at")),
+            ..Default::default()
+        };
+        let results = engine
+            .list_objects(Some(&["w".to_string()]), &opts)
+            .unwrap();
+        assert_eq!(results.len(), 3);
+    }
+
+    #[test]
+    fn fjall_list_objects_sort_by_id_asc() {
+        let (mut engine, _dir) = setup();
+        engine
+            .put_object(MemoryObject::new("w", "c", r#"{"x":3}"#))
+            .unwrap();
+        engine
+            .put_object(MemoryObject::new("w", "a", r#"{"x":1}"#))
+            .unwrap();
+        engine
+            .put_object(MemoryObject::new("w", "b", r#"{"x":2}"#))
+            .unwrap();
+        let opts = ListObjectsOptions {
+            sort_by: Some(crate::SortBy::asc("id")),
+            ..Default::default()
+        };
+        let results = engine
+            .list_objects(Some(&["w".to_string()]), &opts)
+            .unwrap();
+        assert_eq!(results.len(), 3);
+        assert_eq!(results[0].key.id, "a");
+        assert_eq!(results[1].key.id, "b");
+        assert_eq!(results[2].key.id, "c");
+    }
+
+    #[test]
+    fn fjall_cas_succeeds_on_matching_version() {
+        let (mut engine, _dir) = setup();
+        let stored = engine
+            .put_object(MemoryObject::new("col", "id", r#"{"v":1}"#))
+            .unwrap();
+        assert_eq!(stored.version, 1);
+        let opts = crate::PutObjectOptions {
+            expected_version: Some(1),
+            ..Default::default()
+        };
+        let updated = engine
+            .put_object_with_options(MemoryObject::new("col", "id", r#"{"v":2}"#), opts)
+            .unwrap();
+        assert_eq!(updated.version, 2);
+    }
+
+    #[test]
+    fn fjall_cas_fails_on_version_mismatch() {
+        let (mut engine, _dir) = setup();
+        engine
+            .put_object(MemoryObject::new("col", "id", r#"{"v":1}"#))
+            .unwrap();
+        let opts = crate::PutObjectOptions {
+            expected_version: Some(42),
+            ..Default::default()
+        };
+        let err = engine
+            .put_object_with_options(MemoryObject::new("col", "id", r#"{"v":2}"#), opts)
+            .unwrap_err();
+        assert!(matches!(err, crate::ThingdError::Conflict(_)));
+    }
+
+    #[test]
+    fn fjall_cas_fails_on_nonexistent_object() {
+        let (mut engine, _dir) = setup();
+        let opts = crate::PutObjectOptions {
+            expected_version: Some(1),
+            ..Default::default()
+        };
+        let err = engine
+            .put_object_with_options(MemoryObject::new("col", "id", r#"{"v":1}"#), opts)
+            .unwrap_err();
+        assert!(matches!(err, crate::ThingdError::Conflict(_)));
+    }
+
+    #[test]
+    fn fjall_delete_objects_batch() {
+        let (mut engine, _dir) = setup();
+        engine
+            .put_object(MemoryObject::new("w", "a", "{}"))
+            .unwrap();
+        engine
+            .put_object(MemoryObject::new("w", "b", "{}"))
+            .unwrap();
+        engine
+            .put_object(MemoryObject::new("w", "c", "{}"))
+            .unwrap();
+        let keys = vec![
+            ("w".to_string(), "a".to_string()),
+            ("w".to_string(), "b".to_string()),
+        ];
+        let deleted = engine.delete_objects_batch(&keys).unwrap();
+        assert_eq!(deleted, 2);
+        assert_eq!(engine.count_objects().unwrap(), 1);
+        assert!(engine.get_object("w", "a").unwrap().is_none());
+        assert!(engine.get_object("w", "c").unwrap().is_some());
+    }
+
+    // ── EventLog ──────────────────────────────────────────────────────────
+
+    #[test]
+    fn fjall_appends_events_with_sequence_numbers() {
+        let (mut engine, _dir) = setup();
+        let event = engine
+            .append_event(MemoryEvent::new(
+                "project:thingd",
+                "decision.made",
+                "MCP-native object storage",
+            ))
+            .unwrap();
+        assert_eq!(event.sequence, 1);
+        assert_eq!(
+            engine
+                .list_events(Some("project:thingd"), ListEventsOptions::default())
+                .unwrap()
+                .len(),
+            1
+        );
+    }
+
+    #[test]
+    fn fjall_event_idempotency() {
+        let (mut engine, _dir) = setup();
+        let mut event = MemoryEvent::new("stream", "test", r#"{"key":"val"}"#);
+        event.idempotency_key = "idem-1".to_string();
+        let first = engine.append_event(event.clone()).unwrap();
+        assert_eq!(first.sequence, 1);
+        let second = engine.append_event(event).unwrap();
+        assert_eq!(second.sequence, first.sequence);
+        assert_eq!(second.body, first.body);
+    }
+
+    #[test]
+    fn fjall_deletes_last_event_from_stream() {
+        let (mut engine, _dir) = setup();
+        engine
+            .append_event(MemoryEvent::new("match:1", "turn.recorded", "{}"))
+            .unwrap();
+        engine
+            .append_event(MemoryEvent::new("match:1", "turn.recorded", "{}"))
+            .unwrap();
+        engine
+            .append_event(MemoryEvent::new("match:2", "turn.recorded", "{}"))
+            .unwrap();
+        let deleted = engine.delete_last_event("match:1").unwrap().unwrap();
+        assert_eq!(deleted.sequence, 2);
+        let remaining = engine
+            .list_events(Some("match:1"), ListEventsOptions::default())
+            .unwrap();
+        assert_eq!(remaining.len(), 1);
+        assert_eq!(remaining[0].sequence, 1);
+        let match2 = engine
+            .list_events(Some("match:2"), ListEventsOptions::default())
+            .unwrap();
+        assert_eq!(match2.len(), 1);
+    }
+
+    #[test]
+    fn fjall_deletes_stream_and_returns_count() {
+        let (mut engine, _dir) = setup();
+        engine
+            .append_event(MemoryEvent::new("match:1", "turn.recorded", "{}"))
+            .unwrap();
+        engine
+            .append_event(MemoryEvent::new("match:1", "turn.recorded", "{}"))
+            .unwrap();
+        engine
+            .append_event(MemoryEvent::new("match:2", "turn.recorded", "{}"))
+            .unwrap();
+        assert_eq!(engine.delete_stream("match:1").unwrap(), 2);
+        assert_eq!(
+            engine
+                .list_events(Some("match:1"), ListEventsOptions::default())
+                .unwrap()
+                .len(),
+            0
+        );
+        assert_eq!(
+            engine
+                .list_events(Some("match:2"), ListEventsOptions::default())
+                .unwrap()
+                .len(),
+            1
+        );
+    }
+
+    #[test]
+    fn fjall_lists_streams() {
+        let (mut engine, _dir) = setup();
+        assert!(engine.list_streams().unwrap().is_empty());
+        engine
+            .append_event(MemoryEvent::new("s1", "t", "e1"))
+            .unwrap();
+        engine
+            .append_event(MemoryEvent::new("s2", "t", "e2"))
+            .unwrap();
+        let mut streams = engine.list_streams().unwrap();
+        streams.sort();
+        assert_eq!(streams, vec!["s1", "s2"]);
+    }
+
+    // ── QueueStore ────────────────────────────────────────────────────────
+
+    #[test]
+    fn fjall_claims_and_acks_queue_jobs() {
+        let (mut engine, _dir) = setup();
+        engine
+            .push_job(QueueJob::new("embed", "job-1", "doc-1", 3))
+            .unwrap();
+        let claimed = engine.claim_job("embed").unwrap().unwrap();
+        let acked = engine.ack_job("embed", "job-1").unwrap().unwrap();
+        assert_eq!(claimed.status, QueueJobStatus::Leased);
+        assert_eq!(claimed.attempts, 1);
+        assert_eq!(acked.status, QueueJobStatus::Completed);
+    }
+
+    #[test]
+    fn fjall_nacks_to_dead_letter_after_max_attempts() {
+        let (mut engine, _dir) = setup();
+        engine
+            .push_job(QueueJob::new("embed", "job-1", "doc-1", 1))
+            .unwrap();
+        engine.claim_job("embed").unwrap().unwrap();
+        let nacked = engine.nack_job("embed", "job-1").unwrap().unwrap();
+        assert_eq!(nacked.status, QueueJobStatus::Dead);
+        assert_eq!(engine.list_dead_jobs("embed").unwrap().len(), 1);
+    }
+
+    #[test]
+    fn fjall_does_not_claim_delayed_jobs() {
+        let (mut engine, _dir) = setup();
+        engine
+            .push_job(
+                QueueJob::new("embed", "job-1", "doc-1", 3)
+                    .delay_by_ms(60_000),
+            )
+            .unwrap();
+        assert!(engine.claim_job("embed").unwrap().is_none());
+    }
+
+    #[test]
+    fn fjall_nacks_with_retry_delay() {
+        let (mut engine, _dir) = setup();
+        engine
+            .push_job(QueueJob::new("embed", "job-1", "doc-1", 3))
+            .unwrap();
+        engine.claim_job("embed").unwrap().unwrap();
+        let retried = engine
+            .nack_job_with_options("embed", "job-1", QueueNackOptions::new(60_000))
+            .unwrap()
+            .unwrap();
+        assert_eq!(retried.status, QueueJobStatus::Ready);
+        assert!(engine.claim_job("embed").unwrap().is_none());
+    }
+
+    #[test]
+    fn fjall_queue_counts() {
+        let (mut engine, _dir) = setup();
+        assert_eq!(engine.count_active_jobs().unwrap(), 0);
+        assert_eq!(engine.count_dead_jobs().unwrap(), 0);
+        engine
+            .push_job(QueueJob::new("work", "j1", "p1", 3))
+            .unwrap();
+        engine
+            .push_job(QueueJob::new("work", "j2", "p2", 3))
+            .unwrap();
+        engine
+            .push_job(QueueJob::new("other", "j3", "p3", 1))
+            .unwrap();
+        assert_eq!(engine.count_active_jobs().unwrap(), 3);
+        engine.claim_job("other").unwrap();
+        engine.nack_job("other", "j3").unwrap();
+        assert_eq!(engine.count_dead_jobs().unwrap(), 1);
+        assert_eq!(engine.count_active_jobs().unwrap(), 2);
+    }
+
+    #[test]
+    fn fjall_lists_queues() {
+        let (mut engine, _dir) = setup();
+        engine
+            .push_job(QueueJob::new("work", "j1", "p1", 3))
+            .unwrap();
+        engine
+            .push_job(QueueJob::new("jobs", "j2", "p2", 3))
+            .unwrap();
+        let mut queues = engine.list_queues().unwrap();
+        queues.sort();
+        assert_eq!(queues, vec!["jobs", "work"]);
+    }
+
+    #[test]
+    fn fjall_claim_reclaims_expired_lease() {
+        let (mut engine, _dir) = setup();
+        engine
+            .push_job(QueueJob::new("embed", "job-1", "doc-1", 3))
+            .unwrap();
+        let first = engine
+            .claim_job_with_options("embed", QueueClaimOptions::new(0))
+            .unwrap()
+            .unwrap();
+        let second = engine.claim_job("embed").unwrap().unwrap();
+        assert_eq!(first.status, QueueJobStatus::Leased);
+        assert_eq!(second.status, QueueJobStatus::Leased);
+        assert_eq!(second.attempts, 2);
+    }
+
+    #[test]
+    fn fjall_priority_ordering() {
+        let (mut engine, _dir) = setup();
+        engine
+            .push_job(QueueJob::new("q", "low", "body", 3).with_priority(0))
+            .unwrap();
+        engine
+            .push_job(QueueJob::new("q", "high", "body", 3).with_priority(10))
+            .unwrap();
+        engine
+            .push_job(QueueJob::new("q", "mid", "body", 3).with_priority(5))
+            .unwrap();
+        let first = engine.claim_job("q").unwrap().unwrap();
+        assert_eq!(first.id, "high", "highest priority claimed first");
+        let second = engine.claim_job("q").unwrap().unwrap();
+        assert_eq!(second.id, "mid", "medium priority claimed second");
+        let third = engine.claim_job("q").unwrap().unwrap();
+        assert_eq!(third.id, "low", "lowest priority claimed last");
+    }
+
+    // ── LinkStore ─────────────────────────────────────────────────────────
+
+    #[test]
+    fn fjall_create_get_delete_link() {
+        let (mut engine, _dir) = setup();
+        engine
+            .put_object(MemoryObject::new("n", "a", "{}"))
+            .unwrap();
+        engine
+            .put_object(MemoryObject::new("n", "b", "{}"))
+            .unwrap();
+        let link = engine
+            .create_link(Link::new("n/a", "connects", "n/b"))
+            .unwrap();
+        assert!(!link.id.is_empty());
+        let fetched = engine.get_link(&link.id).unwrap().unwrap();
+        assert_eq!(fetched.id, link.id);
+        assert!(engine.delete_link(&link.id).unwrap());
+        assert!(engine.get_link(&link.id).unwrap().is_none());
+    }
+
+    #[test]
+    fn fjall_neighbor_query() {
+        let (mut engine, _dir) = setup();
+        engine
+            .put_object(MemoryObject::new("n", "a", "{}"))
+            .unwrap();
+        engine
+            .put_object(MemoryObject::new("n", "b", "{}"))
+            .unwrap();
+        engine
+            .put_object(MemoryObject::new("n", "c", "{}"))
+            .unwrap();
+        engine
+            .create_link(Link::new("n/a", "knows", "n/b"))
+            .unwrap();
+        engine
+            .create_link(Link::new("n/a", "knows", "n/c"))
+            .unwrap();
+        let outgoing = engine
+            .get_neighbors("n/a", LinkDirection::Outgoing, LinkQueryOptions::default())
+            .unwrap();
+        assert_eq!(outgoing.len(), 2);
+        let incoming = engine
+            .get_neighbors("n/b", LinkDirection::Incoming, LinkQueryOptions::default())
+            .unwrap();
+        assert_eq!(incoming.len(), 1);
+    }
+
+    #[test]
+    fn fjall_link_count() {
+        let (mut engine, _dir) = setup();
+        engine
+            .put_object(MemoryObject::new("n", "a", "{}"))
+            .unwrap();
+        engine
+            .put_object(MemoryObject::new("n", "b", "{}"))
+            .unwrap();
+        assert_eq!(engine.count_links().unwrap(), 0);
+        engine
+            .create_link(Link::new("n/a", "knows", "n/b"))
+            .unwrap();
+        assert_eq!(engine.count_links().unwrap(), 1);
+    }
+
+    // ── Searcher (naive — Tantivy is feature-gated) ──────────────────────
+
+    #[test]
+    fn fjall_search_objects_and_events() {
+        let (mut engine, _dir) = setup();
+        engine
+            .put_object(MemoryObject::new("docs", "a", r#"{"text":"hello world"}"#))
+            .unwrap();
+        engine
+            .put_object(MemoryObject::new("docs", "b", r#"{"text":"goodbye world"}"#))
+            .unwrap();
+        engine
+            .append_event(MemoryEvent::new("audit", "test", "hello event"))
+            .unwrap();
+        let results = engine.search("hello", SearchOptions::default()).unwrap();
+        assert_eq!(results.len(), 2);
+        let kinds: Vec<&str> = results.iter().map(|h| h.kind.as_str()).collect();
+        assert!(kinds.contains(&"object"));
+        assert!(kinds.contains(&"event"));
+    }
+
+    #[test]
+    fn fjall_search_with_collections() {
+        let (mut engine, _dir) = setup();
+        engine
+            .put_object(MemoryObject::new("docs", "a", r#"{"text":"hello world"}"#))
+            .unwrap();
+        engine
+            .put_object(MemoryObject::new("notes", "b", r#"{"text":"hello there"}"#))
+            .unwrap();
+        let opts = SearchOptions {
+            collections: Some(vec!["docs".into()]),
+            ..Default::default()
+        };
+        let results = engine.search("hello", opts).unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].collection, "docs");
+    }
+
+    // ── Tantivy search (feature-gated) ──────────────────────────────────
+
+    #[cfg(feature = "search")]
+    #[test]
+    fn fjall_search_indexes_on_put() {
+        let (mut engine, _dir) = setup();
+        engine
+            .put_object(MemoryObject::new("docs", "a", r#"{"text":"unique_search_term_xyz"}"#))
+            .unwrap();
+        let results = engine
+            .search("unique_search_term_xyz", SearchOptions::default())
+            .unwrap();
+        assert_eq!(results.len(), 1, "search must find indexed content immediately after put");
+        assert_eq!(results[0].id, "a");
+    }
+
+    #[cfg(feature = "search")]
+    #[test]
+    fn fjall_search_removes_on_delete() {
+        let (mut engine, _dir) = setup();
+        engine
+            .put_object(MemoryObject::new("docs", "to-delete", r#"{"text":"deletable_content"}"#))
+            .unwrap();
+        // Should be findable after put
+        assert_eq!(
+            engine
+                .search("deletable_content", SearchOptions::default())
+                .unwrap()
+                .len(),
+            1
+        );
+        // Delete and verify it's gone from search
+        engine.delete_object("docs", "to-delete").unwrap();
+        let after = engine
+            .search("deletable_content", SearchOptions::default())
+            .unwrap();
+        assert_eq!(after.len(), 0, "deleted object must not appear in search results");
+    }
+
+    #[cfg(feature = "search")]
+    #[test]
+    fn fjall_search_deleted_batch_removes_from_index() {
+        let (mut engine, _dir) = setup();
+        engine
+            .put_object(MemoryObject::new("docs", "a", r#"{"text":"batch_deleted_a"}"#))
+            .unwrap();
+        engine
+            .put_object(MemoryObject::new("docs", "b", r#"{"text":"batch_deleted_b"}"#))
+            .unwrap();
+        assert_eq!(
+            engine
+                .search("batch_deleted", SearchOptions::default())
+                .unwrap()
+                .len(),
+            2
+        );
+        let keys = vec![
+            ("docs".to_string(), "a".to_string()),
+            ("docs".to_string(), "b".to_string()),
+        ];
+        engine.delete_objects_batch(&keys).unwrap();
+        let after = engine
+            .search("batch_deleted", SearchOptions::default())
+            .unwrap();
+        assert_eq!(after.len(), 0, "batch-deleted objects must be removed from search index");
+    }
+
+    // ── AggregateStore ────────────────────────────────────────────────────
+
+    #[test]
+    fn fjall_aggregate_count_sum_avg() {
+        let (mut engine, _dir) = setup();
+        engine
+            .put_object(MemoryObject::new("stats", "a", r#"{"val":10}"#))
+            .unwrap();
+        engine
+            .put_object(MemoryObject::new("stats", "b", r#"{"val":20}"#))
+            .unwrap();
+        engine
+            .put_object(MemoryObject::new("stats", "c", r#"{"val":30}"#))
+            .unwrap();
+        let count = engine
+            .aggregate("stats", &AggregateOptions {
+                function: AggregateFunction::Count,
+                ..Default::default()
+            })
+            .unwrap();
+        assert_eq!(count.total, 3.0);
+        let sum = engine
+            .aggregate("stats", &AggregateOptions {
+                function: AggregateFunction::Sum,
+                field: Some("val".into()),
+                ..Default::default()
+            })
+            .unwrap();
+        assert_eq!(sum.total, 60.0);
+        let avg = engine
+            .aggregate("stats", &AggregateOptions {
+                function: AggregateFunction::Avg,
+                field: Some("val".into()),
+                ..Default::default()
+            })
+            .unwrap();
+        assert_eq!(avg.total, 20.0);
+    }
+
+    #[test]
+    fn fjall_aggregate_group_by() {
+        let (mut engine, _dir) = setup();
+        engine
+            .put_object(MemoryObject::new("sales", "a", r#"{"region":"EU","val":100}"#))
+            .unwrap();
+        engine
+            .put_object(MemoryObject::new("sales", "b", r#"{"region":"US","val":200}"#))
+            .unwrap();
+        engine
+            .put_object(MemoryObject::new("sales", "c", r#"{"region":"EU","val":50}"#))
+            .unwrap();
+        let result = engine
+            .aggregate("sales", &AggregateOptions {
+                function: AggregateFunction::Sum,
+                field: Some("val".into()),
+                group_by: Some("region".into()),
+                ..Default::default()
+            })
+            .unwrap();
+        assert_eq!(result.total, 350.0);
+        assert_eq!(result.groups.len(), 2);
+        for group in &result.groups {
+            match group.key.as_str() {
+                "EU" => assert_eq!(group.value, 150.0),
+                "US" => assert_eq!(group.value, 200.0),
+                _ => panic!("unexpected group key"),
+            }
+        }
+    }
+
+    #[test]
+    fn fjall_timeseries_bucketing() {
+        let (mut engine, _dir) = setup();
+        engine
+            .put_object(MemoryObject::new("events", "a", r#"{"val":1}"#))
+            .unwrap();
+        engine
+            .put_object(MemoryObject::new("events", "b", r#"{"val":2}"#))
+            .unwrap();
+        let result = engine
+            .timeseries("events", &TimeSeriesOptions {
+                function: AggregateFunction::Count,
+                bucket: TimeBucket::Day,
+                ..Default::default()
+            })
+            .unwrap();
+        assert_eq!(result.buckets.len(), 1);
+        assert_eq!(result.buckets[0].value, 2.0);
+    }
+
+    // ── ready_jobs index behavior (Fjall-specific) ───────────────────────
+
+    #[test]
+    fn fjall_ready_jobs_indexes_on_push() {
+        let (mut engine, _dir) = setup();
+        engine
+            .push_job(QueueJob::new("q", "j1", "body", 3))
+            .unwrap();
+        let prefix = b"q\0";
+        let count = engine.ready_jobs.prefix(prefix).count();
+        assert_eq!(count, 1, "ready_jobs must have one entry after push");
+    }
+
+    #[test]
+    fn fjall_ready_jobs_removed_on_claim() {
+        let (mut engine, _dir) = setup();
+        engine
+            .push_job(QueueJob::new("q", "j1", "body", 3))
+            .unwrap();
+        engine.claim_job("q").unwrap();
+        let prefix = b"q\0";
+        let count = engine.ready_jobs.prefix(prefix).count();
+        assert_eq!(count, 0, "ready_jobs must be empty after claiming the only job");
+    }
+
+    #[test]
+    fn fjall_ready_jobs_priority_order() {
+        let (mut engine, _dir) = setup();
+        engine
+            .push_job(QueueJob::new("q", "low", "body", 3).with_priority(0))
+            .unwrap();
+        engine
+            .push_job(QueueJob::new("q", "high", "body", 3).with_priority(10))
+            .unwrap();
+        // ready_jobs should iterate in priority order (highest first)
+        let prefix = b"q\0";
+        let keys: Vec<Vec<u8>> = engine
+            .ready_jobs
+            .prefix(prefix)
+            .map(|kv| {
+                let (k, _) = guard_data(kv).unwrap();
+                k
+            })
+            .collect();
+        assert_eq!(keys.len(), 2);
+        // First key should contain "high" — it has higher priority
+        let first_key_str = String::from_utf8_lossy(&keys[0]);
+        assert!(
+            first_key_str.contains("high"),
+            "first ready entry should be high-priority job; got {first_key_str}"
+        );
+    }
+
+    #[test]
+    fn fjall_ready_jobs_fifo_order() {
+        let (mut engine, _dir) = setup();
+        engine
+            .push_job(QueueJob::new("q", "first", "body", 3))
+            .unwrap();
+        // Slight delay so created_at differs
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        engine
+            .push_job(QueueJob::new("q", "second", "body", 3))
+            .unwrap();
+        let prefix = b"q\0";
+        let keys: Vec<Vec<u8>> = engine
+            .ready_jobs
+            .prefix(prefix)
+            .map(|kv| {
+                let (k, _) = guard_data(kv).unwrap();
+                k
+            })
+            .collect();
+        assert_eq!(keys.len(), 2);
+        let first_key_str = String::from_utf8_lossy(&keys[0]);
+        assert!(
+            first_key_str.contains("first"),
+            "first ready entry should be FIFO; got {first_key_str}"
+        );
+    }
+
+    #[test]
+    fn fjall_ready_jobs_reindex_on_nack() {
+        let (mut engine, _dir) = setup();
+        engine
+            .push_job(QueueJob::new("q", "j1", "body", 3))
+            .unwrap();
+        engine.claim_job("q").unwrap();
+        let prefix = b"q\0";
+        assert_eq!(engine.ready_jobs.prefix(prefix).count(), 0);
+        // Nack with no delay — should re-index into ready_jobs
+        engine
+            .nack_job_with_options("q", "j1", QueueNackOptions::new(0))
+            .unwrap();
+        assert_eq!(
+            engine.ready_jobs.prefix(prefix).count(),
+            1,
+            "ready_jobs must have entry after nack with retry"
+        );
+    }
+
+    #[test]
+    fn fjall_ready_jobs_reindex_on_lease_expire() {
+        let (mut engine, _dir) = setup();
+        engine
+            .push_job(QueueJob::new("q", "j1", "body", 3))
+            .unwrap();
+        // Claim with zero lease so it immediately expires
+        engine
+            .claim_job_with_options("q", QueueClaimOptions::new(0))
+            .unwrap();
+        // The claim method should have reaped the expired lease and re-indexed
+        let prefix = b"q\0";
+        let _count = engine.ready_jobs.prefix(prefix).count();
+        // claim_job called next will reap expired lease and return the job
+        let claimed = engine.claim_job("q").unwrap();
+        assert!(
+            claimed.is_some(),
+            "job should be claimable after lease expires"
+        );
+        let job = claimed.unwrap();
+        assert_eq!(job.attempts, 2, "second attempt after lease expiry");
+        assert_eq!(
+            engine.ready_jobs.prefix(prefix).count(),
+            0,
+            "ready_jobs must be empty after re-claiming"
+        );
     }
 }

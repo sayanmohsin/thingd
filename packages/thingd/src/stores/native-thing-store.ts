@@ -27,6 +27,7 @@ import type {
 } from "../types.js";
 
 type NativeThingStoreBinding = {
+  close(): void;
   putObjectJson(collection: string, id: string, body: string, expectedVersion?: number): string;
   optimizeSearchIndex(): void;
   getObjectJson(collection: string, id: string): string | null;
@@ -204,6 +205,10 @@ export class NativeThingStore implements ThingStore {
   }
 
   private constructor(private readonly binding: NativeThingStoreBinding) {}
+
+  async close(): Promise<void> {
+    this.binding.close();
+  }
 
   async put(
     collection: string,

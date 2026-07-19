@@ -1,4 +1,5 @@
 #![allow(clippy::too_many_arguments)]
+use std::ops::{Deref, DerefMut};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use napi::bindgen_prelude::{Error, Result};
@@ -38,10 +39,31 @@ struct BatchJobInput {
     delay_ms: i64,
 }
 
+/// Wraps a MutexGuard on `Option<FjallEngine>`. 
+/// Derefs to `FjallEngine` — panics on access after `close()`.
+struct EngineGuard<'a>(MutexGuard<'a, Option<FjallEngine>>);
+
+impl<'a> Deref for EngineGuard<'a> {
+    type Target = FjallEngine;
+    fn deref(&self) -> &FjallEngine {
+        self.0
+            .as_ref()
+            .expect("cannot access FjallEngine after close()")
+    }
+}
+
+impl<'a> DerefMut for EngineGuard<'a> {
+    fn deref_mut(&mut self) -> &mut FjallEngine {
+        self.0
+            .as_mut()
+            .expect("cannot access FjallEngine after close()")
+    }
+}
+
 #[napi]
 #[derive(Clone)]
 pub struct NativeThingStore {
-    store: Arc<Mutex<FjallEngine>>,
+    store: Arc<Mutex<Option<FjallEngine>>>,
 }
 
 #[napi]
@@ -58,7 +80,7 @@ impl NativeThingStore {
         };
 
         Ok(Self {
-            store: Arc::new(Mutex::new(store)),
+            store: Arc::new(Mutex::new(Some(store))),
         })
     }
 
@@ -608,13 +630,20 @@ impl NativeThingStore {
             .map_err(napi_error)?;
         to_json(&schemas)
     }
+
+    #[napi]
+    pub fn close(&self) {
+        if let Ok(mut guard) = self.store.lock() {
+            *guard = None;
+        }
+    }
 }
 
 use napi::bindgen_prelude::AsyncTask;
 use napi::{Env, Task};
 
 pub struct ListObjectsTask {
-    store: Arc<Mutex<FjallEngine>>,
+    store: Arc<Mutex<Option<FjallEngine>>>,
     collections_json: Option<String>,
     filter_json: Option<String>,
     limit: Option<i64>,
@@ -660,10 +689,13 @@ impl Task for ListObjectsTask {
             offset: self.offset.map(|v| v as u64),
         };
 
-        let store = self
+        let guard = self
             .store
             .lock()
             .map_err(|_| Error::from_reason("poisoned"))?;
+        let store = guard
+            .as_ref()
+            .ok_or_else(|| Error::from_reason("store is closed"))?;
         let objects = store
             .list_objects(collections.as_deref(), &options)
             .map_err(napi_error)?
@@ -680,17 +712,20 @@ impl Task for ListObjectsTask {
 }
 
 pub struct CountObjectsTask {
-    store: Arc<Mutex<FjallEngine>>,
+    store: Arc<Mutex<Option<FjallEngine>>>,
 }
 #[napi]
 impl Task for CountObjectsTask {
     type Output = u32;
     type JsValue = u32;
     fn compute(&mut self) -> Result<Self::Output> {
-        let store = self
+        let guard = self
             .store
             .lock()
             .map_err(|_| Error::from_reason("poisoned"))?;
+        let store = guard
+            .as_ref()
+            .ok_or_else(|| Error::from_reason("store is closed"))?;
         let count = store.count_objects().map_err(napi_error)?;
         Ok(u32::try_from(count).unwrap_or(u32::MAX))
     }
@@ -700,7 +735,7 @@ impl Task for CountObjectsTask {
 }
 
 pub struct CountObjectsInCollectionTask {
-    store: Arc<Mutex<FjallEngine>>,
+    store: Arc<Mutex<Option<FjallEngine>>>,
     collection: String,
 }
 #[napi]
@@ -708,10 +743,13 @@ impl Task for CountObjectsInCollectionTask {
     type Output = u32;
     type JsValue = u32;
     fn compute(&mut self) -> Result<Self::Output> {
-        let store = self
+        let guard = self
             .store
             .lock()
             .map_err(|_| Error::from_reason("poisoned"))?;
+        let store = guard
+            .as_ref()
+            .ok_or_else(|| Error::from_reason("store is closed"))?;
         let count = store
             .count_objects_in_collection(&self.collection)
             .map_err(napi_error)?;
@@ -723,17 +761,20 @@ impl Task for CountObjectsInCollectionTask {
 }
 
 pub struct CountEventsTask {
-    store: Arc<Mutex<FjallEngine>>,
+    store: Arc<Mutex<Option<FjallEngine>>>,
 }
 #[napi]
 impl Task for CountEventsTask {
     type Output = u32;
     type JsValue = u32;
     fn compute(&mut self) -> Result<Self::Output> {
-        let store = self
+        let guard = self
             .store
             .lock()
             .map_err(|_| Error::from_reason("poisoned"))?;
+        let store = guard
+            .as_ref()
+            .ok_or_else(|| Error::from_reason("store is closed"))?;
         let count = store.count_events().map_err(napi_error)?;
         Ok(u32::try_from(count).unwrap_or(u32::MAX))
     }
@@ -743,17 +784,20 @@ impl Task for CountEventsTask {
 }
 
 pub struct CountActiveJobsTask {
-    store: Arc<Mutex<FjallEngine>>,
+    store: Arc<Mutex<Option<FjallEngine>>>,
 }
 #[napi]
 impl Task for CountActiveJobsTask {
     type Output = u32;
     type JsValue = u32;
     fn compute(&mut self) -> Result<Self::Output> {
-        let store = self
+        let guard = self
             .store
             .lock()
             .map_err(|_| Error::from_reason("poisoned"))?;
+        let store = guard
+            .as_ref()
+            .ok_or_else(|| Error::from_reason("store is closed"))?;
         let count = store.count_active_jobs().map_err(napi_error)?;
         Ok(u32::try_from(count).unwrap_or(u32::MAX))
     }
@@ -763,17 +807,20 @@ impl Task for CountActiveJobsTask {
 }
 
 pub struct CountDeadJobsTask {
-    store: Arc<Mutex<FjallEngine>>,
+    store: Arc<Mutex<Option<FjallEngine>>>,
 }
 #[napi]
 impl Task for CountDeadJobsTask {
     type Output = u32;
     type JsValue = u32;
     fn compute(&mut self) -> Result<Self::Output> {
-        let store = self
+        let guard = self
             .store
             .lock()
             .map_err(|_| Error::from_reason("poisoned"))?;
+        let store = guard
+            .as_ref()
+            .ok_or_else(|| Error::from_reason("store is closed"))?;
         let count = store.count_dead_jobs().map_err(napi_error)?;
         Ok(u32::try_from(count).unwrap_or(u32::MAX))
     }
@@ -783,17 +830,20 @@ impl Task for CountDeadJobsTask {
 }
 
 pub struct ListCollectionsTask {
-    store: Arc<Mutex<FjallEngine>>,
+    store: Arc<Mutex<Option<FjallEngine>>>,
 }
 #[napi]
 impl Task for ListCollectionsTask {
     type Output = String;
     type JsValue = String;
     fn compute(&mut self) -> Result<Self::Output> {
-        let store = self
+        let guard = self
             .store
             .lock()
             .map_err(|_| Error::from_reason("poisoned"))?;
+        let store = guard
+            .as_ref()
+            .ok_or_else(|| Error::from_reason("store is closed"))?;
         let collections = store.list_collections().map_err(napi_error)?;
         to_json(&collections)
     }
@@ -803,17 +853,20 @@ impl Task for ListCollectionsTask {
 }
 
 pub struct ListStreamsTask {
-    store: Arc<Mutex<FjallEngine>>,
+    store: Arc<Mutex<Option<FjallEngine>>>,
 }
 #[napi]
 impl Task for ListStreamsTask {
     type Output = String;
     type JsValue = String;
     fn compute(&mut self) -> Result<Self::Output> {
-        let store = self
+        let guard = self
             .store
             .lock()
             .map_err(|_| Error::from_reason("poisoned"))?;
+        let store = guard
+            .as_ref()
+            .ok_or_else(|| Error::from_reason("store is closed"))?;
         let streams = store.list_streams().map_err(napi_error)?;
         to_json(&streams)
     }
@@ -886,10 +939,12 @@ impl NativeThingStore {
 }
 
 impl NativeThingStore {
-    fn lock_store(&self) -> Result<MutexGuard<'_, FjallEngine>> {
-        self.store
+    fn lock_store(&self) -> Result<EngineGuard<'_>> {
+        let guard = self
+            .store
             .lock()
-            .map_err(|_| Error::from_reason("native memory store lock was poisoned"))
+            .map_err(|_| Error::from_reason("native memory store lock was poisoned"))?;
+        Ok(EngineGuard(guard))
     }
 }
 
@@ -997,17 +1052,20 @@ struct TimeSeriesBucketRecord {
 }
 
 pub struct CountLinksTask {
-    store: Arc<Mutex<FjallEngine>>,
+    store: Arc<Mutex<Option<FjallEngine>>>,
 }
 #[napi]
 impl Task for CountLinksTask {
     type Output = u32;
     type JsValue = u32;
     fn compute(&mut self) -> Result<Self::Output> {
-        let store = self
+        let guard = self
             .store
             .lock()
             .map_err(|_| Error::from_reason("poisoned"))?;
+        let store = guard
+            .as_ref()
+            .ok_or_else(|| Error::from_reason("store is closed"))?;
         let count = store.count_links().map_err(napi_error)?;
         Ok(u32::try_from(count).unwrap_or(u32::MAX))
     }
