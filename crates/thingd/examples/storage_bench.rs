@@ -1,8 +1,8 @@
 //! Local storage benchmark for thingd adapters.
 //!
 //! Usage:
-//!   cargo run --example storage_bench --release --features fjall,search [<iterations>]
-//!   THINGD_BENCH_ITERS=10000 cargo run --example storage_bench --release --features fjall,search
+//!   cargo run --example `storage_bench` --release --features fjall,search [<iterations>]
+//!   `THINGD_BENCH_ITERS=10000` cargo run --example `storage_bench` --release --features fjall,search
 
 #![allow(unused_crate_dependencies)]
 
