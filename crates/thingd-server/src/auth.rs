@@ -1,7 +1,7 @@
 use crate::error::AppError;
 use axum::{
     extract::{Request, State},
-    http::header::AUTHORIZATION,
+    http::{Method, header::AUTHORIZATION},
     middleware::Next,
     response::Response,
 };
@@ -32,7 +32,10 @@ pub async fn auth_middleware(
     req: Request,
     next: Next,
 ) -> Result<Response, AppError> {
-    if state.auth_token.is_empty() || skip_auth_for_path(req.uri().path()) {
+    if state.auth_token.is_empty()
+        || req.method() == Method::OPTIONS
+        || skip_auth_for_path(req.uri().path())
+    {
         return Ok(next.run(req).await);
     }
 

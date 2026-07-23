@@ -80,37 +80,6 @@ pub fn build_router(state: Arc<AppState>, config: &Config) -> Router {
         .route("/cluster/peers", get(crate::cluster::cluster_peers))
         .with_state(state);
 
-    // Configurable CORS — empty origins = permissive (backward compat)
-    if config.hardening.cors_allowed_origins.is_empty() {
-        tracing::warn!(
-            "CORS: permissive mode (all origins allowed). Set hardening.cors_allowed_origins for production."
-        );
-        router = router.layer(CorsLayer::permissive());
-    } else {
-        let origins: Vec<axum::http::HeaderValue> = config
-            .hardening
-            .cors_allowed_origins
-            .iter()
-            .filter_map(|o| o.parse().ok())
-            .collect();
-        let cors = CorsLayer::new()
-            .allow_origin(origins)
-            .allow_methods([
-                Method::GET,
-                Method::POST,
-                Method::PUT,
-                Method::DELETE,
-                Method::OPTIONS,
-            ])
-            .allow_headers([
-                header::AUTHORIZATION,
-                header::CONTENT_TYPE,
-                header::HeaderName::from_static("mcp-protocol-version"),
-            ])
-            .max_age(Duration::from_secs(config.hardening.cors_max_age_secs));
-        router = router.layer(cors);
-    }
-
     // Apply request timeout
     // Apply request timeout (ServiceBuilder composes HandleErrorLayer + TimeoutLayer
     // into a single layer so the error type is Infallible)
@@ -150,6 +119,37 @@ pub fn build_router(state: Arc<AppState>, config: &Config) -> Router {
         router = router.layer(axum::extract::DefaultBodyLimit::max(
             config.hardening.max_payload_bytes,
         ));
+    }
+
+    // CORS must be the outermost layer (applied last) so it runs before auth
+    if config.hardening.cors_allowed_origins.is_empty() {
+        tracing::warn!(
+            "CORS: permissive mode (all origins allowed). Set hardening.cors_allowed_origins for production."
+        );
+        router = router.layer(CorsLayer::permissive());
+    } else {
+        let origins: Vec<axum::http::HeaderValue> = config
+            .hardening
+            .cors_allowed_origins
+            .iter()
+            .filter_map(|o| o.parse().ok())
+            .collect();
+        let cors = CorsLayer::new()
+            .allow_origin(origins)
+            .allow_methods([
+                Method::GET,
+                Method::POST,
+                Method::PUT,
+                Method::DELETE,
+                Method::OPTIONS,
+            ])
+            .allow_headers([
+                header::AUTHORIZATION,
+                header::CONTENT_TYPE,
+                header::HeaderName::from_static("mcp-protocol-version"),
+            ])
+            .max_age(Duration::from_secs(config.hardening.cors_max_age_secs));
+        router = router.layer(cors);
     }
 
     router

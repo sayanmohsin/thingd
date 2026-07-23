@@ -303,7 +303,7 @@ fn default_election_failures() -> u32 {
     3
 }
 fn default_cors_origins() -> Vec<String> {
-    vec!["http://localhost:8757".to_string()]
+    vec![]
 }
 fn default_cors_max_age() -> u64 {
     86400
@@ -408,6 +408,13 @@ impl Config {
             && let Ok(n) = v.parse()
         {
             self.cluster.election_max_failures = n;
+        }
+        if let Ok(v) = std::env::var("THINGD_CORS_ORIGIN") {
+            self.hardening.cors_allowed_origins = v
+                .split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect();
         }
         if let Ok(v) = std::env::var("THINGD_NLQ_ENABLED") {
             self.nlq.enabled = v == "true";
