@@ -1,7 +1,7 @@
 use axum::{
     Json,
     extract::{Path, Query, State},
-    http::header,
+    http::{HeaderMap, header},
     response::IntoResponse,
 };
 use serde_json::{Value, json};
@@ -10,6 +10,15 @@ use thingd::*;
 
 use crate::error::AppError;
 use crate::server::AppState;
+
+fn get_engine<'a>(
+    state: &'a AppState,
+    headers: &'a HeaderMap,
+) -> Result<crate::engine::SharedEngine, AppError> {
+    let tenant_id = crate::auth::extract_tenant_id(headers, &state.tenant_config)?;
+    let db_path = state.tenant_config.resolve_db_path(tenant_id.as_deref());
+    Ok(state.pool.get_reader(&db_path))
+}
 
 fn ok<T: serde::Serialize>(data: T) -> Result<Json<Value>, AppError> {
     Ok(Json(json!({ "data": data })))
@@ -21,8 +30,14 @@ pub async fn health() -> Json<Value> {
     Json(json!({ "data": { "status": "ok" } }))
 }
 
-pub async fn metrics(State(state): State<Arc<AppState>>) -> impl IntoResponse {
-    let e = state.pool.get_reader("");
+pub async fn metrics(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+) -> axum::response::Response {
+    let e = match get_engine(&state, &headers) {
+        Ok(engine) => engine,
+        Err(e) => return e.into_response(),
+    };
     let g = e.lock();
     let objects = g.count_objects().unwrap_or(0);
     let events = g.count_events().unwrap_or(0);
@@ -58,65 +73,87 @@ pub async fn metrics(State(state): State<Arc<AppState>>) -> impl IntoResponse {
         dead_jobs = dead_jobs,
     );
 
-    ([(header::CONTENT_TYPE, "text/plain; charset=utf-8")], body)
+    ([(header::CONTENT_TYPE, "text/plain; charset=utf-8")], body).into_response()
 }
 
 // ─── Counts ─────────────────────────────────────────────────────
 
-pub async fn count_objects(State(state): State<Arc<AppState>>) -> Result<Json<Value>, AppError> {
-    let e = state.pool.get_reader("");
+pub async fn count_objects(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+) -> Result<Json<Value>, AppError> {
+    let e = get_engine(&state, &headers)?;
     let g = e.lock();
     ok(json!({ "count": g.count_objects().map_err(|e| AppError::internal(e.to_string()))? }))
 }
 
 pub async fn count_objects_in_collection(
     State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
     Path(collection): Path<String>,
 ) -> Result<Json<Value>, AppError> {
-    let e = state.pool.get_reader("");
+    let e = get_engine(&state, &headers)?;
     let g = e.lock();
     ok(
         json!({ "count": g.count_objects_in_collection(&collection).map_err(|e| AppError::internal(e.to_string()))? }),
     )
 }
 
-pub async fn count_events(State(state): State<Arc<AppState>>) -> Result<Json<Value>, AppError> {
-    let e = state.pool.get_reader("");
+pub async fn count_events(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+) -> Result<Json<Value>, AppError> {
+    let e = get_engine(&state, &headers)?;
     let g = e.lock();
     ok(json!({ "count": g.count_events().map_err(|e| AppError::internal(e.to_string()))? }))
 }
 
-pub async fn count_links(State(state): State<Arc<AppState>>) -> Result<Json<Value>, AppError> {
-    let e = state.pool.get_reader("");
+pub async fn count_links(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+) -> Result<Json<Value>, AppError> {
+    let e = get_engine(&state, &headers)?;
     let g = e.lock();
     ok(json!({ "count": g.count_links().map_err(|e| AppError::internal(e.to_string()))? }))
 }
 
 // ─── Listings ───────────────────────────────────────────────────
 
-pub async fn list_collections(State(state): State<Arc<AppState>>) -> Result<Json<Value>, AppError> {
-    let e = state.pool.get_reader("");
+pub async fn list_collections(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+) -> Result<Json<Value>, AppError> {
+    let e = get_engine(&state, &headers)?;
     let g = e.lock();
     ok(g.list_collections()
         .map_err(|e| AppError::internal(e.to_string()))?)
 }
 
-pub async fn list_streams(State(state): State<Arc<AppState>>) -> Result<Json<Value>, AppError> {
-    let e = state.pool.get_reader("");
+pub async fn list_streams(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+) -> Result<Json<Value>, AppError> {
+    let e = get_engine(&state, &headers)?;
     let g = e.lock();
     ok(g.list_streams()
         .map_err(|e| AppError::internal(e.to_string()))?)
 }
 
-pub async fn list_queues(State(state): State<Arc<AppState>>) -> Result<Json<Value>, AppError> {
-    let e = state.pool.get_reader("");
+pub async fn list_queues(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+) -> Result<Json<Value>, AppError> {
+    let e = get_engine(&state, &headers)?;
     let g = e.lock();
     ok(g.list_queues()
         .map_err(|e| AppError::internal(e.to_string()))?)
 }
 
-pub async fn list_indexes(State(state): State<Arc<AppState>>) -> Result<Json<Value>, AppError> {
-    let e = state.pool.get_writer("");
+pub async fn list_indexes(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+) -> Result<Json<Value>, AppError> {
+    let e = get_engine(&state, &headers)?;
     let g = e.lock();
     ok(g.list_indexes()
         .map_err(|e| AppError::internal(e.to_string()))?)
@@ -124,6 +161,7 @@ pub async fn list_indexes(State(state): State<Arc<AppState>>) -> Result<Json<Val
 
 pub async fn create_index(
     State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, AppError> {
     let collection = body["collection"]
@@ -132,7 +170,7 @@ pub async fn create_index(
     let field = body["field"]
         .as_str()
         .ok_or_else(|| AppError::bad_request("field is required"))?;
-    let e = state.pool.get_writer("");
+    let e = get_engine(&state, &headers)?;
     let mut g = e.lock();
     g.create_index(collection, field)
         .map_err(|e| AppError::internal(e.to_string()))?;
@@ -143,6 +181,7 @@ pub async fn create_index(
 
 pub async fn list_objects(
     State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
     Query(params): Query<Value>,
 ) -> Result<Json<Value>, AppError> {
     let collection = params["collection"]
@@ -174,7 +213,7 @@ pub async fn list_objects(
         offset: params.get("offset").and_then(|v| v.as_u64()),
     };
 
-    let e = state.pool.get_reader("");
+    let e = get_engine(&state, &headers)?;
     let g = e.lock();
     let objects = g
         .list_objects(Some(&[collection.to_string()]), &opts)
@@ -193,7 +232,7 @@ pub async fn put_object(
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, AppError> {
     let obj = MemoryObject::new(collection.clone(), id.clone(), body.to_string());
-    let e = state.pool.get_reader("");
+    let e = get_engine(&state, &headers)?;
     let mut g = e.lock();
     let expected_version = headers
         .get("if-match")
@@ -216,9 +255,10 @@ pub async fn put_object(
 
 pub async fn get_object(
     State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
     Path((collection, id)): Path<(String, String)>,
 ) -> Result<Json<Value>, AppError> {
-    let e = state.pool.get_reader("");
+    let e = get_engine(&state, &headers)?;
     let g = e.lock();
     match g
         .get_object(&collection, &id)
@@ -236,9 +276,10 @@ pub async fn get_object(
 
 pub async fn delete_object(
     State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
     Path((collection, id)): Path<(String, String)>,
 ) -> Result<Json<Value>, AppError> {
-    let e = state.pool.get_reader("");
+    let e = get_engine(&state, &headers)?;
     let mut g = e.lock();
     ok(
         json!({ "deleted": g.delete_object(&collection, &id).map_err(|e| AppError::internal(e.to_string()))? }),
@@ -247,6 +288,7 @@ pub async fn delete_object(
 
 pub async fn put_batch(
     State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
     Query(params): Query<Value>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, AppError> {
@@ -265,7 +307,7 @@ pub async fn put_batch(
             )
         })
         .collect();
-    let e = state.pool.get_reader("");
+    let e = get_engine(&state, &headers)?;
     let mut g = e.lock();
     ok(g.put_objects_batch(objects)
         .map_err(|e| AppError::internal(e.to_string()))?)
@@ -273,6 +315,7 @@ pub async fn put_batch(
 
 pub async fn get_batch(
     State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
     Query(params): Query<Value>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, AppError> {
@@ -294,7 +337,7 @@ pub async fn get_batch(
             })
         })
         .unwrap_or_default();
-    let e = state.pool.get_reader("");
+    let e = get_engine(&state, &headers)?;
     let g = e.lock();
     let results = g
         .get_objects_batch(collection, &ids)
@@ -321,6 +364,7 @@ pub async fn get_batch(
 
 pub async fn delete_batch(
     State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
     Query(params): Query<Value>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, AppError> {
@@ -346,7 +390,7 @@ pub async fn delete_batch(
         .into_iter()
         .map(|id| (collection.to_string(), id))
         .collect();
-    let e = state.pool.get_reader("");
+    let e = get_engine(&state, &headers)?;
     let mut g = e.lock();
     ok(
         json!({ "deleted": g.delete_objects_batch(&keys).map_err(|e| AppError::internal(e.to_string()))? }),
@@ -357,6 +401,7 @@ pub async fn delete_batch(
 
 pub async fn append_event(
     State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
     Path(stream): Path<String>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, AppError> {
@@ -372,7 +417,7 @@ pub async fn append_event(
     }
 
     let event = MemoryEvent::new(stream, et, body.to_string());
-    let e = state.pool.get_reader("");
+    let e = get_engine(&state, &headers)?;
     let mut g = e.lock();
     let r = g
         .append_event(event)
@@ -384,6 +429,7 @@ pub async fn append_event(
 
 pub async fn list_events(
     State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
     Query(params): Query<Value>,
 ) -> Result<Json<Value>, AppError> {
     let stream = params.get("stream").and_then(|v| v.as_str());
@@ -395,7 +441,7 @@ pub async fn list_events(
             .and_then(|v| v.as_str())
             .map(String::from),
     };
-    let e = state.pool.get_reader("");
+    let e = get_engine(&state, &headers)?;
     let g = e.lock();
     let events = g
         .list_events(stream, opts)
@@ -408,6 +454,7 @@ pub async fn list_events(
 
 pub async fn push_job(
     State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
     Path(queue): Path<String>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, AppError> {
@@ -422,7 +469,7 @@ pub async fn push_job(
         payload.to_string(),
         max_at,
     );
-    let e = state.pool.get_reader("");
+    let e = get_engine(&state, &headers)?;
     let mut g = e.lock();
     ok(g.push_job(job)
         .map_err(|e| AppError::internal(e.to_string()))?)
@@ -430,6 +477,7 @@ pub async fn push_job(
 
 pub async fn claim_job(
     State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
     Path(queue): Path<String>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, AppError> {
@@ -439,7 +487,7 @@ pub async fn claim_job(
             .and_then(|v| v.as_u64())
             .unwrap_or(30000),
     };
-    let e = state.pool.get_reader("");
+    let e = get_engine(&state, &headers)?;
     let mut g = e.lock();
     match g
         .claim_job_with_options(&queue, opts)
@@ -452,13 +500,14 @@ pub async fn claim_job(
 
 pub async fn ack_job(
     State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
     Path(queue): Path<String>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, AppError> {
     let job_id = body["jobId"]
         .as_str()
         .ok_or_else(|| AppError::bad_request("Missing jobId"))?;
-    let e = state.pool.get_reader("");
+    let e = get_engine(&state, &headers)?;
     let mut g = e.lock();
     match g
         .ack_job(&queue, job_id)
@@ -471,6 +520,7 @@ pub async fn ack_job(
 
 pub async fn nack_job(
     State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
     Path(queue): Path<String>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, AppError> {
@@ -485,7 +535,7 @@ pub async fn nack_job(
             .unwrap_or("")
             .to_string(),
     };
-    let e = state.pool.get_reader("");
+    let e = get_engine(&state, &headers)?;
     let mut g = e.lock();
     match g
         .nack_job_with_options(&queue, job_id, opts)
@@ -498,9 +548,10 @@ pub async fn nack_job(
 
 pub async fn list_jobs(
     State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
     Path(queue): Path<String>,
 ) -> Result<Json<Value>, AppError> {
-    let e = state.pool.get_reader("");
+    let e = get_engine(&state, &headers)?;
     let g = e.lock();
     ok(g.list_jobs(&queue)
         .map_err(|e| AppError::internal(e.to_string()))?)
@@ -508,9 +559,10 @@ pub async fn list_jobs(
 
 pub async fn list_dead_jobs(
     State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
     Path(queue): Path<String>,
 ) -> Result<Json<Value>, AppError> {
-    let e = state.pool.get_reader("");
+    let e = get_engine(&state, &headers)?;
     let g = e.lock();
     ok(g.list_dead_jobs(&queue)
         .map_err(|e| AppError::internal(e.to_string()))?)
@@ -520,6 +572,7 @@ pub async fn list_dead_jobs(
 
 pub async fn create_link(
     State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, AppError> {
     let from_ref = body["fromRef"]
@@ -538,7 +591,7 @@ pub async fn create_link(
     if let Some(m) = body.get("metadataJson").and_then(|v| v.as_str()) {
         link.metadata_json = m.to_string();
     }
-    let e = state.pool.get_reader("");
+    let e = get_engine(&state, &headers)?;
     let mut g = e.lock();
     ok(g.create_link(link)
         .map_err(|e| AppError::internal(e.to_string()))?)
@@ -546,6 +599,7 @@ pub async fn create_link(
 
 pub async fn get_links(
     State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
     Query(params): Query<Value>,
 ) -> Result<Json<Value>, AppError> {
     if let Some(reference) = params.get("reference").and_then(|v| v.as_str()) {
@@ -568,7 +622,7 @@ pub async fn get_links(
                 .and_then(|v| v.as_u64())
                 .map(|v| v as usize),
         };
-        let e = state.pool.get_reader("");
+        let e = get_engine(&state, &headers)?;
         let g = e.lock();
         return ok(g
             .get_neighbors(reference, dir, opts)
@@ -579,9 +633,10 @@ pub async fn get_links(
 
 pub async fn get_link_by_id(
     State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
     Path(id): Path<String>,
 ) -> Result<Json<Value>, AppError> {
-    let e = state.pool.get_reader("");
+    let e = get_engine(&state, &headers)?;
     let g = e.lock();
     match g
         .get_link(&id)
@@ -594,9 +649,10 @@ pub async fn get_link_by_id(
 
 pub async fn delete_link(
     State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
     Path(id): Path<String>,
 ) -> Result<Json<Value>, AppError> {
-    let e = state.pool.get_reader("");
+    let e = get_engine(&state, &headers)?;
     let mut g = e.lock();
     ok(json!({ "deleted": g.delete_link(&id).map_err(|e| AppError::internal(e.to_string()))? }))
 }
@@ -727,6 +783,7 @@ pub async fn ping_connector(
 
 pub async fn pull_data(
     State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
     Path(connector_type): Path<String>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, AppError> {
@@ -741,7 +798,7 @@ pub async fn pull_data(
     let mut imported = 0u64;
     let mut batch: Vec<MemoryObject> = Vec::new();
 
-    let e = state.pool.get_writer("");
+    let e = get_engine(&state, &headers)?;
     let mut g = e.lock();
 
     for row in stream {
@@ -777,6 +834,7 @@ pub async fn pull_data(
 
 pub async fn search(
     State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, AppError> {
     let query = body["query"]
@@ -794,7 +852,7 @@ pub async fn search(
             .map(|v| v as usize),
         filter: body.get("filter").cloned(),
     };
-    let e = state.pool.get_reader("");
+    let e = get_engine(&state, &headers)?;
     let g = e.lock();
     ok(g.search(query, opts)
         .map_err(|e| AppError::internal(e.to_string()))?)
@@ -803,6 +861,7 @@ pub async fn search(
 
 pub async fn vector_search(
     State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, AppError> {
     let collection = body["collection"]
@@ -823,7 +882,7 @@ pub async fn vector_search(
         filter: body.get("filter").cloned(),
     };
 
-    let e = state.pool.get_reader("");
+    let e = get_engine(&state, &headers)?;
     let g = e.lock();
     ok(g.vector_search(collection, &query_vector, opts)
         .map_err(|e| AppError::internal(e.to_string()))?)
@@ -833,6 +892,7 @@ pub async fn vector_search(
 
 pub async fn nlq_query(
     State(state): State<Arc<AppState>>,
+    _headers: HeaderMap,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, AppError> {
     if !state.nlq_config.enabled {
@@ -868,6 +928,7 @@ pub async fn nlq_query(
 
 pub async fn aggregate(
     State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, AppError> {
     let collection = body["collection"]
@@ -905,7 +966,7 @@ pub async fn aggregate(
         group_by,
     };
 
-    let e = state.pool.get_reader("");
+    let e = get_engine(&state, &headers)?;
     let g = e.lock();
     ok(g.aggregate(collection, &opts)
         .map_err(|e| AppError::internal(e.to_string()))?)
@@ -913,6 +974,7 @@ pub async fn aggregate(
 
 pub async fn timeseries(
     State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, AppError> {
     let collection = body["collection"]
@@ -959,7 +1021,7 @@ pub async fn timeseries(
         to,
     };
 
-    let e = state.pool.get_reader("");
+    let e = get_engine(&state, &headers)?;
     let g = e.lock();
     ok(g.timeseries(collection, &opts)
         .map_err(|e| AppError::internal(e.to_string()))?)
@@ -967,9 +1029,12 @@ pub async fn timeseries(
 
 // ─── Schema ────────────────────────────────────────────────────
 
-pub async fn list_schemas(State(state): State<Arc<AppState>>) -> Result<Json<Value>, AppError> {
+pub async fn list_schemas(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+) -> Result<Json<Value>, AppError> {
     use thingd::SchemaOptions;
-    let e = state.pool.get_reader("");
+    let e = get_engine(&state, &headers)?;
     let g = e.lock();
     let schemas = g
         .schema(None, &SchemaOptions::default())
@@ -979,10 +1044,11 @@ pub async fn list_schemas(State(state): State<Arc<AppState>>) -> Result<Json<Val
 
 pub async fn get_schema(
     State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
     Path(collection): Path<String>,
 ) -> Result<Json<Value>, AppError> {
     use thingd::SchemaOptions;
-    let e = state.pool.get_reader("");
+    let e = get_engine(&state, &headers)?;
     let g = e.lock();
     let schemas = g
         .schema(Some(&collection), &SchemaOptions::default())
