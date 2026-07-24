@@ -4,7 +4,7 @@
 
 **thingd** is a fast object-first data engine for applications and AI agents.
 It provides object storage, durable queues, event streams, full-text search,
-graph links, and 35 MCP tools — all in one binary. Runs embedded (Rust/Node),
+graph links, and 36 MCP tools — all in one binary. Runs embedded (Rust/Node),
 as a sidecar MCP server, in Docker, or in Kubernetes.
 
 **thingd Cloud** (at [thingd.cloud](https://thingd.cloud), private repo
@@ -63,7 +63,7 @@ packages/
 | CLI | `packages/thingd-cli/src/index.ts` |
 | Tests | `packages/thingd/test/`, `packages/thingd-cli/test/`, `crates/thingd/` |
 
-**Sidecar MCP** (32 tools) — `crates/thingd-server/src/mcp.rs` via a registry-based dispatch. The Node.js SDK MCP (`packages/thingd/src/mcp/tools.ts`) remains the primary reference and adds auth gating.
+**Sidecar MCP** (36 tools) — `crates/thingd-server/src/mcp.rs` via a registry-based dispatch. The Node.js SDK MCP (`packages/thingd/src/mcp/tools.ts`) remains the primary reference and adds auth gating.
 
 **Sidecar cluster** returns real config (mode, peers, discovery). Real cluster forwarding/leader election logic is in `packages/thingd-cli/src/mcp/cluster.ts`.
 
@@ -75,9 +75,9 @@ packages/
 pnpm build                    # build all packages (TypeScript + Rust native)
 pnpm check                    # biome lint
 pnpm check:write              # biome auto-fix
-pnpm test:node                # 69 Node SDK tests
+pnpm test:node                # 67 Node SDK tests
 pnpm test:cli                 # 44 CLI tests
-pnpm test:rust                # cargo test --workspace --all-features (220 tests — 38 fjall unit tests)
+pnpm test:rust                # cargo test --workspace --all-features (226 tests — 43 fjall unit tests*)
 pnpm test:local               # check → build → node+cli+package tests
 pnpm bench:rust               # full Rust benchmark (in-memory + fjall)
 pnpm bench:rust:smoke         # quick Rust benchmark (100 iters)

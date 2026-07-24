@@ -161,7 +161,7 @@ CLI commands: `thingd queues dead <queue>` lists dead jobs. To replay, delete an
 
 ### What MCP tools are exposed?
 
-35 tools — see the [API spec — MCP tools reference](api-spec/mcp-tools.md) for the full list with schemas.
+36 tools — see the [API spec — MCP tools reference](api-spec/mcp-tools.md) for the full list with schemas.
 
 ### Can agents bypass allowlists accidentally?
 
@@ -277,7 +277,7 @@ The SDK is designed to be driver-agnostic — the same `ThingD.open()` call work
 
 ### Is multi-tenancy supported?
 
-Not at the engine level. Each SQLite database is a single tenant. For multi-tenant deployments, run one sidecar per tenant or implement tenant isolation at the application layer.
+Yes, at the sidecar level. Set `THINGD_TENANT_MODE=multi-tenant` to enable per-tenant file isolation. Each HTTP request's `X-Tenant-Id` header routes to a separate Fjall database file at `{database_prefix}/{tenant_id}/thingd.db`. In single-tenant mode (default), behavior is unchanged — all data uses the default database path.
 
 ## Positioning
 

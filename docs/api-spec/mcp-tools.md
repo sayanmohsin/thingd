@@ -1,8 +1,8 @@
 # MCP Tools Reference
 
-thingd exposes 35 MCP tools for AI agents. All tools are available via the stdio MCP server or Streamable HTTP endpoint.
+thingd exposes 36 MCP tools for AI agents. All tools are available via the stdio MCP server or Streamable HTTP endpoint.
 
-**Tool count:** 35 (23 read-only, 12 write — 3 of which are destructive)
+**Tool count:** 36 (24 read-only, 12 write — 3 of which are destructive)
 
 ---
 
@@ -22,6 +22,25 @@ Full-text search across objects and events using Tantivy BM25 (pure Rust). `limi
 ```
 
 **Returns:** `MemorySearchResult[]` — each result has `kind` ("object" or "event"), `id`, `collection`/`stream`, `score`, and `value`.
+
+---
+
+### `thing_vector_search`
+
+Search objects by vector similarity (cosine similarity). Provide a query vector as an array of floats. Returns objects ranked by similarity score. Read-only.
+
+```json
+{
+  "collection": "docs",
+  "vector": [0.1, 0.2, 0.3, 0.4, 0.5],
+  "topK": 10,
+  "filter": { "tag": "important" }
+}
+```
+
+**Returns:** `VectorSearchHit[]` — each result has `id`, `score` (cosine similarity), and `value` (full `StoredMemoryObject`).
+
+Stores vectors alongside objects via the optional `vector` field on put. Vectors persist in Fjall (feature-gated behind `vectors` flag). Collections without vectors return empty results.
 
 ---
 
@@ -254,6 +273,28 @@ List dead-letter jobs in a queue.
 ### `thing_count_objects`
 
 Count all objects across all collections.
+
+```json
+{}
+```
+
+**Returns:** `number`
+
+---
+
+### `thing_count_objects_in_collection`
+
+Count objects in a specific collection.
+
+```json
+{ "collection": "users" }
+```
+
+**Returns:** `number`
+
+---
+
+### `thing_count_events`
 
 ```json
 {}
@@ -538,17 +579,6 @@ All write operations emit audit events to the `__thingd:mcp:audit` stream. Each 
 | `result` | `success` or `error` |
 
 The `__thingd:mcp:audit` stream is protected at the engine level — events cannot be deleted or modified. Direct writes to the audit stream from MCP tools or REST endpoints are rejected. Only the internal audit mechanism can append to this stream. Audit events can be queried via `thing_events_list` with `stream: "__thingd:mcp:audit"`.
-
-## Annotations
-
-All MCP tools include annotations in the `tools/list` response:
-
-| Annotation | Meaning |
-|------------|---------|
-| `readOnlyHint` | Tool does not modify state |
-| `destructiveHint` | Tool permanently removes data |
-| `idempotentHint` | Same call with same args produces same result |
-| `openWorldHint` | Tool may interact with the outside world |
 
 ## Validation Bounds
 

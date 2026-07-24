@@ -123,7 +123,7 @@ Future: an IndexedDB persist adapter for browser WASM, enabling cross-session du
 
 ## MCP server
 
-thingd ships **35 MCP tools** across objects, events, queues, search, graph links, aggregation, schema, and NLQ. Every tool goes through the same `ThingStore` trait — the backend choice is invisible to the agent.
+thingd ships **36 MCP tools** across objects, events, queues, search, graph links, aggregation, schema, and NLQ. Every tool goes through the same `ThingStore` trait — the backend choice is invisible to the agent.
 
 ```
 Object CRUD:    thing_get, thing_put, thing_delete, thing_objects_list

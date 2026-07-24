@@ -1,6 +1,8 @@
 # Search
 
-thingd uses Tantivy (pure Rust BM25) for full-text search across objects and events. Search is available via MCP (`thing_search`) and REST (`POST /v1/search`).
+thingd supports both full-text search and vector similarity search. Full-text uses Tantivy (pure Rust BM25); vector search uses cosine similarity. Each is available via MCP and REST.
+
+## Full-Text Search
 
 ## Query Syntax
 
@@ -191,3 +193,67 @@ curl -X POST http://localhost:8757/v1/search \
   -H "Content-Type: application/json" \
   -d '{"query": "alice", "collections": ["users"], "limit": 5}'
 ```
+
+## Vector Search
+
+Search objects by cosine similarity to a query vector. Vectors are stored alongside objects via the optional `vector` field on put (array of floats). Returns results ranked by similarity score (0.0 to 1.0).
+
+### MCP
+
+**Tool:** `thing_vector_search`
+
+**Input:**
+```json
+{
+  "collection": "docs",
+  "vector": [0.1, 0.2, 0.3, 0.4, 0.5],
+  "topK": 10,
+  "filter": { "tag": "important" }
+}
+```
+
+**Returns:** `VectorSearchHit[]`
+```json
+[
+  {
+    "id": "doc-001",
+    "score": 0.95,
+    "value": { /* StoredMemoryObject */ }
+  }
+]
+```
+
+### REST
+
+```
+POST /v1/search/vector
+```
+
+```json
+{
+  "collection": "docs",
+  "vector": [0.1, 0.2, 0.3, 0.4, 0.5],
+  "topK": 10,
+  "filter": { "tag": "important" }
+}
+```
+
+**Response:**
+```json
+{
+  "data": [
+    {
+      "id": "doc-001",
+      "score": 0.95,
+      "value": { "id": "doc-001", "collection": "docs", "body": { "text": "hello" }, "version": 1, "createdAt": "...", "updatedAt": "..." }
+    }
+  ]
+}
+```
+
+### Behavior
+
+- Collections without vectors return empty results (not an error)
+- Vector dimension must match existing vectors in the collection (validated at search time)
+- Results sorted by descending cosine similarity score
+- Metadata filter supports exact key-value matching on the object body

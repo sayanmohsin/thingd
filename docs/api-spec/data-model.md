@@ -14,6 +14,7 @@ An object stored in a collection. Objects have arbitrary JSON bodies with requir
 | `version` | number | auto | Monotonic version counter, starts at 1 |
 | `createdAt` | string (ISO 8601) | auto | Creation timestamp |
 | `updatedAt` | string (ISO 8601) | auto | Last update timestamp |
+| `vector` | number[] \| null | no | Optional vector embedding for similarity search (array of floats) |
 
 **Example:**
 ```json
@@ -455,3 +456,22 @@ Search results are a discriminated union — each result is either an object or 
   "value": { "id": "26", "type": "user.login", "..." }
 }
 ```
+
+### VectorSearchOptions
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `topK` | number | — | Maximum number of results to return |
+| `filter` | object | — | Metadata key-value pairs to match on the object body |
+
+### VectorSearchHit
+
+```json
+{
+  "id": "doc-001",
+  "score": 0.95,
+  "value": { /* StoredMemoryObject */ }
+}
+```
+
+Vector search returns objects ranked by cosine similarity score (0.0 to 1.0). The `value` field is the full `StoredMemoryObject` including its body and metadata.

@@ -29,14 +29,13 @@ See the [full feature status and roadmap](https://github.com/sayanmohsin/thingd-
 - **Node.js SDK** (`@thingd/sdk`) — three drivers: memory (default in-memory TS store), native (napi-rs Rust SQLite), cloud (remote HTTP REST)
 - **Browser/Edge client** (`@thingd/client`) — zero-dependency REST client for browsers, Cloudflare Workers, AWS Lambda, Bun, Deno
 - **CLI** (`@thingd/cli`) — TUI dashboard, 30+ subcommands (search, objects, events, queues, export/import/snapshot/backup, doctor, bench, db maintenance). Support for importing from Postgres/MySQL via sidecar REST.
-- **MCP server** — 35 tools, stdio + Streamable HTTP, audit events, collection allowlists, read-only mode (tool count defined in packages/thingd/src/constants.ts)
+- **MCP server** — 36 tools, stdio + Streamable HTTP, audit events, collection allowlists, read-only mode (tool count defined in packages/thingd/src/constants.ts)
 - **Docker** — multi-stage image, compose + K8s for leader/follower cluster
 - **CI/tooling** — semantic-release, biome, lefthook, doc tests, cargo audit, cargo deny, CodeQL
 
 ### What's next
 
-- Full-text search with BM25 ranking, stemming, and metadata filters
-- In-process vector search for semantic agent memory
+- In-process vector search with HNSW (Fjall) + cosine similarity (memory)
 - Browser and edge runtime via WASM compilation
 - Leader/follower clustering for high availability
 
@@ -435,7 +434,7 @@ const hits = await db.search("customers who upgraded after a failed deployment",
 
 ## MCP-native access
 
-thingd ships with 35 built-in MCP tools (search,
+thingd ships with 36 built-in MCP tools (search,
 objects, events, queues, links, aggregate, schema, NLQ, vector). Every primitive is accessible through stdio
 or Streamable HTTP — see the [MCP tools reference](docs/api-spec/mcp-tools.md)
 for all tools with schemas and examples.

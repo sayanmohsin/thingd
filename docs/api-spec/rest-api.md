@@ -414,6 +414,39 @@ Results are sorted by relevance score (descending). Each result is either an obj
 
 ---
 
+### `POST /v1/search/vector` — Vector similarity search
+
+**Body:**
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `collection` | yes | Collection name |
+| `vector` | yes | Query vector as array of floats |
+| `topK` | no | Max results |
+| `filter` | no | Metadata key-value pairs to match on the object body |
+
+```bash
+curl -X POST http://localhost:8757/v1/search/vector \
+  -H "Content-Type: application/json" \
+  -d '{"collection": "docs", "vector": [0.1, 0.2, 0.3]}'
+```
+
+```json
+{
+  "data": [
+    {
+      "id": "doc-001",
+      "score": 0.95,
+      "value": { "id": "doc-001", "collection": "docs", "body": {"text":"hello"}, "version": 1, "createdAt": "...", "updatedAt": "..." }
+    }
+  ]
+}
+```
+
+Results are sorted by cosine similarity (descending). Collections without vectors return empty results.
+
+---
+
 ## Events
 
 ### `POST /v1/events/:stream` — Append event
