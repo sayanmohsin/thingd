@@ -2,4 +2,4 @@
  * The published version of the thingd SDK.
  * Updated automatically by semantic-release during the publish process.
  */
-export const SDK_VERSION = "0.67.3";
+export const SDK_VERSION = "0.68.0";
