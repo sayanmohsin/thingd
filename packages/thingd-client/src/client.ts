@@ -166,6 +166,7 @@ export class ThingdClient {
     return this.request("POST", "/search", { query, ...options });
   }
 
+  /** Search objects by vector similarity (cosine similarity). */
   async vectorSearch(
     collection: string,
     queryVector: number[],
