@@ -180,7 +180,7 @@ jobs:
           fi
 
   docker:
-    name: Build and push Docker image
+    name: Build and push Docker image (multi-arch)
     needs: [check-release, build-native]
     if: ${{ needs.check-release.outputs.needed == 'true' }}
     runs-on: ubuntu-latest
@@ -192,15 +192,24 @@ jobs:
           ref: main
 
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-unknown-linux-gnu
 
-      - name: Install build dependencies
-        run: sudo apt-get update && sudo apt-get install -y cmake
+      - name: Install cross-compilation dependencies
+        run: sudo apt-get update && sudo apt-get install -y cmake gcc-aarch64-linux-gnu
 
-      - name: Build thingd-server binary
+      - name: Build thingd-server binary (amd64)
         run: |
-          cargo rustc -p thingd-server --release -- -C target-feature=+crt-static
+          cargo build -p thingd-server --release --target x86_64-unknown-linux-gnu
           mkdir -p docker-context
-          cp target/release/thingd-server docker-context/
+          cp target/x86_64-unknown-linux-gnu/release/thingd-server docker-context/thingd-server-amd64
+
+      - name: Build thingd-server binary (arm64)
+        env:
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
+        run: |
+          cargo build -p thingd-server --release --target aarch64-unknown-linux-gnu
+          cp target/aarch64-unknown-linux-gnu/release/thingd-server docker-context/thingd-server-arm64
 
       - name: Get next version
         id: version
@@ -220,12 +229,12 @@ jobs:
           username: sayanmohsin
           password: ${{ secrets.DOCKER_PASSWORD }}
 
-      - name: Build and push
+      - name: Build and push multi-arch image
         uses: docker/build-push-action@v7
         with:
           context: docker-context
           push: true
-          platforms: linux/amd64
+          platforms: linux/amd64,linux/arm64
           tags: |
             sayanmohsin/thingd:${{ steps.version.outputs.version }}
             sayanmohsin/thingd:latest

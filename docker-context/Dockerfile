@@ -1,9 +1,11 @@
 # thingd-server — static binary Docker image
 # Binary is prebuilt on the CI runner and copied into this directory.
+# TARGETARCH is set automatically by docker buildx --platform.
 
 FROM scratch
 
-COPY thingd-server /thingd-server
+ARG TARGETARCH
+COPY thingd-server-${TARGETARCH} /thingd-server
 COPY config.example.yaml /etc/thingd/config.yaml
 
 EXPOSE 8757
