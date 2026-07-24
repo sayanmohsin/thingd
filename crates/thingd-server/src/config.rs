@@ -202,7 +202,7 @@ impl TenantConfig {
                 } else {
                     String::new()
                 }
-            }
+            },
         }
     }
 }

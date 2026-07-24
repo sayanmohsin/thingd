@@ -12,7 +12,7 @@ use tower::timeout::TimeoutLayer;
 use tower_http::cors::CorsLayer;
 
 use crate::auth::auth_middleware;
-use crate::auth::extract_tenant_id;
+
 use crate::config::{ClusterConfig, Config, McpConfig, NlqConfig, TenantConfig};
 use crate::engine::EnginePool;
 use crate::rest;

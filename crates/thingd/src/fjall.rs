@@ -1795,15 +1795,15 @@ fn bucket_label_for_date(iso_date: &str, bucket: TimeBucket) -> String {
 #[allow(clippy::float_cmp, clippy::cast_precision_loss)]
 mod tests {
     use super::*;
-    use crate::store::{AggregateStore, EventLog, LinkStore, ObjectStore, QueueStore, Searcher};
+    #[cfg(feature = "vectors")]
+    use crate::VectorSearchOptions;
     #[cfg(feature = "vectors")]
     use crate::store::VectorStore;
+    use crate::store::{AggregateStore, EventLog, LinkStore, ObjectStore, QueueStore, Searcher};
     use crate::{
         Link, ListObjectsOptions, MemoryEvent, MemoryObject, QueueClaimOptions, QueueJob,
         QueueJobStatus, QueueNackOptions, SearchOptions, TimeBucket,
     };
-    #[cfg(feature = "vectors")]
-    use crate::VectorSearchOptions;
 
     /// Create a test engine with a temp directory that stays alive for the caller.
     fn setup() -> (FjallEngine, tempfile::TempDir) {

@@ -980,6 +980,7 @@ mod tests {
         let config = Config::default();
         let state = Arc::new(AppState {
             pool: Arc::new(EnginePool::new(":memory:".to_string())),
+            tenant_config: config.tenant.clone(),
             mcp_config: config.mcp.clone(),
             auth_token: config.auth.token.clone(),
             allow_unauthenticated: config.auth.allow_unauthenticated,

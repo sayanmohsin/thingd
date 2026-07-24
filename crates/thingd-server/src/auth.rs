@@ -58,7 +58,10 @@ pub async fn auth_middleware(
     Ok(next.run(req).await)
 }
 
-pub fn extract_tenant_id(headers: &HeaderMap, config: &TenantConfig) -> Result<Option<String>, AppError> {
+pub fn extract_tenant_id(
+    headers: &HeaderMap,
+    config: &TenantConfig,
+) -> Result<Option<String>, AppError> {
     if config.mode != crate::config::TenantMode::MultiTenant {
         return Ok(None);
     }
@@ -72,14 +75,23 @@ pub fn extract_tenant_id(headers: &HeaderMap, config: &TenantConfig) -> Result<O
         Some(tid) if tid.is_empty() => Err(AppError::bad_request("X-Tenant-Id header is empty")),
         Some(tid) => {
             if tid.contains("..") || tid.contains('/') {
-                return Err(AppError::bad_request("Invalid tenant ID: path traversal rejected"));
+                return Err(AppError::bad_request(
+                    "Invalid tenant ID: path traversal rejected",
+                ));
             }
-            if !tid.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_') {
-                return Err(AppError::bad_request("Invalid tenant ID format: only alphanumeric, hyphens, and underscores allowed"));
+            if !tid
+                .chars()
+                .all(|c| c.is_alphanumeric() || c == '-' || c == '_')
+            {
+                return Err(AppError::bad_request(
+                    "Invalid tenant ID format: only alphanumeric, hyphens, and underscores allowed",
+                ));
             }
             Ok(Some(tid))
-        }
-        None => Err(AppError::bad_request("X-Tenant-Id header is required in multi-tenant mode")),
+        },
+        None => Err(AppError::bad_request(
+            "X-Tenant-Id header is required in multi-tenant mode",
+        )),
     }
 }
 

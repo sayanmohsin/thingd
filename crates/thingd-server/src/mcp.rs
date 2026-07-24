@@ -145,7 +145,8 @@ fn handle_thing_search(
     state: &AppState,
     _tool_name: &str,
     args: &Value,
-    db_path: &str) -> Result<Value, AppError> {
+    db_path: &str,
+) -> Result<Value, AppError> {
     // Allowlist check for thing_search's collections array
     if !state.mcp_config.collection_allowlist.is_empty()
         && let Some(collections) = args.get("collections").and_then(|v| v.as_array())
@@ -182,8 +183,12 @@ fn handle_thing_search(
     )
 }
 
-fn handle_thing_get(_state: &AppState, _tool_name: &str, args: &Value,
-    db_path: &str) -> Result<Value, AppError> {
+fn handle_thing_get(
+    _state: &AppState,
+    _tool_name: &str,
+    args: &Value,
+    db_path: &str,
+) -> Result<Value, AppError> {
     let e = _state.pool.get_reader(db_path);
     let g = e.lock();
     let collection = arg_str(args, "collection");
@@ -201,8 +206,12 @@ fn handle_thing_get(_state: &AppState, _tool_name: &str, args: &Value,
     }
 }
 
-fn handle_thing_put(_state: &AppState, _tool_name: &str, args: &Value,
-    db_path: &str) -> Result<Value, AppError> {
+fn handle_thing_put(
+    _state: &AppState,
+    _tool_name: &str,
+    args: &Value,
+    db_path: &str,
+) -> Result<Value, AppError> {
     let e = _state.pool.get_writer(db_path);
     let mut g = e.lock();
     let collection = arg_str(args, "collection");
@@ -229,7 +238,8 @@ fn handle_thing_delete(
     _state: &AppState,
     _tool_name: &str,
     args: &Value,
-    db_path: &str) -> Result<Value, AppError> {
+    db_path: &str,
+) -> Result<Value, AppError> {
     let e = _state.pool.get_reader(db_path);
     let mut g = e.lock();
     let collection = arg_str(args, "collection");
@@ -243,7 +253,8 @@ fn handle_thing_objects_list(
     _state: &AppState,
     _tool_name: &str,
     args: &Value,
-    db_path: &str) -> Result<Value, AppError> {
+    db_path: &str,
+) -> Result<Value, AppError> {
     let e = _state.pool.get_reader(db_path);
     let g = e.lock();
     let collection = arg_str(args, "collection");
@@ -281,7 +292,8 @@ fn handle_thing_objects_put_batch(
     _state: &AppState,
     _tool_name: &str,
     args: &Value,
-    db_path: &str) -> Result<Value, AppError> {
+    db_path: &str,
+) -> Result<Value, AppError> {
     let e = _state.pool.get_reader(db_path);
     let mut g = e.lock();
     let collection = arg_str(args, "collection");
@@ -313,7 +325,8 @@ fn handle_thing_objects_delete_batch(
     _state: &AppState,
     _tool_name: &str,
     args: &Value,
-    db_path: &str) -> Result<Value, AppError> {
+    db_path: &str,
+) -> Result<Value, AppError> {
     let e = _state.pool.get_reader(db_path);
     let mut g = e.lock();
     let collection = arg_str(args, "collection");
@@ -340,7 +353,8 @@ fn handle_thing_objects_get_batch(
     _state: &AppState,
     _tool_name: &str,
     args: &Value,
-    db_path: &str) -> Result<Value, AppError> {
+    db_path: &str,
+) -> Result<Value, AppError> {
     let e = _state.pool.get_reader(db_path);
     let g = e.lock();
     let collection = arg_str(args, "collection");
@@ -370,7 +384,8 @@ fn handle_thing_events_append(
     _state: &AppState,
     _tool_name: &str,
     args: &Value,
-    db_path: &str) -> Result<Value, AppError> {
+    db_path: &str,
+) -> Result<Value, AppError> {
     let e = _state.pool.get_reader(db_path);
     let mut g = e.lock();
     let stream = arg_str(args, "stream");
@@ -406,7 +421,8 @@ fn handle_thing_events_list(
     _state: &AppState,
     _tool_name: &str,
     args: &Value,
-    db_path: &str) -> Result<Value, AppError> {
+    db_path: &str,
+) -> Result<Value, AppError> {
     let e = _state.pool.get_reader(db_path);
     let g = e.lock();
     let stream = arg_str(args, "stream");
@@ -432,7 +448,8 @@ fn handle_thing_queue_push(
     _state: &AppState,
     _tool_name: &str,
     args: &Value,
-    db_path: &str) -> Result<Value, AppError> {
+    db_path: &str,
+) -> Result<Value, AppError> {
     let e = _state.pool.get_reader(db_path);
     let mut g = e.lock();
     let queue = arg_str(args, "queue");
@@ -468,7 +485,8 @@ fn handle_thing_queue_claim(
     _state: &AppState,
     _tool_name: &str,
     args: &Value,
-    db_path: &str) -> Result<Value, AppError> {
+    db_path: &str,
+) -> Result<Value, AppError> {
     let e = _state.pool.get_reader(db_path);
     let mut g = e.lock();
     let queue = arg_str(args, "queue");
@@ -494,7 +512,8 @@ fn handle_thing_queue_ack(
     _state: &AppState,
     _tool_name: &str,
     args: &Value,
-    db_path: &str) -> Result<Value, AppError> {
+    db_path: &str,
+) -> Result<Value, AppError> {
     let e = _state.pool.get_reader(db_path);
     let mut g = e.lock();
     let queue = arg_str(args, "queue");
@@ -516,7 +535,8 @@ fn handle_thing_queue_nack(
     _state: &AppState,
     _tool_name: &str,
     args: &Value,
-    db_path: &str) -> Result<Value, AppError> {
+    db_path: &str,
+) -> Result<Value, AppError> {
     let e = _state.pool.get_reader(db_path);
     let mut g = e.lock();
     let queue = arg_str(args, "queue");
@@ -542,7 +562,8 @@ fn handle_thing_queue_list(
     _state: &AppState,
     _tool_name: &str,
     args: &Value,
-    db_path: &str) -> Result<Value, AppError> {
+    db_path: &str,
+) -> Result<Value, AppError> {
     let e = _state.pool.get_reader(db_path);
     let g = e.lock();
     let queue = arg_str(args, "queue");
@@ -556,7 +577,8 @@ fn handle_thing_queue_dead(
     _state: &AppState,
     _tool_name: &str,
     args: &Value,
-    db_path: &str) -> Result<Value, AppError> {
+    db_path: &str,
+) -> Result<Value, AppError> {
     let e = _state.pool.get_reader(db_path);
     let g = e.lock();
     let queue = arg_str(args, "queue");
@@ -572,7 +594,8 @@ fn handle_thing_count_objects(
     _state: &AppState,
     _tool_name: &str,
     _args: &Value,
-    db_path: &str) -> Result<Value, AppError> {
+    db_path: &str,
+) -> Result<Value, AppError> {
     let e = _state.pool.get_reader(db_path);
     let g = e.lock();
     let count = g.count_objects()?;
@@ -583,7 +606,8 @@ fn handle_thing_count_objects_in_collection(
     state: &AppState,
     _tool_name: &str,
     args: &Value,
-    db_path: &str) -> Result<Value, AppError> {
+    db_path: &str,
+) -> Result<Value, AppError> {
     let collection = args["collection"]
         .as_str()
         .ok_or_else(|| AppError::bad_request("collection is required"))?;
@@ -597,7 +621,8 @@ fn handle_thing_count_events(
     _state: &AppState,
     _tool_name: &str,
     _args: &Value,
-    db_path: &str) -> Result<Value, AppError> {
+    db_path: &str,
+) -> Result<Value, AppError> {
     let e = _state.pool.get_reader(db_path);
     let g = e.lock();
     let count = g.count_events()?;
@@ -608,7 +633,8 @@ fn handle_thing_count_active_jobs(
     _state: &AppState,
     _tool_name: &str,
     _args: &Value,
-    db_path: &str) -> Result<Value, AppError> {
+    db_path: &str,
+) -> Result<Value, AppError> {
     let e = _state.pool.get_reader(db_path);
     let g = e.lock();
     let queues = g.list_queues()?;
@@ -624,7 +650,8 @@ fn handle_thing_count_dead_jobs(
     _state: &AppState,
     _tool_name: &str,
     _args: &Value,
-    db_path: &str) -> Result<Value, AppError> {
+    db_path: &str,
+) -> Result<Value, AppError> {
     let e = _state.pool.get_reader(db_path);
     let g = e.lock();
     let queues = g.list_queues()?;
@@ -642,7 +669,8 @@ fn handle_thing_list_collections(
     _state: &AppState,
     _tool_name: &str,
     _args: &Value,
-    db_path: &str) -> Result<Value, AppError> {
+    db_path: &str,
+) -> Result<Value, AppError> {
     let e = _state.pool.get_reader(db_path);
     let g = e.lock();
     let collections = g.list_collections()?;
@@ -655,7 +683,8 @@ fn handle_thing_list_streams(
     _state: &AppState,
     _tool_name: &str,
     _args: &Value,
-    db_path: &str) -> Result<Value, AppError> {
+    db_path: &str,
+) -> Result<Value, AppError> {
     let e = _state.pool.get_reader(db_path);
     let g = e.lock();
     let streams = g.list_streams()?;
@@ -668,7 +697,8 @@ fn handle_thing_list_queues(
     _state: &AppState,
     _tool_name: &str,
     _args: &Value,
-    db_path: &str) -> Result<Value, AppError> {
+    db_path: &str,
+) -> Result<Value, AppError> {
     let e = _state.pool.get_reader(db_path);
     let g = e.lock();
     let queues = g.list_queues()?;
@@ -681,7 +711,8 @@ fn handle_thing_create_index(
     state: &AppState,
     _tool_name: &str,
     args: &Value,
-    db_path: &str) -> Result<Value, AppError> {
+    db_path: &str,
+) -> Result<Value, AppError> {
     let collection = args["collection"]
         .as_str()
         .ok_or_else(|| AppError::bad_request("collection is required"))?;
@@ -698,7 +729,8 @@ fn handle_thing_list_indexes(
     state: &AppState,
     _tool_name: &str,
     _args: &Value,
-    db_path: &str) -> Result<Value, AppError> {
+    db_path: &str,
+) -> Result<Value, AppError> {
     let e = state.pool.get_writer(db_path);
     let g = e.lock();
     let indexes = g.list_indexes()?;
@@ -713,7 +745,8 @@ fn handle_thing_link_create(
     _state: &AppState,
     _tool_name: &str,
     args: &Value,
-    db_path: &str) -> Result<Value, AppError> {
+    db_path: &str,
+) -> Result<Value, AppError> {
     let e = _state.pool.get_reader(db_path);
     let mut g = e.lock();
     let from_ref = arg_str(args, "fromRef");
@@ -735,7 +768,8 @@ fn handle_thing_link_get(
     _state: &AppState,
     _tool_name: &str,
     args: &Value,
-    db_path: &str) -> Result<Value, AppError> {
+    db_path: &str,
+) -> Result<Value, AppError> {
     let e = _state.pool.get_reader(db_path);
     let g = e.lock();
     let id = arg_str(args, "id");
@@ -753,7 +787,8 @@ fn handle_thing_link_delete(
     _state: &AppState,
     _tool_name: &str,
     args: &Value,
-    db_path: &str) -> Result<Value, AppError> {
+    db_path: &str,
+) -> Result<Value, AppError> {
     let e = _state.pool.get_reader(db_path);
     let mut g = e.lock();
     let id = arg_str(args, "id");
@@ -766,7 +801,8 @@ fn handle_thing_link_neighbors(
     _state: &AppState,
     _tool_name: &str,
     args: &Value,
-    db_path: &str) -> Result<Value, AppError> {
+    db_path: &str,
+) -> Result<Value, AppError> {
     let e = _state.pool.get_reader(db_path);
     let g = e.lock();
     let reference = arg_str(args, "reference");
@@ -796,7 +832,8 @@ fn handle_thing_link_count(
     _state: &AppState,
     _tool_name: &str,
     _args: &Value,
-    db_path: &str) -> Result<Value, AppError> {
+    db_path: &str,
+) -> Result<Value, AppError> {
     let e = _state.pool.get_reader(db_path);
     let g = e.lock();
     let count = g.count_links()?;
@@ -807,7 +844,8 @@ fn handle_thing_schema(
     _state: &AppState,
     _tool_name: &str,
     args: &Value,
-    db_path: &str) -> Result<Value, AppError> {
+    db_path: &str,
+) -> Result<Value, AppError> {
     let e = _state.pool.get_reader(db_path);
     let g = e.lock();
     let collection = args.get("collection").and_then(|v| v.as_str());
@@ -819,8 +857,12 @@ fn handle_thing_schema(
     )
 }
 
-fn handle_thing_nlq(_state: &AppState, _tool_name: &str, args: &Value,
-    db_path: &str) -> Result<Value, AppError> {
+fn handle_thing_nlq(
+    _state: &AppState,
+    _tool_name: &str,
+    args: &Value,
+    _db_path: &str,
+) -> Result<Value, AppError> {
     if !_state.nlq_config.enabled {
         return Ok(json!({
             "content": [{ "type": "text", "text": "NLQ is not enabled. Set --nlq-model to enable." }],
@@ -861,7 +903,8 @@ fn handle_thing_aggregate(
     _state: &AppState,
     _tool_name: &str,
     args: &Value,
-    db_path: &str) -> Result<Value, AppError> {
+    db_path: &str,
+) -> Result<Value, AppError> {
     let e = _state.pool.get_reader(db_path);
     let g = e.lock();
     let collection = arg_str(args, "collection");
@@ -905,7 +948,8 @@ fn handle_thing_timeseries(
     _state: &AppState,
     _tool_name: &str,
     args: &Value,
-    db_path: &str) -> Result<Value, AppError> {
+    db_path: &str,
+) -> Result<Value, AppError> {
     let e = _state.pool.get_reader(db_path);
     let g = e.lock();
     let collection = arg_str(args, "collection");
@@ -1432,6 +1476,7 @@ mod tests {
         let config = Config::default();
         Arc::new(AppState {
             pool: Arc::new(EnginePool::new(":memory:".to_string())),
+            tenant_config: config.tenant,
             mcp_config: config.mcp,
             auth_token: config.auth.token,
             allow_unauthenticated: config.auth.allow_unauthenticated,
