@@ -799,6 +799,36 @@ pub async fn search(
     ok(g.search(query, opts)
         .map_err(|e| AppError::internal(e.to_string()))?)
 }
+// ─── Vector Search ─────────────────────────────────────────────
+
+pub async fn vector_search(
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, AppError> {
+    let collection = body["collection"]
+        .as_str()
+        .ok_or_else(|| AppError::bad_request("Missing 'collection'"))?;
+    let query_vector: Vec<f32> = body["vector"]
+        .as_array()
+        .ok_or_else(|| AppError::bad_request("Missing or invalid 'vector'"))?
+        .iter()
+        .filter_map(|v| v.as_f64().map(|f| f as f32))
+        .collect();
+
+    let opts = VectorSearchOptions {
+        top_k: body
+            .get("topK")
+            .and_then(|v| v.as_u64())
+            .map(|v| v as usize),
+        filter: body.get("filter").cloned(),
+    };
+
+    let e = state.pool.get_reader("");
+    let g = e.lock();
+    ok(g.vector_search(collection, &query_vector, opts)
+        .map_err(|e| AppError::internal(e.to_string()))?)
+}
+
 // ─── NLQ ───────────────────────────────────────────────────────
 
 pub async fn nlq_query(

@@ -266,6 +266,25 @@ export async function handleRestRequest(
       return;
     }
 
+    // ─── Vector Search ──────────────────────────────────────────
+    if (pathname === "/v1/search/vector" && method === "POST") {
+      const body = JSON.parse(await readBody(req));
+      if (!body.collection) {
+        sendError(res, 400, "bad_request", "Field 'collection' is required");
+        return;
+      }
+      if (!body.vector || !Array.isArray(body.vector)) {
+        sendError(res, 400, "bad_request", "Field 'vector' must be an array of numbers");
+        return;
+      }
+      const results = await db.vectorSearch(body.collection, body.vector, {
+        topK: body.topK,
+        filter: body.filter,
+      });
+      sendData(res, results);
+      return;
+    }
+
     // ─── Aggregate ──────────────────────────────────────────────
     if (pathname === "/v1/aggregate" && method === "POST") {
       const body = JSON.parse(await readBody(req));

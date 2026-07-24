@@ -966,6 +966,31 @@ export function registerThingdTools(
   );
 
   server.registerTool(
+    "thing_vector_search",
+    {
+      title: "Vector Search",
+      description:
+        "Search objects by vector similarity (cosine similarity). Provide a query vector as an array of floats (e.g. [0.1, 0.2, 0.3]) and optionally set topK and a metadata filter. Returns matching objects ranked by similarity score.",
+      inputSchema: {
+        collection: z.string().min(1),
+        vector: z.array(z.number()),
+        topK: z.number().int().positive().optional(),
+        filter: z.record(z.string(), z.unknown()).optional(),
+      },
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async ({ collection, vector, topK, filter }) => {
+      assertCollectionAllowed(collection);
+      return jsonResult(await db.vectorSearch(collection, vector, { topK, filter }));
+    }
+  );
+
+  server.registerTool(
     "thing_schema",
     {
       title: "Reflect Schema",

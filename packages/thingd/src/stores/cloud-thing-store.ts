@@ -19,6 +19,8 @@ import type {
   StoredMemoryObject,
   ThingDeleteResult,
   ThingStore,
+  VectorSearchHit,
+  VectorSearchOptions,
 } from "../types.js";
 import { SDK_VERSION } from "../version.js";
 
@@ -211,6 +213,19 @@ export class CloudThingStore implements ThingStore {
       query,
       collections: options.collections,
       limit: options.limit,
+      filter: options.filter,
+    });
+  }
+
+  vectorSearch(
+    collection: string,
+    queryVector: number[],
+    options: VectorSearchOptions = {}
+  ): Promise<VectorSearchHit[]> {
+    return this.callTool("thing_vector_search", {
+      collection,
+      vector: queryVector,
+      topK: options.topK,
       filter: options.filter,
     });
   }

@@ -996,6 +996,40 @@ fn handle_thing_timeseries(
     )
 }
 
+// ─── Vector Search ─────────────────────────────────────────────
+
+fn handle_thing_vector_search(
+    _state: &AppState,
+    _tool_name: &str,
+    args: &Value,
+    db_path: &str,
+) -> Result<Value, AppError> {
+    let e = _state.pool.get_reader(db_path);
+    let g = e.lock();
+    let collection = arg_str(args, "collection");
+
+    let query_vector: Vec<f32> = args
+        .get("vector")
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_f64().map(|f| f as f32))
+                .collect()
+        })
+        .ok_or_else(|| {
+            AppError::bad_request("Missing or invalid 'vector' (expected array of numbers)")
+        })?;
+
+    let top_k = arg_usize(args, "topK");
+    let filter = args.get("filter").cloned();
+
+    let opts = thingd::VectorSearchOptions { top_k, filter };
+    let hits = g.vector_search(&collection, &query_vector, opts)?;
+    Ok(
+        json!({ "content": [{ "type": "text", "text": serde_json::to_string(&hits).unwrap_or_default() }] }),
+    )
+}
+
 type ToolHandler = fn(&AppState, &str, &Value, &str) -> Result<Value, AppError>;
 
 struct ToolEntry {
@@ -1374,6 +1408,17 @@ static ALL_TOOLS: LazyLock<Vec<ToolEntry>> = LazyLock::new(|| {
             destructive: false,
             needs_collection: true,
         },
+        // Vector search tool (1)
+        ToolEntry {
+            name: "thing_vector_search",
+            description: "Search objects by vector similarity (cosine similarity)",
+            properties: json!({ "collection": str_prop("Collection name"), "vector": arr_prop("Query vector as array of floats (e.g. [0.1, 0.2, 0.3])"), "topK": int_prop("Max results"), "filter": obj_prop("Metadata filter") }),
+            required: &["collection", "vector"],
+            handler: handle_thing_vector_search,
+            is_write: false,
+            destructive: false,
+            needs_collection: true,
+        },
     ]
 });
 
@@ -1529,8 +1574,8 @@ mod tests {
         let tools = result["result"]["tools"].as_array().unwrap();
         assert_eq!(
             tools.len(),
-            35,
-            "expected 35 MCP tools, got {}",
+            36,
+            "expected 36 MCP tools, got {}",
             tools.len()
         );
         let names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
@@ -1570,6 +1615,7 @@ mod tests {
             "thing_nlq",
             "thing_aggregate",
             "thing_timeseries",
+            "thing_vector_search",
         ] {
             assert!(names.contains(expected), "missing tool: {expected}");
         }

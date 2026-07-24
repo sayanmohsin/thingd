@@ -120,6 +120,17 @@ export type MemorySearchResult = {
   value: Record<string, unknown>;
 };
 
+export type VectorSearchOptions = {
+  topK?: number;
+  filter?: Record<string, unknown>;
+};
+
+export type VectorSearchHit = {
+  id: string;
+  score: number;
+  value: Record<string, unknown>;
+};
+
 // ── Links ────────────────────────────────────────────
 
 export type LinkDirection = "Outgoing" | "Incoming" | "Both";

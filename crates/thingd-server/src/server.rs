@@ -50,6 +50,7 @@ pub fn build_router(state: Arc<AppState>, config: &Config) -> Router {
         .route("/v1/objects/{collection}/{id}", put(rest::put_object).get(rest::get_object).delete(rest::delete_object))
         // Search
         .route("/v1/search", post(rest::search))
+        .route("/v1/search/vector", post(rest::vector_search))
         // Aggregate
         .route("/v1/aggregate", post(rest::aggregate))
         .route("/v1/aggregate/timeseries", post(rest::timeseries))

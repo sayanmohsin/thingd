@@ -23,6 +23,8 @@ import type {
   ThingStore,
   TimeSeriesOptions,
   TimeSeriesResult,
+  VectorSearchHit,
+  VectorSearchOptions,
 } from "../types.js";
 
 const DEFAULT_LEASE_MS = 30_000;
@@ -393,6 +395,47 @@ export class InMemoryThingStore implements ThingStore {
     }
 
     return options.limit !== undefined ? results.slice(0, options.limit) : results;
+  }
+
+  async vectorSearch(
+    collection: string,
+    queryVector: number[],
+    options: VectorSearchOptions = {}
+  ): Promise<VectorSearchHit[]> {
+    const records = this.collections.get(collection);
+    if (!records) {
+      return [];
+    }
+
+    const filter = options.filter;
+    const hits: VectorSearchHit[] = [];
+
+    for (const record of records.values()) {
+      if (filter && !this.matchesFilter(filter, record)) {
+        continue;
+      }
+
+      const recordVector = (record as Record<string, unknown>).vector;
+      if (!Array.isArray(recordVector)) {
+        continue;
+      }
+
+      const vec = recordVector as number[];
+      if (vec.length !== queryVector.length) {
+        continue;
+      }
+
+      const score = cosineSimilarity(queryVector, vec);
+      hits.push({ id: record.id, score, value: record });
+    }
+
+    hits.sort((a, b) => b.score - a.score);
+
+    if (options.topK !== undefined) {
+      return hits.slice(0, options.topK);
+    }
+
+    return hits;
   }
 
   private matchesFilter(filter: Record<string, unknown>, obj: Record<string, unknown>): boolean {
@@ -835,4 +878,26 @@ export class InMemoryThingStore implements ThingStore {
       },
     };
   }
+}
+
+function cosineSimilarity(a: number[], b: number[]): number {
+  if (a.length !== b.length || a.length === 0) {
+    return 0;
+  }
+  let dot = 0;
+  let normA = 0;
+  let normB = 0;
+  for (const [i, ai] of a.entries()) {
+    const bi = b[i];
+    if (bi === undefined) {
+      break;
+    }
+    dot += ai * bi;
+    normA += ai * ai;
+    normB += bi * bi;
+  }
+  if (normA === 0 || normB === 0) {
+    return 0;
+  }
+  return dot / (Math.sqrt(normA) * Math.sqrt(normB));
 }

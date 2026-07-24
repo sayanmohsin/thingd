@@ -24,6 +24,8 @@ import type {
   ThingStore,
   TimeSeriesOptions,
   TimeSeriesResult,
+  VectorSearchHit,
+  VectorSearchOptions,
 } from "../types.js";
 
 type NativeThingStoreBinding = {
@@ -99,6 +101,12 @@ type NativeThingStoreBinding = {
   schemaJson(collection?: string, sampleSize?: number): string;
   createIndexJson(collection: string, field: string): void;
   listIndexesJson(): string;
+  vectorSearchJson(
+    collection: string,
+    queryVectorJson: string,
+    topK?: number,
+    filterJson?: string
+  ): string;
 };
 
 type NativeThingStoreConstructor = {
@@ -163,6 +171,21 @@ type NativeQueueJobResult =
       ok: false;
       reason: "not_found" | "not_leased" | "terminal";
     };
+
+type NativeVectorValue = {
+  key: { collection: string; id: string };
+  body: string;
+  version: number;
+  createdAt: string;
+  updatedAt: string;
+  vector?: number[];
+};
+
+type NativeVectorSearchHit = {
+  id: string;
+  score: number;
+  value: NativeVectorValue;
+};
 
 type NativeSearchHit = {
   kind: "object" | "event";
@@ -333,6 +356,39 @@ export class NativeThingStore implements ThingStore {
     return parseJson<NativeQueueJobRecord[]>(this.binding.listDeadJobsJson(queue)).map(
       jobFromNative
     );
+  }
+
+  async vectorSearch(
+    collection: string,
+    queryVector: number[],
+    options: VectorSearchOptions = {}
+  ): Promise<VectorSearchHit[]> {
+    const filterJson = serializeFilter(options.filter);
+
+    const hits = parseJson<NativeVectorSearchHit[]>(
+      this.binding.vectorSearchJson(
+        collection,
+        JSON.stringify(queryVector),
+        options.topK,
+        filterJson
+      )
+    );
+
+    return hits.map((hit) => {
+      const value = parseJson<MemoryObject>(hit.value.body);
+      const storedObject: StoredMemoryObject = {
+        ...value,
+        id: hit.value.key.id,
+        collection: hit.value.key.collection,
+        createdAt: hit.value.createdAt,
+        updatedAt: hit.value.updatedAt,
+        version: hit.value.version,
+      };
+      if (hit.value.vector) {
+        storedObject.vector = hit.value.vector;
+      }
+      return { id: hit.id, score: hit.score, value: storedObject };
+    });
   }
 
   async search(query: string, options: MemorySearchOptions = {}): Promise<MemorySearchResult[]> {

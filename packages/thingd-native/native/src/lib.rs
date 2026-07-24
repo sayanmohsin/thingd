@@ -11,6 +11,7 @@ use thingd::{
     LinkDirection, LinkQueryOptions, LinkStore, ListEventsOptions, ListObjectsOptions, MemoryEvent,
     MemoryObject, ObjectStore, PutObjectOptions, QueueClaimOptions, QueueJob, QueueJobStatus,
     QueueNackOptions, QueueStore, SchemaOptions, SearchOptions, Searcher, TimeSeriesOptions,
+    VectorSearchOptions, VectorStore,
 };
 
 #[derive(Deserialize)]
@@ -435,6 +436,30 @@ impl NativeThingStore {
             .collect::<Vec<_>>();
 
         to_json(&records)
+    }
+
+    #[napi(js_name = "vectorSearchJson")]
+    pub fn vector_search_json(
+        &self,
+        collection: String,
+        query_vector_json: String,
+        top_k: Option<u32>,
+        filter_json: Option<String>,
+    ) -> Result<String> {
+        let query_vector: Vec<f32> =
+            serde_json::from_str(&query_vector_json).map_err(napi_error)?;
+        let top_k = top_k.map(|k| k as usize);
+        let filter = filter_json
+            .map(|json| serde_json::from_str::<Value>(&json).map_err(napi_error))
+            .transpose()?;
+
+        let options = VectorSearchOptions { top_k, filter };
+        let store = self.lock_store()?;
+        let hits = store
+            .vector_search(&collection, &query_vector, options)
+            .map_err(napi_error)?;
+
+        to_json(&hits)
     }
 
     #[napi(js_name = "deleteObjectsBatchJson")]

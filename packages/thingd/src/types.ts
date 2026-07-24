@@ -99,6 +99,17 @@ export type MemorySearchResult =
       value: StoredMemoryEvent;
     };
 
+export type VectorSearchOptions = {
+  topK?: number;
+  filter?: Record<string, unknown>;
+};
+
+export type VectorSearchHit = {
+  id: string;
+  score: number;
+  value: StoredMemoryObject;
+};
+
 export type LinkDirection = "Outgoing" | "Incoming" | "Both";
 
 export type LinkQueryOptions = {
@@ -369,6 +380,11 @@ export interface ThingDConnection {
     ): Promise<AggregateResult>;
   };
   timeseries(collection: string, options: TimeSeriesOptions): Promise<TimeSeriesResult>;
+  vectorSearch(
+    collection: string,
+    queryVector: number[],
+    options?: VectorSearchOptions
+  ): Promise<VectorSearchHit[]>;
 }
 
 export interface ThingStore {
@@ -427,6 +443,11 @@ export interface ThingStore {
   timeseries?(collection: string, options: TimeSeriesOptions): Promise<TimeSeriesResult>;
   schema?(collection?: string, options?: SchemaOptions): Promise<CollectionSchema[]>;
   nlqQuery?(question: string, options?: NlqOptions): Promise<NlqResult>;
+  vectorSearch?(
+    collection: string,
+    queryVector: number[],
+    options?: VectorSearchOptions
+  ): Promise<VectorSearchHit[]>;
   close?(): Promise<void>;
   backupTo?(path: string): void;
   walCheckpoint?(): { framesBefore: number; framesAfter: number };

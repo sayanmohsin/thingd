@@ -26,6 +26,8 @@ import type {
   ThingDeleteResult,
   TimeSeriesOptions,
   TimeSeriesResult,
+  VectorSearchHit,
+  VectorSearchOptions,
 } from "./types.js";
 
 export type ThingdClientOptions = {
@@ -162,6 +164,19 @@ export class ThingdClient {
 
   async search(query: string, options: MemorySearchOptions = {}): Promise<MemorySearchResult[]> {
     return this.request("POST", "/search", { query, ...options });
+  }
+
+  async vectorSearch(
+    collection: string,
+    queryVector: number[],
+    options: VectorSearchOptions = {}
+  ): Promise<VectorSearchHit[]> {
+    return this.request("POST", "/search/vector", {
+      collection,
+      vector: queryVector,
+      topK: options.topK,
+      filter: options.filter,
+    });
   }
 
   // ── Events ───────────────────────────────────────────

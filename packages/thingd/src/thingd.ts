@@ -31,6 +31,8 @@ import type {
   ThingStore,
   TimeSeriesOptions,
   TimeSeriesResult,
+  VectorSearchHit,
+  VectorSearchOptions,
 } from "./types.js";
 
 export type ThingDDriver = "memory" | "native" | "cloud";
@@ -96,6 +98,17 @@ export class ThingD implements ThingDConnection {
     return results
       .filter((r): r is Extract<MemorySearchResult, { kind: "object" }> => r.kind === "object")
       .map((r) => r.value as T);
+  }
+
+  vectorSearch(
+    collection: string,
+    queryVector: number[],
+    options: VectorSearchOptions = {}
+  ): Promise<VectorSearchHit[]> {
+    return (
+      this.store.vectorSearch?.(collection, queryVector, options) ??
+      Promise.reject(new Error("Vector search not supported by this driver"))
+    );
   }
 
   async putBatch(collection: string, objects: MemoryObject[]): Promise<StoredMemoryObject[]> {
