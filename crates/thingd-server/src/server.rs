@@ -152,6 +152,7 @@ pub fn build_router(state: Arc<AppState>, config: &Config) -> Router {
                 header::AUTHORIZATION,
                 header::CONTENT_TYPE,
                 header::HeaderName::from_static("mcp-protocol-version"),
+                header::HeaderName::from_static("x-tenant-id"),
             ])
             .max_age(Duration::from_secs(config.hardening.cors_max_age_secs));
         router = router.layer(cors);
