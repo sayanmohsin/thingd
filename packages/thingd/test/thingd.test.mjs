@@ -752,4 +752,39 @@ function runThingDBehaviorSuite(label, openDb) {
 
     await db.close();
   });
+
+  test(`${label}: vectorSearch returns results by cosine similarity`, async () => {
+    const db = await openDb();
+
+    await db.put("docs", { id: "a", text: "alpha", vector: [1.0, 0.0, 0.0] });
+    await db.put("docs", { id: "b", text: "beta", vector: [0.0, 1.0, 0.0] });
+
+    const hits = await db.vectorSearch("docs", [0.9, 0.1, 0.0], { topK: 5 });
+    assert.equal(hits.length, 2);
+    assert.equal(hits[0].id, "a");
+    assert.ok(hits[0].score > hits[1].score);
+
+    await db.close();
+  });
+
+  test(`${label}: vectorSearch with topK limits results`, async () => {
+    const db = await openDb();
+
+    await db.put("docs", { id: "a", text: "alpha", vector: [1.0, 0.0] });
+    await db.put("docs", { id: "b", text: "beta", vector: [0.0, 1.0] });
+
+    const hits = await db.vectorSearch("docs", [1.0, 0.0], { topK: 1 });
+    assert.equal(hits.length, 1);
+
+    await db.close();
+  });
+
+  test(`${label}: vectorSearch empty collection returns empty`, async () => {
+    const db = await openDb();
+
+    const hits = await db.vectorSearch("docs", [1.0, 0.0]);
+    assert.equal(hits.length, 0);
+
+    await db.close();
+  });
 }

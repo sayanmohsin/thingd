@@ -1927,4 +1927,33 @@ mod tests {
         ).await;
         assert_ne!(result["result"]["isError"], true);
     }
+
+    #[tokio::test]
+    async fn test_mcp_thing_vector_search() {
+        let state = test_state();
+        // Put an object with a vector
+        let (_status, _result) = call_mcp_with(
+            &state,
+            json!({ "jsonrpc": "2.0", "method": "tools/call", "params": { "name": "thing_put", "arguments": { "collection": "v", "object": { "id": "doc1", "text": "alpha", "vector": [1.0, 0.0, 0.0] } } }, "id": 1 }),
+        ).await;
+        // Put another with a different vector
+        let (_status, _result) = call_mcp_with(
+            &state,
+            json!({ "jsonrpc": "2.0", "method": "tools/call", "params": { "name": "thing_put", "arguments": { "collection": "v", "object": { "id": "doc2", "text": "beta", "vector": [0.0, 1.0, 0.0] } } }, "id": 2 }),
+        ).await;
+        // Search with vector similar to doc1
+        let (_status, result) = call_mcp_with(
+            &state,
+            json!({ "jsonrpc": "2.0", "method": "tools/call", "params": { "name": "thing_vector_search", "arguments": { "collection": "v", "vector": [0.9, 0.1, 0.0], "topK": 5 } }, "id": 3 }),
+        ).await;
+        assert_ne!(result["result"]["isError"], true);
+        let text = result["result"]["content"][0]["text"].as_str().unwrap();
+        let hits: Vec<Value> = serde_json::from_str(text).unwrap_or_default();
+        assert!(!hits.is_empty(), "expected at least one vector search hit");
+        assert_eq!(hits[0]["id"], "doc1", "most similar should be doc1");
+        assert!(
+            hits[0]["score"].as_f64().unwrap() > hits[1]["score"].as_f64().unwrap(),
+            "doc1 should score higher than doc2"
+        );
+    }
 }

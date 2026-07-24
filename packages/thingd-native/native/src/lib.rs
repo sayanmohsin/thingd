@@ -94,17 +94,30 @@ impl NativeThingStore {
         expected_version: Option<i64>,
     ) -> Result<String> {
         let mut store = self.lock_store()?;
+        let mut object = MemoryObject::new(collection, id, body);
+        // Extract optional vector from body JSON
+        if let Ok(body_val) = serde_json::from_str::<Value>(&object.body)
+            && let Some(vector) = body_val.get("vector").and_then(|v| v.as_array())
+        {
+            let vec: Vec<f32> = vector
+                .iter()
+                .filter_map(|v| v.as_f64().map(|f| f as f32))
+                .collect();
+            if !vec.is_empty() {
+                object = object.with_vector(vec);
+            }
+        }
         let object = if let Some(version) = expected_version {
             let opts = PutObjectOptions {
                 expected_version: Some(version as u64),
                 ..Default::default()
             };
             store
-                .put_object_with_options(MemoryObject::new(collection, id, body), opts)
+                .put_object_with_options(object, opts)
                 .map_err(napi_error)?
         } else {
             store
-                .put_object(MemoryObject::new(collection, id, body))
+                .put_object(object)
                 .map_err(napi_error)?
         };
 

@@ -78,6 +78,8 @@ pub fn build_router(state: Arc<AppState>, config: &Config) -> Router {
         .route("/mcp", post(crate::mcp::handle_mcp_request))
         // NLQ
         .route("/v1/nlq", post(rest::nlq_query))
+        // Admin
+        .route("/admin/clear-default-db", post(rest::clear_default_db))
         // Cluster
         .route("/cluster/status", get(crate::cluster::cluster_status))
         .route("/cluster/peers", get(crate::cluster::cluster_peers))

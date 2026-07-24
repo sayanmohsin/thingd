@@ -86,6 +86,33 @@ impl EnginePool {
     pub fn get_reader(&self, db_path: &str) -> SharedEngine {
         self.get_writer(db_path)
     }
+
+    /// Remove the default engine from the pool and delete its database file.
+    /// The next call to `get_reader("")` or `get_writer("")` will create a fresh
+    /// empty engine at the default path. Old data is permanently lost.
+    pub fn clear_default_engine(&self) -> Result<(), String> {
+        let path = self.default_path.clone();
+
+        let mut guard = self.writers.write();
+        guard.remove(&path);
+
+        // Also remove any empty-string entries (alias for default)
+        guard.remove("");
+
+        if path != ":memory:" && !path.is_empty() {
+            // Delete the Fjall directory
+            if let Err(e) = std::fs::remove_dir_all(&path) {
+                if e.kind() != std::io::ErrorKind::NotFound {
+                    return Err(format!("Failed to delete database at {path}: {e}"));
+                }
+            }
+            // Delete legacy single-file SQLite compat path
+            let _ = std::fs::remove_file(&path);
+        }
+
+        tracing::info!("Default database cleared: {path}");
+        Ok(())
+    }
 }
 
 #[cfg(test)]

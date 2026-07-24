@@ -30,6 +30,15 @@ pub async fn health() -> Json<Value> {
     Json(json!({ "data": { "status": "ok" } }))
 }
 
+pub async fn clear_default_db(
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<Value>, AppError> {
+    state.pool.clear_default_engine().map_err(|e| {
+        AppError::internal(&format!("Failed to clear default database: {e}"))
+    })?;
+    Ok(Json(json!({ "ok": true, "message": "Default database cleared" })))
+}
+
 pub async fn metrics(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
@@ -1301,6 +1310,65 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn test_vector_search() {
+        let (state, config) = test_state_and_config();
+        let app = crate::server::build_router(state, &config);
+
+        // Put an object with a vector via REST
+        let body = r#"{"id":"doc1","text":"alpha","vector":[1.0,0.0,0.0]}"#;
+        app.clone()
+            .oneshot(
+                Request::builder()
+                    .method("PUT")
+                    .uri("/v1/objects/v/doc1")
+                    .header("content-type", "application/json")
+                    .body(Body::from(body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        // Put another
+        let body = r#"{"id":"doc2","text":"beta","vector":[0.0,1.0,0.0]}"#;
+        app.clone()
+            .oneshot(
+                Request::builder()
+                    .method("PUT")
+                    .uri("/v1/objects/v/doc2")
+                    .header("content-type", "application/json")
+                    .body(Body::from(body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        // Vector search
+        let search_body = r#"{"collection":"v","vector":[0.9,0.1,0.0],"topK":5}"#;
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/search/vector")
+                    .header("content-type", "application/json")
+                    .body(Body::from(search_body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let collected = response.into_body().collect().await.unwrap_or_default();
+        let bytes = collected.to_bytes();
+        let json: Value = serde_json::from_slice(&bytes).unwrap();
+        let hits = json["data"].as_array().unwrap();
+        assert!(!hits.is_empty(), "expected at least one vector search hit");
+        assert_eq!(hits[0]["id"], "doc1");
+        assert!(
+            hits[0]["score"].as_f64().unwrap() > hits[1]["score"].as_f64().unwrap()
+        );
     }
 
     #[tokio::test]
