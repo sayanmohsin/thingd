@@ -30,13 +30,19 @@ trap cleanup EXIT
 # ── Start engine ──────────────────────────────────────────────
 echo "==> Starting thingd-server in multi-tenant mode on port $ENGINE_PORT..."
 if [[ "$ENGINE_BIN" == "cargo run --" ]]; then
+  THINGD_HOST=127.0.0.1 \
+  THINGD_PORT=$ENGINE_PORT \
+  THINGD_PATH="$TMPDIR/shared/thingd.db" \
   THINGD_TENANT_MODE=multi-tenant \
   THINGD_TENANT_DB_PREFIX="$DB_PREFIX" \
-  cargo run -- --port "$ENGINE_PORT" --database "$TMPDIR/shared/thingd.db" &
+  cargo run &
 elif [[ -x "$ENGINE_BIN" ]]; then
+  THINGD_HOST=127.0.0.1 \
+  THINGD_PORT=$ENGINE_PORT \
+  THINGD_PATH="$TMPDIR/shared/thingd.db" \
   THINGD_TENANT_MODE=multi-tenant \
   THINGD_TENANT_DB_PREFIX="$DB_PREFIX" \
-  "$ENGINE_BIN" --port "$ENGINE_PORT" --database "$TMPDIR/shared/thingd.db" &
+  "$ENGINE_BIN" &
 else
   echo "ERROR: $ENGINE_BIN not found and not a cargo command"
   exit 1
@@ -147,8 +153,11 @@ echo "==> Test 6: Default TenantMode::Single works (no header required)"
 TMPDIR2=$(mktemp -d /tmp/thingd-tenant-single-XXXXXX)
 SINGLE_PORT=18758
 
+THINGD_HOST=127.0.0.1 \
+THINGD_PORT="$SINGLE_PORT" \
+THINGD_PATH="$TMPDIR2/thingd.db" \
 THINGD_TENANT_MODE=single \
-cargo run -- --port "$SINGLE_PORT" --database "$TMPDIR2/thingd.db" &
+cargo run &
 SINGLE_PID=$!
 sleep 2
 
