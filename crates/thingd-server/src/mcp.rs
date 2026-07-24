@@ -217,7 +217,16 @@ fn handle_thing_put(
     let collection = arg_str(args, "collection");
     let obj = args.get("object").cloned().unwrap_or(json!({}));
     let id = obj.get("id").and_then(|v| v.as_str()).unwrap_or("new");
-    let memory_obj = thingd::MemoryObject::new(collection, id.to_string(), obj.to_string());
+    let mut memory_obj = thingd::MemoryObject::new(collection, id.to_string(), obj.to_string());
+    if let Some(vector) = obj.get("vector").and_then(|v| v.as_array()) {
+        let vec: Vec<f32> = vector
+            .iter()
+            .filter_map(|v| v.as_f64().map(|f| f as f32))
+            .collect();
+        if !vec.is_empty() {
+            memory_obj = memory_obj.with_vector(vec);
+        }
+    }
     let expected_version = args.get("expectedVersion").and_then(|v| v.as_u64());
     let r = if let Some(version) = expected_version {
         let opts = thingd::PutObjectOptions {

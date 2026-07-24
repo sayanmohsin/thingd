@@ -116,9 +116,7 @@ impl NativeThingStore {
                 .put_object_with_options(object, opts)
                 .map_err(napi_error)?
         } else {
-            store
-                .put_object(object)
-                .map_err(napi_error)?
+            store.put_object(object).map_err(napi_error)?
         };
 
         to_json(&object_record(object))

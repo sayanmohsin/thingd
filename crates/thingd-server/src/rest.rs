@@ -30,13 +30,14 @@ pub async fn health() -> Json<Value> {
     Json(json!({ "data": { "status": "ok" } }))
 }
 
-pub async fn clear_default_db(
-    State(state): State<Arc<AppState>>,
-) -> Result<Json<Value>, AppError> {
-    state.pool.clear_default_engine().map_err(|e| {
-        AppError::internal(&format!("Failed to clear default database: {e}"))
-    })?;
-    Ok(Json(json!({ "ok": true, "message": "Default database cleared" })))
+pub async fn clear_default_db(State(state): State<Arc<AppState>>) -> Result<Json<Value>, AppError> {
+    state
+        .pool
+        .clear_default_engine()
+        .map_err(|e| AppError::internal(format!("Failed to clear default database: {e}")))?;
+    Ok(Json(
+        json!({ "ok": true, "message": "Default database cleared" }),
+    ))
 }
 
 pub async fn metrics(
@@ -240,7 +241,16 @@ pub async fn put_object(
     headers: axum::http::HeaderMap,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, AppError> {
-    let obj = MemoryObject::new(collection.clone(), id.clone(), body.to_string());
+    let mut obj = MemoryObject::new(collection.clone(), id.clone(), body.to_string());
+    if let Some(vector) = body.get("vector").and_then(|v| v.as_array()) {
+        let vec: Vec<f32> = vector
+            .iter()
+            .filter_map(|v| v.as_f64().map(|f| f as f32))
+            .collect();
+        if !vec.is_empty() {
+            obj = obj.with_vector(vec);
+        }
+    }
     let e = get_engine(&state, &headers)?;
     let mut g = e.lock();
     let expected_version = headers
@@ -1366,9 +1376,7 @@ mod tests {
         let hits = json["data"].as_array().unwrap();
         assert!(!hits.is_empty(), "expected at least one vector search hit");
         assert_eq!(hits[0]["id"], "doc1");
-        assert!(
-            hits[0]["score"].as_f64().unwrap() > hits[1]["score"].as_f64().unwrap()
-        );
+        assert!(hits[0]["score"].as_f64().unwrap() > hits[1]["score"].as_f64().unwrap());
     }
 
     #[tokio::test]

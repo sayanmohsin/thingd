@@ -2780,6 +2780,58 @@ mod tests {
 
     #[cfg(feature = "vectors")]
     #[test]
+    fn fjall_vector_search_respects_top_k() {
+        let (mut engine, _dir) = setup();
+        engine
+            .put_object(
+                MemoryObject::new("docs", "a", r#"{"text":"alpha"}"#).with_vector(vec![1.0, 0.0]),
+            )
+            .unwrap();
+        engine
+            .put_object(
+                MemoryObject::new("docs", "b", r#"{"text":"beta"}"#).with_vector(vec![0.0, 1.0]),
+            )
+            .unwrap();
+
+        let results = engine
+            .vector_search(
+                "docs",
+                &[1.0, 0.0],
+                VectorSearchOptions {
+                    top_k: Some(1),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].id, "a");
+    }
+
+    #[cfg(feature = "vectors")]
+    #[test]
+    fn fjall_vector_search_empty_collection_returns_empty() {
+        let (engine, _dir) = setup();
+        let results = engine
+            .vector_search("docs", &[1.0, 0.0, 0.0], VectorSearchOptions::default())
+            .unwrap();
+        assert!(results.is_empty());
+    }
+
+    #[cfg(feature = "vectors")]
+    #[test]
+    fn fjall_put_object_without_vector_does_not_store_vector() {
+        let (mut engine, _dir) = setup();
+        engine
+            .put_object(MemoryObject::new("docs", "a", "{}"))
+            .unwrap();
+        let results = engine
+            .vector_search("docs", &[1.0, 0.0, 0.0], VectorSearchOptions::default())
+            .unwrap();
+        assert!(results.is_empty());
+    }
+
+    #[cfg(feature = "vectors")]
+    #[test]
     fn fjall_vector_search_persists_across_engine_reopen() {
         let dir = tempfile::tempdir().unwrap();
         {

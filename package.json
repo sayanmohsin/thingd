@@ -29,6 +29,7 @@
     "test:cli": "pnpm --filter @thingd/cli test",
     "test:local": "pnpm check && pnpm build && pnpm test:node && pnpm test:cli && pnpm test:package",
     "test:mcp": "pnpm --filter @thingd/cli test",
+    "test:tenant": "cargo build -p thingd-server && bash scripts/test-tenant-isolation.sh ./target/debug/thingd-server",
     "test:node": "pnpm --filter @thingd/sdk test",
     "examples": "pnpm --filter \"thingd-node-basic-example\" start && pnpm --filter \"thingd-node-stream-example\" start && pnpm --filter \"thingd-node-queue-example\" start",
     "examples:load": "pnpm --filter \"thingd-node-load-example\" start",

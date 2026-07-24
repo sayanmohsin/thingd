@@ -50,6 +50,10 @@ jobs:
       - run: cargo clippy --workspace --all-targets --all-features -- -D warnings
       - run: cargo test --workspace --all-targets --all-features
       - run: cargo test --doc --workspace --all-features
+      - name: Tenant isolation test
+        run: |
+          cargo build -p thingd-server
+          bash scripts/test-tenant-isolation.sh ./target/debug/thingd-server
 
   # ── Node unit tests (linux) — no `needs: [rust]` ─────
   node-unit:

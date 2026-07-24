@@ -101,10 +101,10 @@ impl EnginePool {
 
         if path != ":memory:" && !path.is_empty() {
             // Delete the Fjall directory
-            if let Err(e) = std::fs::remove_dir_all(&path) {
-                if e.kind() != std::io::ErrorKind::NotFound {
-                    return Err(format!("Failed to delete database at {path}: {e}"));
-                }
+            if let Err(e) = std::fs::remove_dir_all(&path)
+                && e.kind() != std::io::ErrorKind::NotFound
+            {
+                return Err(format!("Failed to delete database at {path}: {e}"));
             }
             // Delete legacy single-file SQLite compat path
             let _ = std::fs::remove_file(&path);
