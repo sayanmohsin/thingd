@@ -192,6 +192,21 @@ impl Default for ServerConfig {
     }
 }
 
+impl TenantConfig {
+    pub fn resolve_db_path(&self, tenant_id: Option<&str>) -> String {
+        match self.mode {
+            TenantMode::Single => String::new(),
+            TenantMode::MultiTenant => {
+                if let Some(tid) = tenant_id {
+                    format!("{}{}/thingd.db", self.database_prefix, tid)
+                } else {
+                    String::new()
+                }
+            }
+        }
+    }
+}
+
 impl Default for TenantConfig {
     fn default() -> Self {
         Self {
@@ -433,6 +448,18 @@ impl Config {
         {
             self.nlq.max_tokens = n;
         }
+        if let Ok(v) = std::env::var("THINGD_TENANT_MODE") {
+            self.tenant.mode = match v.as_str() {
+                "multi-tenant" => TenantMode::MultiTenant,
+                _ => TenantMode::Single,
+            };
+        }
+        if let Ok(v) = std::env::var("THINGD_TENANT_HEADER") {
+            self.tenant.header = v;
+        }
+        if let Ok(v) = std::env::var("THINGD_TENANT_DB_PREFIX") {
+            self.tenant.database_prefix = v;
+        }
     }
 
     fn validate(&self) -> Result<(), Box<dyn std::error::Error>> {
@@ -475,6 +502,10 @@ impl Config {
             && self.auth.token.is_empty()
         {
             return Err("auth.token is required when server.production_mode is true".into());
+        }
+        if self.tenant.mode == TenantMode::MultiTenant && self.tenant.database_prefix.contains("..")
+        {
+            return Err("tenant.database_prefix must not contain '..'".into());
         }
         Ok(())
     }

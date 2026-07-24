@@ -1,7 +1,8 @@
+use crate::config::TenantConfig;
 use crate::error::AppError;
 use axum::{
     extract::{Request, State},
-    http::{Method, header::AUTHORIZATION},
+    http::{HeaderMap, Method, header::AUTHORIZATION},
     middleware::Next,
     response::Response,
 };
@@ -55,6 +56,31 @@ pub async fn auth_middleware(
     }
 
     Ok(next.run(req).await)
+}
+
+pub fn extract_tenant_id(headers: &HeaderMap, config: &TenantConfig) -> Result<Option<String>, AppError> {
+    if config.mode != crate::config::TenantMode::MultiTenant {
+        return Ok(None);
+    }
+
+    let header_value = headers
+        .get(&config.header)
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.trim().to_string());
+
+    match header_value {
+        Some(tid) if tid.is_empty() => Err(AppError::bad_request("X-Tenant-Id header is empty")),
+        Some(tid) => {
+            if tid.contains("..") || tid.contains('/') {
+                return Err(AppError::bad_request("Invalid tenant ID: path traversal rejected"));
+            }
+            if !tid.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_') {
+                return Err(AppError::bad_request("Invalid tenant ID format: only alphanumeric, hyphens, and underscores allowed"));
+            }
+            Ok(Some(tid))
+        }
+        None => Err(AppError::bad_request("X-Tenant-Id header is required in multi-tenant mode")),
+    }
 }
 
 #[cfg(test)]

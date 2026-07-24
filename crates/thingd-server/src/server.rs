@@ -12,13 +12,15 @@ use tower::timeout::TimeoutLayer;
 use tower_http::cors::CorsLayer;
 
 use crate::auth::auth_middleware;
-use crate::config::{ClusterConfig, Config, McpConfig, NlqConfig};
+use crate::auth::extract_tenant_id;
+use crate::config::{ClusterConfig, Config, McpConfig, NlqConfig, TenantConfig};
 use crate::engine::EnginePool;
 use crate::rest;
 
 /// Shared application state passed to all handlers via axum's State extractor.
 pub struct AppState {
     pub pool: Arc<EnginePool>,
+    pub tenant_config: TenantConfig,
     pub mcp_config: McpConfig,
     pub auth_token: String,
     pub allow_unauthenticated: bool,

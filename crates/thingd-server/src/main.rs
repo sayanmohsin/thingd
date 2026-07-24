@@ -66,6 +66,7 @@ async fn main() {
     let pool = Arc::new(engine::EnginePool::new(config.server.database.clone()));
     let app_state = Arc::new(server::AppState {
         pool,
+        tenant_config: config.tenant.clone(),
         mcp_config: config.mcp.clone(),
         auth_token: config.auth.token.clone(),
         allow_unauthenticated: config.auth.allow_unauthenticated,
