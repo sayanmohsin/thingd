@@ -200,7 +200,7 @@ jobs:
 
       - name: Build thingd-server binary (amd64)
         run: |
-          cargo build -p thingd-server --release --target x86_64-unknown-linux-gnu
+          cargo build -p thingd-server --release --target x86_64-unknown-linux-gnu -- -C target-feature=+crt-static
           mkdir -p docker-context
           cp target/x86_64-unknown-linux-gnu/release/thingd-server docker-context/thingd-server-amd64
 
@@ -208,7 +208,7 @@ jobs:
         env:
           CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
         run: |
-          cargo build -p thingd-server --release --target aarch64-unknown-linux-gnu
+          cargo build -p thingd-server --release --target aarch64-unknown-linux-gnu -- -C target-feature=+crt-static
           cp target/aarch64-unknown-linux-gnu/release/thingd-server docker-context/thingd-server-arm64
 
       - name: Get next version
