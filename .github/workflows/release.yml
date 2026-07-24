@@ -200,8 +200,10 @@ jobs:
 
       - name: Install zig for musl cross-compilation
         run: |
-          curl -sL https://ziglang.org/download/0.14.0/zig-linux-x86_64-0.14.0.tar.xz | tar xJ -C /usr/local
-          ln -sf /usr/local/zig-linux-x86_64-0.14.0/zig /usr/local/bin/zig
+          curl -sL https://ziglang.org/download/0.14.0/zig-linux-x86_64-0.14.0.tar.xz | tar xJ -C /tmp
+          mkdir -p "$HOME/.local/bin"
+          ln -sf /tmp/zig-linux-x86_64-0.14.0/zig "$HOME/.local/bin/zig"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
       - name: Install cargo-zigbuild
         run: pipx install cargo-zigbuild
