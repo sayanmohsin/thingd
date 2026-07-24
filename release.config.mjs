@@ -33,13 +33,14 @@ const config = {
           "npm --no-git-tag-version --prefix packages/thingd version ${nextRelease.version}",
           "npm --no-git-tag-version --prefix packages/thingd-cli version ${nextRelease.version}",
           "npm --no-git-tag-version --prefix packages/thingd-native version ${nextRelease.version}",
+          "npm --no-git-tag-version --prefix packages/thingd-client version ${nextRelease.version}",
           "sed -i.bak 's/^version = \".*\"/version = \"${nextRelease.version}\"/' Cargo.toml && rm -f Cargo.toml.bak",
           "sed -i.bak 's/export const SDK_VERSION = \".*\"/export const SDK_VERSION = \"${nextRelease.version}\"/' packages/thingd/src/version.ts && rm -f packages/thingd/src/version.ts.bak",
           "VERSION_MM=$(echo ${nextRelease.version} | sed 's/\\([0-9]*\\.[0-9]*\\)\\..*/\\1/')",
            "sed -i.bak 's/version = \"[0-9]*\\.[0-9]*\"/version = \"'\"$VERSION_MM\"'\"/g' README.md crates/thingd/README.md && rm -f README.md.bak crates/thingd/README.md.bak",
            "sed -i.bak '/thingd/s/version = \"[0-9]*\\.[0-9]*\"/version = \"'\"$VERSION_MM\"'\"/' crates/thingd-server/Cargo.toml packages/thingd-native/Cargo.toml && rm -f crates/thingd-server/Cargo.toml.bak packages/thingd-native/Cargo.toml.bak",
         ].join(" && "),
-        publishCmd: "pnpm --filter @thingd/sdk publish --access public --no-git-checks && pnpm --filter @thingd/cli publish --access public --no-git-checks && pnpm --filter @thingd/native publish --access public --no-git-checks"
+        publishCmd: "pnpm --filter @thingd/sdk publish --access public --no-git-checks && pnpm --filter @thingd/cli publish --access public --no-git-checks && pnpm --filter @thingd/native publish --access public --no-git-checks && pnpm --filter @thingd/client publish --access public --no-git-checks"
       }
     ],
     [
@@ -52,8 +53,9 @@ const config = {
           "packages/thingd/package.json",
           "packages/thingd/src/version.ts",
           "packages/thingd-cli/package.json",
-           "packages/thingd-native/package.json",
-           "packages/thingd-native/Cargo.toml",
+            "packages/thingd-native/package.json",
+            "packages/thingd-native/Cargo.toml",
+            "packages/thingd-client/package.json",
            "crates/thingd-server/Cargo.toml",
            "crates/thingd/README.md",
         ],
