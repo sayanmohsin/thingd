@@ -7,7 +7,7 @@
 # Usage:
 #   ./scripts/test-tenant-isolation.sh [--engine-binary path/to/thingd-server]
 
-set -euo pipefail
+set -uo pipefail
 
 ENGINE_BIN="${1:-cargo run --}"
 TMPDIR=$(mktemp -d /tmp/thingd-tenant-test-XXXXXX)
