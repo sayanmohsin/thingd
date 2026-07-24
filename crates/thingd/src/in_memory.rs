@@ -8,7 +8,8 @@ use crate::{
     EventLog, FieldSchema, Link, LinkDirection, LinkQueryOptions, LinkStore, MemoryEvent,
     MemoryObject, ObjectKey, ObjectStore, QueueClaimOptions, QueueJob, QueueJobStatus,
     QueueNackOptions, QueueStore, SchemaOptions, ThingdError, ThingdResult, TimeSeriesBucket,
-    TimeSeriesOptions, TimeSeriesResult, now_iso_string, u64_to_i64, unix_timestamp_millis,
+    TimeSeriesOptions, TimeSeriesResult, VectorSearchHit, VectorSearchOptions, now_iso_string,
+    u64_to_i64, unix_timestamp_millis,
 };
 
 /// In-memory engine used to prove the storage boundary.
@@ -35,6 +36,7 @@ pub struct MemoryEngine {
     next_event_sequence: u64,
     next_link_id: u64,
     event_idempotency_keys: HashMap<(String, String), u64>,
+    vectors: HashMap<(String, String), Vec<f32>>,
 }
 
 impl MemoryEngine {
@@ -58,6 +60,13 @@ impl ObjectStore for MemoryEngine {
             object.created_at = now;
         }
         self.objects.insert(object.key.clone(), object.clone());
+
+        if let Some(ref vector) = object.vector {
+            self.vectors.insert(
+                (object.key.collection.clone(), object.key.id.clone()),
+                vector.clone(),
+            );
+        }
 
         Ok(object)
     }
@@ -203,6 +212,8 @@ impl ObjectStore for MemoryEngine {
     }
 
     fn delete_object(&mut self, collection: &str, id: &str) -> ThingdResult<bool> {
+        self.vectors
+            .remove(&(collection.to_string(), id.to_string()));
         Ok(self
             .objects
             .remove(&ObjectKey::new(collection, id))
@@ -819,6 +830,66 @@ impl crate::store::AggregateStore for MemoryEngine {
     }
 }
 
+// ── VectorStore ──────────────────────────────────────────────────────────────
+
+impl crate::store::VectorStore for MemoryEngine {
+    fn vector_search(
+        &self,
+        collection: &str,
+        query_vector: &[f32],
+        options: VectorSearchOptions,
+    ) -> ThingdResult<Vec<VectorSearchHit>> {
+        let mut hits: Vec<VectorSearchHit> = Vec::new();
+
+        for ((col, id), vec) in &self.vectors {
+            if col != collection {
+                continue;
+            }
+
+            let Some(object) = self.objects.get(&ObjectKey::new(col, id)) else {
+                continue;
+            };
+
+            if let Some(ref filter) = options.filter
+                && !matches_filter_memory(&object.body, filter)
+            {
+                continue;
+            }
+
+            let score = crate::cosine_similarity(query_vector, vec);
+            hits.push(VectorSearchHit {
+                id: id.clone(),
+                score,
+                value: object.clone(),
+            });
+        }
+
+        hits.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+
+        if let Some(top_k) = options.top_k {
+            hits.truncate(top_k);
+        }
+
+        Ok(hits)
+    }
+
+    fn add_vector(&mut self, collection: &str, id: &str, vector: &[f32]) -> ThingdResult<()> {
+        self.vectors
+            .insert((collection.to_string(), id.to_string()), vector.to_vec());
+        Ok(())
+    }
+
+    fn remove_vector(&mut self, collection: &str, id: &str) -> ThingdResult<()> {
+        self.vectors
+            .remove(&(collection.to_string(), id.to_string()));
+        Ok(())
+    }
+}
+
 fn matches_filter_memory(body_str: &str, filter: &serde_json::Value) -> bool {
     let Ok(body) = serde_json::from_str::<serde_json::Value>(body_str) else {
         return false;
@@ -1012,8 +1083,8 @@ fn like_match(s: &str, pattern: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::store::{LinkStore, Searcher};
-    use crate::{Link, ListObjectsOptions, SearchOptions};
+    use crate::store::{LinkStore, Searcher, VectorStore};
+    use crate::{Link, ListObjectsOptions, SearchOptions, VectorSearchOptions};
 
     #[test]
     fn stores_and_reads_objects() {
@@ -1764,5 +1835,116 @@ mod tests {
         // is_protected_stream returns true
         assert!(engine.is_protected_stream("__thingd:mcp:audit"));
         assert!(!engine.is_protected_stream("normal"));
+    }
+
+    // ── VectorStore ──────────────────────────────────────────────────────
+
+    #[test]
+    fn vector_search_returns_by_cosine_similarity() {
+        let mut engine = MemoryEngine::new();
+        engine
+            .put_object(
+                MemoryObject::new("docs", "a", r#"{"text":"alpha"}"#)
+                    .with_vector(vec![1.0, 0.0, 0.0]),
+            )
+            .unwrap();
+        engine
+            .put_object(
+                MemoryObject::new("docs", "b", r#"{"text":"beta"}"#)
+                    .with_vector(vec![0.0, 1.0, 0.0]),
+            )
+            .unwrap();
+
+        let results = engine
+            .vector_search("docs", &[0.9, 0.1, 0.0], VectorSearchOptions::default())
+            .unwrap();
+        assert_eq!(results.len(), 2);
+        assert_eq!(results[0].id, "a");
+        assert!(results[0].score > results[1].score);
+    }
+
+    #[test]
+    fn vector_search_respects_top_k() {
+        let mut engine = MemoryEngine::new();
+        engine
+            .put_object(MemoryObject::new("docs", "a", "{}").with_vector(vec![1.0, 0.0]))
+            .unwrap();
+        engine
+            .put_object(MemoryObject::new("docs", "b", "{}").with_vector(vec![0.0, 1.0]))
+            .unwrap();
+
+        let results = engine
+            .vector_search(
+                "docs",
+                &[1.0, 0.0],
+                VectorSearchOptions {
+                    top_k: Some(1),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        assert_eq!(results.len(), 1);
+    }
+
+    #[test]
+    fn vector_search_respects_filter() {
+        let mut engine = MemoryEngine::new();
+        engine
+            .put_object(
+                MemoryObject::new("docs", "a", r#"{"tag":"x"}"#).with_vector(vec![1.0, 0.0]),
+            )
+            .unwrap();
+        engine
+            .put_object(
+                MemoryObject::new("docs", "b", r#"{"tag":"y"}"#).with_vector(vec![0.0, 1.0]),
+            )
+            .unwrap();
+
+        let results = engine
+            .vector_search(
+                "docs",
+                &[1.0, 0.0],
+                VectorSearchOptions {
+                    filter: Some(serde_json::json!({"tag": "x"})),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].id, "a");
+    }
+
+    #[test]
+    fn vector_search_empty_collection_returns_empty() {
+        let engine = MemoryEngine::new();
+        let results = engine
+            .vector_search("docs", &[1.0, 0.0, 0.0], VectorSearchOptions::default())
+            .unwrap();
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn vector_search_excludes_deleted_objects() {
+        let mut engine = MemoryEngine::new();
+        engine
+            .put_object(MemoryObject::new("docs", "a", "{}").with_vector(vec![1.0, 0.0]))
+            .unwrap();
+        engine.delete_object("docs", "a").unwrap();
+        let results = engine
+            .vector_search("docs", &[1.0, 0.0], VectorSearchOptions::default())
+            .unwrap();
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn put_object_without_vector_does_not_store_vector() {
+        let mut engine = MemoryEngine::new();
+        engine
+            .put_object(MemoryObject::new("docs", "a", "{}"))
+            .unwrap();
+        let results = engine
+            .vector_search("docs", &[1.0, 0.0], VectorSearchOptions::default())
+            .unwrap();
+        assert!(results.is_empty());
     }
 }

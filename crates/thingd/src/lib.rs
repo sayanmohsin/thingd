@@ -82,9 +82,10 @@ pub use model::{
     ListObjectsOptions, MemoryEvent, MemoryObject, ObjectKey, PutObjectOptions, QueueClaimOptions,
     QueueJob, QueueJobStatus, QueueNackOptions, SchemaOptions, SearchHit, SearchOptions, SortBy,
     SortDirection, TimeBucket, TimeSeriesBucket, TimeSeriesOptions, TimeSeriesResult,
+    VectorSearchHit, VectorSearchOptions,
 };
 pub use store::{
-    AggregateStore, EventLog, LinkStore, ObjectStore, QueueStore, Searcher, ThingStore,
+    AggregateStore, EventLog, LinkStore, ObjectStore, QueueStore, Searcher, ThingStore, VectorStore,
 };
 
 pub(crate) fn unix_timestamp_millis() -> i64 {
@@ -106,4 +107,19 @@ pub(crate) fn u64_to_i64(value: u64) -> i64 {
 
 pub(crate) fn now_iso_string() -> String {
     chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
+}
+
+/// Compute cosine similarity between two vectors.
+/// Returns a value in [-1.0, 1.0], or 0.0 if either vector is zero.
+pub(crate) fn cosine_similarity(a: &[f32], b: &[f32]) -> f64 {
+    if a.len() != b.len() || a.is_empty() {
+        return 0.0;
+    }
+    let dot: f32 = a.iter().zip(b.iter()).map(|(x, y)| x * y).sum();
+    let norm_a: f32 = a.iter().map(|x| x * x).sum::<f32>().sqrt();
+    let norm_b: f32 = b.iter().map(|x| x * x).sum::<f32>().sqrt();
+    if norm_a == 0.0 || norm_b == 0.0 {
+        return 0.0;
+    }
+    f64::from(dot / (norm_a * norm_b))
 }

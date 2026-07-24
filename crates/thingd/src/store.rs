@@ -6,7 +6,7 @@ use crate::model::{
 };
 use crate::{
     MemoryEvent, MemoryObject, QueueClaimOptions, QueueJob, QueueNackOptions, ThingdError,
-    ThingdResult,
+    ThingdResult, VectorSearchHit, VectorSearchOptions,
 };
 
 /// Object storage operations.
@@ -579,13 +579,61 @@ pub trait AggregateStore {
     ) -> ThingdResult<TimeSeriesResult>;
 }
 
+/// Vector search operations.
+///
+/// # Examples
+///
+/// ```rust
+/// use thingd::{MemoryEngine, ObjectStore, VectorStore, MemoryObject, VectorSearchOptions};
+///
+/// let mut store = MemoryEngine::new();
+/// store.put_object(
+///     MemoryObject::new("docs", "a", r#"{"text":"hello"}"#)
+///         .with_vector(vec![1.0, 0.0, 0.0]),
+/// ).unwrap();
+///
+/// let results = store.vector_search("docs", &[0.9, 0.1, 0.0], VectorSearchOptions::default()).unwrap();
+/// assert_eq!(results.len(), 1);
+/// ```
+pub trait VectorStore {
+    /// Search objects by cosine similarity to the query vector.
+    ///
+    /// Returns results sorted by descending score (highest similarity first).
+    /// When no vectors exist in the collection, returns an empty vec.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the query vector dimension does not match
+    /// stored vectors.
+    fn vector_search(
+        &self,
+        collection: &str,
+        query_vector: &[f32],
+        options: VectorSearchOptions,
+    ) -> ThingdResult<Vec<VectorSearchHit>>;
+
+    /// Add or update a vector for an object.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the backing store cannot persist the vector.
+    fn add_vector(&mut self, collection: &str, id: &str, vector: &[f32]) -> ThingdResult<()>;
+
+    /// Remove a vector for an object.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the backing store cannot remove the vector.
+    fn remove_vector(&mut self, collection: &str, id: &str) -> ThingdResult<()>;
+}
+
 /// Full storage interface expected from thingd engine adapters.
 pub trait ThingStore:
-    EventLog + ObjectStore + QueueStore + Searcher + LinkStore + AggregateStore
+    EventLog + ObjectStore + QueueStore + Searcher + LinkStore + AggregateStore + VectorStore
 {
 }
 
 impl<T> ThingStore for T where
-    T: EventLog + ObjectStore + QueueStore + Searcher + LinkStore + AggregateStore
+    T: EventLog + ObjectStore + QueueStore + Searcher + LinkStore + AggregateStore + VectorStore
 {
 }

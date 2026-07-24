@@ -15,6 +15,7 @@ exclude = ["examples/"]
 default = ["fjall", "search"]
 search = ["dep:tantivy"]
 fjall = ["dep:fjall"]
+vectors = []
 connectors = ["dep:csv", "dep:sqlx", "dep:tokio"]
 
 [dependencies]

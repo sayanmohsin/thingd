@@ -22,7 +22,7 @@ use crate::model::{
 use crate::store::{AggregateStore, EventLog, LinkStore, ObjectStore, QueueStore, Searcher};
 use crate::{
     CollectionSchema, FieldSchema, Link, MemoryEvent, MemoryObject, QueueClaimOptions, QueueJob,
-    QueueJobStatus, QueueNackOptions, SearchHit, ThingdError,
+    QueueJobStatus, QueueNackOptions, SearchHit, ThingdError, VectorSearchHit, VectorSearchOptions,
 };
 use crate::{now_iso_string, unix_timestamp_millis};
 
@@ -50,6 +50,8 @@ pub struct FjallEngine {
     event_idempotency_keys: HashMap<(String, String), u64>,
     #[cfg(feature = "search")]
     search_index: Option<tantivy::Index>,
+    #[cfg(feature = "vectors")]
+    vectors: Keyspace,
 }
 
 fn value_to_vec(v: Option<fjall::Slice>) -> Option<Vec<u8>> {
@@ -69,6 +71,9 @@ impl FjallEngine {
         let links_by_id = db.keyspace("links_by_id", KeyspaceCreateOptions::default)?;
         let links_from = db.keyspace("links_from", KeyspaceCreateOptions::default)?;
         let links_to = db.keyspace("links_to", KeyspaceCreateOptions::default)?;
+
+        #[cfg(feature = "vectors")]
+        let vectors = db.keyspace("vectors", KeyspaceCreateOptions::default)?;
 
         let mut next_link_id = 0u64;
         for kv in links_by_id.iter() {
@@ -99,6 +104,8 @@ impl FjallEngine {
             event_idempotency_keys: HashMap::new(),
             #[cfg(feature = "search")]
             search_index,
+            #[cfg(feature = "vectors")]
+            vectors,
         })
     }
 
@@ -180,6 +187,11 @@ impl FjallEngine {
         key
     }
 
+    #[cfg(feature = "vectors")]
+    fn make_vector_key(collection: &str, id: &str) -> Vec<u8> {
+        format!("{collection}\0{id}").into_bytes()
+    }
+
     fn make_link_from_key(from_ref: &str, link_type: &str, link_id: &str) -> Vec<u8> {
         format!("{from_ref}\0{link_type}\0{link_id}").into_bytes()
     }
@@ -220,6 +232,13 @@ impl ObjectStore for FjallEngine {
 
         #[cfg(feature = "search")]
         self.index_object_for_search(&object);
+
+        #[cfg(feature = "vectors")]
+        if let Some(ref vector) = object.vector {
+            let vkey = Self::make_vector_key(&object.key.collection, &object.key.id);
+            let vdata = Self::serialize(vector)?;
+            self.vectors.insert(&vkey, &vdata)?;
+        }
 
         Ok(object)
     }
@@ -414,6 +433,11 @@ impl ObjectStore for FjallEngine {
         let _ = self.objects.remove(&key);
         #[cfg(feature = "search")]
         self.delete_object_from_search_index(collection, id);
+        #[cfg(feature = "vectors")]
+        {
+            let vkey = Self::make_vector_key(collection, id);
+            let _ = self.vectors.remove(&vkey);
+        }
         Ok(existed)
     }
 
@@ -427,6 +451,11 @@ impl ObjectStore for FjallEngine {
             }
             #[cfg(feature = "search")]
             self.delete_object_from_search_index(collection, id);
+            #[cfg(feature = "vectors")]
+            {
+                let vkey = Self::make_vector_key(collection, id);
+                let _ = self.vectors.remove(&vkey);
+            }
         }
         Ok(count)
     }
@@ -1548,6 +1577,99 @@ impl AggregateStore for FjallEngine {
     }
 }
 
+// ── VectorStore ──────────────────────────────────────────────────────────────
+
+impl crate::store::VectorStore for FjallEngine {
+    fn vector_search(
+        &self,
+        collection: &str,
+        query_vector: &[f32],
+        options: VectorSearchOptions,
+    ) -> ThingdResult<Vec<VectorSearchHit>> {
+        #[cfg(not(feature = "vectors"))]
+        {
+            let _ = (collection, query_vector, options);
+            Ok(vec![])
+        }
+
+        #[cfg(feature = "vectors")]
+        {
+            let prefix = Self::make_vector_key(collection, "");
+            let mut hits: Vec<VectorSearchHit> = Vec::new();
+
+            for kv in self.vectors.prefix(&prefix) {
+                let (key, value) = guard_data(kv)?;
+                let key_str = String::from_utf8_lossy(&key);
+                let Some((_, id)) = key_str.split_once('\0') else {
+                    continue;
+                };
+
+                let vector: Vec<f32> = Self::deserialize(&value)?;
+
+                let Some(object) = self.get_object(collection, id)? else {
+                    continue;
+                };
+
+                if let Some(ref filter) = options.filter
+                    && !matches_filter_memory(&object.body, filter)
+                {
+                    continue;
+                }
+
+                let score = crate::cosine_similarity(query_vector, &vector);
+                hits.push(VectorSearchHit {
+                    id: id.to_string(),
+                    score,
+                    value: object,
+                });
+            }
+
+            hits.sort_by(|a, b| {
+                b.score
+                    .partial_cmp(&a.score)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
+
+            if let Some(top_k) = options.top_k {
+                hits.truncate(top_k);
+            }
+
+            Ok(hits)
+        }
+    }
+
+    fn add_vector(&mut self, collection: &str, id: &str, vector: &[f32]) -> ThingdResult<()> {
+        #[cfg(not(feature = "vectors"))]
+        {
+            let _ = (collection, id, vector);
+        }
+
+        #[cfg(feature = "vectors")]
+        {
+            let vkey = Self::make_vector_key(collection, id);
+            let vdata = Self::serialize(&vector.to_vec())?;
+            self.vectors.insert(&vkey, &vdata)?;
+        }
+
+        Ok(())
+    }
+
+    fn remove_vector(&mut self, collection: &str, id: &str) -> ThingdResult<()> {
+        #[cfg(not(feature = "vectors"))]
+        {
+            let _ = (collection, id);
+        }
+
+        #[cfg(feature = "vectors")]
+        {
+            let vkey = Self::make_vector_key(collection, id);
+            let _ = self.vectors.remove(&vkey);
+        }
+
+        Ok(())
+    }
+}
+
 // ── Helper functions ─────────────────────────────────────────────────────────
 
 fn value_compare(a: &serde_json::Value, b: &serde_json::Value) -> std::cmp::Ordering {
@@ -1674,10 +1796,14 @@ fn bucket_label_for_date(iso_date: &str, bucket: TimeBucket) -> String {
 mod tests {
     use super::*;
     use crate::store::{AggregateStore, EventLog, LinkStore, ObjectStore, QueueStore, Searcher};
+    #[cfg(feature = "vectors")]
+    use crate::store::VectorStore;
     use crate::{
         Link, ListObjectsOptions, MemoryEvent, MemoryObject, QueueClaimOptions, QueueJob,
         QueueJobStatus, QueueNackOptions, SearchOptions, TimeBucket,
     };
+    #[cfg(feature = "vectors")]
+    use crate::VectorSearchOptions;
 
     /// Create a test engine with a temp directory that stays alive for the caller.
     fn setup() -> (FjallEngine, tempfile::TempDir) {
@@ -2580,5 +2706,98 @@ mod tests {
             0,
             "ready_jobs must be empty after re-claiming"
         );
+    }
+
+    // ── VectorStore ───────────────────────────────────────────────────────
+
+    #[cfg(feature = "vectors")]
+    #[test]
+    fn fjall_vector_search_returns_by_cosine_similarity() {
+        let (mut engine, _dir) = setup();
+        engine
+            .put_object(
+                MemoryObject::new("docs", "a", r#"{"text":"alpha"}"#)
+                    .with_vector(vec![1.0, 0.0, 0.0]),
+            )
+            .unwrap();
+        engine
+            .put_object(
+                MemoryObject::new("docs", "b", r#"{"text":"beta"}"#)
+                    .with_vector(vec![0.0, 1.0, 0.0]),
+            )
+            .unwrap();
+
+        let results = engine
+            .vector_search("docs", &[0.9, 0.1, 0.0], VectorSearchOptions::default())
+            .unwrap();
+        assert_eq!(results.len(), 2);
+        assert_eq!(results[0].id, "a");
+        assert!(results[0].score > results[1].score);
+    }
+
+    #[cfg(feature = "vectors")]
+    #[test]
+    fn fjall_vector_search_respects_filter() {
+        let (mut engine, _dir) = setup();
+        engine
+            .put_object(
+                MemoryObject::new("docs", "a", r#"{"tag":"x"}"#).with_vector(vec![1.0, 0.0]),
+            )
+            .unwrap();
+        engine
+            .put_object(
+                MemoryObject::new("docs", "b", r#"{"tag":"y"}"#).with_vector(vec![0.0, 1.0]),
+            )
+            .unwrap();
+
+        let results = engine
+            .vector_search(
+                "docs",
+                &[1.0, 0.0],
+                VectorSearchOptions {
+                    filter: Some(serde_json::json!({"tag": "x"})),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].id, "a");
+    }
+
+    #[cfg(feature = "vectors")]
+    #[test]
+    fn fjall_vector_search_excludes_deleted_objects() {
+        let (mut engine, _dir) = setup();
+        engine
+            .put_object(MemoryObject::new("docs", "a", "{}").with_vector(vec![1.0, 0.0]))
+            .unwrap();
+        engine.delete_object("docs", "a").unwrap();
+        let results = engine
+            .vector_search("docs", &[1.0, 0.0], VectorSearchOptions::default())
+            .unwrap();
+        assert!(results.is_empty());
+    }
+
+    #[cfg(feature = "vectors")]
+    #[test]
+    fn fjall_vector_search_persists_across_engine_reopen() {
+        let dir = tempfile::tempdir().unwrap();
+        {
+            let mut engine = FjallEngine::open(dir.path()).unwrap();
+            engine
+                .put_object(
+                    MemoryObject::new("docs", "a", r#"{"text":"persist"}"#)
+                        .with_vector(vec![1.0, 0.0, 0.0]),
+                )
+                .unwrap();
+        }
+        {
+            let engine = FjallEngine::open(dir.path()).unwrap();
+            let results = engine
+                .vector_search("docs", &[1.0, 0.0, 0.0], VectorSearchOptions::default())
+                .unwrap();
+            assert_eq!(results.len(), 1);
+            assert_eq!(results[0].id, "a");
+        }
     }
 }

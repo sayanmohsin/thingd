@@ -28,7 +28,7 @@ impl ObjectKey {
 }
 
 /// An object stored in a thingd collection.
-#[derive(Clone, Debug, Eq, Hash, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MemoryObject {
     /// Stable object key.
@@ -41,6 +41,9 @@ pub struct MemoryObject {
     pub created_at: String,
     /// ISO 8601 last-update timestamp. Empty if not set.
     pub updated_at: String,
+    /// Optional vector embedding for vector search (e.g., for ANN search).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vector: Option<Vec<f32>>,
 }
 
 impl MemoryObject {
@@ -56,7 +59,15 @@ impl MemoryObject {
             version: 0,
             created_at: String::new(),
             updated_at: String::new(),
+            vector: None,
         }
+    }
+
+    /// Attach a vector embedding to this object.
+    #[must_use]
+    pub fn with_vector(mut self, vector: Vec<f32>) -> Self {
+        self.vector = Some(vector);
+        self
     }
 }
 
@@ -371,6 +382,27 @@ pub struct SearchHit {
     pub updated_at: Option<String>,
     /// Event type (only populated for events).
     pub event_type: Option<String>,
+}
+
+/// A single match returned by a vector search query.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VectorSearchHit {
+    /// Object id.
+    pub id: String,
+    /// Cosine similarity score (0.0 to 1.0).
+    pub score: f64,
+    /// The full stored object.
+    pub value: MemoryObject,
+}
+
+/// Options for vector search.
+#[derive(Clone, Debug, Default)]
+pub struct VectorSearchOptions {
+    /// Maximum number of results to return (default: all matching).
+    pub top_k: Option<usize>,
+    /// Metadata filter: only objects whose body matches these fields are returned.
+    pub filter: Option<serde_json::Value>,
 }
 
 /// A graph link connecting two references.
