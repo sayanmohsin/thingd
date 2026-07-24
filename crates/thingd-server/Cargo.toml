@@ -13,7 +13,7 @@ categories = ["database-implementations", "web-programming::http-server"]
 [features]
 
 [dependencies]
-thingd = { path = "../thingd", version = "0.66", features = ["fjall", "search", "connectors"] }
+thingd = { path = "../thingd", version = "0.67", features = ["fjall", "search", "connectors"] }
 axum = { version = "0.8", features = ["json", "macros"] }
 tokio = { version = "1", features = ["full"] }
 serde = { version = "1", features = ["derive"] }
