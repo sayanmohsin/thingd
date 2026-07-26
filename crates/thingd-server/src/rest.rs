@@ -856,9 +856,10 @@ pub async fn search(
     headers: HeaderMap,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, AppError> {
-    let query = body["query"]
-        .as_str()
-        .ok_or_else(|| AppError::bad_request("Missing 'query'"))?;
+    let query = body["query"].as_str().unwrap_or("");
+    if query.is_empty() {
+        return ok(Vec::<Value>::new());
+    }
     let opts = SearchOptions {
         collections: body.get("collections").and_then(|v| v.as_array()).map(|a| {
             a.iter()
@@ -1319,7 +1320,7 @@ mod tests {
             )
             .await
             .unwrap();
-        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(response.status(), StatusCode::OK);
     }
 
     #[tokio::test]
