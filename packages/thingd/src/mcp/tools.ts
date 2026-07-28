@@ -1035,6 +1035,305 @@ export function registerThingdTools(
       return jsonResult(await db.nlq.query(question, { collection }));
     }
   );
+
+  // ── Scheduler tools ──
+
+  server.registerTool(
+    "thing_scheduler_schedule",
+    {
+      title: "Create Cron Schedule",
+      description:
+        "Create or update a recurring schedule with a cron expression. Schedules persist across restarts and emit lifecycle events (started, completed, failed, disabled). The handler executes when the cron triggers. Returns the created schedule with nextRunAt.",
+      inputSchema: {
+        id: z.string().min(1),
+        expression: z.string().min(1),
+        timezone: z.string().optional(),
+        payload: z.record(z.string(), z.unknown()).optional(),
+        enabled: z.boolean().optional(),
+        maxConsecutiveFails: z.number().int().positive().optional(),
+        ...auditInputSchema,
+      },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async ({ id, expression, timezone, payload, enabled, maxConsecutiveFails, actor, source }) => {
+      assertWriteAllowed();
+      const schedule = await db.scheduler.schedule(id, {
+        expression,
+        timezone,
+        payload,
+        enabled,
+        maxConsecutiveFails,
+        handler: async () => {},
+      });
+      await appendMcpAuditEvent(db, audit, {
+        action: "scheduler.schedule",
+        target: { id: schedule.id },
+        metadata: auditMetadata(actor, source),
+        result: { id: schedule.id, expression: schedule.expression, nextRunAt: schedule.nextRunAt },
+      });
+      return jsonResult(schedule);
+    }
+  );
+
+  server.registerTool(
+    "thing_scheduler_schedule_interval",
+    {
+      title: "Create Interval Schedule",
+      description:
+        "Create a schedule that runs at a fixed interval (e.g. every 5 minutes). Accepts intervalMs for the delay between runs. Returns the created schedule.",
+      inputSchema: {
+        id: z.string().min(1),
+        intervalMs: z.number().int().positive(),
+        payload: z.record(z.string(), z.unknown()).optional(),
+        enabled: z.boolean().optional(),
+        maxConsecutiveFails: z.number().int().positive().optional(),
+        ...auditInputSchema,
+      },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async ({ id, intervalMs, payload, enabled, maxConsecutiveFails, actor, source }) => {
+      assertWriteAllowed();
+      const schedule = await db.scheduler.scheduleInterval(id, {
+        intervalMs,
+        payload,
+        enabled,
+        maxConsecutiveFails,
+        handler: async () => {},
+      });
+      await appendMcpAuditEvent(db, audit, {
+        action: "scheduler.schedule_interval",
+        target: { id: schedule.id },
+        metadata: auditMetadata(actor, source),
+        result: { id: schedule.id, intervalMs, nextRunAt: schedule.nextRunAt },
+      });
+      return jsonResult(schedule);
+    }
+  );
+
+  server.registerTool(
+    "thing_scheduler_schedule_once",
+    {
+      title: "Create One-Time Schedule",
+      description:
+        "Create a schedule that runs once at a specific ISO timestamp. The schedule auto-disables after execution. Returns the created schedule.",
+      inputSchema: {
+        id: z.string().min(1),
+        runAt: z.string().min(1),
+        payload: z.record(z.string(), z.unknown()).optional(),
+        ...auditInputSchema,
+      },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async ({ id, runAt, payload, actor, source }) => {
+      assertWriteAllowed();
+      const schedule = await db.scheduler.scheduleOnce(id, {
+        runAt,
+        payload,
+        handler: async () => {},
+      });
+      await appendMcpAuditEvent(db, audit, {
+        action: "scheduler.schedule_once",
+        target: { id: schedule.id },
+        metadata: auditMetadata(actor, source),
+        result: { id: schedule.id, runAt: schedule.nextRunAt },
+      });
+      return jsonResult(schedule);
+    }
+  );
+
+  server.registerTool(
+    "thing_scheduler_list",
+    {
+      title: "List Schedules",
+      description:
+        "List all registered schedules with their current status, next run time, and run/fail counts. Returns an array of schedule objects.",
+      inputSchema: {},
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async () => {
+      return jsonResult(await db.scheduler.list());
+    }
+  );
+
+  server.registerTool(
+    "thing_scheduler_get",
+    {
+      title: "Get Schedule",
+      description:
+        "Get details of a single schedule by ID including its expression, next run, last status, and run/fail counts. Returns null if not found.",
+      inputSchema: {
+        id: z.string().min(1),
+      },
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async ({ id }) => {
+      return jsonResult(await db.scheduler.get(id));
+    }
+  );
+
+  server.registerTool(
+    "thing_scheduler_stats",
+    {
+      title: "Scheduler Statistics",
+      description:
+        "Get aggregate statistics for the scheduler: total schedules, enabled, disabled, currently running, and the next scheduled run.",
+      inputSchema: {},
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async () => {
+      return jsonResult(await db.scheduler.stats());
+    }
+  );
+
+  server.registerTool(
+    "thing_scheduler_pause",
+    {
+      title: "Pause Schedule",
+      description:
+        "Pause a schedule so it stops triggering. The schedule remains stored and can be resumed later. Returns the updated schedule.",
+      inputSchema: {
+        id: z.string().min(1),
+        ...auditInputSchema,
+      },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: false,
+      },
+    },
+    async ({ id, actor, source }) => {
+      assertWriteAllowed();
+      const schedule = await db.scheduler.pause(id);
+      await appendMcpAuditEvent(db, audit, {
+        action: "scheduler.pause",
+        target: { id: schedule.id },
+        metadata: auditMetadata(actor, source),
+        result: { id: schedule.id, enabled: schedule.enabled },
+      });
+      return jsonResult(schedule);
+    }
+  );
+
+  server.registerTool(
+    "thing_scheduler_resume",
+    {
+      title: "Resume Schedule",
+      description:
+        "Resume a paused schedule. The next run time is recalculated from the current time. Returns the updated schedule.",
+      inputSchema: {
+        id: z.string().min(1),
+        ...auditInputSchema,
+      },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: false,
+      },
+    },
+    async ({ id, actor, source }) => {
+      assertWriteAllowed();
+      const schedule = await db.scheduler.resume(id);
+      await appendMcpAuditEvent(db, audit, {
+        action: "scheduler.resume",
+        target: { id: schedule.id },
+        metadata: auditMetadata(actor, source),
+        result: { id: schedule.id, enabled: schedule.enabled, nextRunAt: schedule.nextRunAt },
+      });
+      return jsonResult(schedule);
+    }
+  );
+
+  server.registerTool(
+    "thing_scheduler_run",
+    {
+      title: "Manually Trigger Schedule",
+      description:
+        "Immediately execute a schedule's handler, regardless of its next run time. Useful for testing or manual triggers. The schedule must have a registered handler.",
+      inputSchema: {
+        id: z.string().min(1),
+        ...auditInputSchema,
+      },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: false,
+      },
+    },
+    async ({ id, actor, source }) => {
+      assertWriteAllowed();
+      await db.scheduler.run(id);
+      await appendMcpAuditEvent(db, audit, {
+        action: "scheduler.run",
+        target: { id },
+        metadata: auditMetadata(actor, source),
+        result: { triggered: true },
+      });
+      return jsonResult({ triggered: true, id });
+    }
+  );
+
+  server.registerTool(
+    "thing_scheduler_remove",
+    {
+      title: "Delete Schedule",
+      description:
+        "Permanently delete a schedule and its handler. This cannot be undone. Returns whether the schedule was deleted.",
+      inputSchema: {
+        id: z.string().min(1),
+        ...auditInputSchema,
+      },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: false,
+        openWorldHint: false,
+      },
+    },
+    async ({ id, actor, source }) => {
+      assertWriteAllowed();
+      const deleted = await db.scheduler.remove(id);
+      await appendMcpAuditEvent(db, audit, {
+        action: "scheduler.remove",
+        target: { id },
+        metadata: auditMetadata(actor, source),
+        result: { deleted },
+      });
+      return jsonResult({ deleted, id });
+    }
+  );
 }
 
 function auditMetadata(

@@ -447,3 +447,25 @@ For CLI and TUI access, use `thingd cloud token create <name>` instead.
 | Persists across deploys? | ✅ | ✅ |
 | Revocable? | ✅ via `thingd cloud token revoke` | ✅ via dashboard |
 | Shown once? | ✅ for manual create | ✅ |
+
+## Scheduler
+
+### How does the scheduler differ from queues?
+
+Queues are for **on-demand, one-shot work** (push a job, worker claims and completes it). The scheduler is for **recurring, time-based work** (cron expressions, intervals). The scheduler uses queues internally — each scheduled run creates a delayed queue job. The scheduler adds heartbeat polling, overlap protection, and auto-disable on failure.
+
+### Does the scheduler require a separate process?
+
+No. The scheduler runs inside your application via `db.scheduler.start()`. A heartbeat polls every 1 second and fires handlers when their next run time arrives. If your process dies, on restart the scheduler catches up on overdue runs.
+
+### What happens if a handler takes longer than the interval?
+
+The scheduler tracks `running` state per schedule. If a handler is still executing when the next interval fires, the tick is skipped — no overlapping runs. This is overlap protection.
+
+### Can I use the scheduler with the MCP server?
+
+Yes. 10 MCP tools (`thing_scheduler_*`) let agents manage schedules, trigger runs, and query stats. The MCP server calls back into the same `Scheduler` instance.
+
+### How are missed runs handled?
+
+On startup, the scheduler identifies overdue schedules and runs them immediately. During normal operation, the heartbeat catches any runs that were due while the handler was busy (skipped, not queued).

@@ -63,9 +63,11 @@ packages/
 | CLI | `packages/thingd-cli/src/index.ts` |
 | Tests | `packages/thingd/test/`, `packages/thingd-cli/test/`, `crates/thingd/` |
 
-**Sidecar MCP** (36 tools) — `crates/thingd-server/src/mcp.rs` via a registry-based dispatch. The Node.js SDK MCP (`packages/thingd/src/mcp/tools.ts`) remains the primary reference and adds auth gating.
+**Sidecar MCP** (46 tools) — `crates/thingd-server/src/mcp.rs` via a registry-based dispatch. The Node.js SDK MCP (`packages/thingd/src/mcp/tools.ts`) remains the primary reference and adds auth gating.
 
 **Sidecar cluster** returns real config (mode, peers, discovery). Real cluster forwarding/leader election logic is in `packages/thingd-cli/src/mcp/cluster.ts`.
+
+**Scheduler** — SDK-level module (`packages/thingd/src/scheduler.ts`). Uses existing ObjectStore + QueueStore primitives. No engine changes. Ships in SDK + MCP tools only.
 
 **MCP layer is independent** — no imports from REST. The stdio MCP server (`thingd mcp`) runs standalone without the REST layer.
 
@@ -75,7 +77,7 @@ packages/
 pnpm build                    # build all packages (TypeScript + Rust native)
 pnpm check                    # biome lint
 pnpm check:write              # biome auto-fix
-pnpm test:node                # 67 Node SDK tests
+pnpm test:node                # 91 Node SDK tests
 pnpm test:cli                 # 44 CLI tests
 pnpm test:rust                # cargo test --workspace --all-features (226 tests — 43 fjall unit tests*)
 pnpm test:local               # check → build → node+cli+package tests

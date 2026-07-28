@@ -1,4 +1,5 @@
 import { HttpThingStore } from "./client/http-thing-store.js";
+import { Scheduler } from "./scheduler.js";
 import { InMemoryThingStore } from "./stores/in-memory-thing-store.js";
 import { NativeThingStore } from "./stores/native-thing-store.js";
 import type {
@@ -23,6 +24,7 @@ import type {
   QueueJobOptions,
   QueueJobPayload,
   QueueNackOptions,
+  SchedulerFacade,
   SchemaOptions,
   StoredMemoryEvent,
   StoredMemoryObject,
@@ -62,10 +64,14 @@ export class ThingD implements ThingDConnection {
     return new ThingD(resolvedOptions.path, await openStore(resolvedOptions.path, resolvedOptions));
   }
 
+  readonly scheduler: SchedulerFacade;
+
   private constructor(
     readonly path: string,
     private readonly store: ThingStore
-  ) {}
+  ) {
+    this.scheduler = new Scheduler(store);
+  }
 
   put(collection: string, object: MemoryObject, options?: PutOptions): Promise<StoredMemoryObject> {
     return this.store.put(collection, object, options);

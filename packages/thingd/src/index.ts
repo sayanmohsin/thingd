@@ -28,6 +28,7 @@ export {
   sendError,
   sendJson,
 } from "./rest/index.js";
+export { Scheduler } from "./scheduler.js";
 export type { CloudThingStoreOptions } from "./stores/cloud-thing-store.js";
 export { CloudThingStore } from "./stores/cloud-thing-store.js";
 export { InMemoryThingStore } from "./stores/in-memory-thing-store.js";
@@ -57,6 +58,17 @@ export type {
   QueueJobResult,
   QueueJobStatus,
   QueueNackOptions,
+  Schedule,
+  ScheduleContext,
+  ScheduleEvent,
+  ScheduleHandler,
+  ScheduleIntervalOptions,
+  ScheduleOnceOptions,
+  ScheduleOptions,
+  SchedulerEventType,
+  SchedulerFacade,
+  SchedulerListener,
+  SchedulerStats,
   SortBy,
   SortDirection,
   StoredMemoryEvent,

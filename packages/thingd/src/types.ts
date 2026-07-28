@@ -287,6 +287,102 @@ export type NlqOptions = {
   apiKey?: string;
 };
 
+// ── Scheduler types ──
+
+export type Schedule = {
+  id: string;
+  expression: string;
+  timezone?: string;
+  payload: Record<string, unknown>;
+  enabled: boolean;
+  nextRunAt: string;
+  lastRunAt?: string;
+  lastStatus?: "completed" | "failed" | "running";
+  lastError?: string;
+  lastDurationMs?: number;
+  runCount: number;
+  failCount: number;
+  consecutiveFails: number;
+  maxConsecutiveFails: number;
+  createdAt: string;
+  updatedAt: string;
+  metadata?: Record<string, unknown>;
+};
+
+export type ScheduleHandler = (schedule: Schedule, context: ScheduleContext) => Promise<void>;
+
+export type ScheduleContext = {
+  log: (message: string) => void;
+  fail: (error: string) => void;
+};
+
+export type ScheduleOptions = {
+  expression?: string;
+  intervalMs?: number;
+  timezone?: string;
+  payload?: Record<string, unknown>;
+  enabled?: boolean;
+  maxConsecutiveFails?: number;
+  metadata?: Record<string, unknown>;
+  handler: ScheduleHandler;
+};
+
+export type ScheduleOnceOptions = {
+  runAt: string;
+  payload?: Record<string, unknown>;
+  metadata?: Record<string, unknown>;
+  handler: ScheduleHandler;
+};
+
+export type ScheduleIntervalOptions = {
+  intervalMs: number;
+  payload?: Record<string, unknown>;
+  enabled?: boolean;
+  maxConsecutiveFails?: number;
+  metadata?: Record<string, unknown>;
+  handler: ScheduleHandler;
+};
+
+export type ScheduleEvent = {
+  scheduleId: string;
+  expression: string;
+  status: "started" | "completed" | "failed" | "disabled";
+  timestamp: string;
+  durationMs?: number;
+  error?: string;
+  runCount: number;
+  failCount: number;
+};
+
+export type SchedulerStats = {
+  total: number;
+  enabled: number;
+  disabled: number;
+  running: number;
+  nextRun: { id: string; at: string } | null;
+};
+
+export type SchedulerEventType = "started" | "completed" | "failed" | "disabled";
+
+export type SchedulerListener = (event: ScheduleEvent) => void;
+
+export type SchedulerFacade = {
+  schedule(id: string, options: ScheduleOptions): Promise<Schedule>;
+  scheduleOnce(id: string, options: ScheduleOnceOptions): Promise<Schedule>;
+  scheduleInterval(id: string, options: ScheduleIntervalOptions): Promise<Schedule>;
+  get(id: string): Promise<Schedule | null>;
+  list(): Promise<Schedule[]>;
+  pause(id: string): Promise<Schedule>;
+  resume(id: string): Promise<Schedule>;
+  remove(id: string): Promise<boolean>;
+  run(id: string): Promise<void>;
+  stats(): Promise<SchedulerStats>;
+  start(): Promise<void>;
+  stop(): Promise<void>;
+  on(event: SchedulerEventType, listener: SchedulerListener): void;
+  off(event: SchedulerEventType, listener: SchedulerListener): void;
+};
+
 /**
  * Typed interface for a thingd database connection returned by `ThingD.open()`.
  * Consumers can use this for type-safe dependency injection instead of `any`:
@@ -353,6 +449,7 @@ export interface ThingDConnection {
   readonly nlq: {
     query(question: string, options?: NlqOptions): Promise<NlqResult>;
   };
+  readonly scheduler: SchedulerFacade;
   readonly aggregate: {
     count(
       collection: string,
