@@ -136,7 +136,7 @@ npm install @thingd/sdk
 
 ```toml
 [dependencies]
-thingd = { version = "0.68", features = ["fjall", "search"] }
+thingd = { version = "0.69", features = ["fjall", "search"] }
 ```
 
 ### Subpath imports
