@@ -191,6 +191,8 @@ Search with `rg 'version = "0\.xx"' crates/ packages/` after every version bump.
 
 Releases via `semantic-release` on main. All three npm packages (`@thingd/sdk`, `@thingd/cli`, `@thingd/native`) and the Rust crate (`thingd`) publish in lockstep. Version tag format: `v${version}`.
 
+> **Save GitHub Actions credits:** Each push to `main` with releasable commits (`feat:`, `fix:`) triggers a separate release workflow. Push related commits together (or squash before push) to avoid running multiple releases for the same feature. Example: if building a feature + updating deps, commit as `feat: add feature` then `chore: update deps`, push once — only the `feat:` commit triggers a release.
+
 Manual first publish (for new scoped packages):
 ```bash
 pnpm --filter @thingd/sdk publish --access public --no-git-checks
