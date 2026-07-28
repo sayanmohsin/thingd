@@ -37,8 +37,8 @@
     "test:rust": "cargo test --workspace --all-targets --all-features"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.5.4",
-    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@biomejs/biome": "2.5.5",
+    "@modelcontextprotocol/sdk": "^1.30.0",
     "@semantic-release/changelog": "^6.0.3",
     "@semantic-release/commit-analyzer": "13.0.1",
     "@semantic-release/exec": "^7.1.0",
@@ -46,7 +46,7 @@
     "@semantic-release/github": "12.0.9",
     "@semantic-release/release-notes-generator": "14.1.1",
     "@thingd/native": "file:packages/thingd-native",
-    "@types/node": "26.1.1",
+    "@types/node": "26.1.2",
     "conventional-changelog-conventionalcommits": "10.2.1",
     "cross-spawn": "^7.0.6",
     "lefthook": "^2.1.10",
