@@ -87,6 +87,26 @@ impl FjallEngine {
             }
         }
 
+        // Reconstruct event sequence counters and idempotency keys from durable data.
+        // This ensures sequences continue monotonic and idempotency dedup survives reopen.
+        let mut event_seq_counters: HashMap<String, u64> = HashMap::new();
+        let mut event_idempotency_keys: HashMap<(String, String), u64> = HashMap::new();
+        for kv in events.iter() {
+            if let Ok((key, value)) = guard_data(kv)
+                && let Ok((stream, seq)) = Self::split_event_key(&key)
+            {
+                event_seq_counters
+                    .entry(stream.clone())
+                    .and_modify(|max| *max = (*max).max(seq))
+                    .or_insert(seq);
+                if let Ok(event) = Self::deserialize::<MemoryEvent>(&value)
+                    && !event.idempotency_key.is_empty()
+                {
+                    event_idempotency_keys.insert((stream, event.idempotency_key), seq);
+                }
+            }
+        }
+
         #[cfg(feature = "search")]
         let search_index = Self::init_search_index(path.as_ref());
 
@@ -100,8 +120,8 @@ impl FjallEngine {
             links_from,
             links_to,
             next_link_id: AtomicU64::new(next_link_id + 1),
-            event_seq_counters: HashMap::new(),
-            event_idempotency_keys: HashMap::new(),
+            event_seq_counters,
+            event_idempotency_keys,
             #[cfg(feature = "search")]
             search_index,
             #[cfg(feature = "vectors")]
@@ -113,6 +133,11 @@ impl FjallEngine {
     fn init_search_index(path: &Path) -> Option<tantivy::Index> {
         let search_dir = path.join("search");
         let _ = std::fs::create_dir_all(&search_dir);
+
+        // Try to open an existing Tantivy index first; create a fresh one if absent
+        if let Ok(index) = tantivy::Index::open_in_dir(&search_dir) {
+            return Some(index);
+        }
 
         let mut schema_builder = tantivy::schema::Schema::builder();
         schema_builder.add_text_field("doc_key", tantivy::schema::STRING | tantivy::schema::STORED);
@@ -228,17 +253,26 @@ impl ObjectStore for FjallEngine {
         }
 
         let data = Self::serialize(&object)?;
-        self.objects.insert(&key, &data)?;
+
+        // Atomic batch: object data + vector state
+        let mut batch = self.db.batch();
+        batch.insert(&self.objects, &key, &data);
+        #[cfg(feature = "vectors")]
+        {
+            let vkey = Self::make_vector_key(&object.key.collection, &object.key.id);
+            if let Some(ref vector) = object.vector {
+                let vdata = Self::serialize(vector)?;
+                batch.insert(&self.vectors, &vkey, vdata);
+            } else {
+                batch.remove(&self.vectors, vkey);
+            }
+        }
+        batch
+            .commit()
+            .map_err(|e| ThingdError::Storage(e.to_string()))?;
 
         #[cfg(feature = "search")]
         self.index_object_for_search(&object);
-
-        #[cfg(feature = "vectors")]
-        if let Some(ref vector) = object.vector {
-            let vkey = Self::make_vector_key(&object.key.collection, &object.key.id);
-            let vdata = Self::serialize(vector)?;
-            self.vectors.insert(&vkey, &vdata)?;
-        }
 
         Ok(object)
     }
@@ -430,33 +464,52 @@ impl ObjectStore for FjallEngine {
     fn delete_object(&mut self, collection: &str, id: &str) -> ThingdResult<bool> {
         let key = Self::make_object_key(collection, id);
         let existed = self.objects.get(&key)?.is_some();
-        let _ = self.objects.remove(&key);
-        #[cfg(feature = "search")]
-        self.delete_object_from_search_index(collection, id);
+
+        // Atomic batch: object + vector removal
+        let mut batch = self.db.batch();
+        batch.remove(&self.objects, key);
         #[cfg(feature = "vectors")]
         {
             let vkey = Self::make_vector_key(collection, id);
-            let _ = self.vectors.remove(&vkey);
+            batch.remove(&self.vectors, vkey);
         }
+        batch
+            .commit()
+            .map_err(|e| ThingdError::Storage(e.to_string()))?;
+
+        #[cfg(feature = "search")]
+        self.delete_object_from_search_index(collection, id);
         Ok(existed)
     }
 
     fn delete_objects_batch(&mut self, keys: &[(String, String)]) -> ThingdResult<u64> {
         let mut count = 0u64;
+        let mut batch = self.db.batch();
+
         for (collection, id) in keys {
             let key = Self::make_object_key(collection, id);
             if self.objects.get(&key)?.is_some() {
-                self.objects.remove(&key)?;
+                batch.remove(&self.objects, key);
                 count += 1;
             }
-            #[cfg(feature = "search")]
-            self.delete_object_from_search_index(collection, id);
             #[cfg(feature = "vectors")]
             {
                 let vkey = Self::make_vector_key(collection, id);
-                let _ = self.vectors.remove(&vkey);
+                batch.remove(&self.vectors, vkey);
             }
         }
+
+        if count > 0 {
+            batch
+                .commit()
+                .map_err(|e| ThingdError::Storage(e.to_string()))?;
+        }
+
+        #[cfg(feature = "search")]
+        for (collection, id) in keys {
+            self.delete_object_from_search_index(collection, id);
+        }
+
         Ok(count)
     }
 
@@ -702,6 +755,10 @@ impl EventLog for FjallEngine {
 
         if let Some(key) = last_key {
             self.events.remove(&key)?;
+            #[cfg(feature = "search")]
+            if let Some(ref ev) = last_event {
+                self.delete_event_from_search_index(&ev.stream, ev.sequence);
+            }
             Ok(last_event)
         } else {
             Ok(None)
@@ -715,19 +772,26 @@ impl EventLog for FjallEngine {
             )));
         }
 
-        let keys: Vec<Vec<u8>> = self
+        let entries: Vec<(Vec<u8>, u64)> = self
             .events
             .iter()
             .filter_map(|kv| {
-                let (key, _) = guard_data(kv).ok()?;
-                let (s, _) = Self::split_event_key(&key).ok()?;
-                if s == stream { Some(key) } else { None }
+                guard_data(kv)
+                    .ok()
+                    .and_then(|(key, _)| Self::split_event_key(&key).ok())
+                    .filter(|(s, _)| s == stream)
+                    .map(|(_, seq)| {
+                        let ekey = Self::make_event_key(stream, seq);
+                        (ekey, seq)
+                    })
             })
             .collect();
 
-        let count = keys.len() as u64;
-        for key in keys {
-            self.events.remove(&key)?;
+        let count = entries.len() as u64;
+        for (key, seq) in &entries {
+            self.events.remove(key)?;
+            #[cfg(feature = "search")]
+            self.delete_event_from_search_index(stream, *seq);
         }
 
         self.event_seq_counters.remove(stream);
@@ -809,32 +873,26 @@ impl QueueStore for FjallEngine {
             }
         }
 
-        // Scan ready_jobs index — first entry is highest priority, oldest
+        // Scan ready_jobs index in priority order, skipping delayed and stale entries
         let prefix = format!("{queue}\0");
-        let mut best_ready_key: Option<Vec<u8>> = None;
-        let mut best_job_id: Option<String> = None;
-
         for kv in self.ready_jobs.prefix(prefix.as_bytes()) {
             let (key, _) = guard_data(kv)?;
             let key_str = String::from_utf8_lossy(&key);
-            // Extract job ID from key: {queue}\0{priority}\0{created_at}\0{id}
             let parts: Vec<&str> = key_str.splitn(4, '\0').collect();
-            if parts.len() >= 4 {
-                let job_id = parts[3].to_string();
-                best_ready_key = Some(key);
-                best_job_id = Some(job_id);
-                break; // First entry is the best match
+            if parts.len() < 4 {
+                continue;
             }
-        }
+            let job_id = parts[3].to_string();
+            let rkey = key;
 
-        if let (Some(rkey), Some(job_id)) = (best_ready_key, best_job_id) {
             // Read full job from queue_jobs
             let qkey = Self::make_queue_key(queue, &job_id);
-            let mut job: QueueJob = match value_to_vec(self.queue_jobs.get(&qkey)?) {
-                Some(data) => Self::deserialize(&data)?,
-                None => return Ok(None),
+            let Some(job_data) = value_to_vec(self.queue_jobs.get(&qkey)?) else {
+                // Job record missing — remove stale index entry
+                let _ = self.ready_jobs.remove(&rkey);
+                continue;
             };
-
+            let mut job: QueueJob = Self::deserialize(&job_data)?;
             // Release expired lease if this job was previously leased
             if job.status == QueueJobStatus::Leased
                 && job.lease_expires_at_ms.is_some_and(|exp| exp <= now)
@@ -844,27 +902,29 @@ impl QueueStore for FjallEngine {
                 job.lease_expires_at_ms = None;
             }
 
-            // Check if job is actually claimable
-            if job.status != QueueJobStatus::Ready || job.available_at_ms > now {
-                // Remove stale index entry and retry
-                self.ready_jobs.remove(&rkey)?;
-                return self.claim_job_with_options(queue, options);
+            // Skip (and remove) stale entries for completed or dead jobs
+            if job.status != QueueJobStatus::Ready {
+                let _ = self.ready_jobs.remove(&rkey);
+                continue;
             }
 
-            // Remove from ready index
-            self.ready_jobs.remove(&rkey)?;
+            // Job is delayed — skip it but keep the index entry so it can be claimed later
+            if job.available_at_ms > now {
+                continue;
+            }
 
-            // Claim the job
+            // Claim this job
+            self.ready_jobs.remove(&rkey)?;
             job.status = QueueJobStatus::Leased;
             job.attempts = job.attempts.saturating_add(1);
             job.leased_at_ms = Some(now);
             job.lease_expires_at_ms = Some(now + options.lease_ms as i64);
             let data = Self::serialize(&job)?;
             self.queue_jobs.insert(&qkey, &data)?;
-            Ok(Some(job))
-        } else {
-            Ok(None)
+            return Ok(Some(job));
         }
+
+        Ok(None)
     }
 
     fn ack_job(&mut self, queue: &str, id: &str) -> ThingdResult<Option<QueueJob>> {
@@ -1022,8 +1082,12 @@ impl FjallEngine {
             Err(_) => return,
         };
 
-        let mut doc = tantivy::TantivyDocument::new();
         let doc_key = format!("{}/{}", object.key.collection, object.key.id);
+        // Remove existing document with the same doc_key to prevent duplicates
+        let term = tantivy::Term::from_field_text(doc_key_field, &doc_key);
+        let _ = writer.delete_term(term);
+
+        let mut doc = tantivy::TantivyDocument::new();
         doc.add_text(doc_key_field, &doc_key);
         doc.add_text(collection_field, &object.key.collection);
         doc.add_text(id_field, &object.key.id);
@@ -1060,6 +1124,26 @@ impl FjallEngine {
         doc.add_text(kind_field, "event");
 
         let _ = writer.add_document(doc);
+        let _ = writer.commit();
+    }
+
+    #[cfg(feature = "search")]
+    fn delete_event_from_search_index(&self, stream: &str, sequence: u64) {
+        let Some(ref index) = self.search_index else {
+            return;
+        };
+        let schema = index.schema();
+        let doc_key_field = schema.get_field("doc_key").unwrap();
+
+        let mut writer: tantivy::IndexWriter<tantivy::TantivyDocument> =
+            match index.writer(50_000_000) {
+                Ok(w) => w,
+                Err(_) => return,
+            };
+
+        let doc_key = format!("event:{stream}/{sequence}");
+        let term = tantivy::Term::from_field_text(doc_key_field, &doc_key);
+        let _ = writer.delete_term(term);
         let _ = writer.commit();
     }
 
@@ -2851,5 +2935,174 @@ mod tests {
             assert_eq!(results.len(), 1);
             assert_eq!(results[0].id, "a");
         }
+    }
+
+    // ── Reopen tests ─────────────────────────────────────────────────────────
+
+    #[test]
+    fn fjall_event_sequence_survives_reopen() {
+        let dir = tempfile::tempdir().unwrap();
+        let stream = "test-stream";
+        {
+            let mut engine = FjallEngine::open(dir.path()).unwrap();
+            let e1 = engine
+                .append_event(MemoryEvent::new(stream, "t1", "{}"))
+                .unwrap();
+            assert_eq!(e1.sequence, 1);
+            let e2 = engine
+                .append_event(MemoryEvent::new(stream, "t2", "{}"))
+                .unwrap();
+            assert_eq!(e2.sequence, 2);
+        }
+        {
+            let mut engine = FjallEngine::open(dir.path()).unwrap();
+            // Next event should continue at sequence 3
+            let e3 = engine
+                .append_event(MemoryEvent::new(stream, "t3", "{}"))
+                .unwrap();
+            assert_eq!(
+                e3.sequence, 3,
+                "sequence must continue from durable max after reopen"
+            );
+            // Sequence 1 should not be overwritten
+            let events = engine
+                .list_events(Some(stream), ListEventsOptions::default())
+                .unwrap();
+            assert_eq!(events.len(), 3);
+        }
+    }
+
+    #[test]
+    fn fjall_event_idempotency_survives_reopen() {
+        let dir = tempfile::tempdir().unwrap();
+        let stream = "test-stream";
+        {
+            let mut engine = FjallEngine::open(dir.path()).unwrap();
+            let mut e = MemoryEvent::new(stream, "t1", r#"{"x":1}"#);
+            e.idempotency_key = "key-1".to_string();
+            let e1 = engine.append_event(e).unwrap();
+            assert_eq!(e1.sequence, 1);
+        }
+        {
+            let mut engine = FjallEngine::open(dir.path()).unwrap();
+            // Same idempotency key — must return existing event, not duplicate
+            let mut e = MemoryEvent::new(stream, "t1", r#"{"x":1}"#);
+            e.idempotency_key = "key-1".to_string();
+            let e2 = engine.append_event(e).unwrap();
+            assert_eq!(
+                e2.sequence, 1,
+                "idempotency must be preserved across reopen"
+            );
+            // New event should continue
+            let e3 = engine
+                .append_event(MemoryEvent::new(stream, "t2", "{}"))
+                .unwrap();
+            assert_eq!(e3.sequence, 2);
+        }
+    }
+
+    #[test]
+    fn fjall_vector_survives_reopen() {
+        let dir = tempfile::tempdir().unwrap();
+        {
+            let mut engine = FjallEngine::open(dir.path()).unwrap();
+            engine
+                .put_object(
+                    MemoryObject::new("docs", "a", r#"{"text":"persist"}"#)
+                        .with_vector(vec![1.0, 0.0, 0.0]),
+                )
+                .unwrap();
+        }
+        {
+            let engine = FjallEngine::open(dir.path()).unwrap();
+            let results = engine
+                .vector_search("docs", &[1.0, 0.0, 0.0], VectorSearchOptions::default())
+                .unwrap();
+            assert_eq!(results.len(), 1);
+            assert_eq!(results[0].id, "a");
+        }
+    }
+
+    #[test]
+    fn fjall_vector_removed_on_update_without_vector_reopen() {
+        let dir = tempfile::tempdir().unwrap();
+        {
+            let mut engine = FjallEngine::open(dir.path()).unwrap();
+            engine
+                .put_object(
+                    MemoryObject::new("docs", "a", r#"{"v":1}"#).with_vector(vec![1.0, 0.0, 0.0]),
+                )
+                .unwrap();
+        }
+        {
+            let mut engine = FjallEngine::open(dir.path()).unwrap();
+            // Update without vector — old vector must be removed
+            engine
+                .put_object(MemoryObject::new("docs", "a", r#"{"v":2}"#))
+                .unwrap();
+        }
+        {
+            let engine = FjallEngine::open(dir.path()).unwrap();
+            let results = engine
+                .vector_search("docs", &[1.0, 0.0, 0.0], VectorSearchOptions::default())
+                .unwrap();
+            assert_eq!(results.len(), 0, "vector must survive reopen and removal");
+        }
+    }
+
+    // ── Shared contract tests ───────────────────────────────────────────────
+
+    fn setup_fjall() -> (FjallEngine, tempfile::TempDir) {
+        let dir = tempfile::tempdir().unwrap();
+        let engine = FjallEngine::open(dir.path()).unwrap();
+        (engine, dir)
+    }
+
+    #[test]
+    fn contract_object_lifecycle() {
+        let (mut engine, _dir) = setup_fjall();
+        crate::contract_tests::test_contract_object_lifecycle(&mut engine);
+    }
+
+    #[test]
+    fn contract_vector_lifecycle() {
+        let (mut engine, _dir) = setup_fjall();
+        crate::contract_tests::test_contract_vector_lifecycle(&mut engine);
+    }
+
+    #[test]
+    fn contract_event_idempotency() {
+        let (mut engine, _dir) = setup_fjall();
+        crate::contract_tests::test_contract_event_idempotency(&mut engine);
+    }
+
+    #[test]
+    fn contract_queue_lifecycle() {
+        let (mut engine, _dir) = setup_fjall();
+        crate::contract_tests::test_contract_queue_lifecycle(&mut engine);
+    }
+
+    #[test]
+    fn contract_delayed_job() {
+        let (mut engine, _dir) = setup_fjall();
+        crate::contract_tests::test_contract_delayed_job(&mut engine);
+    }
+
+    #[test]
+    fn contract_lease_expiration() {
+        let (mut engine, _dir) = setup_fjall();
+        crate::contract_tests::test_contract_lease_expiration(&mut engine);
+    }
+
+    #[test]
+    fn contract_nack_dead_letter() {
+        let (mut engine, _dir) = setup_fjall();
+        crate::contract_tests::test_contract_nack_dead_letter(&mut engine);
+    }
+
+    #[test]
+    fn contract_search() {
+        let (mut engine, _dir) = setup_fjall();
+        crate::contract_tests::test_contract_search(&mut engine);
     }
 }

@@ -88,6 +88,10 @@ pub use store::{
     AggregateStore, EventLog, LinkStore, ObjectStore, QueueStore, Searcher, ThingStore, VectorStore,
 };
 
+/// Shared contract tests for all engine backends.
+#[cfg(test)]
+pub(crate) mod contract_tests;
+
 pub(crate) fn unix_timestamp_millis() -> i64 {
     let Ok(duration) = SystemTime::now().duration_since(UNIX_EPOCH) else {
         #[cfg(debug_assertions)]

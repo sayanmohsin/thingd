@@ -61,11 +61,11 @@ impl ObjectStore for MemoryEngine {
         }
         self.objects.insert(object.key.clone(), object.clone());
 
+        let vec_key = (object.key.collection.clone(), object.key.id.clone());
         if let Some(ref vector) = object.vector {
-            self.vectors.insert(
-                (object.key.collection.clone(), object.key.id.clone()),
-                vector.clone(),
-            );
+            self.vectors.insert(vec_key, vector.clone());
+        } else {
+            self.vectors.remove(&vec_key);
         }
 
         Ok(object)
@@ -1946,5 +1946,55 @@ mod tests {
             .vector_search("docs", &[1.0, 0.0], VectorSearchOptions::default())
             .unwrap();
         assert!(results.is_empty());
+    }
+
+    // ── Shared contract tests ───────────────────────────────────────────────
+
+    #[test]
+    fn contract_object_lifecycle() {
+        let mut engine = MemoryEngine::new();
+        crate::contract_tests::test_contract_object_lifecycle(&mut engine);
+    }
+
+    #[test]
+    fn contract_vector_lifecycle() {
+        let mut engine = MemoryEngine::new();
+        crate::contract_tests::test_contract_vector_lifecycle(&mut engine);
+    }
+
+    #[test]
+    fn contract_event_idempotency() {
+        let mut engine = MemoryEngine::new();
+        crate::contract_tests::test_contract_event_idempotency(&mut engine);
+    }
+
+    #[test]
+    fn contract_queue_lifecycle() {
+        let mut engine = MemoryEngine::new();
+        crate::contract_tests::test_contract_queue_lifecycle(&mut engine);
+    }
+
+    #[test]
+    fn contract_delayed_job() {
+        let mut engine = MemoryEngine::new();
+        crate::contract_tests::test_contract_delayed_job(&mut engine);
+    }
+
+    #[test]
+    fn contract_lease_expiration() {
+        let mut engine = MemoryEngine::new();
+        crate::contract_tests::test_contract_lease_expiration(&mut engine);
+    }
+
+    #[test]
+    fn contract_nack_dead_letter() {
+        let mut engine = MemoryEngine::new();
+        crate::contract_tests::test_contract_nack_dead_letter(&mut engine);
+    }
+
+    #[test]
+    fn contract_search() {
+        let mut engine = MemoryEngine::new();
+        crate::contract_tests::test_contract_search(&mut engine);
     }
 }
