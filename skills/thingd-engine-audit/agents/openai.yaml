@@ -1,0 +1,4 @@
+interface:
+  display_name: "Thingd Engine and Cloud Audit"
+  short_description: "Audit Thingd engine, Cloud, SDKs, REST, MCP, and CLIs"
+  default_prompt: "Audit thingd and thingd Cloud end to end for parity, routing, auth, CLI, NLQ, reliability, and documentation issues."
