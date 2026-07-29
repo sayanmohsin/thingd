@@ -44,9 +44,14 @@ pub struct ConnectorAuth {
 impl ConnectorAuth {
     /// Build a Postgres connection string.
     pub fn postgres_uri(&self) -> String {
+        let ssl_mode = match self.ssl_mode {
+            SslMode::Disable => "disable",
+            SslMode::Prefer => "prefer",
+            SslMode::Require => "require",
+        };
         format!(
-            "postgres://{}:{}@{}:{}/{}",
-            self.username, self.password, self.host, self.port, self.database
+            "postgres://{}:{}@{}:{}/{}?sslmode={}",
+            self.username, self.password, self.host, self.port, self.database, ssl_mode
         )
     }
 
@@ -683,7 +688,7 @@ mod tests {
         };
         assert_eq!(
             auth.postgres_uri(),
-            "postgres://user:pass@localhost:5432/mydb"
+            "postgres://user:pass@localhost:5432/mydb?sslmode=disable"
         );
     }
 
@@ -759,6 +764,7 @@ mod tests {
         let uri = auth.postgres_uri();
         assert!(uri.contains("user@host"));
         assert!(uri.contains("mydb"));
+        assert!(uri.contains("sslmode=disable"));
     }
 
     #[test]

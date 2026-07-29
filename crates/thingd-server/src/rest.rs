@@ -804,11 +804,10 @@ pub async fn ping_connector(
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, AppError> {
     let connector = get_connector(&connector_type)?;
-    let mut config = build_connector_config(&connector_type, &body);
-    config.query = Some("SELECT 1".to_string());
-    let result = connector.discover_schema(&config);
+    let config = build_connector_config(&connector_type, &body);
+    let result = connector.list_tables(&config);
     match result {
-        Ok(_schema) => ok(json!({ "ok": true, "connector": connector_type })),
+        Ok(_tables) => ok(json!({ "ok": true, "connector": connector_type })),
         Err(e) => Err(AppError::bad_request(format!("Connection failed: {e}"))),
     }
 }

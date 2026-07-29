@@ -3001,6 +3001,7 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "vectors")]
     #[test]
     fn fjall_vector_survives_reopen() {
         let dir = tempfile::tempdir().unwrap();
@@ -3023,6 +3024,7 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "vectors")]
     #[test]
     fn fjall_vector_removed_on_update_without_vector_reopen() {
         let dir = tempfile::tempdir().unwrap();
