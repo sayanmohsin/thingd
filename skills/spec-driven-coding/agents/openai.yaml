@@ -1,0 +1,4 @@
+interface:
+  display_name: "Spec-Driven Coding"
+  short_description: "Implement approved specs safely"
+  default_prompt: "Use $spec-driven-coding to implement the approved specification phase by phase, verify each change, and report blockers."

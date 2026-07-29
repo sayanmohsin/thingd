@@ -1,0 +1,4 @@
+interface:
+  display_name: "Spec-Driven Planning"
+  short_description: "Turn ideas into implementation-ready specs"
+  default_prompt: "Use $spec-driven-planning to turn this idea into a detailed, validated implementation specification and agent handoff."
