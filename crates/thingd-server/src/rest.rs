@@ -786,6 +786,19 @@ pub async fn discover_schema(
     }))
 }
 
+pub async fn list_connector_tables(
+    Path(connector_type): Path<String>,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, AppError> {
+    let connector = get_connector(&connector_type)?;
+    let config = build_connector_config(&connector_type, &body);
+    let tables = connector
+        .list_tables(&config)
+        .map_err(|e| AppError::internal(e.to_string()))?;
+
+    ok(json!({ "tables": tables }))
+}
+
 pub async fn ping_connector(
     Path(connector_type): Path<String>,
     Json(body): Json<Value>,
@@ -1922,6 +1935,24 @@ mod tests {
         let json: Value = serde_json::from_slice(&bytes).unwrap();
         let arr = json["data"].as_array().unwrap();
         assert!(arr.contains(&Value::String("file".to_string())));
+    }
+
+    #[tokio::test]
+    async fn test_connector_tables_rejects_unknown_type() {
+        let (state, config) = test_state_and_config();
+        let app = crate::server::build_router(state, &config);
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/connectors/unknown/tables")
+                    .header("content-type", "application/json")
+                    .body(Body::from("{}"))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     }
 
     #[tokio::test]

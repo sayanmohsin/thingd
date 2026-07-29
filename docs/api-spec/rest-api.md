@@ -780,6 +780,36 @@ curl http://localhost:8757/v1/connectors
 { "data": ["file", "postgres", "mysql"] }
 ```
 
+### `POST /v1/connectors/{type}/tables` — List source tables
+
+List table names available to a database connector without importing rows.
+
+**Path parameter:** `type` — connector type (`"postgres"`, `"mysql"`)
+
+**Body:**
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `auth` | yes | Database credentials (host, port, database, username, password, sslMode) |
+
+```bash
+curl -X POST http://localhost:8757/v1/connectors/postgres/tables \
+  -H "Content-Type: application/json" \
+  -d '{
+    "auth": {
+      "host": "localhost",
+      "port": 5432,
+      "database": "mydb",
+      "username": "user",
+      "password": "pass"
+    }
+  }'
+```
+
+```json
+{ "data": { "tables": ["orders", "patients", "users"] } }
+```
+
 ### `POST /v1/connectors/{type}/ping` — Test connection
 
 Test connectivity to an external database without importing data or discovering schema.

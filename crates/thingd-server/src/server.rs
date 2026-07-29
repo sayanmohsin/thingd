@@ -72,6 +72,7 @@ pub fn build_router(state: Arc<AppState>, config: &Config) -> Router {
         // Connectors
         .route("/v1/connectors", get(rest::list_connectors))
         .route("/v1/connectors/{type}/ping", post(rest::ping_connector))
+        .route("/v1/connectors/{type}/tables", post(rest::list_connector_tables))
         .route("/v1/connectors/{type}/schema", post(rest::discover_schema))
         .route("/v1/connectors/{type}/pull", post(rest::pull_data))
         // MCP
