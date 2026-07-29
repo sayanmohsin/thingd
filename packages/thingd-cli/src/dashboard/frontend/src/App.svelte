@@ -121,6 +121,10 @@
     }
   }
 
+  function errorMessage(err) {
+    return err instanceof Error ? err.message : String(err);
+  }
+
   // Escape HTML helper
   function escapeHtml(str) {
     if (!str) return '';
@@ -157,7 +161,9 @@
       }
       return data;
     } catch (err) {
-      console.error(`API Error on ${url}:`, err);
+      if (errorMessage(err) !== 'Unauthorized') {
+        logDiagnostic(`API request failed (${url}): ${errorMessage(err)}`, 'danger');
+      }
       throw err;
     }
   }
@@ -420,7 +426,10 @@
     try {
       queueStats = await request(`/api/queues/stats?queue=${encodeURIComponent(selectedQueue)}`);
     } catch (err) {
-      console.error(err);
+      logDiagnostic(`Queue stats failed: ${errorMessage(err)}`, 'danger');
+      if (errorMessage(err) !== 'Unauthorized') {
+        showToast(`Failed to load queue stats: ${errorMessage(err)}`, 'error');
+      }
     }
   }
 

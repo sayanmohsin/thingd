@@ -1,7 +1,7 @@
 import { existsSync, promises as fs, statSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { createRequire } from "node:module";
-import { dirname, extname, join } from "node:path";
+import { dirname, extname, isAbsolute, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { handleRestRequest, ThingD } from "@thingd/sdk";
 import type { ConnectionOptions } from "../index.js";
@@ -47,6 +47,8 @@ const MIME_TYPES: Record<string, string> = {
   ".json": "application/json",
   ".png": "image/png",
   ".ico": "image/x-icon",
+  ".svg": "image/svg+xml",
+  ".webmanifest": "application/manifest+json",
 };
 
 async function readBody(req: IncomingMessage): Promise<string> {
@@ -673,7 +675,8 @@ Example: { "action": "aggregate", "collection": "orders", "function": "sum", "fi
       const fullFilePath = join(publicDir, targetFilePath);
 
       // Security: ensure the resolved path is inside the public folder
-      if (!fullFilePath.startsWith(publicDir)) {
+      const relativePath = relative(publicDir, fullFilePath);
+      if (isAbsolute(relativePath) || relativePath.startsWith("..")) {
         res.writeHead(403);
         res.end("Forbidden");
         return;

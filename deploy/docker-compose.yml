@@ -1,7 +1,7 @@
 services:
   thingd-leader:
     build:
-      context: ..
+      context: ../docker-context
       dockerfile: Dockerfile
     image: thingd:local
     environment:

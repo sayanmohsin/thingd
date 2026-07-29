@@ -11,7 +11,7 @@ experiments, and self-hosting.
 Local build:
 
 ```bash
-docker build -t thingd:local .
+docker build -f docker-context/Dockerfile -t thingd:local docker-context
 ```
 
 ## Multi-Arch Builds
@@ -27,8 +27,9 @@ Local multi-arch build:
 ```bash
 docker buildx build \
   --platform linux/amd64,linux/arm64 \
+  -f docker-context/Dockerfile \
   -t sayanmohsin/thingd:latest \
-  --push .
+  --push docker-context
 ```
 
 ## Run
@@ -41,10 +42,10 @@ docker run --rm \
   thingd:local
 ```
 
-The container starts:
+The container starts the static `thingd-server` binary:
 
 ```txt
-node packages/thingd-cli/dist/index.js mcp-http
+thingd-server --config /etc/thingd/config.yaml
 ```
 
 Default container environment:

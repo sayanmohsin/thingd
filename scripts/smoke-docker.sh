@@ -12,7 +12,7 @@ cleanup() {
 
 trap cleanup EXIT
 
-docker build -t "$IMAGE" .
+docker build -f docker-context/Dockerfile -t "$IMAGE" docker-context
 cleanup
 
 docker run -d \
