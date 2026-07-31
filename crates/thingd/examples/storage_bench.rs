@@ -88,7 +88,7 @@ where
     let all_objects = store.list_objects(None, &ListObjectsOptions::default())?;
     let elapsed = started.elapsed();
     black_box(all_objects.len());
-    report(name, "list_objects", all_objects.len(), elapsed);
+    report(name, "list_objects", 1, elapsed);
 
     let filter_opts = ListObjectsOptions {
         filter: vec![("status".into(), serde_json::json!("active"))],
@@ -98,7 +98,7 @@ where
     let filtered = store.list_objects(None, &filter_opts)?;
     let elapsed = started.elapsed();
     black_box(filtered.len());
-    report(name, "list_objects_filter", filtered.len().max(1), elapsed);
+    report(name, "list_objects_filter", 1, elapsed);
 
     let limit_opts = ListObjectsOptions {
         limit: Some(100),
@@ -108,7 +108,7 @@ where
     let limited = store.list_objects(Some(&[COLLECTION.to_string()]), &limit_opts)?;
     let elapsed = started.elapsed();
     black_box(limited.len());
-    report(name, "list_objects_limit100", limited.len().max(1), elapsed);
+    report(name, "list_objects_limit100", 1, elapsed);
 
     let paginate_opts = ListObjectsOptions {
         limit: Some(100),
@@ -119,7 +119,7 @@ where
     let page = store.list_objects(Some(&[COLLECTION.to_string()]), &paginate_opts)?;
     let elapsed = started.elapsed();
     black_box(page.len());
-    report(name, "list_objects_page", page.len().max(1), elapsed);
+    report(name, "list_objects_page", 1, elapsed);
 
     let elapsed = time_event_appends(&mut store, iterations)?;
     report(name, "event_append", iterations, elapsed);
@@ -131,7 +131,7 @@ where
     let events = store.list_events(Some(STREAM), ListEventsOptions::default())?;
     let elapsed = started.elapsed();
     black_box(events.len());
-    report(name, "event_list", events.len(), elapsed);
+    report(name, "event_list", 1, elapsed);
 
     let midpoint = events.len() as u64 / 2;
     let from_opts = ListEventsOptions {
@@ -143,7 +143,7 @@ where
     let tail = store.list_events(Some(STREAM), from_opts)?;
     let elapsed = started.elapsed();
     black_box(tail.len());
-    report(name, "event_list_from_seq", tail.len().max(1), elapsed);
+    report(name, "event_list_from_seq", 1, elapsed);
 
     let limit_event_opts = ListEventsOptions {
         from_sequence: None,
@@ -154,12 +154,7 @@ where
     let limited_events = store.list_events(Some(STREAM), limit_event_opts)?;
     let elapsed = started.elapsed();
     black_box(limited_events.len());
-    report(
-        name,
-        "event_list_limit100",
-        limited_events.len().max(1),
-        elapsed,
-    );
+    report(name, "event_list_limit100", 1, elapsed);
 
     let elapsed = time_queue_pushes(&mut store, iterations)?;
     report(name, "queue_push", iterations, elapsed);
@@ -175,7 +170,7 @@ where
 
     time_search_benchmarks(name, &store)?;
 
-    time_batch_scale_benchmarks(name, &mut store)?;
+    time_batch_scale_benchmarks(name, &mut store, iterations)?;
 
     time_count_benchmarks(name, &store)?;
 
@@ -400,7 +395,7 @@ where
     let hits = store.search("benchmark", search_opts)?;
     let elapsed = started.elapsed();
     black_box(hits.len());
-    report(name, "search", hits.len().max(1), elapsed);
+    report(name, "search", 1, elapsed);
 
     let filtered_search = SearchOptions {
         collections: Some(vec![COLLECTION.to_string()]),
@@ -411,7 +406,7 @@ where
     let filtered_hits = store.search("benchmark", filtered_search)?;
     let elapsed = started.elapsed();
     black_box(filtered_hits.len());
-    report(name, "search_filtered", filtered_hits.len().max(1), elapsed);
+    report(name, "search_filtered", 1, elapsed);
 
     Ok(())
 }
@@ -435,13 +430,19 @@ where
     Ok(())
 }
 
-fn time_batch_scale_benchmarks<S>(name: &str, store: &mut S) -> Result<(), Box<dyn Error>>
+fn time_batch_scale_benchmarks<S>(
+    name: &str,
+    store: &mut S,
+    iterations: usize,
+) -> Result<(), Box<dyn Error>>
 where
     S: ObjectStore,
 {
-    let batch_sizes = [10usize, 100, 1000];
+    let batch_sizes = [10usize, 100, 1000]
+        .into_iter()
+        .filter(|size| *size <= iterations.max(10));
 
-    for &size in &batch_sizes {
+    for size in batch_sizes.clone() {
         let objects: Vec<MemoryObject> = (0..size)
             .map(|i| MemoryObject::new("scale_batch", format!("s-{size}-{i}"), OBJECT_BODY_ACTIVE))
             .collect();
@@ -454,7 +455,7 @@ where
         report(name, &label, size, elapsed);
     }
 
-    for &size in &batch_sizes {
+    for size in batch_sizes {
         let keys: Vec<(String, String)> = (0..size)
             .map(|i| ("scale_batch".to_string(), format!("s-{size}-{i}")))
             .collect();

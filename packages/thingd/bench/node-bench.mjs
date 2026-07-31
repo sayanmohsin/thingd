@@ -41,7 +41,7 @@ async function benchDriver(name, openFn) {
 
   results.push(await timeAsync(name, "event_list", iterations, async () => {
     for (let i = 0; i < iterations; i++) {
-      await store.events.list(STREAM);
+      await store.events.list(STREAM, { limit: 100 });
     }
   }));
 
@@ -53,7 +53,10 @@ async function benchDriver(name, openFn) {
 
   results.push(await timeAsync(name, "queue_claim", iterations, async () => {
     for (let i = 0; i < iterations; i++) {
-      await store.queue(QUEUE).claim();
+      const job = await store.queue(QUEUE).claim();
+      if (job) {
+        await store.queue(QUEUE).ack(job.id);
+      }
     }
   }));
 

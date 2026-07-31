@@ -2,7 +2,7 @@
 
 `thingd` keeps benchmarking lightweight while the storage engine is still
 forming. The current benchmark exercises the Rust storage trait surface
-directly, which is where the durable `rusqlite` adapter lives today.
+directly through the in-memory and durable Fjall adapters.
 
 ## Rust Storage Benchmark
 
@@ -15,8 +15,7 @@ pnpm bench:rust
 The benchmark compares:
 
 - `in-memory`
-- `sqlite-memory`
-- `sqlite-file`
+- `fjall`
 
 It measures:
 
@@ -74,7 +73,8 @@ run:
 pnpm bench:rust:smoke
 ```
 
-The smoke run uses 100 iterations. It should catch broken benchmark code or a
+The smoke run uses 10 iterations. Durable Fjall writes are intentionally kept
+small because each operation includes persistence work. It should catch broken benchmark code or a
 broken storage path without pretending GitHub-hosted runners are stable enough
 for strict performance regression thresholds.
 
@@ -91,9 +91,13 @@ whether the database is in-memory or file-backed.
 Expected shape:
 
 - `in-memory` is the upper bound for trait overhead.
-- `sqlite-memory` shows SQLite execution cost without filesystem durability.
-- `sqlite-file` shows the current durable write path with one transaction per
-  object or queue write.
+- `fjall` shows the current durable write path. Its write throughput is highly
+  dependent on the filesystem and should not be compared across machines.
+
+For stable comparisons, report request throughput: list, search, and count
+rows each represent one API request, regardless of how many records they
+return. The benchmark is sequential except for the explicitly labelled
+contention cases; it does not yet measure REST, MCP, or sidecar throughput.
 
 ## Latest Local Baseline
 
