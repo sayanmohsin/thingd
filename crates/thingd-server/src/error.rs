@@ -51,6 +51,15 @@ impl AppError {
         }
     }
 
+    pub fn forbidden(detail: impl Into<String>) -> Self {
+        Self {
+            status: StatusCode::FORBIDDEN,
+            title: "Forbidden",
+            detail: detail.into(),
+            error_type: "forbidden",
+        }
+    }
+
     pub fn internal(detail: impl Into<String>) -> Self {
         Self {
             status: StatusCode::INTERNAL_SERVER_ERROR,

@@ -30,11 +30,25 @@ export THINGD_AUTH_TOKEN="your-secure-token-here-min-16-chars"
 **Token requirements:**
 - Minimum 16 characters when `allow_unauthenticated` is `false`
 - Empty token = no auth (allowed when `allow_unauthenticated` is `true`)
-- The auth middleware is only wired when a non-empty token is configured **and** `allow_unauthenticated` is `false`
+- The auth middleware is wired when authentication is configured and `allow_unauthenticated` is `false`
 
 **Unauthenticated endpoints:**
-- `/healthz`, `/v1/health` — health checks
-- `/cluster/status`, `/cluster/peers` — cluster status (non-sensitive)
+- `/healthz`, `/metrics` — health and metrics endpoints
+- Cluster topology endpoints require authentication.
+
+**Multi-tenant mode:**
+
+Multi-tenant mode requires per-tenant bearer tokens; a caller-supplied tenant
+header is not an authorization mechanism by itself.
+
+```yaml
+tenant:
+  mode: multi-tenant
+auth:
+  tenant_tokens:
+    tenant-a: "tenant-a-token-min-16-chars"
+    tenant-b: "tenant-b-token-min-16-chars"
+```
 
 ## TLS / HTTPS
 
@@ -85,7 +99,7 @@ hardening:
 
 ## Rate Limiting
 
-Per-IP token bucket rate limiting, disabled by default:
+Per-IP token bucket rate limiting, enabled by default:
 
 ```yaml
 hardening:
@@ -95,7 +109,22 @@ hardening:
 
 - Returns `429 Too Many Requests` when exceeded
 - Bucket refills over 60-second window
-- Keyed by client IP (`X-Forwarded-For` or connection address)
+- Keyed by the TCP peer address; untrusted `X-Forwarded-For` headers are ignored
+
+## Connector restrictions
+
+Connectors are deny-by-default for server-side access:
+
+```yaml
+hardening:
+  connector_file_root: "/srv/thingd/imports"
+  max_connector_file_bytes: 67108864
+  connector_allowed_hosts: ["db.internal.example"]
+  connector_require_tls: true
+```
+
+File imports must resolve inside the configured root. Postgres and MySQL
+imports must target an exact allowlisted host and use TLS when required.
 
 ## Error Sanitization
 
@@ -135,6 +164,7 @@ The CI pipeline runs the following security checks on every push and PR:
 - [ ] Enable rate limiting: `hardening.rate_limit_enabled: true`
 - [ ] Enable production mode: `server.production_mode: true`
 - [ ] Set `hardening.max_payload_bytes` to an appropriate limit for your use case
+- [ ] Configure connector roots and host allowlists before enabling imports
 - [ ] Use filesystem-level encryption for the SQLite database directory
 - [ ] Regularly run `thingd db integrity` to check for corruption
 - [ ] Schedule regular backups with `thingd backup --out <path>`

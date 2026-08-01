@@ -838,7 +838,7 @@ export class InMemoryThingStore implements ThingStore {
     // no-op for in-memory
   }
 
-  walCheckpoint(): { framesBefore: number; framesAfter: number } {
+  walCheckpoint(): import("../types.js").WalCheckpointResult {
     throw new Error("WAL checkpoint is not supported for in-memory storage");
   }
 

@@ -69,14 +69,18 @@ server:
   database: "/data/thingd.db"
   production_mode: false
 auth:
-  token: ""
-  allow_unauthenticated: true
+  token: "change-me-with-a-random-token"
+  allow_unauthenticated: false
 hardening:
   cors_allowed_origins:
     - "http://localhost:8757"
   rate_limit_enabled: true
   rate_limit_requests_per_minute: 300
   max_payload_bytes: 524288
+  max_connector_file_bytes: 67108864
+  connector_file_root: "/srv/thingd/imports"
+  connector_allowed_hosts: ["db.internal.example"]
+  connector_require_tls: true
 ```
 
 ## MCP Audit

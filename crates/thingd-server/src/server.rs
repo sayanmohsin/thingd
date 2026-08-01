@@ -23,9 +23,11 @@ pub struct AppState {
     pub tenant_config: TenantConfig,
     pub mcp_config: McpConfig,
     pub auth_token: String,
+    pub tenant_tokens: std::collections::HashMap<String, String>,
     pub allow_unauthenticated: bool,
     pub cluster_config: ClusterConfig,
     pub nlq_config: NlqConfig,
+    pub hardening_config: crate::config::HardeningConfig,
 }
 
 pub fn build_router(state: Arc<AppState>, config: &Config) -> Router {
@@ -103,7 +105,10 @@ pub fn build_router(state: Arc<AppState>, config: &Config) -> Router {
     );
 
     // Wire auth middleware when a token is configured and unauthenticated access is not allowed
-    if !config.auth.allow_unauthenticated && !config.auth.token.is_empty() {
+    if !config.auth.allow_unauthenticated
+        && (!config.auth.token.is_empty()
+            || config.tenant.mode == crate::config::TenantMode::MultiTenant)
+    {
         router = router.layer(middleware::from_fn_with_state(
             state_for_auth,
             auth_middleware,
