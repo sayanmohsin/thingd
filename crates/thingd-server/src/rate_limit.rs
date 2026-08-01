@@ -1,10 +1,11 @@
 use std::collections::HashMap;
+use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use axum::Json;
-use axum::extract::State;
-use axum::http::{HeaderMap, StatusCode, header};
+use axum::extract::{ConnectInfo, State};
+use axum::http::{Extensions, StatusCode, header};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 
@@ -67,19 +68,12 @@ impl RateLimiter {
     }
 }
 
-/// Extract the client IP from `X-Forwarded-For`, falling back to a random key.
-fn client_key(headers: &HeaderMap) -> String {
-    if let Some(forwarded) = headers
-        .get("x-forwarded-for")
-        .and_then(|v| v.to_str().ok())
-        .and_then(|v| v.split(',').next().map(|s| s.trim().to_string()))
-    {
-        return forwarded;
-    }
-    // Fallback: use a per-request random key when ConnectInfo is not available.
-    // This is less precise than SocketAddr but avoids requiring the ConnectInfo
-    // layer on the router for environments where it's not set up.
-    "default".to_string()
+/// Extract the client address from connection metadata, with a test/runtime fallback.
+fn client_key(extensions: &Extensions) -> String {
+    extensions
+        .get::<ConnectInfo<SocketAddr>>()
+        .map(|ConnectInfo(addr)| addr.to_string())
+        .unwrap_or_else(|| "default".to_string())
 }
 
 pub async fn rate_limit_middleware(
@@ -87,7 +81,7 @@ pub async fn rate_limit_middleware(
     req: axum::extract::Request,
     next: Next,
 ) -> Result<Response, AppError> {
-    let key = client_key(req.headers());
+    let key = client_key(req.extensions());
     if limiter.check(&key) {
         Ok(next.run(req).await)
     } else {
@@ -141,23 +135,9 @@ mod tests {
     }
 
     #[test]
-    fn client_key_uses_forwarded_for() {
-        let mut headers = HeaderMap::new();
-        headers.insert("x-forwarded-for", "192.168.1.1".parse().unwrap());
-        assert_eq!(client_key(&headers), "192.168.1.1");
-    }
-
-    #[test]
-    fn client_key_forwarded_for_multiple_ips() {
-        let mut headers = HeaderMap::new();
-        headers.insert("x-forwarded-for", "192.168.1.1, 10.0.0.1".parse().unwrap());
-        assert_eq!(client_key(&headers), "192.168.1.1");
-    }
-
-    #[test]
-    fn client_key_fallback_to_default() {
-        let headers = HeaderMap::new();
-        assert_eq!(client_key(&headers), "default");
+    fn client_key_ignores_forwarded_headers_without_peer_info() {
+        let extensions = Extensions::new();
+        assert_eq!(client_key(&extensions), "default");
     }
 
     #[test]

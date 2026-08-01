@@ -57,7 +57,10 @@ async fn main() {
         config.server.database,
     );
 
-    if config.auth.token.is_empty() {
+    if config.auth.token.is_empty()
+        && (config.tenant.mode != config::TenantMode::MultiTenant
+            || config.auth.tenant_tokens.is_empty())
+    {
         tracing::warn!(
             "No auth token configured — server is unauthenticated. Set THINGD_AUTH_TOKEN for production."
         );
@@ -69,9 +72,11 @@ async fn main() {
         tenant_config: config.tenant.clone(),
         mcp_config: config.mcp.clone(),
         auth_token: config.auth.token.clone(),
+        tenant_tokens: config.auth.tenant_tokens.clone(),
         allow_unauthenticated: config.auth.allow_unauthenticated,
         cluster_config: config.cluster.clone(),
         nlq_config: config.nlq.clone(),
+        hardening_config: config.hardening.clone(),
     });
     let app = server::build_router(Arc::clone(&app_state), &config)
         .into_make_service_with_connect_info::<SocketAddr>();
