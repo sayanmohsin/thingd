@@ -6,6 +6,59 @@
  * barrel exports automatically.
  */
 
+// ── Client barrel (@thingd/sdk/client) ──
+import type {
+  AggregateFunction as CAggregateFunction,
+  AggregateGroupResult as CAggregateGroupResult,
+  AggregateOptions as CAggregateOptions,
+  AggregateResult as CAggregateResult,
+  BackupCapableThingStore as CBackupCapableThingStore,
+  CollectionSchema as CCollectionSchema,
+  ConnectorAuth as CConnectorAuth,
+  ConnectorSchema as CConnectorSchema,
+  ConnectorSyncOptions as CConnectorSyncOptions,
+  ConnectorSyncResult as CConnectorSyncResult,
+  FieldSchema as CFieldSchema,
+  FilterOperator as CFilterOperator,
+  Link as CLink,
+  LinkDirection as CLinkDirection,
+  LinkQueryOptions as CLinkQueryOptions,
+  ListEventsOptions as CListEventsOptions,
+  ListObjectsOptions as CListObjectsOptions,
+  LocalThingDConnection as CLocalThingDConnection,
+  MemoryEvent as CMemoryEvent,
+  MemoryObject as CMemoryObject,
+  MemoryQueue as CMemoryQueue,
+  MemorySearchOptions as CMemorySearchOptions,
+  MemorySearchResult as CMemorySearchResult,
+  NlqIntent as CNlqIntent,
+  NlqOptions as CNlqOptions,
+  NlqResult as CNlqResult,
+  PutOptions as CPutOptions,
+  QueueClaimOptions as CQueueClaimOptions,
+  QueueJob as CQueueJob,
+  QueueJobOptions as CQueueJobOptions,
+  QueueJobPayload as CQueueJobPayload,
+  QueueJobResult as CQueueJobResult,
+  QueueJobStatus as CQueueJobStatus,
+  QueueNackOptions as CQueueNackOptions,
+  ReconnectableThingStore as CReconnectableThingStore,
+  SchemaOptions as CSchemaOptions,
+  SortBy as CSortBy,
+  SortDirection as CSortDirection,
+  StoredMemoryEvent as CStoredMemoryEvent,
+  StoredMemoryObject as CStoredMemoryObject,
+  ThingDConnection as CThingDConnection,
+  ThingDeleteResult as CThingDeleteResult,
+  ThingStore as CThingStore,
+  TimeBucket as CTimeBucket,
+  TimeSeriesBucket as CTimeSeriesBucket,
+  TimeSeriesOptions as CTimeSeriesOptions,
+  TimeSeriesResult as CTimeSeriesResult,
+  VectorSearchHit as CVectorSearchHit,
+  VectorSearchOptions as CVectorSearchOptions,
+  WalCheckpointResult as CWalCheckpointResult,
+} from "../client/index.js";
 // ── Main barrel (@thingd/sdk) ──
 import type {
   AggregateFunction,
@@ -70,7 +123,6 @@ import type {
   VectorSearchOptions,
   WalCheckpointResult,
 } from "../index.js";
-
 // ── Type-only barrel (@thingd/sdk/types) ──
 import type {
   AggregateFunction as TAggregateFunction,
@@ -90,6 +142,7 @@ import type {
   LinkQueryOptions as TLinkQueryOptions,
   ListEventsOptions as TListEventsOptions,
   ListObjectsOptions as TListObjectsOptions,
+  LocalThingDConnection as TLocalThingDConnection,
   MemoryEvent as TMemoryEvent,
   MemoryObject as TMemoryObject,
   MemoryQueue as TMemoryQueue,
@@ -113,7 +166,6 @@ import type {
   StoredMemoryEvent as TStoredMemoryEvent,
   StoredMemoryObject as TStoredMemoryObject,
   ThingDConnection as TThingDConnection,
-  LocalThingDConnection as TLocalThingDConnection,
   ThingDeleteResult as TThingDeleteResult,
   ThingStore as TThingStore,
   TimeBucket as TTimeBucket,
@@ -124,60 +176,6 @@ import type {
   VectorSearchOptions as TVectorSearchOptions,
   WalCheckpointResult as TWalCheckpointResult,
 } from "../types/index.js";
-
-// ── Client barrel (@thingd/sdk/client) ──
-import type {
-  AggregateFunction as CAggregateFunction,
-  AggregateGroupResult as CAggregateGroupResult,
-  AggregateOptions as CAggregateOptions,
-  AggregateResult as CAggregateResult,
-  BackupCapableThingStore as CBackupCapableThingStore,
-  CollectionSchema as CCollectionSchema,
-  ConnectorAuth as CConnectorAuth,
-  ConnectorSchema as CConnectorSchema,
-  ConnectorSyncOptions as CConnectorSyncOptions,
-  ConnectorSyncResult as CConnectorSyncResult,
-  FieldSchema as CFieldSchema,
-  FilterOperator as CFilterOperator,
-  Link as CLink,
-  LinkDirection as CLinkDirection,
-  LinkQueryOptions as CLinkQueryOptions,
-  ListEventsOptions as CListEventsOptions,
-  ListObjectsOptions as CListObjectsOptions,
-  MemoryEvent as CMemoryEvent,
-  MemoryObject as CMemoryObject,
-  MemoryQueue as CMemoryQueue,
-  MemorySearchOptions as CMemorySearchOptions,
-  MemorySearchResult as CMemorySearchResult,
-  NlqIntent as CNlqIntent,
-  NlqOptions as CNlqOptions,
-  NlqResult as CNlqResult,
-  PutOptions as CPutOptions,
-  QueueClaimOptions as CQueueClaimOptions,
-  QueueJob as CQueueJob,
-  QueueJobOptions as CQueueJobOptions,
-  QueueJobPayload as CQueueJobPayload,
-  QueueJobResult as CQueueJobResult,
-  QueueJobStatus as CQueueJobStatus,
-  QueueNackOptions as CQueueNackOptions,
-  ReconnectableThingStore as CReconnectableThingStore,
-  SchemaOptions as CSchemaOptions,
-  SortBy as CSortBy,
-  SortDirection as CSortDirection,
-  StoredMemoryEvent as CStoredMemoryEvent,
-  StoredMemoryObject as CStoredMemoryObject,
-  ThingDConnection as CThingDConnection,
-  LocalThingDConnection as CLocalThingDConnection,
-  ThingDeleteResult as CThingDeleteResult,
-  ThingStore as CThingStore,
-  TimeBucket as CTimeBucket,
-  TimeSeriesBucket as CTimeSeriesBucket,
-  TimeSeriesOptions as CTimeSeriesOptions,
-  TimeSeriesResult as CTimeSeriesResult,
-  VectorSearchHit as CVectorSearchHit,
-  VectorSearchOptions as CVectorSearchOptions,
-  WalCheckpointResult as CWalCheckpointResult,
-} from "../client/index.js";
 
 // ── Use every imported type to suppress unused-import errors ──
 // Exporting the type aliases ensures tsc considers them "used".
@@ -391,7 +389,12 @@ void tsOpts;
 void tsResult;
 
 // ── Schema types ──
-const fieldSchema: FieldSchema = { name: "title", type: "string", nullable: false, sampleValues: [] };
+const fieldSchema: FieldSchema = {
+  name: "title",
+  type: "string",
+  nullable: false,
+  sampleValues: [],
+};
 const colSchema: CollectionSchema = { name: "posts", objectCount: 10, fields: [fieldSchema] };
 const schemaOpts: SchemaOptions = { sampleSize: 100 };
 void fieldSchema;
