@@ -2,7 +2,7 @@ name: CI
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, development]
     paths:
       - ".github/workflows/**"
       - "Cargo.toml"
@@ -59,7 +59,6 @@ jobs:
           cache-dependency-path: pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
       - run: pnpm check
-
   # ── Rust: fmt + clippy + test (parallel to node) ─────
   rust:
     name: Rust (fmt, clippy, test)
