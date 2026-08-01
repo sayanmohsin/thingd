@@ -28,6 +28,7 @@ See the [full feature status and roadmap](https://github.com/sayanmohsin/thingd-
 - **Rust engine** (`thingd` — crates.io) — memory + Fjall adapters, Tantivy FTS, embedvec vector search, queue lifecycle, graph links, aggregate analytics, NLQ
 - **Node.js SDK** (`@thingd/sdk`) — three drivers: memory (default in-memory TS store), native (napi-rs Rust SQLite), cloud (remote HTTP REST)
 - **Browser/Edge client** (`@thingd/client`) — zero-dependency REST client for browsers, Cloudflare Workers, AWS Lambda, Bun, Deno
+- **App backend client** (`createThingdAppClient`) — project-user auth and named actions for hosted mobile/web apps
 - **CLI** (`@thingd/cli`) — TUI dashboard, 30+ subcommands (search, objects, events, queues, export/import/snapshot/backup, doctor, bench, db maintenance). Support for importing from Postgres/MySQL via sidecar REST.
 - **MCP server** — 36 tools, stdio + Streamable HTTP, audit events, collection allowlists, read-only mode (tool count defined in packages/thingd/src/constants.ts)
 - **Docker** — multi-stage image, compose + K8s for leader/follower cluster

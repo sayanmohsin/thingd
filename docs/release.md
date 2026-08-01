@@ -2,6 +2,10 @@
 
 `thingd` uses semantic-release to publish three npm packages (`@thingd/sdk`, `@thingd/cli`, `@thingd/native`).
 
+The hosted app-backend client is released as part of the public client package.
+Deploy its compatible Cloud API only after the public contract release and the
+Cloud compatibility matrix has been updated.
+
 ## Versioning
 
 Versions follow standard SemVer through conventional commits:

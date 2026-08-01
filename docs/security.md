@@ -6,6 +6,12 @@ thingd's security model and hardening options.
 
 thingd uses Bearer token authentication via the `Authorization` header.
 
+Hosted thingd Cloud app backends additionally use a project publishable key via
+`X-Thingd-Publishable-Key`. Publishable keys are intended for browser and
+mobile bundles; never embed a Cloud secret API key or engine runtime token in
+an app. Project-user access tokens are scoped to one Cloud project and should
+be stored with the platform's secure storage facilities.
+
 **Configuring a token:**
 
 ```yaml
