@@ -702,7 +702,7 @@ function buildTree(): TreeNode[] {
       {
         id: "drv:native",
         type: "driver",
-        label: `${pc.cyan("●")} ${pc.bold("Native")}    ${pc.dim("SQLite file")}`,
+        label: `${pc.cyan("●")} ${pc.bold("Native")}    ${pc.dim("Fjall directory")}`,
         depth: 0,
         expandable: false,
         ref: { driver: "native" },
@@ -1005,7 +1005,7 @@ function scheduleLoad(node: TreeNode) {
         d === "memory"
           ? ` Ephemeral in-memory database.\n All data is destroyed on exit.\n\n ${pc.dim("Best for: testing, prototyping")}\n\n ${pc.dim("Press")} ${pc.bold("Enter")} ${pc.dim("to connect.")}`
           : d === "native"
-            ? ` Persistent SQLite database.\n Data is stored on disk.\n\n ${pc.dim("Best for: local development, single-node")}\n\n ${pc.dim("Press")} ${pc.bold("Enter")} ${pc.dim("to connect.")}`
+            ? ` Persistent Fjall database.\n Data is stored on disk.\n\n ${pc.dim("Best for: local development, single-node")}\n\n ${pc.dim("Press")} ${pc.bold("Enter")} ${pc.dim("to connect.")}`
             : (() => {
                 const cfg = readCloudConfig();
                 const hasCfg = !!(cfg?.userToken ?? cfg?.token);
@@ -1188,7 +1188,7 @@ async function loadContent(node: TreeNode): Promise<void> {
       if (driver === "memory") {
         driverName = "In-Memory";
       } else if (driver === "native") {
-        driverName = "SQLite";
+        driverName = "Fjall";
       } else if (driver === "cloud") {
         driverName = "Cloud";
       }

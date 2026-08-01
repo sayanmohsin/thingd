@@ -21,23 +21,24 @@ thingd stores versioned JSON objects in collections, with built-in durable queue
 SDK, CLI, and MCP server are functional and tested, but the project is not
 production-ready yet.
 
-See the [public documentation](./docs/) for the engine feature set. Cloud-only planning and roadmap material is maintained privately in the thingd-cloud repository.
+See the [full feature status and roadmap](https://github.com/sayanmohsin/thingd-cloud/blob/main/docs/features.md) for a consolidated view of both the engine and thingd Cloud.
 
 ### Shipped
 
-- **Rust engine** (`thingd` — crates.io) — memory + Fjall adapters, Tantivy FTS, embedvec vector search, queue lifecycle, graph links, aggregate analytics, NLQ
-- **Node.js SDK** (`@thingd/sdk`) — three drivers: memory (default in-memory TS store), native (napi-rs Rust SQLite), cloud (remote HTTP REST)
+- **Rust engine** (`thingd` — crates.io) — memory + Fjall adapters, Tantivy FTS, cosine vector search, queue lifecycle, graph links, aggregate analytics, NLQ
+- **Node.js SDK** (`@thingd/sdk`) — three drivers: memory (default in-memory TS store), native (napi-rs Rust Fjall), cloud (remote HTTP REST)
 - **Browser/Edge client** (`@thingd/client`) — zero-dependency REST client for browsers, Cloudflare Workers, AWS Lambda, Bun, Deno
+- **App backend client** (`createThingdAppClient`) — project-user auth and named actions for hosted mobile/web apps
 - **CLI** (`@thingd/cli`) — TUI dashboard, 30+ subcommands (search, objects, events, queues, export/import/snapshot/backup, doctor, bench, db maintenance). Support for importing from Postgres/MySQL via sidecar REST.
-- **MCP server** — 46 SDK tools, stdio + Streamable HTTP, audit events, collection allowlists, and read-only mode. The Rust sidecar currently exposes 36 core tools; scheduler tools are SDK-only.
+- **MCP server** — 46 SDK tools, stdio + Streamable HTTP, audit events, collection allowlists, and read-only mode; the Rust sidecar exposes 36 core tools (scheduler tools are SDK-only)
 - **Docker** — multi-stage image, compose + K8s for leader/follower cluster
 - **CI/tooling** — semantic-release, biome, lefthook, doc tests, cargo audit, cargo deny, CodeQL
 
 ### What's next
 
-- Broader production hardening and operational tooling
-- More deployment and connector integrations
-- Additional SDK and MCP ergonomics based on user feedback
+- In-process vector search with cosine similarity; current durable search is a brute-force scan, with HNSW/ANN planned for larger datasets
+- Browser and edge runtime via WASM compilation
+- Leader/follower clustering for high availability
 
 The default public Node.js SDK path uses the TypeScript in-memory store for
 API exploration and local integration tests. The Rust core has Fjall-backed
@@ -201,7 +202,7 @@ const hits = await db.search("why did we choose rust?", {
 });
 ```
 
-For the local Rust-backed SQLite path, build the private native package and
+For the local Rust-backed Fjall path, build the native package and
 request the native driver:
 
 ```bash
@@ -434,7 +435,7 @@ const hits = await db.search("customers who upgraded after a failed deployment",
 
 ## MCP-native access
 
-thingd ships with 46 built-in SDK MCP tools (search,
+thingd ships with 46 SDK MCP tools (search,
 objects, events, queues, links, aggregate, schema, NLQ, vector). Every primitive is accessible through stdio
 or Streamable HTTP — see the [MCP tools reference](docs/api-spec/mcp-tools.md)
 for all tools with schemas and examples.
@@ -487,10 +488,10 @@ The long-term deployment model has two simple modes:
 
 ```txt
 embedded:
-  Node app -> native Rust binding -> SQLite file
+  Node app -> native Rust binding -> Fjall directory
 
 sidecar:
-  Node app -> localhost thingd sidecar -> SQLite file
+  Node app -> localhost thingd sidecar -> Fjall directory
 ```
 
 Cluster mode should be owned by the sidecar, not by app code:
@@ -558,7 +559,7 @@ Rust core (crates/thingd)
   |-- object store
   |-- event log
   |-- queue engine
-  |-- search indexes (Tantivy FTS + embedvec vector)
+  |-- search indexes (Tantivy FTS + Fjall vector keyspace)
   |-- storage adapters
       |-- MemoryEngine (cache, WASM)
       |-- FjallEngine (persistent LSM-tree)
@@ -662,7 +663,7 @@ pnpm rust:clippy
 pnpm test
 ```
 
-Rust checks run all crate features, including the SQLite adapter:
+Rust checks run all crate features, including the Fjall adapter:
 
 ```bash
 pnpm rust:check

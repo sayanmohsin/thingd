@@ -974,8 +974,12 @@ pub async fn vector_search(
         .as_array()
         .ok_or_else(|| AppError::bad_request("Missing or invalid 'vector'"))?
         .iter()
-        .filter_map(|v| v.as_f64().map(|f| f as f32))
-        .collect();
+        .map(|v| {
+            v.as_f64()
+                .map(|f| f as f32)
+                .ok_or_else(|| AppError::bad_request("'vector' must contain only numbers"))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
 
     let opts = VectorSearchOptions {
         top_k: body
@@ -988,7 +992,7 @@ pub async fn vector_search(
     let e = get_engine(&state, &headers)?;
     let g = e.lock();
     ok(g.vector_search(collection, &query_vector, opts)
-        .map_err(|e| AppError::internal(e.to_string()))?)
+        .map_err(AppError::from)?)
 }
 
 // ─── NLQ ───────────────────────────────────────────────────────
@@ -1544,6 +1548,39 @@ mod tests {
         assert!(!hits.is_empty(), "expected at least one vector search hit");
         assert_eq!(hits[0]["id"], "doc1");
         assert!(hits[0]["score"].as_f64().unwrap() > hits[1]["score"].as_f64().unwrap());
+    }
+
+    #[tokio::test]
+    async fn test_vector_search_rejects_dimension_mismatch() {
+        let (state, config) = test_state_and_config();
+        let app = crate::server::build_router(state, &config);
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("PUT")
+                    .uri("/v1/objects/v/doc1")
+                    .header("content-type", "application/json")
+                    .body(Body::from(r#"{"id":"doc1","vector":[1.0,0.0]}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/search/vector")
+                    .header("content-type", "application/json")
+                    .body(Body::from(r#"{"collection":"v","vector":[1.0,0.0,0.0]}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     }
 
     #[tokio::test]

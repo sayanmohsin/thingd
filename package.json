@@ -15,6 +15,7 @@
     "check:docs": "node scripts/check-docs.mjs",
     "docs:metadata": "node scripts/generate-doc-metadata.mjs",
     "check:write": "biome check --write .",
+    "check:mcp": "node scripts/verify-mcp-tools.mjs",
     "format": "biome format --write .",
     "format:check": "biome format .",
     "lint": "biome lint .",

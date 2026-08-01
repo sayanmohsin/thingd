@@ -152,11 +152,12 @@ THINGD_ADVERTISE_URL=http://thingd-0:8757
 Supported cluster modes:
 
 - `single`: Standalone runtime serving local database requests.
-- `leader`: Handles local reads and writes.
-- `follower`: Forwards MCP write requests to the configured leader:
+- `leader`: Handles local reads and writes, records change events to the system stream `__thingd:system:replication`, and serves incremental replication logs.
+- `follower`: Enforces eventually consistent local reads and strict write forwarding:
   - **Write Forwarding**: Automatically forwards all incoming MCP write requests to the active Leader. If primary leader is unreachable and `THINGD_CLUSTER_LEADER_FALLBACK_URL` is set, the follower tries the fallback URL.
-  - **Local reads**: Read requests use the follower's own local Fjall store and
-    are not replicated from the leader by the current runtime.
+  - **Pull Replication**: In follower mode, replication applies change events to the follower's local Fjall runtime. Active replication behavior and status are exposed through the cluster endpoints.
+
+Replication lag and diagnostics are monitored dynamically via `/cluster/status`, which reports active peer sequence indexes and computed lag (events difference between leader and follower) for Kubernetes liveness/readiness probes.
 
 ## Smoke Test
 
@@ -195,8 +196,7 @@ THINGD_ADVERTISE_URL=http://thingd-1:8757
 The election is static-config based — no Raft or distributed consensus. Best
 suited for StatefulSets or environments with ordered, predictable pod names.
 
-For the available cluster settings, see [runtime-env.md](./runtime-env.md) and
-[mcp-server.md](./mcp-server.md).
+For full details, see [sidecar-cluster.md](./sidecar-cluster.md).
 
 ## Current Limitations
 
@@ -206,4 +206,4 @@ For the available cluster settings, see [runtime-env.md](./runtime-env.md) and
 - static-config leader election only (no consensus)
 
 Put TLS, domains, and public exposure behind a proper reverse proxy or hosted
-gateway. For cluster details, see [runtime-env.md](./runtime-env.md).
+gateway. For cluster details, see [sidecar-cluster.md](./sidecar-cluster.md).

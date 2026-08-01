@@ -1,8 +1,8 @@
 # MCP Tools Reference
 
-The TypeScript SDK exposes 46 MCP tools for AI agents via stdio or Streamable HTTP. The Rust sidecar exposes the 36 core tools; the 10 scheduler tools are currently SDK-only.
+The Node SDK/stdio MCP server exposes 46 tools, including 10 SDK-level scheduler tools. The Rust sidecar exposes 36 engine tools; scheduler tools are not part of the sidecar surface.
 
-**Tool count:** 46 SDK tools (34 read-only, 12 write — 3 of which are destructive), plus 36 core tools in the Rust sidecar.
+**Tool count:** 46 Node SDK tools (34 read-only, 12 write — 3 of which are destructive); the Rust sidecar exposes 36 core tools.
 
 ---
 
@@ -555,18 +555,6 @@ Ask a natural language question about your data. Uses an LLM to convert the ques
 **Returns:** `NlqResult` — `{ answer: string, data?: Record[] }`
 
 Requires LLM configuration on the server (`nlq.enabled`, `nlq.model`, `nlq.endpoint`).
-
-## Scheduler Tools (TypeScript SDK only)
-
-The TypeScript SDK adds ten scheduler tools backed by the object and queue
-primitives. They are documented in the [scheduler API reference](scheduler.md):
-
-`thing_scheduler_schedule`, `thing_scheduler_schedule_interval`,
-`thing_scheduler_schedule_once`, `thing_scheduler_list`, `thing_scheduler_get`,
-`thing_scheduler_stats`, `thing_scheduler_pause`, `thing_scheduler_resume`,
-`thing_scheduler_run`, and `thing_scheduler_remove`.
-
-The Rust sidecar does not currently register these scheduler tools.
 
 ---
 

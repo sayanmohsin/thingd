@@ -6,14 +6,11 @@ Honest answers for experienced developers evaluating thingd.
 
 ### What consistency model does thingd guarantee?
 
-**Single-node (embedded / sidecar):** Strong consistency. Writes are serialized
-by the selected store and reads observe committed state within the same engine.
+**Single-node (embedded / sidecar):** Strong consistency. Fjall serializes durable writes; reads observe the latest committed write through the engine.
 
 **Cluster (leader/follower):** Two modes:
 - **Strong** — route reads to the leader. Guarantees read-after-write.
-- **Local** — read from the follower's local Fjall store. The current runtime does
-  not replicate follower stores, so applications must not assume leader state is
-  present on a follower.
+- **Local** — read from the follower's local Fjall replica. May serve stale data (eventual consistency). Replication is async.
 
 thingd does **not** support tunable consistency per-collection, quorum reads, or multi-primary writes.
 
@@ -25,8 +22,7 @@ thingd supports compare-and-swap (CAS) via the `expectedVersion` parameter on `p
 
 ### Can two writers modify the same object in parallel in cluster mode?
 
-Yes, and the last write wins. There is no distributed lock per object. For
-single-node, the selected engine serializes writes.
+Yes, and the last write wins. There is no distributed lock per object. For single-node, Fjall serializes durable writes.
 
 ### What does "atomic write" mean in thingd?
 
@@ -42,12 +38,9 @@ No. An object write and an event append are separate operations. If you need bot
 
 ### What happens on crash during a queue ack or object write?
 
-The selected storage engine applies each operation atomically. For the native
-Node driver, SQLite rolls back incomplete transactions on reopen; the Rust
-sidecar uses Fjall durability semantics.
+Fjall write batches provide atomicity for primary object/vector updates. The queue job stays in its pre-operation status (leased or ready) if a durable write is interrupted.
 
-The native Node SQLite driver uses `synchronous = NORMAL` and WAL mode. The Rust
-sidecar uses Fjall persistence instead of SQLite WAL.
+The durable sidecar uses Fjall persistent storage and write-batch facilities. Recovery behavior is covered by engine restart tests.
 
 ### How durable are queues under failure?
 
@@ -55,22 +48,15 @@ At-least-once delivery. A worker that claims a job but crashes before acking wil
 
 ### Are writes fsync'd per operation or batched?
 
-Durability and fsync behavior depend on the selected driver. The native Node
-driver uses SQLite settings; the Rust sidecar uses Fjall persistence. thingd does
-not batch multiple SDK calls into one transaction.
+Fjall controls persistence and flush behavior. Related primary writes use a write batch; secondary search-index maintenance remains a separate hardening concern.
 
 ### How do you prevent data loss in in-memory mode?
 
-You don't — in-memory mode is ephemeral by design. It exits cleanly for testing
-and prototyping. For persistence, use the native SQLite driver or the
-Fjall-backed sidecar.
+You don't — in-memory mode is ephemeral by design. It exits cleanly for testing and prototyping. For persistence, use the native Fjall driver or the sidecar mode.
 
 ### What's the recovery story after corruption?
 
-Storage corruption is possible after hardware faults or improper shutdown.
-Recovery depends on the selected driver: use SQLite tooling for the native driver
-and snapshots or a restored data directory for the Fjall sidecar. thingd does not
-currently provide automatic corruption repair.
+Fjall corruption or incomplete writes can still occur through hardware faults or improper shutdown. Recovery relies on backups and engine reopen/rebuild checks; thingd does not currently provide automatic corruption repair.
 
 ### How large can datasets grow before performance degrades?
 
@@ -82,7 +68,7 @@ thingd is designed for small-to-medium datasets (hundreds of MB to low GBs). The
 
 Published benchmarks (local development hardware, 5000 iterations):
 
-| Operation | In-memory | SQLite (file) |
+| Operation | In-memory | Fjall (file) |
 |-----------|-----------|---------------|
 | Object put | 868k ops/sec | 2.2k ops/sec |
 | Object get | 1.9M ops/sec | 237k ops/sec |
@@ -91,7 +77,7 @@ Published benchmarks (local development hardware, 5000 iterations):
 
 Node.js (native driver, 1000 iterations):
 
-| Operation | In-memory | Native (SQLite) |
+| Operation | In-memory | Native (Fjall) |
 |-----------|-----------|-----------------|
 | Object put | 435k ops/sec | 9.8k ops/sec |
 | Object get | 2.9M ops/sec | 192k ops/sec |
@@ -109,37 +95,33 @@ Queue claim scans by `(queue, status, created_at)` index — performance is O(lo
 
 ### Is thingd single-threaded or multi-threaded?
 
-The native Node SQLite adapter is single-threaded per connection. The Rust
-sidecar uses Fjall and serializes access through its engine. The HTTP MCP server
-can handle concurrent requests, while writes remain serialized by the store.
+The Rust Fjall adapter is shared through the sidecar's engine pool. The HTTP MCP server can handle concurrent requests while durable write serialization is provided by the engine.
 
 ## Concurrency and scaling
 
-### How does leader/follower mode work?
+### How does leader/follower replication work?
 
-The leader serves local reads and writes. Followers forward MCP writes to the
-configured leader and serve reads from their own local Fjall store. The current
-runtime does not replicate follower data from the leader.
+The leader assigns a monotonic sequence to each event. Followers replicate into their local Fjall runtime. Object state and search indexes on followers are derived from the replicated event stream.
 
-### Is follower data replicated?
+### Is replication synchronous or async?
 
-No. There is no replication log, polling loop, write-ahead log shipping, or
-quorum acknowledgment in the current runtime.
+Async. Followers poll on a timer. There is no synchronous replication, no write-ahead log shipping, and no quorum acknowledgment.
 
 ### What happens during leader failover?
 
 With `THINGD_CLUSTER_LEADER_ELECTION=true` and `THINGD_CLUSTER_PEERS` configured,
-followers auto-promote the next peer in the ordered peer list after repeated
-leader failures. The election is static-config based and does not provide
-consensus or split-brain protection.
+followers auto-promote the next peer in the peer list when the current leader is
+unreachable for `THINGD_CLUSTER_LEADER_ELECTION_MAX_FAILURES` consecutive
+replication cycles (default: 3, each cycle is 500ms). The promoted peer begins
+serving MCP writes and replication events directly. Other peers automatically
+redirect their `leaderUrl` to the new leader.
 
 Without leader election, nothing automatic. A manual process is required:
 promote a follower by reconfiguring env vars and updating DNS/service discovery.
 
 ### Can followers serve stale reads?
 
-Yes. A follower's local store may differ from the leader because follower data is
-not replicated. Route reads and writes to the leader when leader state is needed.
+Yes, in `local` consistency mode. Followers may lag behind the leader by up to 500ms (one poll cycle) plus any replication processing delay. Route reads to the leader for strong consistency.
 
 ### How is split-brain prevented?
 
@@ -179,7 +161,7 @@ CLI commands: `thingd queues dead <queue>` lists dead jobs. To replay, delete an
 
 ### What MCP tools are exposed?
 
-46 SDK tools (36 core sidecar tools) — see the [API spec — MCP tools reference](api-spec/mcp-tools.md) for the full list with schemas.
+The Node MCP server exposes 46 tools; the Rust sidecar exposes 36 engine tools. See the [API spec — MCP tools reference](api-spec/mcp-tools.md) for the full list with schemas.
 
 ### Can agents bypass allowlists accidentally?
 
@@ -219,7 +201,7 @@ The Rust engine uses `ThingdError` with five variants:
 - `NotFound` — requested resource does not exist
 - `Conflict` — concurrent modification conflict
 - `Protected` — operation on a protected stream (e.g., `__thingd:mcp:audit`)
-- `Storage` — underlying storage or I/O error
+- `Storage` — underlying storage error (SQLite, I/O)
 
 ### How do queue job results indicate failure?
 
@@ -257,10 +239,7 @@ Not currently. Collections are flat namespaces with no schema, no type enforceme
 
 ### How do you handle migrations?
 
-The legacy native SQLite driver has internal schema migrations for its storage
-layer. The current Fjall sidecar has no user-facing schema migration system.
-There is no migration system for user data shapes; application-level schema
-evolution is the caller's responsibility.
+thingd has internal recovery for the durable Fjall storage layer. There is no migration system for user data shapes. Application-level schema evolution is the caller's responsibility.
 
 ### What happens when object shapes evolve over time?
 
@@ -270,30 +249,22 @@ Older and newer object shapes coexist in the same collection. Search indexing in
 
 ### How do backups and restores work?
 
-CLI snapshot commands: `thingd snapshot create --out backup.thingd.json`
-(exports all objects, events, and queue jobs as JSON). Restore with `thingd
-snapshot restore --in backup.thingd.json`. For native SQLite file-level backups,
-copy the database while the engine is not writing; for Fjall, back up the data
-directory as a unit.
+CLI snapshot commands: `thingd snapshot create --out backup.thingd.json` (exports all objects, events, and queue jobs as JSON lines). Restore with `thingd snapshot restore --in backup.thingd.json`. For file-level backups, stop the engine and copy the complete Fjall data directory.
 
 ### Can I run this in Kubernetes with persistence?
 
-Yes. Kubernetes deployment manifests are in `deploy/kubernetes/`. Use a
-PersistentVolumeClaim for the Fjall data directory. For leader/follower mode,
-use a StatefulSet with stable pod identity.
+Yes. Kubernetes deployment manifests are in `deploy/kubernetes/`. Use a PersistentVolumeClaim for the complete Fjall data directory. For leader/follower mode, use a StatefulSet with stable pod identity.
 
 ### What happens during rolling upgrades?
 
-thingd does not have built-in zero-downtime upgrade support. Restarting the
-process reopens the configured store. Connection-based recovery is the
-application's responsibility.
+thingd does not have built-in zero-downtime upgrade support. Restarting the process reopens the Fjall directory. Connection-based recovery is the application's responsibility.
 
 ### Is there a health check / observability API?
 
 - `GET /healthz` — basic health check.
 - `GET /v1/health` — health status.
 - `GET /metrics` — Prometheus-format metrics endpoint (objects_total, events_total, etc.).
-- `GET /cluster/status` — cluster mode, leader URL, election, and discovery info.
+- `GET /cluster/status` — cluster health, role, peer info, replication lag.
 - CLI: `thingd doctor`, `thingd metrics`, `thingd status`.
 
 ## thingd-cloud
@@ -306,12 +277,7 @@ The SDK is designed to be driver-agnostic — the same `ThingD.open()` call work
 
 ### Is multi-tenancy supported?
 
-Yes, at the sidecar level. Set `tenant.mode: multi-tenant` and configure
-`auth.tenant_tokens` with a distinct bearer token for each tenant. Requests
-must send both the matching `Authorization` token and `X-Tenant-Id`; the header
-alone does not authorize tenant access. Each tenant uses a separate Fjall file
-at `{database_prefix}/{tenant_id}/thingd.db`. In single-tenant mode (default),
-behavior is unchanged.
+Yes, at the sidecar level. Set `THINGD_TENANT_MODE=multi-tenant` to enable per-tenant file isolation. Each HTTP request's `X-Tenant-Id` header routes to a separate Fjall database file at `{database_prefix}/{tenant_id}/thingd.db`. In single-tenant mode (default), behavior is unchanged — all data uses the default database path.
 
 ## Positioning
 
@@ -344,21 +310,17 @@ Both, but honestly: it prioritizes developer experience first. The infrastructur
 
 ### What's the long-term tradeoff of using thingd?
 
-The tradeoff is: simpler deployment + unified API vs. less operational maturity
-than specialized systems. If thingd's abstraction fits your data model, you save
-on integration complexity. If your requirements outgrow thingd's single-writer
-leader model, migration to a more scalable system will require architectural
-changes.
+The tradeoff is: simpler deployment + unified API vs. less operational maturity than specialized systems. If thingd's abstraction fits your data model, you save on integration complexity. If your requirements outgrow the current embedded Fjall runtime, migration to a more scalable system will require architectural changes.
 
 ## Security
 
 ### How do I enable authentication?
 
-Set `THINGD_AUTH_TOKEN` env var or `auth.token` in config. Minimum 16 characters when `allow_unauthenticated` is false. See [Security](./security.md).
+Set `THINGD_AUTH_TOKEN` env var or `auth.token` in config. Minimum 16 characters when `allow_unauthenticated` is false. See [Security](../security.md).
 
 ### Does thingd support TLS?
 
-Not built-in. Deploy behind nginx or Caddy for TLS termination. See [Security](./security.md#tls--https).
+Not built-in. Deploy behind nginx or Caddy for TLS termination. See [Security](../security.md#tls--https).
 
 ### What rate limiting is available?
 
@@ -376,7 +338,7 @@ Yes. Set `server.production_mode: true` to strip internal details from 500 respo
 thingd backup --out /path/to/backup.db
 ```
 
-Uses the native driver's backup support for a consistent snapshot. See [Operations](./operations.md).
+Uses `VACUUM INTO` for a consistent snapshot. See [Operations](../operations.md).
 
 ### How do I check database integrity?
 

@@ -6,7 +6,7 @@ Read this file before making integration changes. It explains the current projec
 
 ## Current State
 
-`thingd` is an early open source project. The public Node.js API is real enough to test locally, and the default path still uses the TypeScript in-memory store. The Rust core has durable Fjall storage for objects, events, queues, search, and links; the native Node driver remains SQLite-backed.
+`thingd` is an open source project. The public Node.js API is real enough to test locally, and the default path still uses the TypeScript in-memory store. The Rust core has durable Fjall storage for objects, events, queues, search, and vectors.
 
 Current implementation:
 
@@ -26,7 +26,7 @@ Do not present the public Node package as production-ready persistent storage ye
 `thingd` is meant to feel like:
 
 ```txt
-SQLite-simple local deployment
+Fjall-simple local deployment
 + object-shaped app memory
 + events and timelines
 + durable queues
@@ -38,7 +38,7 @@ There are two runtime modes:
 
 ```txt
 embedded mode:
-  Node.js app -> native Rust binding -> local thingd file
+  Node.js app -> native Rust binding -> local Fjall directory
 
 server/sidecar mode:
   Node.js app -> HTTP/gRPC/Unix socket -> thingd server -> local thingd file
@@ -47,14 +47,15 @@ cluster sidecar mode:
   Node.js app -> localhost thingd sidecar -> leader/follower thingd cluster
 ```
 
-Current Node.js code uses the TypeScript in-memory proof layer by default.
-The Rust crate includes `FjallEngine` for persistent object, event, queue, search,
-and link storage. The SDK can opt into the private native SQLite bridge with
-`driver: "native"` after `thingd-native` is built locally.
+Current Node.js code uses the TypeScript in-memory store by default. Durable
+local persistence uses the native Fjall adapter through `driver: "native"`
+after `thingd-native` is built locally. The deprecated SQLite adapter remains
+available only for historical compatibility and is not the current runtime
+model.
 The SDK can opt into sidecar mode with `driver: "cloud"` or automatically when
 `THINGD_URL` is set.
 The HTTP MCP runtime can run as a bridge follower and forward MCP traffic to a
-configured leader. Follower-local stores are not replicated by the current runtime.
+configured leader. It does not yet replicate local follower stores.
 
 ## Integration Checklist
 
@@ -290,15 +291,14 @@ For agent value and patterns, read [why-agents.md](./why-agents.md) and
 - Do not add a separate app-facing API to `thingd-native`; keep the public API in `thingd`.
 - Do not claim exactly-once queue delivery. The queue is at-least-once.
 - Do not hide distributed-system tradeoffs. Multi-pod writes need server/sidecar or primary-writer mode.
-- Do not add multi-primary cluster behavior. Cluster mode uses leader-writer
-  forwarding; follower-local stores are not replicated by the current runtime.
+- Do not add multi-primary cluster behavior. Cluster mode uses leader-writer with forwarding and event replication.
 - Do not add generic textbook structures as public features unless they map to an AI-native workflow primitive.
 - Keep sidecar environment variables and Kubernetes examples aligned with the deployed runtime configuration.
 - Keep package publish behavior in `release.config.mjs` and `docs/release.md` aligned.
 - For CLI work, create a dedicated package and use the public SDK instead of reaching into internal stores.
 - Keep CLI command behavior documented in [cli-reference.md](./cli-reference.md).
 
-## For a 5-minute working example: **[quickstart.md](./quickstart.md)**
+## For a 5-minute working example: **[QUICKSTART.md](./QUICKSTART.md)**
 
 ## Required Checks
 
@@ -318,7 +318,7 @@ pnpm rust:clippy
 pnpm test:rust
 ```
 
-Rust checks run with all features enabled so the Fjall engine and native-facing code paths are covered in CI.
+Rust checks run with all features enabled so the Fjall adapter is covered in CI.
 
 `pnpm test:local` does not run Rust checks because some local environments may not have `cargo` installed.
 
@@ -339,4 +339,4 @@ pnpm bench:rust:smoke
 - Adding npm publish assumptions before `NPM_TOKEN` is configured.
 - Using queue consumers without idempotency keys for repeatable work.
 - Assuming `ThingD.open("./thingd.db")` persists. Use `driver: "native"` for
-  embedded SQLite or `THINGD_URL` for sidecar mode.
+  embedded Fjall or `THINGD_URL` for sidecar mode.

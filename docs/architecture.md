@@ -86,20 +86,19 @@ On startup:             verify index consistency, rebuild if stale
 
 Tantivy is always available with the Fjall backend. Feature-gated with `search`.
 
-## Vector search: embedvec
+## Vector search: persisted cosine similarity
 
-thingd integrates **embedvec** (0.8.0+) for semantic vector search, using the same Fjall database instance for HNSW graph persistence.
+thingd stores optional object vectors in a Fjall keyspace and ranks matches by cosine similarity. The current implementation scans the collection exactly; HNSW/ANN is a future scale milestone.
 
 ```
-embedvec:   HNSW index persisted in Fjall partitions
-Features:   metadata filtering, E8/H4 lattice quantization (up to 24.8x compression)
+Storage:    vectors persisted alongside Fjall objects
+Features:   metadata filtering and exact cosine ranking
 Use case:   agent semantic memory, similarity search over embeddings
-WASM:       embedvec has a `wasm` feature for in-memory vector search in browsers
+WASM:       in-memory vector search remains the browser-compatible path
 ```
 
 New MCP tools when vectors are enabled:
 
-- `thing_vector_upsert` — store embedding + metadata reference to an object
 - `thing_vector_search` — kNN search by embedding vector with optional metadata filter
 
 Vector search is additive — it doesn't replace keyword FTS. Search queries can combine both signals.
@@ -123,7 +122,7 @@ Future: an IndexedDB persist adapter for browser WASM, enabling cross-session du
 
 ## MCP server
 
-thingd ships **46 SDK MCP tools** across objects, events, queues, search, graph links, aggregation, schema, NLQ, and scheduling. The Rust sidecar exposes the 36 core tools. Every core tool goes through the same `ThingStore` trait — the backend choice is invisible to the agent.
+The Node SDK MCP server ships **46 tools** across objects, events, queues, search, graph links, aggregation, schema, NLQ, vectors, and scheduling. The Rust sidecar ships 36 engine tools; every sidecar tool goes through the same `ThingStore` trait.
 
 ```
 Object CRUD:    thing_get, thing_put, thing_delete, thing_objects_list
@@ -164,7 +163,7 @@ See [mcp-server.md](./mcp-server.md) for the full reference.
 │         │ (cache, WASM)                │ (production, persist) │
 │         │ ~675K ops/s                  │ ~100K+ ops/s + WAL    │
 │         │ + Tantivy (FTS)              │ + Tantivy (FTS)       │
-│         │ + embedvec (vectors, WASM)   │ + embedvec (vectors)  │
+│         │ + in-memory vectors          │ + Fjall vectors       │
 │         └──────────────────────────────┘───────────────────────┘
 ```
 
@@ -177,28 +176,27 @@ See [mcp-server.md](./mcp-server.md) for the full reference.
 | **Docker** | `docker run thingd/thingd-server` | Fjall (persistent volume) |
 | **Browser/edge** | `@thingd/client` + SDK memory store | InMemory |
 | **WASM agent** | compiled to `wasm32-unknown-unknown` | InMemory |
-| **Cluster** | static leader/follower forwarding and election | Fjall per node |
+| **Cluster** | leader/follower via Raft (`open-raft`) | Fjall + Raft log |
 | **thingd.cloud** | managed hosted | Fjall per workspace |
 
 ## Multi-pod / clustering
 
-Clustering uses static leader/follower configuration:
+Clustering uses **Raft consensus** via `open-raft`:
 
 ```
-Leader:     accepts local reads and writes
-Followers:  forward MCP writes to the configured leader
+Leader:     accepts writes, replicates log to followers
+Followers:  serve read queries, forward writes to leader
 ```
 
-Leader election, when enabled, promotes the next peer from the ordered static
-peer list after repeated leader failures. This is not Raft or another consensus
-protocol; operators must provide fencing and split-brain protection. The current
-follower mode does not replicate a local store or expose a replication log route.
+Queue operations (`claim_job`, `ack_job`) require linearizability — they go through the leader. Read operations (`get_object`, `search`) dispatch to any follower.
+
+Raft log is stored in the same Fjall database. The state machine is the `ThingStore` trait — clustering wraps it, not replaces it.
 
 ## Package layout
 
 ```
 crates/
-  thingd/              Rust engine — traits, InMemory, Fjall, Tantivy, embedvec
+  thingd/              Rust engine — traits, InMemory, Fjall, Tantivy, vectors
   thingd-server/       Rust sidecar — axum REST + MCP + cluster
 
 packages/

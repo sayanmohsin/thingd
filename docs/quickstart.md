@@ -88,7 +88,7 @@ Opens a dark-mode browser dashboard at `http://localhost:8758`. Browse collectio
 
 ## 4. Connect your editor (MCP)
 
-thingd ships with 46 SDK MCP tools. The Rust sidecar exposes the 36 core tools; scheduler tools are currently available through the SDK server.
+thingd ships with 46 Node MCP tools. The Rust sidecar exposes 36 engine tools; connect your editor to search, read, write, and queue data directly from your agent.
 
 ### Cursor
 
@@ -154,7 +154,7 @@ Expected output:
 ✔ MCP server: reachable
 ```
 
-Once connected, your agent can call the available tools — search, objects, events, queues, links, aggregate, schema, NLQ, vector, discovery, and (in the SDK server) scheduler tools.
+Once connected to the Node MCP server, your agent can call all 46 tools — search, objects, events, queues, links, aggregate, schema, NLQ, vector, scheduler, and discovery.
 
 **Example: agent searches before writing**
 

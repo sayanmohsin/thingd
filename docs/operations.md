@@ -1,5 +1,9 @@
 # Operations
 
+> The SQLite backup procedure below is retained for the deprecated SQLite
+> adapter. Current Fjall runtimes should use filesystem-level directory backups
+> or the Cloud runtime backup procedure.
+
 Backup, recovery, database health, and maintenance procedures for thingd.
 
 ## Backup
@@ -10,10 +14,8 @@ Backup, recovery, database health, and maintenance procedures for thingd.
 thingd backup --out /path/to/backup.db
 ```
 
-This command uses the native Node driver's SQLite backup support and is intended
-for native SQLite databases. The Rust sidecar uses Fjall directories rather than
-SQLite files; use the snapshot commands or a filesystem-level backup of the
-sidecar data directory for that runtime.
+The deprecated SQLite backup is created using `VACUUM INTO`. It does not apply
+to current Fjall database directories.
 
 **Options:**
 - `--out <path>` — Destination path for the backup file
@@ -29,15 +31,15 @@ Backup created: /path/to/backup.db (1.25 MB)
 There is no dedicated restore command. To restore:
 
 ```bash
-# Stop the native thingd process
-cp /path/to/backup.db /path/to/native.db
-# Start the native thingd process
+# Stop thingd-server
+cp /path/to/backup.db /path/to/thingd.db
+# Start thingd-server
 ```
 
 Or use the CLI with a file copy:
 
 ```bash
-thingd backup --in /path/to/backup.db
+thingd db restore --in /path/to/backup.db
 ```
 
 ## Snapshots
@@ -105,8 +107,7 @@ When `--redact` is used during export, the following are automatically redacted:
 thingd db integrity
 ```
 
-For the native SQLite driver, runs `PRAGMA quick_check` and reports whether it
-passes. The check runs automatically on startup for that driver.
+Runs `PRAGMA quick_check` against the database and reports whether it passes. The check runs automatically on startup.
 
 **Output:**
 ```json
@@ -119,16 +120,15 @@ passes. The check runs automatically on startup for that driver.
 thingd db checkpoint
 ```
 
-For the native SQLite driver, triggers `PRAGMA wal_checkpoint(TRUNCATE)` to flush
-the Write-Ahead Log into the main database file.
+Triggers `PRAGMA wal_checkpoint(TRUNCATE)` to flush the Write-Ahead Log into the main database file. This reduces WAL file size and improves read performance.
 
 **Output:**
 ```json
 { "framesBefore": 42, "framesAfter": 0 }
 ```
 
-- WAL checkpoint also runs automatically when the native database connection is closed
-- In-memory and Fjall databases do not use SQLite WAL mode
+- WAL checkpoint also runs automatically when the database connection is closed
+- In-memory databases do not support WAL mode
 
 ## Schema Migrations
 

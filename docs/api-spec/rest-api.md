@@ -392,7 +392,7 @@ Missing IDs return `null` entries, preserving input order.
 
 | Field | Required | Description |
 |-------|----------|-------------|
-| `query` | yes | FTS5 query string |
+| `query` | yes | Tantivy query string |
 | `collections` | no | Limit to these collection/stream names |
 | `limit` | no | Max results |
 | `filter` | no | Metadata key-value pairs to match |

@@ -73,7 +73,7 @@ const neighbors = await db.links.neighbors("doc-1", "outgoing");
 
 ### MCP — tool access for AI agents
 
-All primitives are exposed as MCP tools (29 total)
+The Node SDK exposes 46 MCP tools; the Rust sidecar exposes 36 engine tools.
 so AI agents can search, read, write, and manage data without custom
 integrations. MCP is one access layer — not the product.
 
@@ -98,9 +98,9 @@ No cluster to configure. No cloud to sign up for. Just `npm install` and go.
 
 - **Small to medium apps** — one runtime instead of 3-5 infrastructure dependencies
 - **Devtools and internal tools** — ship with embedded data, no Postgres required
-- **Edge and single-node deployments** — SQLite is the right choice at this scale
+- **Edge and single-node deployments** — Fjall is the default durable Rust backend
 - **AI agent memory** — persistent, structured, tool-addressable state
-- **Prototypes and MVPs** — start with memory, graduate to SQLite, later to Docker
+- **Prototypes and MVPs** — start with memory, graduate to native Fjall or Docker
 
 ## When to skip thingd
 

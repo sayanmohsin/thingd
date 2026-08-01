@@ -2,7 +2,11 @@
 
 This is the language-agnostic API contract for thingd. Any SDK (Node.js, Go, Rust, Flutter) implements this spec in its own language.
 
-thingd is a fast, object-first data engine for applications and AI agents. It supports in-memory, file-based (SQLite), Docker, and hosted HTTP instances.
+thingd is a fast, object-first data engine for applications and AI agents. It supports in-memory, file-based (Fjall), Docker, and hosted HTTP instances.
+
+The hosted mobile/web app backend contract is documented in
+[App Backend](../app-backend.md). It is implemented by thingd Cloud and does
+not add Cloud tenancy or authentication to the open-source engine.
 
 ## Sections
 
@@ -18,7 +22,7 @@ thingd is a fast, object-first data engine for applications and AI agents. It su
 ┌─────────────────────────────────────────────────────┐
 │              thingd (Rust engine)                    │
 │  ObjectStore, EventLog, QueueStore, Searcher,       │
-│  LinkStore — in-memory + Fjall implementations     │
+│  LinkStore — in-memory + Fjall implementations      │
 └──────────────────────┬──────────────────────────────┘
                        │
           ┌────────────┼────────────┬────────────┬────────────┐
@@ -32,7 +36,7 @@ thingd is a fast, object-first data engine for applications and AI agents. It su
           ▼            ▼            ▼            ▼            ▼
     ┌─────────────────────────────────────────────────────────────┐
     │           Protocol Adapters (per-language)                   │
-    │  REST API (/v1/*)  │  MCP Server (46 SDK / 36 sidecar tools) │
+    │  REST API (/v1/*)  │  MCP Server (36 tools)                 │
     └─────────────────────────┬───────────────────────────────────┘
                               │
                   ┌───────────┼───────────┐
@@ -129,13 +133,3 @@ MCP server endpoints use the same Bearer token scheme.
 | MCP | `thing_list_queues` | List queues |
 | MCP | `thing_create_index` | Create functional index |
 | MCP | `thing_list_indexes` | List functional indexes |
-| MCP (SDK) | `thing_scheduler_schedule` | Schedule a one-off job |
-| MCP (SDK) | `thing_scheduler_schedule_interval` | Schedule a recurring interval |
-| MCP (SDK) | `thing_scheduler_schedule_once` | Schedule a delayed one-off job |
-| MCP (SDK) | `thing_scheduler_list` | List scheduled jobs |
-| MCP (SDK) | `thing_scheduler_get` | Get a scheduled job |
-| MCP (SDK) | `thing_scheduler_stats` | Scheduler statistics |
-| MCP (SDK) | `thing_scheduler_pause` | Pause a scheduled job |
-| MCP (SDK) | `thing_scheduler_resume` | Resume a scheduled job |
-| MCP (SDK) | `thing_scheduler_run` | Run a scheduled job now |
-| MCP (SDK) | `thing_scheduler_remove` | Remove a scheduled job |
