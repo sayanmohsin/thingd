@@ -46,7 +46,10 @@ type AppErrorEnvelope = {
 };
 
 function appPath(baseUrl: string): string {
-  const normalized = baseUrl.replace(/\/+$/, "");
+  let normalized = baseUrl;
+  while (normalized.endsWith("/")) {
+    normalized = normalized.slice(0, -1);
+  }
   return normalized.endsWith("/v1") ? normalized : `${normalized}/v1`;
 }
 
