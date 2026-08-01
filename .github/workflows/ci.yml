@@ -19,7 +19,7 @@ on:
       - "docs/api-spec/**"
       - ".dockerignore"
   push:
-    branches: [main]
+    branches: [main, development]
     paths:
       - ".github/workflows/**"
       - "Cargo.toml"

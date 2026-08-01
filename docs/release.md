@@ -20,20 +20,21 @@ feat(storage)!: replace the storage adapter interface
 
 ## Branch and release workflow
 
-Use this branch flow for open-source development:
+Use the following branch flow for open-source development:
 
 ```txt
 feature/* → squash merge → development → regular merge PR → main → release
 ```
 
-Use semantic branch prefixes: `feature/<name>`, `fix/<name>`, `docs/<name>`,
-`refactor/<name>`, `test/<name>`, or `chore/<name>`. Feature branches start from
-`development` and are squash-merged there with a conventional commit title. The
-squash-merge commit, not the branch name, determines the semantic-release
-version bump.
+Feature branches should start from `development`. Squash-merge completed
+features into `development` using a conventional commit title such as `feat:` or
+`fix:`. CI runs on `development` and `main`, but release automation runs only
+after `main` changes.
 
-When `development` is ready, merge it into `main` with a regular merge commit.
-Release automation runs only after `main` changes.
+When `development` is ready, open a pull request into `main` and use a regular
+merge commit. Do not squash this release merge: semantic-release scans all
+conventional commits since the previous tag and produces one version containing
+the complete batch. After the release, sync `main` back into `development`.
 
 ## GitHub Actions
 
@@ -82,7 +83,7 @@ On every release, the workflow publishes `thingd` to [crates.io](https://crates.
 
 ```toml
 [dependencies]
-thingd = { version = "0.70", features = ["fjall", "search"] }
+thingd = { version = "0.41", features = ["fjall", "search"] }
 ```
 
 The publish runs in parallel with npm and Docker publishing.
@@ -91,7 +92,7 @@ The publish runs in parallel with npm and Docker publishing.
 
 On every release, the workflow builds and pushes a Docker image to [Docker Hub](https://hub.docker.com/r/sayanmohsin/thingd):
 
-- `sayanmohsin/thingd:<version>` — tagged with the exact SemVer (e.g., `v0.70.0`)
+- `sayanmohsin/thingd:<version>` — tagged with the exact SemVer (e.g., `v0.19.0`)
 - `sayanmohsin/thingd:latest` — always points to the latest release
 
 Pull the image:
@@ -136,13 +137,15 @@ Once Trusted Publishing is verified, remove the `NPM_TOKEN` secret.
 
 ## Branch Protection
 
-Before opening the repository, protect `main` in GitHub:
+Protect both `main` and `development` in GitHub:
 
 - require pull requests before merging
 - require the CI workflow to pass
 - block force pushes
 - require linear history if desired
 - allow the release workflow to create tags and GitHub releases
+- allow repository administrators to bypass protection while the project is small
+- require outside contributors to use forks and pull requests
 
 The release workflow pushes version bump commits (including `CHANGELOG.md` and updated `package.json` files) back to `main` via `@semantic-release/git`. It also creates a Git tag and GitHub Release.
 
