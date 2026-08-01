@@ -107,6 +107,14 @@ If clippy or fmt fails, fix and amend. Never use `--no-verify` to bypass pre-pus
 - **Rust**: edition 2024, `cargo fmt` must pass
 - **Commits**: conventionalcommits (`fix:`, `feat:`, `refactor:`, `BREAKING CHANGE:`) for semantic-release
 
+## Branch workflow
+
+Use `development` as the integration branch. Create feature branches from
+`development`, then squash-merge each completed feature into `development` with
+a conventional commit title. Open a release PR from `development` to `main` and
+use a regular merge commit rather than a squash merge. CI runs on both branches;
+release automation runs only after `main` changes.
+
 ## Keeping AGENTS.md healthy
 
 This file should stay useful but not become a dump. Rules:
@@ -189,9 +197,9 @@ Search with `rg 'version = "0\.xx"' crates/ packages/` after every version bump.
 
 ## Publishing
 
-Releases via `semantic-release` on main. All three npm packages (`@thingd/sdk`, `@thingd/cli`, `@thingd/native`) and the Rust crate (`thingd`) publish in lockstep. Version tag format: `v${version}`.
+Releases via `semantic-release` on main. All three npm packages (`@thingd/sdk`, `@thingd/cli`, `@thingd/native`) and the Rust crate (`thingd`) publish in lockstep. Version tag format: `v${version}`. A regular `development` → `main` merge batches the conventional commits accumulated since the previous tag into one release.
 
-> **Save GitHub Actions credits:** Each push to `main` with releasable commits (`feat:`, `fix:`) triggers a separate release workflow. Push related commits together (or squash before push) to avoid running multiple releases for the same feature. Example: if building a feature + updating deps, commit as `feat: add feature` then `chore: update deps`, push once — only the `feat:` commit triggers a release.
+> **Save GitHub Actions credits:** Release only through the `development` → `main` merge. Each push to `main` with releasable commits (`feat:`, `fix:`) triggers a release workflow. Squash feature branches into `development`, batch related work, and use a regular merge into `main` so one release covers the full batch.
 
 Manual first publish (for new scoped packages):
 ```bash
