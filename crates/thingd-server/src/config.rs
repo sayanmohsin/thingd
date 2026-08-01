@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -47,6 +48,8 @@ pub struct AuthConfig {
     pub token: String,
     #[serde(default)]
     pub allow_unauthenticated: bool,
+    #[serde(default)]
+    pub tenant_tokens: HashMap<String, String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -177,6 +180,14 @@ pub struct HardeningConfig {
     pub rate_limit_enabled: bool,
     #[serde(default = "default_rate_limit_rpm")]
     pub rate_limit_requests_per_minute: u64,
+    #[serde(default = "default_connector_file_bytes")]
+    pub max_connector_file_bytes: u64,
+    #[serde(default)]
+    pub connector_file_root: Option<String>,
+    #[serde(default)]
+    pub connector_allowed_hosts: Vec<String>,
+    #[serde(default = "default_connector_require_tls")]
+    pub connector_require_tls: bool,
 }
 
 impl Default for ServerConfig {
@@ -262,6 +273,10 @@ impl Default for HardeningConfig {
             cors_max_age_secs: default_cors_max_age(),
             rate_limit_enabled: default_rate_limit_enabled(),
             rate_limit_requests_per_minute: default_rate_limit_rpm(),
+            max_connector_file_bytes: default_connector_file_bytes(),
+            connector_file_root: None,
+            connector_allowed_hosts: Vec::new(),
+            connector_require_tls: default_connector_require_tls(),
         }
     }
 }
@@ -328,6 +343,12 @@ fn default_rate_limit_enabled() -> bool {
 }
 fn default_rate_limit_rpm() -> u64 {
     300
+}
+fn default_connector_file_bytes() -> u64 {
+    64 * 1024 * 1024
+}
+fn default_connector_require_tls() -> bool {
+    true
 }
 
 impl Config {
@@ -500,12 +521,32 @@ impl Config {
                 .filter(|t| !t.is_empty())
                 .is_none()
             && self.auth.token.is_empty()
+            && self.auth.tenant_tokens.is_empty()
         {
             return Err("auth.token is required when server.production_mode is true".into());
         }
         if self.tenant.mode == TenantMode::MultiTenant && self.tenant.database_prefix.contains("..")
         {
             return Err("tenant.database_prefix must not contain '..'".into());
+        }
+        if self.tenant.mode == TenantMode::MultiTenant
+            && (self.auth.allow_unauthenticated || self.auth.tenant_tokens.is_empty())
+        {
+            return Err(
+                "multi-tenant mode requires authenticated tenant_tokens and disallows unauthenticated access"
+                .into(),
+            );
+        }
+        if self
+            .auth
+            .tenant_tokens
+            .iter()
+            .any(|(tenant, token)| tenant.is_empty() || token.len() < 16)
+        {
+            return Err("auth.tenant_tokens require non-empty tenant IDs and tokens of at least 16 characters".into());
+        }
+        if self.hardening.max_connector_file_bytes == 0 {
+            return Err("hardening.max_connector_file_bytes must be greater than 0".into());
         }
         Ok(())
     }
@@ -549,6 +590,20 @@ mod tests {
         let mut config = Config::default();
         config.auth.allow_unauthenticated = true;
         config.auth.token = "".to_string();
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn multi_tenant_requires_per_tenant_tokens() {
+        let mut config = Config::default();
+        config.tenant.mode = TenantMode::MultiTenant;
+        config.auth.token = "server-token-that-is-long-enough".to_string();
+        assert!(config.validate().is_err());
+
+        config.auth.tenant_tokens.insert(
+            "tenant-a".to_string(),
+            "tenant-a-token-that-is-long-enough".to_string(),
+        );
         assert!(config.validate().is_ok());
     }
 

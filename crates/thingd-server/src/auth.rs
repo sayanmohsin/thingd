@@ -22,7 +22,7 @@ fn constant_time_eq(a: &str, b: &str) -> bool {
 
 /// Path prefixes that are exempt from authentication.
 /// Health, metrics, and cluster-status endpoints are safe to expose without auth.
-const PUBLIC_PATH_PREFIXES: &[&str] = &["/healthz", "/metrics", "/cluster/"];
+const PUBLIC_PATH_PREFIXES: &[&str] = &["/healthz", "/metrics"];
 
 fn skip_auth_for_path(path: &str) -> bool {
     PUBLIC_PATH_PREFIXES.iter().any(|p| path.starts_with(p))
@@ -33,7 +33,8 @@ pub async fn auth_middleware(
     req: Request,
     next: Next,
 ) -> Result<Response, AppError> {
-    if state.auth_token.is_empty()
+    if (state.auth_token.is_empty()
+        && state.tenant_config.mode != crate::config::TenantMode::MultiTenant)
         || req.method() == Method::OPTIONS
         || skip_auth_for_path(req.uri().path())
     {
@@ -47,8 +48,19 @@ pub async fn auth_middleware(
         .and_then(|v| v.strip_prefix("Bearer "))
         .map(|s| s.to_string());
 
+    let expected_token = if state.tenant_config.mode == crate::config::TenantMode::MultiTenant {
+        let tenant_id = extract_tenant_id(req.headers(), &state.tenant_config)?
+            .ok_or_else(|| AppError::unauthorized("Tenant identity is required"))?;
+        state
+            .tenant_tokens
+            .get(&tenant_id)
+            .ok_or_else(|| AppError::unauthorized("Tenant is not authorized"))?
+    } else {
+        &state.auth_token
+    };
+
     match provided {
-        Some(p) if constant_time_eq(&p, &state.auth_token) => {},
+        Some(p) if constant_time_eq(&p, expected_token) => {},
         _ if state.allow_unauthenticated => {
             tracing::warn!("No valid auth token, but allow_unauthenticated is set");
         },
