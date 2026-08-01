@@ -12,6 +12,7 @@ import type {
   ConnectorSyncResult,
   ListEventsOptions,
   ListObjectsOptions,
+  LocalThingDConnection,
   MemoryEvent,
   MemoryObject,
   MemoryQueue,
@@ -28,7 +29,6 @@ import type {
   SchemaOptions,
   StoredMemoryEvent,
   StoredMemoryObject,
-  ThingDConnection,
   ThingDeleteResult,
   ThingStore,
   TimeSeriesOptions,
@@ -54,7 +54,7 @@ export type ThingDOpenConfig = ThingDOpenOptions & {
   url?: string;
 };
 
-export class ThingD implements ThingDConnection {
+export class ThingD implements LocalThingDConnection {
   static async open(
     pathOrConfig?: string | ThingDOpenConfig,
     options: ThingDOpenOptions = {}
@@ -248,7 +248,7 @@ export class ThingD implements ThingDConnection {
     }
   }
 
-  walCheckpoint(): { framesBefore: number; framesAfter: number } {
+  walCheckpoint(): import("./types.js").WalCheckpointResult {
     if (this.store.walCheckpoint) {
       return this.store.walCheckpoint();
     }

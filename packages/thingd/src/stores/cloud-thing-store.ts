@@ -356,7 +356,7 @@ export class CloudThingStore implements ThingStore {
     await this.client.close();
   }
 
-  walCheckpoint(): { framesBefore: number; framesAfter: number } {
+  walCheckpoint(): import("../types.js").WalCheckpointResult {
     throw new Error("WAL checkpoint is not supported for cloud storage driver");
   }
 
