@@ -77,6 +77,20 @@ export type ThingDeleteResult = {
   deleted: boolean;
 };
 
+export type WalCheckpointResult = {
+  framesBefore: number;
+  framesAfter: number;
+};
+
+export interface ReconnectableThingStore {
+  reconnect(): Promise<void>;
+}
+
+export interface BackupCapableThingStore {
+  backupTo(path: string): void;
+  walCheckpoint(): WalCheckpointResult;
+}
+
 export type MemorySearchOptions = {
   collections?: string[];
   limit?: number;
@@ -484,6 +498,12 @@ export interface ThingDConnection {
   ): Promise<VectorSearchHit[]>;
 }
 
+/** Local-driver connection capabilities unavailable on cloud/browser stores. */
+export interface LocalThingDConnection extends ThingDConnection {
+  backupTo(path: string): void;
+  walCheckpoint(): WalCheckpointResult;
+}
+
 export interface ThingStore {
   put(collection: string, object: MemoryObject, options?: PutOptions): Promise<StoredMemoryObject>;
   get<T = StoredMemoryObject>(collection: string, id: string): Promise<T | null>;
@@ -547,5 +567,5 @@ export interface ThingStore {
   ): Promise<VectorSearchHit[]>;
   close?(): Promise<void>;
   backupTo?(path: string): void;
-  walCheckpoint?(): { framesBefore: number; framesAfter: number };
+  walCheckpoint?(): WalCheckpointResult;
 }
