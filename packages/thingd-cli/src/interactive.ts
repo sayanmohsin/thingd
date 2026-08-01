@@ -4,7 +4,13 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import readline from "node:readline";
-import { type MemorySearchOptions, ThingD, type ThingDDriver } from "@thingd/sdk";
+import {
+  type ListObjectsOptions,
+  type MemorySearchOptions,
+  type SortDirection,
+  ThingD,
+  type ThingDDriver,
+} from "@thingd/sdk";
 import pc from "picocolors";
 import { deriveRestUrl, listInstances, listProjects } from "./lib/cloud-api.js";
 import {
@@ -88,7 +94,7 @@ const collectionOptions = new Map<
   string,
   {
     sortBy?: string;
-    sortDir?: string;
+    sortDir?: SortDirection;
     limit?: number;
     offset?: number;
     filter?: Record<string, unknown>;
@@ -391,7 +397,7 @@ async function fetchResourcesFallback() {
     collections.map(async (col) => {
       try {
         const opts = collectionOptions.get(col);
-        const listOpts: Record<string, unknown> = {};
+        const listOpts: ListObjectsOptions = {};
         if (opts?.sortBy) {
           listOpts.sortBy = { field: opts.sortBy, direction: opts.sortDir ?? "asc" };
         }
@@ -406,7 +412,7 @@ async function fetchResourcesFallback() {
         }
         const list = await db.listObjects(
           col,
-          Object.keys(listOpts).length > 0 ? (listOpts as any) : undefined
+          Object.keys(listOpts).length > 0 ? listOpts : undefined
         );
         objectsByCollection.set(
           col,
@@ -467,7 +473,7 @@ async function fetchResources(): Promise<void> {
   for (const col of collections) {
     try {
       const opts = collectionOptions.get(col);
-      const listOpts: Record<string, unknown> = {};
+      const listOpts: ListObjectsOptions = {};
       if (opts?.sortBy) {
         listOpts.sortBy = { field: opts.sortBy, direction: opts.sortDir ?? "asc" };
       }
@@ -482,7 +488,7 @@ async function fetchResources(): Promise<void> {
       }
       const list = await db.listObjects(
         col,
-        Object.keys(listOpts).length > 0 ? (listOpts as any) : undefined
+        Object.keys(listOpts).length > 0 ? listOpts : undefined
       );
       objectsByCollection.set(
         col,
@@ -2265,42 +2271,20 @@ async function handleAggregate(selected: TreeNode | undefined) {
       const filter = vals.filter?.trim() ? JSON.parse(vals.filter.trim()) : undefined;
 
       const options = { groupBy, filter };
-      const a = db.aggregate as {
-        count: (
-          c: string,
-          o?: Record<string, unknown>
-        ) => Promise<{ total: number; groups: { key: string; value: number }[] }>;
-        sum: (
-          c: string,
-          f: string,
-          o?: Record<string, unknown>
-        ) => Promise<{ total: number; groups: { key: string; value: number }[] }>;
-        avg: (
-          c: string,
-          f: string,
-          o?: Record<string, unknown>
-        ) => Promise<{ total: number; groups: { key: string; value: number }[] }>;
-        min: (
-          c: string,
-          f: string,
-          o?: Record<string, unknown>
-        ) => Promise<{ total: number; groups: { key: string; value: number }[] }>;
-        max: (
-          c: string,
-          f: string,
-          o?: Record<string, unknown>
-        ) => Promise<{ total: number; groups: { key: string; value: number }[] }>;
-      };
+      if (func !== "count" && !field) {
+        throw new Error("Field is required for sum, avg, min, and max.");
+      }
+      const aggregateField = field ?? "";
       const result =
         func === "count"
-          ? await a.count(collection, options)
+          ? await db.aggregate.count(collection, options)
           : func === "sum"
-            ? await a.sum(collection, field!, options)
+            ? await db.aggregate.sum(collection, aggregateField, options)
             : func === "avg"
-              ? await a.avg(collection, field!, options)
+              ? await db.aggregate.avg(collection, aggregateField, options)
               : func === "min"
-                ? await a.min(collection, field!, options)
-                : await a.max(collection, field!, options);
+                ? await db.aggregate.min(collection, aggregateField, options)
+                : await db.aggregate.max(collection, aggregateField, options);
 
       const lines = [
         ` ${pc.bold("Aggregate")}  ${pc.cyan(func)} ${pc.dim(`on ${collection}`)}`,
@@ -2428,7 +2412,7 @@ async function handleNlq(selected: TreeNode | undefined) {
       }
       const collection = (vals.collection || "").trim() || undefined;
 
-      const result = await (db as any).nlq.query(question, {
+      const result = await db.nlq.query(question, {
         collection,
       });
 
@@ -2522,7 +2506,7 @@ async function handleCollectionOptions(selected: TreeNode | undefined) {
         opts.filter = JSON.parse(vals.filter.trim());
       }
       if (Object.keys(opts).length > 0) {
-        collectionOptions.set(colName, opts as any);
+        collectionOptions.set(colName, opts);
       } else {
         collectionOptions.delete(colName);
       }

@@ -554,7 +554,7 @@ async function runCompletions(context: CliContext): Promise<void> {
       ? `#compdef thingd\ncompdef _thingd thingd\n_thingd() {\n  _describe 'thingd commands' ${JSON.stringify(cmds.map((c) => `${c}:thingd ${c}`))}\n}\n`
       : shell === "fish"
         ? `complete -c thingd -f\n${cmds.map((c) => `complete -c thingd -n '__fish_use_subcommand' -a ${c}`).join("\n")}\n`
-        : `_thingd() {\n  local cur=${"${COMP_WORDS[COMP_CWORD]}"}\n  if [ $COMP_CWORD -eq 1 ]; then\n    COMPREPLY=($(compgen -W "${cmds.join(" ")}" -- "$cur"))\n  fi\n}\ncomplete -F _thingd thingd\n`;
+        : `_thingd() {\n  local cur=\${COMP_WORDS[COMP_CWORD]}\n  if [ $COMP_CWORD -eq 1 ]; then\n    COMPREPLY=($(compgen -W "${cmds.join(" ")}" -- "$cur"))\n  fi\n}\ncomplete -F _thingd thingd\n`;
   writeText(context.stdout, script);
 }
 

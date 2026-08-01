@@ -123,7 +123,7 @@ Future: an IndexedDB persist adapter for browser WASM, enabling cross-session du
 
 ## MCP server
 
-thingd ships **36 MCP tools** across objects, events, queues, search, graph links, aggregation, schema, and NLQ. Every tool goes through the same `ThingStore` trait — the backend choice is invisible to the agent.
+thingd ships **46 SDK MCP tools** across objects, events, queues, search, graph links, aggregation, schema, NLQ, and scheduling. The Rust sidecar exposes the 36 core tools. Every core tool goes through the same `ThingStore` trait — the backend choice is invisible to the agent.
 
 ```
 Object CRUD:    thing_get, thing_put, thing_delete, thing_objects_list
@@ -177,21 +177,22 @@ See [mcp-server.md](./mcp-server.md) for the full reference.
 | **Docker** | `docker run thingd/thingd-server` | Fjall (persistent volume) |
 | **Browser/edge** | `@thingd/client` + SDK memory store | InMemory |
 | **WASM agent** | compiled to `wasm32-unknown-unknown` | InMemory |
-| **Cluster** | leader/follower via Raft (`open-raft`) | Fjall + Raft log |
+| **Cluster** | static leader/follower forwarding and election | Fjall per node |
 | **thingd.cloud** | managed hosted | Fjall per workspace |
 
 ## Multi-pod / clustering
 
-Clustering uses **Raft consensus** via `open-raft`:
+Clustering uses static leader/follower configuration:
 
 ```
-Leader:     accepts writes, replicates log to followers
-Followers:  serve read queries, forward writes to leader
+Leader:     accepts local reads and writes
+Followers:  forward MCP writes to the configured leader
 ```
 
-Queue operations (`claim_job`, `ack_job`) require linearizability — they go through the leader. Read operations (`get_object`, `search`) dispatch to any follower.
-
-Raft log is stored in the same Fjall database. The state machine is the `ThingStore` trait — clustering wraps it, not replaces it.
+Leader election, when enabled, promotes the next peer from the ordered static
+peer list after repeated leader failures. This is not Raft or another consensus
+protocol; operators must provide fencing and split-brain protection. The current
+follower mode does not replicate a local store or expose a replication log route.
 
 ## Package layout
 

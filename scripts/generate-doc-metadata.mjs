@@ -1,0 +1,23 @@
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+
+const ts = await readFile("packages/thingd/src/mcp/tools.ts", "utf8");
+const rust = await readFile("crates/thingd-server/src/mcp.rs", "utf8");
+const unique = (values) => [...new Set(values)].sort();
+const sdkTools = unique(
+  [...ts.matchAll(/registerTool\(\s*["'](thing_[a-z_]+)["']/g)].map((match) => match[1])
+);
+const sidecarTools = unique(
+  [...rust.matchAll(/name:\s*"(thing_[a-z_]+)"/g)].map((match) => match[1])
+);
+const metadata = {
+  generatedFrom: ["packages/thingd/src/mcp/tools.ts", "crates/thingd-server/src/mcp.rs"],
+  sdkToolCount: sdkTools.length,
+  sidecarToolCount: sidecarTools.length,
+  schedulerToolCount: sdkTools.filter((tool) => tool.startsWith("thing_scheduler_")).length,
+  sdkTools,
+  sidecarTools,
+};
+
+await mkdir("docs/.generated", { recursive: true });
+await writeFile("docs/.generated/mcp-metadata.json", `${JSON.stringify(metadata, null, 2)}\n`);
+console.log(`Generated MCP metadata: ${sdkTools.length} SDK, ${sidecarTools.length} sidecar tools.`);

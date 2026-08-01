@@ -21,7 +21,7 @@ thingd stores versioned JSON objects in collections, with built-in durable queue
 SDK, CLI, and MCP server are functional and tested, but the project is not
 production-ready yet.
 
-See the [full feature status and roadmap](https://github.com/sayanmohsin/thingd-cloud/blob/main/docs/features.md) for a consolidated view of both the engine and thingd Cloud.
+See the [public documentation](./docs/) for the engine feature set. Cloud-only planning and roadmap material is maintained privately in the thingd-cloud repository.
 
 ### Shipped
 
@@ -29,15 +29,15 @@ See the [full feature status and roadmap](https://github.com/sayanmohsin/thingd-
 - **Node.js SDK** (`@thingd/sdk`) — three drivers: memory (default in-memory TS store), native (napi-rs Rust SQLite), cloud (remote HTTP REST)
 - **Browser/Edge client** (`@thingd/client`) — zero-dependency REST client for browsers, Cloudflare Workers, AWS Lambda, Bun, Deno
 - **CLI** (`@thingd/cli`) — TUI dashboard, 30+ subcommands (search, objects, events, queues, export/import/snapshot/backup, doctor, bench, db maintenance). Support for importing from Postgres/MySQL via sidecar REST.
-- **MCP server** — 36 tools, stdio + Streamable HTTP, audit events, collection allowlists, read-only mode (tool count defined in packages/thingd/src/constants.ts)
+- **MCP server** — 46 SDK tools, stdio + Streamable HTTP, audit events, collection allowlists, and read-only mode. The Rust sidecar currently exposes 36 core tools; scheduler tools are SDK-only.
 - **Docker** — multi-stage image, compose + K8s for leader/follower cluster
 - **CI/tooling** — semantic-release, biome, lefthook, doc tests, cargo audit, cargo deny, CodeQL
 
 ### What's next
 
-- In-process vector search with HNSW (Fjall) + cosine similarity (memory)
-- Browser and edge runtime via WASM compilation
-- Leader/follower clustering for high availability
+- Broader production hardening and operational tooling
+- More deployment and connector integrations
+- Additional SDK and MCP ergonomics based on user feedback
 
 The default public Node.js SDK path uses the TypeScript in-memory store for
 API exploration and local integration tests. The Rust core has Fjall-backed
@@ -434,7 +434,7 @@ const hits = await db.search("customers who upgraded after a failed deployment",
 
 ## MCP-native access
 
-thingd ships with 36 built-in MCP tools (search,
+thingd ships with 46 built-in SDK MCP tools (search,
 objects, events, queues, links, aggregate, schema, NLQ, vector). Every primitive is accessible through stdio
 or Streamable HTTP — see the [MCP tools reference](docs/api-spec/mcp-tools.md)
 for all tools with schemas and examples.

@@ -18,12 +18,29 @@ feat(search): add metadata filters
 feat(storage)!: replace the storage adapter interface
 ```
 
+## Branch and release workflow
+
+Use this branch flow for open-source development:
+
+```txt
+feature/* → squash merge → development → regular merge PR → main → release
+```
+
+Use semantic branch prefixes: `feature/<name>`, `fix/<name>`, `docs/<name>`,
+`refactor/<name>`, `test/<name>`, or `chore/<name>`. Feature branches start from
+`development` and are squash-merged there with a conventional commit title. The
+squash-merge commit, not the branch name, determines the semantic-release
+version bump.
+
+When `development` is ready, merge it into `main` with a regular merge commit.
+Release automation runs only after `main` changes.
+
 ## GitHub Actions
 
 CI runs on:
 
-- pull requests targeting `main`
-- pushes to `main`
+- pull requests targeting `development` or `main`
+- pushes to `development` or `main`
 
 The release workflow runs on:
 
@@ -65,7 +82,7 @@ On every release, the workflow publishes `thingd` to [crates.io](https://crates.
 
 ```toml
 [dependencies]
-thingd = { version = "0.41", features = ["fjall", "search"] }
+thingd = { version = "0.70", features = ["fjall", "search"] }
 ```
 
 The publish runs in parallel with npm and Docker publishing.
@@ -74,7 +91,7 @@ The publish runs in parallel with npm and Docker publishing.
 
 On every release, the workflow builds and pushes a Docker image to [Docker Hub](https://hub.docker.com/r/sayanmohsin/thingd):
 
-- `sayanmohsin/thingd:<version>` — tagged with the exact SemVer (e.g., `v0.19.0`)
+- `sayanmohsin/thingd:<version>` — tagged with the exact SemVer (e.g., `v0.70.0`)
 - `sayanmohsin/thingd:latest` — always points to the latest release
 
 Pull the image:

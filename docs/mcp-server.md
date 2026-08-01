@@ -9,7 +9,7 @@ knowing SQL or internal storage details.
 
 ## Current Status
 
-**46 MCP tools** exposed via stdio and Streamable HTTP.
+**46 SDK MCP tools** are exposed via stdio and Streamable HTTP. The Rust sidecar exposes 36 core tools.
 
 The package implements the local stdio server plus a remote-capable Streamable
 HTTP runtime.
@@ -39,7 +39,7 @@ Implemented:
 
 ## Tool Surface
 
-All 46 tools are documented in the [API spec — MCP tools reference](api-spec/mcp-tools.md)
+All SDK tools are documented in the [API spec — MCP tools reference](api-spec/mcp-tools.md)
 with JSON schemas, input/output types, and return formats.
 
 ### Categories
@@ -70,7 +70,7 @@ This command will:
 4. Print a copy-pasteable JSON block for Cursor's MCP server configuration.
 5. Auto-create the default database directory.
 
-See the **[5-minute quickstart](./QUICKSTART.md)** for a full walkthrough including Cursor, Claude Desktop, Node SDK, and MCP tool usage.
+See the **[5-minute quickstart](./quickstart.md)** for a full walkthrough including Cursor, Claude Desktop, Node SDK, and MCP tool usage.
 
 ### Cloud MCP Connect
 

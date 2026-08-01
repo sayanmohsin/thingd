@@ -6,13 +6,13 @@ Read this file before making integration changes. It explains the current projec
 
 ## Current State
 
-`thingd` is an early open source project. The public Node.js API is real enough to test locally, and the default path still uses the TypeScript in-memory store. The Rust core has durable storage with a feature-gated SQLite adapter for objects, events, and queues.
+`thingd` is an early open source project. The public Node.js API is real enough to test locally, and the default path still uses the TypeScript in-memory store. The Rust core has durable Fjall storage for objects, events, queues, search, and links; the native Node driver remains SQLite-backed.
 
 Current implementation:
 
 - `packages/thingd` exposes the Node.js SDK.
 - `packages/thingd/src/stores/in-memory-thing-store.ts` is the current in-memory store.
-- `crates/thingd` contains the Rust storage boundary, in-memory Rust engine, and `SqliteThingStore` behind the `sqlite` feature.
+- `crates/thingd` contains the Rust storage boundary, in-memory Rust engine, and `FjallEngine` behind the `fjall` feature.
 - `packages/thingd-native` is a private N-API binding for local native driver testing.
 - `packages/thingd/src/client/http-thing-store.ts` lets the SDK talk to a sidecar over HTTP REST.
 - `packages/thingd-cli` exposes the visual TUI dashboard, non-interactive CLI commands, and integrated stdio and Streamable HTTP MCP servers.
@@ -48,11 +48,13 @@ cluster sidecar mode:
 ```
 
 Current Node.js code uses the TypeScript in-memory proof layer by default.
-The Rust crate includes `SqliteThingStore` for object, event, and queue persistence, including delayed jobs, configurable lease expiration, retry delay, dead-letter state, and schema migration guardrails. The SDK can opt into the private native bridge with `driver: "native"` after `thingd-native` is built locally.
+The Rust crate includes `FjallEngine` for persistent object, event, queue, search,
+and link storage. The SDK can opt into the private native SQLite bridge with
+`driver: "native"` after `thingd-native` is built locally.
 The SDK can opt into sidecar mode with `driver: "cloud"` or automatically when
 `THINGD_URL` is set.
 The HTTP MCP runtime can run as a bridge follower and forward MCP traffic to a
-configured leader. It does not yet replicate local follower stores.
+configured leader. Follower-local stores are not replicated by the current runtime.
 
 ## Integration Checklist
 
@@ -266,7 +268,7 @@ crates/thingd
   EventLog
   QueueStore
   ThingStore
-  SqliteThingStore behind the sqlite feature
+  FjallEngine behind the fjall feature
 ```
 
 Do not introduce a second app-facing API from the native package. The native path should pass the same SDK tests that the in-memory store passes.
@@ -288,14 +290,15 @@ For agent value and patterns, read [why-agents.md](./why-agents.md) and
 - Do not add a separate app-facing API to `thingd-native`; keep the public API in `thingd`.
 - Do not claim exactly-once queue delivery. The queue is at-least-once.
 - Do not hide distributed-system tradeoffs. Multi-pod writes need server/sidecar or primary-writer mode.
-- Do not add multi-primary cluster behavior. Cluster mode uses leader-writer with forwarding and event replication.
+- Do not add multi-primary cluster behavior. Cluster mode uses leader-writer
+  forwarding; follower-local stores are not replicated by the current runtime.
 - Do not add generic textbook structures as public features unless they map to an AI-native workflow primitive.
 - Keep sidecar environment variables and Kubernetes examples aligned with the deployed runtime configuration.
 - Keep package publish behavior in `release.config.mjs` and `docs/release.md` aligned.
 - For CLI work, create a dedicated package and use the public SDK instead of reaching into internal stores.
 - Keep CLI command behavior documented in [cli-reference.md](./cli-reference.md).
 
-## For a 5-minute working example: **[QUICKSTART.md](./QUICKSTART.md)**
+## For a 5-minute working example: **[quickstart.md](./quickstart.md)**
 
 ## Required Checks
 
@@ -315,7 +318,7 @@ pnpm rust:clippy
 pnpm test:rust
 ```
 
-Rust checks run with all features enabled so the SQLite adapter is covered in CI.
+Rust checks run with all features enabled so the Fjall engine and native-facing code paths are covered in CI.
 
 `pnpm test:local` does not run Rust checks because some local environments may not have `cargo` installed.
 

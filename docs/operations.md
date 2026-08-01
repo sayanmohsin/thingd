@@ -10,7 +10,10 @@ Backup, recovery, database health, and maintenance procedures for thingd.
 thingd backup --out /path/to/backup.db
 ```
 
-The backup is created using SQLite's `VACUUM INTO` command, which produces a fully consistent snapshot of the database at the point in time the command runs. The backup file is a standard SQLite database that can be opened with any SQLite client.
+This command uses the native Node driver's SQLite backup support and is intended
+for native SQLite databases. The Rust sidecar uses Fjall directories rather than
+SQLite files; use the snapshot commands or a filesystem-level backup of the
+sidecar data directory for that runtime.
 
 **Options:**
 - `--out <path>` — Destination path for the backup file
@@ -26,15 +29,15 @@ Backup created: /path/to/backup.db (1.25 MB)
 There is no dedicated restore command. To restore:
 
 ```bash
-# Stop thingd-server
-cp /path/to/backup.db /path/to/thingd.db
-# Start thingd-server
+# Stop the native thingd process
+cp /path/to/backup.db /path/to/native.db
+# Start the native thingd process
 ```
 
 Or use the CLI with a file copy:
 
 ```bash
-thingd db restore --in /path/to/backup.db
+thingd backup --in /path/to/backup.db
 ```
 
 ## Snapshots
@@ -102,7 +105,8 @@ When `--redact` is used during export, the following are automatically redacted:
 thingd db integrity
 ```
 
-Runs `PRAGMA quick_check` against the database and reports whether it passes. The check runs automatically on startup.
+For the native SQLite driver, runs `PRAGMA quick_check` and reports whether it
+passes. The check runs automatically on startup for that driver.
 
 **Output:**
 ```json
@@ -115,15 +119,16 @@ Runs `PRAGMA quick_check` against the database and reports whether it passes. Th
 thingd db checkpoint
 ```
 
-Triggers `PRAGMA wal_checkpoint(TRUNCATE)` to flush the Write-Ahead Log into the main database file. This reduces WAL file size and improves read performance.
+For the native SQLite driver, triggers `PRAGMA wal_checkpoint(TRUNCATE)` to flush
+the Write-Ahead Log into the main database file.
 
 **Output:**
 ```json
 { "framesBefore": 42, "framesAfter": 0 }
 ```
 
-- WAL checkpoint also runs automatically when the database connection is closed
-- In-memory databases do not support WAL mode
+- WAL checkpoint also runs automatically when the native database connection is closed
+- In-memory and Fjall databases do not use SQLite WAL mode
 
 ## Schema Migrations
 

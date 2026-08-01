@@ -3,7 +3,7 @@
 Recipes for using `thingd` with Cursor, Claude, and other MCP clients.
 Assumes MCP tools from [mcp-server.md](./mcp-server.md) are enabled.
 
-**New here?** Start with the [5-minute quickstart](./QUICKSTART.md) first.
+**New here?** Start with the [5-minute quickstart](./quickstart.md) first.
 
 ---
 
@@ -251,6 +251,6 @@ Fully runnable examples in [`examples/cursor-agent-memory/`](../examples/cursor-
 2. **[quickstart.ts](../examples/cursor-agent-memory/quickstart.ts)** — native SQLite driver, FTS5 stemming search, metadata filters.
 3. **[scheduler-heartbeat.ts](../examples/cursor-agent-memory/scheduler-heartbeat.ts)** — full Schedules + Queue + Heartbeat scheduler pattern.
 
-5-minute install guide: **[docs/QUICKSTART.md](./QUICKSTART.md)**
+5-minute install guide: **[docs/quickstart.md](./quickstart.md)**
 
 Full API reference: **[docs/api-spec/](./api-spec/)**

@@ -880,6 +880,10 @@ pub async fn pull_data(
     let config = build_connector_config(&connector_type, &body);
     validate_connector_access(&connector_type, &config, &state.hardening_config)?;
     let collection = config.collection.clone();
+    let return_objects = body
+        .get("returnObjects")
+        .and_then(|value| value.as_bool())
+        .unwrap_or(false);
 
     let stream = connector
         .pull(&config)
@@ -887,6 +891,7 @@ pub async fn pull_data(
 
     let mut imported = 0u64;
     let mut batch: Vec<MemoryObject> = Vec::new();
+    let mut returned_objects: Vec<Value> = Vec::new();
 
     let e = get_engine(&state, &headers)?;
     let mut g = e.lock();
@@ -901,6 +906,9 @@ pub async fn pull_data(
         let body_str =
             serde_json::to_string(&row).map_err(|e| AppError::internal(e.to_string()))?;
         let obj = MemoryObject::new(&collection, &id, &body_str);
+        if return_objects {
+            returned_objects.push(json!({ "id": id, "collection": collection, "body": row }));
+        }
         batch.push(obj);
 
         if batch.len() >= config.batch_size {
@@ -917,7 +925,11 @@ pub async fn pull_data(
         imported += count as u64;
     }
 
-    ok(json!({ "imported": imported, "collection": collection }))
+    let mut response = json!({ "imported": imported, "collection": collection });
+    if return_objects {
+        response["objects"] = Value::Array(returned_objects);
+    }
+    ok(response)
 }
 
 // ─── Search ─────────────────────────────────────────────────────

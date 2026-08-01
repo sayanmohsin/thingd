@@ -4,7 +4,8 @@
 
 **thingd** is a fast object-first data engine for applications and AI agents.
 It provides object storage, durable queues, event streams, full-text search,
-graph links, and 36 MCP tools — all in one binary. Runs embedded (Rust/Node),
+graph links, and 46 SDK MCP tools — all in one binary. The Rust sidecar exposes
+36 core tools; the SDK adds 10 scheduler tools. Runs embedded (Rust/Node),
 as a sidecar MCP server, in Docker, or in Kubernetes.
 
 **thingd Cloud** (at [thingd.cloud](https://thingd.cloud), private repo
@@ -24,9 +25,17 @@ thingd-cloud (private): hosted SaaS (auth, billing, tenants, MCP gateway, planni
 
 Never duplicate planning status between repos. Never commit secrets to either.
 
-> **Warning:** `docs/sidecar-cluster.md` in this repo duplicates content in
-> `thingd-cloud/docs/thingd/sidecar-cluster.md`. The thingd-cloud version is the
-> authoritative planning doc — remove the public copy once it's confirmed clean.
+## Agentic development across repos
+
+Use the workspace roots together when a task spans the engine and Cloud. Keep
+public implementation plans and public API contracts in `thingd`; keep Cloud
+architecture, tenant, billing, provisioning, audit, and handoff plans in
+`thingd-cloud/.opencode/plans/` or `thingd-cloud/docs/thingd/`. Agents working
+from this repository should follow the handoff path in the Cloud repo for
+Cloud-owned work rather than copying that plan into public `thingd`.
+
+> **Boundary:** cluster planning and phase status belong only in the private
+> thingd-cloud repository. Keep public docs limited to shipped engine behavior.
 
 ## Architecture
 
@@ -63,7 +72,7 @@ packages/
 | CLI | `packages/thingd-cli/src/index.ts` |
 | Tests | `packages/thingd/test/`, `packages/thingd-cli/test/`, `crates/thingd/` |
 
-**Sidecar MCP** (46 tools) — `crates/thingd-server/src/mcp.rs` via a registry-based dispatch. The Node.js SDK MCP (`packages/thingd/src/mcp/tools.ts`) remains the primary reference and adds auth gating.
+**Sidecar MCP** (36 core tools) — `crates/thingd-server/src/mcp.rs` via a registry-based dispatch. The Node.js SDK MCP (`packages/thingd/src/mcp/tools.ts`) exposes 46 tools, including 10 scheduler tools, and remains the primary reference for SDK behavior and auth gating.
 
 **Sidecar cluster** returns real config (mode, peers, discovery). Real cluster forwarding/leader election logic is in `packages/thingd-cli/src/mcp/cluster.ts`.
 
@@ -82,7 +91,7 @@ pnpm test:cli                 # 44 CLI tests
 pnpm test:rust                # cargo test --workspace --all-features (226 tests — 43 fjall unit tests*)
 pnpm test:local               # check → build → node+cli+package tests
 pnpm bench:rust               # full Rust benchmark (in-memory + fjall)
-pnpm bench:rust:smoke         # quick Rust benchmark (100 iters)
+pnpm bench:rust:smoke         # quick Rust benchmark (10 iters)
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 ```
 
@@ -107,6 +116,10 @@ If clippy or fmt fails, fix and amend. Never use `--no-verify` to bypass pre-pus
 - **Rust**: edition 2024, `cargo fmt` must pass
 - **Commits**: conventionalcommits (`fix:`, `feat:`, `refactor:`, `BREAKING CHANGE:`) for semantic-release
 
+Use semantic branch prefixes: `feature/<name>`, `fix/<name>`, `docs/<name>`,
+`refactor/<name>`, `test/<name>`, or `chore/<name>`. The squash-merge commit,
+not the branch name, determines the semantic-release version bump.
+
 ## Keeping AGENTS.md healthy
 
 This file should stay useful but not become a dump. Rules:
@@ -125,7 +138,9 @@ This file should stay useful but not become a dump. Rules:
 - **Sidecar REST gap** — every REST endpoint in `docs/api-spec/rest-api.md` must exist in `crates/thingd-server/src/rest.rs`
 - **CLI import for DBs** — `thingd import <connection-string>` calls sidecar `POST /v1/connectors/{type}/pull`. Document flags in `docs/cli-reference.md`.
 
-- **Sidecar MCP sync** — every MCP tool added to `packages/thingd/src/mcp/tools.ts` must also exist in `crates/thingd-server/src/mcp.rs`
+- **Sidecar MCP sync** — every core MCP tool added to `packages/thingd/src/mcp/tools.ts` must also exist in `crates/thingd-server/src/mcp.rs`; scheduler tools are currently SDK-only and must be documented as such.
+- **Generated MCP metadata** — run `pnpm docs:metadata` after MCP registry changes; `pnpm check:docs` validates the generated counts and stale references.
+- **Documentation consistency** — run `pnpm check:docs` for MCP counts, versions, and known broken links. Update `docs/benchmarks.md` only with deliberate, machine-labelled baseline changes.
 - **Native binding type** — update `NativeThingStoreBinding` in `native-thing-store.ts` when adding napi methods
 - **Sort/filter params** — Rust `ListObjectsOptions` changes must propagate to native binding `list_objects_json` and TypeScript `listObjects`
 
@@ -206,4 +221,3 @@ cargo publish -p thingd --features fjall,search
 - `/skill upgrade-deps-and-benchmark` — audit all deps, bump to latest, run benchmarks
 
 > Audit-after-change is not a skill — use the checklist under "Doc audit after every change" above.
-
