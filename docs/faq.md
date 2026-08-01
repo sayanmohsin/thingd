@@ -6,11 +6,11 @@ Honest answers for experienced developers evaluating thingd.
 
 ### What consistency model does thingd guarantee?
 
-**Single-node (embedded / sidecar):** Strong consistency. SQLite serializes writes; reads observe the latest committed write within the same connection.
+**Single-node (embedded / sidecar):** Strong consistency. Fjall serializes durable writes; reads observe the latest committed write through the engine.
 
 **Cluster (leader/follower):** Two modes:
 - **Strong** — route reads to the leader. Guarantees read-after-write.
-- **Local** — read from the follower's local SQLite replica. May serve stale data (eventual consistency). Replication is async (500ms poll interval).
+- **Local** — read from the follower's local Fjall replica. May serve stale data (eventual consistency). Replication is async.
 
 thingd does **not** support tunable consistency per-collection, quorum reads, or multi-primary writes.
 
@@ -22,7 +22,7 @@ thingd supports compare-and-swap (CAS) via the `expectedVersion` parameter on `p
 
 ### Can two writers modify the same object in parallel in cluster mode?
 
-Yes, and the last write wins. There is no distributed lock per object. For single-node, SQLite serializes writes.
+Yes, and the last write wins. There is no distributed lock per object. For single-node, Fjall serializes durable writes.
 
 ### What does "atomic write" mean in thingd?
 
@@ -38,9 +38,9 @@ No. An object write and an event append are separate operations. If you need bot
 
 ### What happens on crash during a queue ack or object write?
 
-SQLite ensures atomicity: an incomplete transaction is rolled back on next open. WAL mode provides crash recovery. The queue job stays in its pre-operation status (leased or ready).
+Fjall write batches provide atomicity for primary object/vector updates. The queue job stays in its pre-operation status (leased or ready) if a durable write is interrupted.
 
-thingd sets `synchronous = NORMAL` and uses WAL journal mode. These are standard SQLite durability settings suitable for most local and server workloads.
+The durable sidecar uses Fjall persistent storage and write-batch facilities. Recovery behavior is covered by engine restart tests.
 
 ### How durable are queues under failure?
 
@@ -48,15 +48,15 @@ At-least-once delivery. A worker that claims a job but crashes before acking wil
 
 ### Are writes fsync'd per operation or batched?
 
-SQLite controls fsync. With `synchronous = NORMAL`, SQLite fsyncs at critical checkpoints in WAL mode. thingd does not batch multiple operations into a single fsync — each SDK call commits its own transaction.
+Fjall controls persistence and flush behavior. Related primary writes use a write batch; secondary search-index maintenance remains a separate hardening concern.
 
 ### How do you prevent data loss in in-memory mode?
 
-You don't — in-memory mode is ephemeral by design. It exits cleanly for testing and prototyping. For persistence, use the native SQLite driver or the sidecar mode.
+You don't — in-memory mode is ephemeral by design. It exits cleanly for testing and prototyping. For persistence, use the native Fjall driver or the sidecar mode.
 
 ### What's the recovery story after corruption?
 
-SQLite corruption is rare but possible (hardware faults, improper shutdown). Recovery relies on standard SQLite tooling: `PRAGMA integrity_check`, `.recover`, or restoring from a CLI snapshot backup. thingd does not currently provide automatic corruption detection or repair.
+Fjall corruption or incomplete writes can still occur through hardware faults or improper shutdown. Recovery relies on backups and engine reopen/rebuild checks; thingd does not currently provide automatic corruption repair.
 
 ### How large can datasets grow before performance degrades?
 
@@ -68,7 +68,7 @@ thingd is designed for small-to-medium datasets (hundreds of MB to low GBs). The
 
 Published benchmarks (local development hardware, 5000 iterations):
 
-| Operation | In-memory | SQLite (file) |
+| Operation | In-memory | Fjall (file) |
 |-----------|-----------|---------------|
 | Object put | 868k ops/sec | 2.2k ops/sec |
 | Object get | 1.9M ops/sec | 237k ops/sec |
@@ -77,7 +77,7 @@ Published benchmarks (local development hardware, 5000 iterations):
 
 Node.js (native driver, 1000 iterations):
 
-| Operation | In-memory | Native (SQLite) |
+| Operation | In-memory | Native (Fjall) |
 |-----------|-----------|-----------------|
 | Object put | 435k ops/sec | 9.8k ops/sec |
 | Object get | 2.9M ops/sec | 192k ops/sec |
@@ -95,13 +95,13 @@ Queue claim scans by `(queue, status, created_at)` index — performance is O(lo
 
 ### Is thingd single-threaded or multi-threaded?
 
-The Rust SQLite adapter is single-threaded per connection. WAL mode permits concurrent reads from separate connections. The HTTP MCP server can handle concurrent requests, but SQLite write serialization applies.
+The Rust Fjall adapter is shared through the sidecar's engine pool. The HTTP MCP server can handle concurrent requests while durable write serialization is provided by the engine.
 
 ## Concurrency and scaling
 
 ### How does leader/follower replication work?
 
-The leader assigns a monotonic sequence to each event. Followers poll the leader every 500ms for new events and apply them to their local SQLite replica. Object state and search indexes on followers are derived from the replicated event stream.
+The leader assigns a monotonic sequence to each event. Followers replicate into their local Fjall runtime. Object state and search indexes on followers are derived from the replicated event stream.
 
 ### Is replication synchronous or async?
 
@@ -161,7 +161,7 @@ CLI commands: `thingd queues dead <queue>` lists dead jobs. To replay, delete an
 
 ### What MCP tools are exposed?
 
-36 tools — see the [API spec — MCP tools reference](api-spec/mcp-tools.md) for the full list with schemas.
+The Node MCP server exposes 46 tools; the Rust sidecar exposes 36 engine tools. See the [API spec — MCP tools reference](api-spec/mcp-tools.md) for the full list with schemas.
 
 ### Can agents bypass allowlists accidentally?
 
@@ -239,7 +239,7 @@ Not currently. Collections are flat namespaces with no schema, no type enforceme
 
 ### How do you handle migrations?
 
-thingd has internal schema migrations for the storage layer (SQLite table structure). There is no migration system for user data shapes. Application-level schema evolution is the caller's responsibility.
+thingd has internal recovery for the durable Fjall storage layer. There is no migration system for user data shapes. Application-level schema evolution is the caller's responsibility.
 
 ### What happens when object shapes evolve over time?
 
@@ -249,15 +249,15 @@ Older and newer object shapes coexist in the same collection. Search indexing in
 
 ### How do backups and restores work?
 
-CLI snapshot commands: `thingd snapshot create --out backup.thingd.json` (exports all objects, events, and queue jobs as JSON lines). Restore with `thingd snapshot restore --in backup.thingd.json`. For file-level backups, copy the SQLite `.db` file while the engine is not writing.
+CLI snapshot commands: `thingd snapshot create --out backup.thingd.json` (exports all objects, events, and queue jobs as JSON lines). Restore with `thingd snapshot restore --in backup.thingd.json`. For file-level backups, stop the engine and copy the complete Fjall data directory.
 
 ### Can I run this in Kubernetes with persistence?
 
-Yes. Kubernetes deployment manifests are in `deploy/kubernetes/`. Use a PersistentVolumeClaim for the SQLite database file. For leader/follower mode, use a StatefulSet with stable pod identity.
+Yes. Kubernetes deployment manifests are in `deploy/kubernetes/`. Use a PersistentVolumeClaim for the complete Fjall data directory. For leader/follower mode, use a StatefulSet with stable pod identity.
 
 ### What happens during rolling upgrades?
 
-thingd does not have built-in zero-downtime upgrade support. Restarting the process reopens the SQLite file. Connection-based recovery is the application's responsibility. Schema migrations are forward-only and non-breaking within the same major schema version.
+thingd does not have built-in zero-downtime upgrade support. Restarting the process reopens the Fjall directory. Connection-based recovery is the application's responsibility.
 
 ### Is there a health check / observability API?
 
@@ -310,7 +310,7 @@ Both, but honestly: it prioritizes developer experience first. The infrastructur
 
 ### What's the long-term tradeoff of using thingd?
 
-The tradeoff is: simpler deployment + unified API vs. less operational maturity than specialized systems. If thingd's abstraction fits your data model, you save on integration complexity. If your requirements outgrow thingd's single-writer SQLite foundation, migration to a more scalable system will require architectural changes.
+The tradeoff is: simpler deployment + unified API vs. less operational maturity than specialized systems. If thingd's abstraction fits your data model, you save on integration complexity. If your requirements outgrow the current embedded Fjall runtime, migration to a more scalable system will require architectural changes.
 
 ## Security
 

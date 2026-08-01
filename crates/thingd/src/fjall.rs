@@ -1670,6 +1670,12 @@ impl crate::store::VectorStore for FjallEngine {
         query_vector: &[f32],
         options: VectorSearchOptions,
     ) -> ThingdResult<Vec<VectorSearchHit>> {
+        if query_vector.is_empty() {
+            return Err(ThingdError::InvalidInput(
+                "query vector must not be empty".to_string(),
+            ));
+        }
+
         #[cfg(not(feature = "vectors"))]
         {
             let _ = (collection, query_vector, options);
@@ -1689,6 +1695,14 @@ impl crate::store::VectorStore for FjallEngine {
                 };
 
                 let vector: Vec<f32> = Self::deserialize(&value)?;
+
+                if vector.len() != query_vector.len() {
+                    return Err(ThingdError::InvalidInput(format!(
+                        "query vector dimension {} does not match stored vector dimension {}",
+                        query_vector.len(),
+                        vector.len()
+                    )));
+                }
 
                 let Some(object) = self.get_object(collection, id)? else {
                     continue;
@@ -2899,6 +2913,32 @@ mod tests {
             .vector_search("docs", &[1.0, 0.0, 0.0], VectorSearchOptions::default())
             .unwrap();
         assert!(results.is_empty());
+    }
+
+    #[cfg(feature = "vectors")]
+    #[test]
+    fn fjall_vector_search_rejects_dimension_mismatch() {
+        let (mut engine, _dir) = setup();
+        engine
+            .put_object(MemoryObject::new("docs", "a", "{}").with_vector(vec![1.0, 0.0]))
+            .unwrap();
+
+        let error = engine
+            .vector_search("docs", &[1.0, 0.0, 0.0], VectorSearchOptions::default())
+            .unwrap_err();
+        assert!(
+            matches!(error, ThingdError::InvalidInput(message) if message.contains("dimension"))
+        );
+    }
+
+    #[cfg(feature = "vectors")]
+    #[test]
+    fn fjall_vector_search_rejects_empty_query() {
+        let (engine, _dir) = setup();
+        let error = engine
+            .vector_search("docs", &[], VectorSearchOptions::default())
+            .unwrap_err();
+        assert!(matches!(error, ThingdError::InvalidInput(message) if message.contains("empty")));
     }
 
     #[cfg(feature = "vectors")]

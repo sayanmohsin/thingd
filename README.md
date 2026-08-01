@@ -25,9 +25,10 @@ See the [full feature status and roadmap](https://github.com/sayanmohsin/thingd-
 
 ### Shipped
 
-- **Rust engine** (`thingd` — crates.io) — memory + Fjall adapters, Tantivy FTS, embedvec vector search, queue lifecycle, graph links, aggregate analytics, NLQ
-- **Node.js SDK** (`@thingd/sdk`) — three drivers: memory (default in-memory TS store), native (napi-rs Rust SQLite), cloud (remote HTTP REST)
+- **Rust engine** (`thingd` — crates.io) — memory + Fjall adapters, Tantivy FTS, cosine vector search, queue lifecycle, graph links, aggregate analytics, NLQ
+- **Node.js SDK** (`@thingd/sdk`) — three drivers: memory (default in-memory TS store), native (napi-rs Rust Fjall), cloud (remote HTTP REST)
 - **Browser/Edge client** (`@thingd/client`) — zero-dependency REST client for browsers, Cloudflare Workers, AWS Lambda, Bun, Deno
+- **App backend client** (`createThingdAppClient`) — project-user auth and named actions for hosted mobile/web apps
 - **CLI** (`@thingd/cli`) — TUI dashboard, 30+ subcommands (search, objects, events, queues, export/import/snapshot/backup, doctor, bench, db maintenance). Support for importing from Postgres/MySQL via sidecar REST.
 - **MCP server** — 36 tools, stdio + Streamable HTTP, audit events, collection allowlists, read-only mode (tool count defined in packages/thingd/src/constants.ts)
 - **Docker** — multi-stage image, compose + K8s for leader/follower cluster
@@ -35,7 +36,7 @@ See the [full feature status and roadmap](https://github.com/sayanmohsin/thingd-
 
 ### What's next
 
-- In-process vector search with HNSW (Fjall) + cosine similarity (memory)
+- In-process vector search with cosine similarity; current durable search is a brute-force scan, with HNSW/ANN planned for larger datasets
 - Browser and edge runtime via WASM compilation
 - Leader/follower clustering for high availability
 
@@ -201,7 +202,7 @@ const hits = await db.search("why did we choose rust?", {
 });
 ```
 
-For the local Rust-backed SQLite path, build the private native package and
+For the local Rust-backed Fjall path, build the native package and
 request the native driver:
 
 ```bash
@@ -487,10 +488,10 @@ The long-term deployment model has two simple modes:
 
 ```txt
 embedded:
-  Node app -> native Rust binding -> SQLite file
+  Node app -> native Rust binding -> Fjall directory
 
 sidecar:
-  Node app -> localhost thingd sidecar -> SQLite file
+  Node app -> localhost thingd sidecar -> Fjall directory
 ```
 
 Cluster mode should be owned by the sidecar, not by app code:
@@ -558,7 +559,7 @@ Rust core (crates/thingd)
   |-- object store
   |-- event log
   |-- queue engine
-  |-- search indexes (Tantivy FTS + embedvec vector)
+  |-- search indexes (Tantivy FTS + Fjall vector keyspace)
   |-- storage adapters
       |-- MemoryEngine (cache, WASM)
       |-- FjallEngine (persistent LSM-tree)
@@ -662,7 +663,7 @@ pnpm rust:clippy
 pnpm test
 ```
 
-Rust checks run all crate features, including the SQLite adapter:
+Rust checks run all crate features, including the Fjall adapter:
 
 ```bash
 pnpm rust:check

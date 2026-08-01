@@ -11,6 +11,10 @@ knowing SQL or internal storage details.
 
 **46 MCP tools** exposed via stdio and Streamable HTTP.
 
+The separate Rust sidecar MCP registry exposes 36 engine tools. The 10 scheduler
+tools are implemented by the Node SDK runtime and are intentionally not part of
+the Rust sidecar surface yet.
+
 The package implements the local stdio server plus a remote-capable Streamable
 HTTP runtime.
 
@@ -184,7 +188,7 @@ Run with the in-memory SDK store:
 thingd mcp --path :memory:
 ```
 
-Run with the private native Rust-backed SQLite driver (which automatically persists to `~/.thingd/data.db` by default if no path is given):
+Run with the native Rust-backed Fjall driver (which automatically persists to `~/.thingd/data.db` by default if no path is given):
 
 ```bash
 thingd mcp --driver native
@@ -344,7 +348,7 @@ THINGD_ADVERTISE_URL=http://thingd-0:8757
 ```
 
 Followers forward MCP traffic to the leader. This gives Kubernetes pods one
-local endpoint while avoiding multi-writer SQLite. Local follower replica
+local endpoint while avoiding multi-writer access to one Fjall directory. Local follower replica
 catch-up runs as an async background process that polls the leader every 500ms
 for new change events.
 

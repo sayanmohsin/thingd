@@ -10,7 +10,7 @@ object-first data engine for applications and AI agents.
 This crate provides the storage boundary: object CRUD, append-only events,
 durable job queues, full-text search, and graph links. It ships with two
 engines: an in-memory engine for fast prototyping and testing, and an optional
-SQLite-backed engine for durable production storage.
+Fjall-backed engine for durable production storage.
 
 ## Why thingd?
 
@@ -29,7 +29,7 @@ all five primitives behind a single composable trait interface.
 
 | Feature | Default | Description |
 |---------|---------|-------------|
-| `sqlite` | No | Enables `rusqlite`-backed `SqliteThingStore` with FTS5 search, WAL mode, and auto-migration |
+| `fjall` | Yes | Enables the Fjall-backed durable engine |
 | `connectors` | No | Enables CSV/JSON file connectors for data import |
 
 ## Quick Start
@@ -47,7 +47,7 @@ let user = engine.get_object("users", "alice").unwrap();
 assert_eq!(user.unwrap().body, r#"{"name":"Alice"}"#);
 ```
 
-### SQLite engine (durable storage)
+### Fjall engine (durable storage)
 
 ```rust
 use thingd::{SqliteThingStore, ObjectStore, MemoryObject};
@@ -142,7 +142,7 @@ Both `MemoryEngine` and `SqliteThingStore` implement all five traits.
 
 | Tool | Great at | Why thingd is different |
 |------|----------|------------------------------|
-| SQLite | relational storage | object API, events, queues, search, graph |
+| Fjall | durable LSM storage | object API, events, queues, search, graph, vectors |
 | MongoDB | flexible documents | local-first, Rust, no server process |
 | Redis / BullMQ | fast queues | durable local storage without Redis |
 | LanceDB | vector search | broader memory runtime with events and queues |

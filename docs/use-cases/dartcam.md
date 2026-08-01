@@ -77,7 +77,7 @@ if (job) {
 
 ### Searching captured text
 
-thingd indexes the OCR'd text with FTS5, so you can search across all your
+thingd indexes the OCR'd text with Tantivy, so you can search across all your
 screenshots.
 
 ```bash
