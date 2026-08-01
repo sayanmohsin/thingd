@@ -117,6 +117,17 @@ This file should stay useful but not become a dump. Rules:
 4. **No binary files** — paths to screenshots/diagrams go elsewhere (issue comments, design docs).
 5. **Delete stale entries** — when you upgrade deps or fix a workaround, remove the old guidance.
 
+## Branch and pull request workflow
+
+Use `development` as the integration branch in this repo. Create feature
+branches from `development` and open every feature, fix, documentation, or
+maintenance pull request against `development` — never directly against
+`main`. After the work is integrated and ready for release, manually merge
+`development` into `main`; `main` remains the production and release branch.
+
+Use semantic branch prefixes such as `feature/<name>`, `fix/<name>`,
+`docs/<name>`, `refactor/<name>`, `test/<name>`, or `chore/<name>`.
+
 ## Common miss patterns
 
 - **AGENTS.md test counts** — `pnpm test:node`/`:cli`/`:rust` counts in the Commands section must match `package.json` test scripts. Run each to verify before committing.
@@ -206,4 +217,3 @@ cargo publish -p thingd --features fjall,search
 - `/skill upgrade-deps-and-benchmark` — audit all deps, bump to latest, run benchmarks
 
 > Audit-after-change is not a skill — use the checklist under "Doc audit after every change" above.
-

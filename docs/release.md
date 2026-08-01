@@ -26,7 +26,7 @@ feat(storage)!: replace the storage adapter interface
 
 CI runs on:
 
-- pull requests targeting `main`
+- pull requests targeting `development`
 - pushes to `main`
 
 The release workflow runs on:
@@ -35,6 +35,13 @@ The release workflow runs on:
 - manual runs from GitHub Actions through `workflow_dispatch`
 
 It validates the same checks, then publishes to npm when the `NPM_TOKEN` repository secret exists.
+
+## Branch and pull request workflow
+
+Create feature branches from `development` and target all pull requests at
+`development`. Do not open pull requests directly against `main`. Once the
+integrated changes are ready for release, manually merge `development` into
+`main`; production deployment and publishing remain restricted to `main`.
 
 Before configuring `NPM_TOKEN`, use the local package smoke test:
 
