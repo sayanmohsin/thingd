@@ -94,7 +94,7 @@ Pull the image:
 docker pull sayanmohsin/thingd
 ```
 
-The Docker image includes the native SQLite driver pre-built for `linux-x64`.
+The Docker image includes the native Fjall driver pre-built for supported Linux targets.
 See [docker-context/Dockerfile](../docker-context/Dockerfile) and [deploy/docker-compose.yml](../deploy/docker-compose.yml) for the runtime shape.
 
 Release packaging intentionally avoids `workspace:*` dependency specs in `package.json` files. The repo uses pnpm for development, but `@semantic-release/exec` calls the npm CLI internally during version bumps, and npm rejects pnpm-only workspace protocol dependencies.

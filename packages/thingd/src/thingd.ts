@@ -244,7 +244,7 @@ export class ThingD implements ThingDConnection {
     if (this.store.backupTo) {
       this.store.backupTo(path);
     } else {
-      throw new Error("Backup is only supported on the native (SQLite) storage driver");
+      throw new Error("Backup is only supported on the native durable storage driver");
     }
   }
 
@@ -252,7 +252,7 @@ export class ThingD implements ThingDConnection {
     if (this.store.walCheckpoint) {
       return this.store.walCheckpoint();
     }
-    throw new Error("WAL checkpoint is only supported on the native (SQLite) storage driver");
+    throw new Error("Checkpoint is only supported on the native durable storage driver");
   }
 
   async countObjects(): Promise<number> {

@@ -55,7 +55,7 @@ export function registerThingdTools(
     {
       title: "Search Memory",
       description:
-        "Search thingd objects and events by full-text query. Returns matching items ranked by relevance using SQLite FTS5 with Porter word stemming. Use this to find previously stored memories, notes, or events by keyword or phrase. Accepts a query string and optional filter by collection names, metadata key-value pairs, and a result limit. Returns an array of matching objects with relevance scores.",
+        "Search thingd objects and events by full-text query. Returns matching items ranked by relevance using Tantivy BM25 with stemming. Use this to find previously stored memories, notes, or events by keyword or phrase. Accepts a query string and optional filter by collection names, metadata key-value pairs, and a result limit. Returns an array of matching objects with relevance scores.",
       inputSchema: {
         query: z.string().min(1),
         collections: z.array(z.string().min(1)).optional(),

@@ -390,7 +390,7 @@ pub struct SearchHit {
 pub struct VectorSearchHit {
     /// Object id.
     pub id: String,
-    /// Cosine similarity score (0.0 to 1.0).
+    /// Cosine similarity score (-1.0 to 1.0).
     pub score: f64,
     /// The full stored object.
     pub value: MemoryObject,

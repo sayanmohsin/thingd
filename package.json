@@ -13,6 +13,7 @@
     "bench:rust:smoke": "cargo run --release -p thingd --example storage_bench --features fjall,search -- 10",
     "check": "biome check .",
     "check:write": "biome check --write .",
+    "check:mcp": "node scripts/verify-mcp-tools.mjs",
     "format": "biome format --write .",
     "format:check": "biome format .",
     "lint": "biome lint .",

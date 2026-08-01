@@ -22,7 +22,7 @@ THINGD_DRIVER=native
 ```
 
 `THINGD_DRIVER` can be `memory` or `native`. Use `native` for the Rust-backed
-SQLite store after the native package has been built into the runtime image.
+Fjall store after the native package has been built into the runtime image.
 
 ## HTTP
 
@@ -141,7 +141,7 @@ kubernetes  derive a service URL from THINGD_CLUSTER_SERVICE and namespace
 
 Current bridge behavior: followers forward MCP traffic to the leader. Follower
 local replica catch-up polls the leader every 500ms and applies replicated
-events to the local SQLite database. If `THINGD_CLUSTER_LEADER_FALLBACK_URL` is
+events to the local Fjall runtime. If `THINGD_CLUSTER_LEADER_FALLBACK_URL` is
 set, the follower falls back to that URL when the primary leader is unreachable.
 
 ### Leader Election (static config)
