@@ -34,6 +34,7 @@ jobs:
       release_created: ${{ steps.release.outputs.release_created || steps.manual.outputs.release_created }}
       retry: ${{ steps.manual.outputs.retry }}
       version: ${{ steps.release.outputs.version || steps.manual.outputs.version }}
+      tag_name: ${{ steps.release.outputs.tag_name || steps.manual.outputs.tag_name }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -41,7 +42,7 @@ jobs:
       - name: Create release App token
         id: app-token
         if: ${{ inputs.publish_version == '' }}
-        uses: actions/create-github-app-token@v2
+        uses: actions/create-github-app-token@v3
         with:
           app-id: ${{ vars.RELEASE_APP_ID }}
           private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
@@ -50,7 +51,7 @@ jobs:
       - name: Run Release Please
         id: release
         if: ${{ inputs.publish_version == '' }}
-        uses: googleapis/release-please-action@v4
+        uses: googleapis/release-please-action@v5
         with:
           token: ${{ steps.app-token.outputs.token }}
           config-file: release-please-config.json
@@ -93,6 +94,7 @@ jobs:
             echo "release_created=true"
             echo "retry=true"
             echo "version=$VERSION"
+            echo "tag_name=thingd-v$VERSION"
           } >> "$GITHUB_OUTPUT"
       - name: Explain release decision
         if: ${{ always() }}
@@ -149,7 +151,7 @@ jobs:
         with:
           fetch-depth: 0
           fetch-tags: true
-          ref: v${{ needs.release-please.outputs.version }}
+          ref: ${{ needs.release-please.outputs.tag_name }}
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
@@ -209,7 +211,7 @@ jobs:
         with:
           fetch-depth: 0
           fetch-tags: true
-          ref: v${{ needs.release-please.outputs.version }}
+          ref: ${{ needs.release-please.outputs.tag_name }}
       - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v6
         with:
@@ -261,7 +263,7 @@ jobs:
         with:
           fetch-depth: 0
           fetch-tags: true
-          ref: v${{ needs.release-please.outputs.version }}
+          ref: ${{ needs.release-please.outputs.tag_name }}
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-unknown-linux-musl, x86_64-unknown-linux-musl
@@ -313,7 +315,7 @@ jobs:
         with:
           fetch-depth: 0
           fetch-tags: true
-          ref: v${{ needs.release-please.outputs.version }}
+          ref: ${{ needs.release-please.outputs.tag_name }}
       - uses: dtolnay/rust-toolchain@stable
       - name: Publish crate if missing
         env:
