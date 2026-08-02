@@ -1,4 +1,5 @@
 name: Release
+run-name: Release ${{ github.ref_name }} @ ${{ github.sha }}
 
 on:
   push:
@@ -33,6 +34,7 @@ jobs:
       release_created: ${{ steps.release.outputs.release_created || steps.manual.outputs.release_created }}
       retry: ${{ steps.manual.outputs.retry }}
       version: ${{ steps.release.outputs.version || steps.manual.outputs.version }}
+      tag_name: ${{ steps.release.outputs.tag_name || steps.manual.outputs.tag_name }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -40,7 +42,7 @@ jobs:
       - name: Create release App token
         id: app-token
         if: ${{ inputs.publish_version == '' }}
-        uses: actions/create-github-app-token@v2
+        uses: actions/create-github-app-token@v3
         with:
           app-id: ${{ vars.RELEASE_APP_ID }}
           private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
@@ -49,7 +51,7 @@ jobs:
       - name: Run Release Please
         id: release
         if: ${{ inputs.publish_version == '' }}
-        uses: googleapis/release-please-action@v4
+        uses: googleapis/release-please-action@v5
         with:
           token: ${{ steps.app-token.outputs.token }}
           config-file: release-please-config.json
@@ -65,10 +67,17 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git fetch origin "$BRANCH"
           git checkout "$BRANCH"
+          WORKSPACE_VERSION=$(sed -n 's/^version = "\([0-9]*\.[0-9]*\)\.[0-9]*"/\1/p' Cargo.toml | head -n 1)
+          sed -i -E \
+            "s/(thingd = \{ path = \"\.\.\/thingd\", version = \")([0-9]+\.[0-9]+)/\1${WORKSPACE_VERSION}/" \
+            crates/thingd-server/Cargo.toml
+          sed -i -E \
+            "s/(thingd = \{ path = \"\.\.\/\.\.\/crates\/thingd\", version = \")([0-9]+\.[0-9]+)/\1${WORKSPACE_VERSION}/" \
+            packages/thingd-native/Cargo.toml
           cargo update -w
-          git add Cargo.lock
+          git add Cargo.lock crates/thingd-server/Cargo.toml packages/thingd-native/Cargo.toml
           if ! git diff --cached --quiet; then
-            git commit -m "chore: update Cargo.lock [skip ci]"
+            git commit -m "chore: sync release dependency versions [skip ci]"
             git push origin "$BRANCH"
           fi
       - name: Normalize manual retry
@@ -85,10 +94,31 @@ jobs:
             echo "release_created=true"
             echo "retry=true"
             echo "version=$VERSION"
+            echo "tag_name=thingd-v$VERSION"
           } >> "$GITHUB_OUTPUT"
+      - name: Explain release decision
+        if: ${{ always() }}
+        env:
+          RELEASE_CREATED: ${{ steps.release.outputs.release_created }}
+          RELEASE_PR: ${{ steps.release.outputs.pr-number }}
+          RETRY: ${{ steps.manual.outputs.retry }}
+          VERSION: ${{ steps.release.outputs.version || steps.manual.outputs.version }}
+        run: |
+          {
+            echo "### Release decision"
+            if [[ "$RETRY" == "true" ]]; then
+              echo "Manual retry requested for version `$VERSION`; publishing jobs are enabled."
+            elif [[ "$RELEASE_CREATED" == "true" ]]; then
+              echo "Release `$VERSION` was created; publishing jobs are enabled."
+            elif [[ -n "$RELEASE_PR" ]]; then
+              echo "Release PR #$RELEASE_PR was created or updated; publishing waits until it is merged."
+            else
+              echo "No release was created; publishing jobs are skipped for this push."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
 
   build-native:
-    name: Build native (${{ matrix.platform }}-${{ matrix.arch }})
+    name: Build native
     needs: release-please
     if: ${{ needs.release-please.outputs.release_created == 'true' || needs.release-please.outputs.retry == 'true' }}
     strategy:
@@ -121,7 +151,7 @@ jobs:
         with:
           fetch-depth: 0
           fetch-tags: true
-          ref: v${{ needs.release-please.outputs.version }}
+          ref: ${{ needs.release-please.outputs.tag_name }}
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
@@ -181,7 +211,7 @@ jobs:
         with:
           fetch-depth: 0
           fetch-tags: true
-          ref: v${{ needs.release-please.outputs.version }}
+          ref: ${{ needs.release-please.outputs.tag_name }}
       - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v6
         with:
@@ -233,7 +263,7 @@ jobs:
         with:
           fetch-depth: 0
           fetch-tags: true
-          ref: v${{ needs.release-please.outputs.version }}
+          ref: ${{ needs.release-please.outputs.tag_name }}
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-unknown-linux-musl, x86_64-unknown-linux-musl
@@ -285,7 +315,7 @@ jobs:
         with:
           fetch-depth: 0
           fetch-tags: true
-          ref: v${{ needs.release-please.outputs.version }}
+          ref: ${{ needs.release-please.outputs.tag_name }}
       - uses: dtolnay/rust-toolchain@stable
       - name: Publish crate if missing
         env:
