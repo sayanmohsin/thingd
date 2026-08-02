@@ -19,5 +19,9 @@ const metadata = {
 };
 
 await mkdir("docs/.generated", { recursive: true });
-await writeFile("docs/.generated/mcp-metadata.json", `${JSON.stringify(metadata, null, 2)}\n`);
+const generated = JSON.stringify(metadata, null, 2).replace(
+  '  "generatedFrom": [\n    "packages/thingd/src/mcp/tools.ts",\n    "crates/thingd-server/src/mcp.rs"\n  ],',
+  '  "generatedFrom": ["packages/thingd/src/mcp/tools.ts", "crates/thingd-server/src/mcp.rs"],'
+);
+await writeFile("docs/.generated/mcp-metadata.json", `${generated}\n`);
 console.log(`Generated MCP metadata: ${sdkTools.length} SDK, ${sidecarTools.length} sidecar tools.`);
