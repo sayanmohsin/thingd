@@ -1,0 +1,56 @@
+{
+  "packages": {
+    ".": {
+      "release-type": "node",
+      "component": "thingd",
+      "changelog-path": "CHANGELOG.md",
+      "extra-files": [
+        {
+          "type": "json",
+          "path": "packages/thingd/package.json",
+          "jsonpath": "$.version"
+        },
+        {
+          "type": "json",
+          "path": "packages/thingd-cli/package.json",
+          "jsonpath": "$.version"
+        },
+        {
+          "type": "json",
+          "path": "packages/thingd-native/package.json",
+          "jsonpath": "$.version"
+        },
+        {
+          "type": "json",
+          "path": "packages/thingd-client/package.json",
+          "jsonpath": "$.version"
+        },
+        {
+          "type": "toml",
+          "path": "Cargo.toml",
+          "jsonpath": "$.workspace.package.version"
+        },
+        {
+          "type": "generic",
+          "path": "packages/thingd/src/version.ts"
+        },
+        {
+          "type": "generic",
+          "path": "crates/thingd-server/Cargo.toml"
+        },
+        {
+          "type": "generic",
+          "path": "packages/thingd-native/Cargo.toml"
+        },
+        {
+          "type": "generic",
+          "path": "README.md"
+        },
+        {
+          "type": "generic",
+          "path": "crates/thingd/README.md"
+        }
+      ]
+    }
+  }
+}

@@ -65,6 +65,18 @@ for (const file of ["crates/thingd-server/Cargo.toml", "packages/thingd-native/C
   updateThingdDependencyVersion(file);
 }
 
+for (const file of [
+  "packages/thingd/package.json",
+  "packages/thingd-cli/package.json",
+  "packages/thingd-native/package.json",
+  "packages/thingd-client/package.json",
+]) {
+  const absolute = path.join(root, file);
+  const packageJson = JSON.parse(fs.readFileSync(absolute, "utf8"));
+  packageJson.version = version;
+  fs.writeFileSync(absolute, `${JSON.stringify(packageJson, null, 2)}\n`);
+}
+
 for (const [file, dependency] of [
   ["packages/thingd/package.json", "@thingd/native"],
   ["packages/thingd-cli/package.json", "@thingd/sdk"],
