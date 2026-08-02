@@ -215,6 +215,12 @@ jobs:
         run: |
           mkdir -p packages/thingd-native/prebuilds
           for dir in prebuild-artifacts/*/; do [ -d "$dir" ] && cp -r "$dir". packages/thingd-native/prebuilds/; done
+      - name: Build and validate npm package artifacts
+        env:
+          REQUIRED_NATIVE_PREBUILDS: "5"
+        run: |
+          pnpm --filter @thingd/sdk build
+          pnpm verify:publish
       - name: Publish packages if missing
         run: |
           VERSION=$(node -p "require('./packages/thingd/package.json').version")
