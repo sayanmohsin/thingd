@@ -115,7 +115,7 @@ docker run -p 8757:8757 \
   sayanmohsin/thingd
 ```
 
-See [sidecar-cluster.md](https://github.com/sayanmohsin/thingd/blob/main/docs/sidecar-cluster.md) for full cluster documentation.
+See [runtime-env.md](./runtime-env.md) and [mcp-server.md](./mcp-server.md) for the public cluster and runtime configuration reference.
 
 ## Kubernetes
 

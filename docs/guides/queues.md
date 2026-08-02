@@ -168,7 +168,7 @@ const activeCount = await db.countActiveJobs("embed");
 const deadCount = await db.countDeadJobs("embed");
 ```
 
-The [dashboard](./quickstart.md#3-try-the-cli) (`thingd dashboard`) also shows
+The [dashboard](../quickstart.md#3-try-the-cli) (`thingd dashboard`) also shows
 queue state in real time.
 
 ---
@@ -196,5 +196,5 @@ for MCP tool schemas.
 ## Next steps
 
 - [Architecture: queues](../architecture.md) — how queuing works in the engine
-- [Agent patterns: scheduler](./agent-patterns.md) — recurring jobs without cron
+- [Agent patterns: scheduler](../agent-patterns.md) — recurring jobs without cron
 - [Operations: queue recovery](../operations.md) — maintenance and recovery

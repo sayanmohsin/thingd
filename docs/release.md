@@ -94,7 +94,7 @@ On every release, the workflow publishes `thingd` to [crates.io](https://crates.
 
 ```toml
 [dependencies]
-thingd = { version = "0.41", features = ["fjall", "search"] }
+thingd = { version = "0.71", features = ["fjall", "search"] }
 ```
 
 The publish runs in parallel with npm and Docker publishing.
@@ -103,7 +103,7 @@ The publish runs in parallel with npm and Docker publishing.
 
 On every release, the workflow builds and pushes a Docker image to [Docker Hub](https://hub.docker.com/r/sayanmohsin/thingd):
 
-- `sayanmohsin/thingd:<version>` — tagged with the exact SemVer (e.g., `v0.19.0`)
+- `sayanmohsin/thingd:<version>` — tagged with the exact SemVer (e.g., `v0.71.0`)
 - `sayanmohsin/thingd:latest` — always points to the latest release
 
 Pull the image:

@@ -1,8 +1,8 @@
 # MCP Tools Reference
 
-The Node SDK/stdio MCP server exposes 46 tools, including 10 SDK-level scheduler tools. The Rust sidecar exposes 36 engine tools; scheduler tools are not part of the sidecar surface.
+The Node SDK/stdio MCP server exposes 46 SDK tools, including 10 SDK-level scheduler tools. The Rust sidecar exposes 36 engine tools; scheduler tools are not part of the sidecar surface.
 
-**Tool count:** 36 (24 read-only, 12 write — 3 of which are destructive)
+**Tool count:** 46 Node SDK tools (34 read-only, 12 write — 3 of which are destructive); the Rust sidecar exposes 36 core tools.
 
 ---
 

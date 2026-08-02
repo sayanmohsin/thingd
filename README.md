@@ -30,15 +30,15 @@ See the [full feature status and roadmap](https://github.com/sayanmohsin/thingd-
 - **Browser/Edge client** (`@thingd/client`) — zero-dependency REST client for browsers, Cloudflare Workers, AWS Lambda, Bun, Deno
 - **App backend client** (`createThingdAppClient`) — project-user auth and named actions for hosted mobile/web apps
 - **CLI** (`@thingd/cli`) — TUI dashboard, 30+ subcommands (search, objects, events, queues, export/import/snapshot/backup, doctor, bench, db maintenance). Support for importing from Postgres/MySQL via sidecar REST.
-- **MCP server** — 36 tools, stdio + Streamable HTTP, audit events, collection allowlists, read-only mode (tool count defined in packages/thingd/src/constants.ts)
+- **MCP server** — 46 SDK tools, stdio + Streamable HTTP, audit events, collection allowlists, and read-only mode; the Rust sidecar exposes 36 core tools (scheduler tools are SDK-only)
 - **Docker** — multi-stage image, compose + K8s for leader/follower cluster
 - **CI/tooling** — semantic-release, biome, lefthook, doc tests, cargo audit, cargo deny, CodeQL
 
 ### What's next
 
-- In-process vector search with cosine similarity; current durable search is a brute-force scan, with HNSW/ANN planned for larger datasets
-- Browser and edge runtime via WASM compilation
-- Leader/follower clustering for high availability
+- HNSW/ANN vector indexing for larger datasets; durable vector search is currently a brute-force cosine scan
+- Additional deployment integrations and operational hardening
+- Browser and edge runtime packaging via WASM
 
 The default public Node.js SDK path uses the TypeScript in-memory store for
 API exploration and local integration tests. The Rust core has Fjall-backed
@@ -435,7 +435,7 @@ const hits = await db.search("customers who upgraded after a failed deployment",
 
 ## MCP-native access
 
-thingd ships with 36 built-in MCP tools (search,
+thingd ships with 46 SDK MCP tools (search,
 objects, events, queues, links, aggregate, schema, NLQ, vector). Every primitive is accessible through stdio
 or Streamable HTTP — see the [MCP tools reference](docs/api-spec/mcp-tools.md)
 for all tools with schemas and examples.
