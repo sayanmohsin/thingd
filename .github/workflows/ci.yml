@@ -2,7 +2,7 @@ name: CI
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, development]
     paths:
       - ".github/workflows/**"
       - "Cargo.toml"
@@ -19,7 +19,7 @@ on:
       - "docs/api-spec/**"
       - ".dockerignore"
   push:
-    branches: [main]
+    branches: [main, development]
     paths:
       - ".github/workflows/**"
       - "Cargo.toml"
@@ -59,6 +59,9 @@ jobs:
           cache-dependency-path: pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
       - run: pnpm check
+      - run: pnpm check:docs
+      - run: pnpm docs:metadata
+      - run: git diff --exit-code -- docs/.generated/mcp-metadata.json
 
   # ── Rust: fmt + clippy + test (parallel to node) ─────
   rust:

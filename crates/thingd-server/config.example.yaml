@@ -15,9 +15,11 @@ server:
 auth:
   # Bearer token for API authentication (min 16 chars)
   # Override: THINGD_AUTH_TOKEN
-  token: ""
+  token: "change-me-with-a-random-token"
   # Allow unauthenticated requests (not recommended for production)
-  allow_unauthenticated: true
+  allow_unauthenticated: false
+  # Required per-tenant bearer tokens when tenant.mode is multi-tenant.
+  tenant_tokens: {}
 
 tenant:
   # "single" for single-tenant, "multi-tenant" for file-per-tenant
@@ -62,3 +64,10 @@ cluster:
   leader_election: false
   # Consecutive failures before triggering election
   election_max_failures: 3
+
+hardening:
+  # Connector access is deny-by-default.
+  max_connector_file_bytes: 67108864
+  connector_file_root: null
+  connector_allowed_hosts: []
+  connector_require_tls: true

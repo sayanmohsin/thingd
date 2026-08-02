@@ -1022,12 +1022,16 @@ fn handle_thing_vector_search(
         .and_then(|v| v.as_array())
         .map(|arr| {
             arr.iter()
-                .filter_map(|v| v.as_f64().map(|f| f as f32))
-                .collect()
+                .map(|v| {
+                    v.as_f64()
+                        .map(|f| f as f32)
+                        .ok_or_else(|| AppError::bad_request("'vector' must contain only numbers"))
+                })
+                .collect::<Result<Vec<_>, _>>()
         })
         .ok_or_else(|| {
             AppError::bad_request("Missing or invalid 'vector' (expected array of numbers)")
-        })?;
+        })??;
 
     let top_k = arg_usize(args, "topK");
     let filter = args.get("filter").cloned();
@@ -1061,7 +1065,7 @@ static ALL_TOOLS: LazyLock<Vec<ToolEntry>> = LazyLock::new(|| {
         // Object tools (7)
         ToolEntry {
             name: "thing_search",
-            description: "Search objects and events using FTS5",
+            description: "Search objects and events using Tantivy BM25",
             properties: json!({ "query": str_prop("Search query"), "collections": arr_prop("Optional collection filter"), "limit": int_prop("Max results (max 100, default 10)"), "filter": obj_prop("Metadata filter") }),
             required: &["query"],
             handler: handle_thing_search,
@@ -1533,9 +1537,11 @@ mod tests {
             tenant_config: config.tenant,
             mcp_config: config.mcp,
             auth_token: config.auth.token,
+            tenant_tokens: config.auth.tenant_tokens,
             allow_unauthenticated: config.auth.allow_unauthenticated,
             cluster_config: config.cluster,
             nlq_config: config.nlq,
+            hardening_config: config.hardening,
         })
     }
 

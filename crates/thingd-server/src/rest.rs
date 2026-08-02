@@ -737,6 +737,58 @@ fn build_connector_config(connector_type: &str, body: &Value) -> ConnectorConfig
     }
 }
 
+fn validate_connector_access(
+    connector_type: &str,
+    config: &ConnectorConfig,
+    hardening: &crate::config::HardeningConfig,
+) -> Result<(), AppError> {
+    match connector_type {
+        "file" => {
+            let root = hardening
+                .connector_file_root
+                .as_deref()
+                .ok_or_else(|| AppError::forbidden("File connectors are disabled"))?;
+            let root = std::fs::canonicalize(root)
+                .map_err(|_| AppError::bad_request("Configured connector file root is invalid"))?;
+            let path = std::fs::canonicalize(&config.source)
+                .map_err(|_| AppError::bad_request("Connector file does not exist"))?;
+            if !path.starts_with(&root) || !path.is_file() {
+                return Err(AppError::forbidden(
+                    "Connector file is outside the allowed root",
+                ));
+            }
+            let size = std::fs::metadata(&path)
+                .map_err(|_| AppError::bad_request("Unable to inspect connector file"))?
+                .len();
+            if size > hardening.max_connector_file_bytes {
+                return Err(AppError::bad_request(
+                    "Connector file exceeds the configured size limit",
+                ));
+            }
+        },
+        "postgres" | "mysql" => {
+            let auth = config
+                .auth
+                .as_ref()
+                .ok_or_else(|| AppError::bad_request("Connector auth is required"))?;
+            if !hardening
+                .connector_allowed_hosts
+                .iter()
+                .any(|host| host == &auth.host)
+            {
+                return Err(AppError::forbidden("Connector host is not allowlisted"));
+            }
+            if hardening.connector_require_tls && auth.ssl_mode == SslMode::Disable {
+                return Err(AppError::bad_request(
+                    "Encrypted connector transport is required",
+                ));
+            }
+        },
+        _ => {},
+    }
+    Ok(())
+}
+
 fn get_connector(connector_type: &str) -> Result<Box<dyn Connector>, AppError> {
     match connector_type {
         "postgres" => Ok(Box::new(PostgresConnector::new())),
@@ -749,11 +801,13 @@ fn get_connector(connector_type: &str) -> Result<Box<dyn Connector>, AppError> {
 }
 
 pub async fn discover_schema(
+    State(state): State<Arc<AppState>>,
     Path(connector_type): Path<String>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, AppError> {
     let connector = get_connector(&connector_type)?;
     let config = build_connector_config(&connector_type, &body);
+    validate_connector_access(&connector_type, &config, &state.hardening_config)?;
     let schema = connector
         .discover_schema(&config)
         .map_err(|e| AppError::internal(e.to_string()))?;
@@ -787,11 +841,13 @@ pub async fn discover_schema(
 }
 
 pub async fn list_connector_tables(
+    State(state): State<Arc<AppState>>,
     Path(connector_type): Path<String>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, AppError> {
     let connector = get_connector(&connector_type)?;
     let config = build_connector_config(&connector_type, &body);
+    validate_connector_access(&connector_type, &config, &state.hardening_config)?;
     let tables = connector
         .list_tables(&config)
         .map_err(|e| AppError::internal(e.to_string()))?;
@@ -800,11 +856,13 @@ pub async fn list_connector_tables(
 }
 
 pub async fn ping_connector(
+    State(state): State<Arc<AppState>>,
     Path(connector_type): Path<String>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, AppError> {
     let connector = get_connector(&connector_type)?;
     let config = build_connector_config(&connector_type, &body);
+    validate_connector_access(&connector_type, &config, &state.hardening_config)?;
     let result = connector.list_tables(&config);
     match result {
         Ok(_tables) => ok(json!({ "ok": true, "connector": connector_type })),
@@ -820,7 +878,12 @@ pub async fn pull_data(
 ) -> Result<Json<Value>, AppError> {
     let connector = get_connector(&connector_type)?;
     let config = build_connector_config(&connector_type, &body);
+    validate_connector_access(&connector_type, &config, &state.hardening_config)?;
     let collection = config.collection.clone();
+    let return_objects = body
+        .get("returnObjects")
+        .and_then(|value| value.as_bool())
+        .unwrap_or(false);
 
     let stream = connector
         .pull(&config)
@@ -828,6 +891,7 @@ pub async fn pull_data(
 
     let mut imported = 0u64;
     let mut batch: Vec<MemoryObject> = Vec::new();
+    let mut returned_objects: Vec<Value> = Vec::new();
 
     let e = get_engine(&state, &headers)?;
     let mut g = e.lock();
@@ -842,6 +906,9 @@ pub async fn pull_data(
         let body_str =
             serde_json::to_string(&row).map_err(|e| AppError::internal(e.to_string()))?;
         let obj = MemoryObject::new(&collection, &id, &body_str);
+        if return_objects {
+            returned_objects.push(json!({ "id": id, "collection": collection, "body": row }));
+        }
         batch.push(obj);
 
         if batch.len() >= config.batch_size {
@@ -858,7 +925,11 @@ pub async fn pull_data(
         imported += count as u64;
     }
 
-    ok(json!({ "imported": imported, "collection": collection }))
+    let mut response = json!({ "imported": imported, "collection": collection });
+    if return_objects {
+        response["objects"] = Value::Array(returned_objects);
+    }
+    ok(response)
 }
 
 // ─── Search ─────────────────────────────────────────────────────
@@ -903,8 +974,12 @@ pub async fn vector_search(
         .as_array()
         .ok_or_else(|| AppError::bad_request("Missing or invalid 'vector'"))?
         .iter()
-        .filter_map(|v| v.as_f64().map(|f| f as f32))
-        .collect();
+        .map(|v| {
+            v.as_f64()
+                .map(|f| f as f32)
+                .ok_or_else(|| AppError::bad_request("'vector' must contain only numbers"))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
 
     let opts = VectorSearchOptions {
         top_k: body
@@ -917,7 +992,7 @@ pub async fn vector_search(
     let e = get_engine(&state, &headers)?;
     let g = e.lock();
     ok(g.vector_search(collection, &query_vector, opts)
-        .map_err(|e| AppError::internal(e.to_string()))?)
+        .map_err(AppError::from)?)
 }
 
 // ─── NLQ ───────────────────────────────────────────────────────
@@ -1102,20 +1177,26 @@ mod tests {
     use tower::ServiceExt;
 
     use crate::config::Config;
+    use crate::config::HardeningConfig;
     use crate::engine::EnginePool;
 
-    fn test_state_and_config() -> (Arc<AppState>, Config) {
-        let config = Config::default();
-        let state = Arc::new(AppState {
+    fn state_for_config(config: &Config) -> Arc<AppState> {
+        Arc::new(AppState {
             pool: Arc::new(EnginePool::new(":memory:".to_string())),
             tenant_config: config.tenant.clone(),
             mcp_config: config.mcp.clone(),
             auth_token: config.auth.token.clone(),
+            tenant_tokens: config.auth.tenant_tokens.clone(),
             allow_unauthenticated: config.auth.allow_unauthenticated,
             cluster_config: config.cluster.clone(),
             nlq_config: config.nlq.clone(),
-        });
-        (state, config)
+            hardening_config: config.hardening.clone(),
+        })
+    }
+
+    fn test_state_and_config() -> (Arc<AppState>, Config) {
+        let config = Config::default();
+        (state_for_config(&config), config)
     }
 
     #[tokio::test]
@@ -1132,6 +1213,83 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn multi_tenant_auth_binds_token_to_tenant() {
+        let root =
+            std::env::temp_dir().join(format!("thingd-tenant-auth-{}", uuid::Uuid::new_v4()));
+        let mut config = Config::default();
+        config.tenant.mode = crate::config::TenantMode::MultiTenant;
+        config.tenant.database_prefix = format!("{}/", root.display());
+        config.auth.token.clear();
+        config.auth.tenant_tokens.insert(
+            "tenant-a".to_string(),
+            "tenant-a-token-that-is-long-enough".to_string(),
+        );
+        let state = state_for_config(&config);
+        let app = crate::server::build_router(Arc::clone(&state), &config);
+
+        let valid = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/v1/collections")
+                    .header("x-tenant-id", "tenant-a")
+                    .header("authorization", "Bearer tenant-a-token-that-is-long-enough")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(valid.status(), StatusCode::OK);
+
+        let invalid = app
+            .oneshot(
+                Request::builder()
+                    .uri("/v1/collections")
+                    .header("x-tenant-id", "tenant-a")
+                    .header("authorization", "Bearer another-tenant-token")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(invalid.status(), StatusCode::UNAUTHORIZED);
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[tokio::test]
+    async fn cluster_topology_requires_authentication() {
+        let mut config = Config::default();
+        config.auth.token = "server-token-that-is-long-enough".to_string();
+        let state = state_for_config(&config);
+        let app = crate::server::build_router(Arc::clone(&state), &config);
+
+        let unauthorized = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/cluster/status")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(unauthorized.status(), StatusCode::UNAUTHORIZED);
+
+        let authorized = app
+            .oneshot(
+                Request::builder()
+                    .uri("/cluster/status")
+                    .header("authorization", "Bearer server-token-that-is-long-enough")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(authorized.status(), StatusCode::OK);
     }
 
     #[tokio::test]
@@ -1390,6 +1548,39 @@ mod tests {
         assert!(!hits.is_empty(), "expected at least one vector search hit");
         assert_eq!(hits[0]["id"], "doc1");
         assert!(hits[0]["score"].as_f64().unwrap() > hits[1]["score"].as_f64().unwrap());
+    }
+
+    #[tokio::test]
+    async fn test_vector_search_rejects_dimension_mismatch() {
+        let (state, config) = test_state_and_config();
+        let app = crate::server::build_router(state, &config);
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("PUT")
+                    .uri("/v1/objects/v/doc1")
+                    .header("content-type", "application/json")
+                    .body(Body::from(r#"{"id":"doc1","vector":[1.0,0.0]}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/search/vector")
+                    .header("content-type", "application/json")
+                    .body(Body::from(r#"{"collection":"v","vector":[1.0,0.0,0.0]}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     }
 
     #[tokio::test]
@@ -1952,6 +2143,32 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[test]
+    fn connector_access_is_deny_by_default() {
+        let config = ConnectorConfig {
+            connector_type: "file".to_string(),
+            source: "/etc/passwd.csv".to_string(),
+            ..Default::default()
+        };
+        assert!(validate_connector_access("file", &config, &HardeningConfig::default()).is_err());
+
+        let config = ConnectorConfig {
+            connector_type: "postgres".to_string(),
+            auth: Some(ConnectorAuth {
+                username: "u".to_string(),
+                password: "p".to_string(),
+                host: "127.0.0.1".to_string(),
+                port: 5432,
+                database: "db".to_string(),
+                ssl_mode: SslMode::Require,
+            }),
+            ..Default::default()
+        };
+        assert!(
+            validate_connector_access("postgres", &config, &HardeningConfig::default()).is_err()
+        );
     }
 
     #[tokio::test]

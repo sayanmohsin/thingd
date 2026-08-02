@@ -16,7 +16,7 @@ memory store with search, events, and queues.
 
 ## 1. Local stdio (Cursor / Claude Desktop)
 
-Follow the [5-minute quickstart](QUICKSTART.md) for step-by-step Cursor and
+Follow the [5-minute quickstart](quickstart.md) for step-by-step Cursor and
 Claude Desktop setup. The install, config, and verification steps are identical.
 
 **TL;DR:**
@@ -236,7 +236,7 @@ scheduler, multi-agent blackboard, agent handoff, inbox, and heartbeat.
 
 ## Reference
 
-- [Quickstart (5 minutes)](./QUICKSTART.md)
+- [Quickstart (5 minutes)](./quickstart.md)
 - [MCP server reference](./mcp-server.md)
 - [Docker runtime](./docker-runtime.md)
 - [Runtime environment variables](./runtime-env.md)

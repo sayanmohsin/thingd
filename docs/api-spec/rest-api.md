@@ -71,6 +71,18 @@ curl http://localhost:8757/v1/counts/objects
 { "data": { "count": 12 } }
 ```
 
+### `GET /v1/counts/objects/{collection}`
+
+Returns the object count for one collection.
+
+```bash
+curl http://localhost:8757/v1/counts/objects/users
+```
+
+```json
+{ "data": { "count": 8 } }
+```
+
 ### `GET /v1/counts/events`
 
 ```bash
@@ -380,7 +392,7 @@ Missing IDs return `null` entries, preserving input order.
 
 | Field | Required | Description |
 |-------|----------|-------------|
-| `query` | yes | FTS5 query string |
+| `query` | yes | Tantivy query string |
 | `collections` | no | Limit to these collection/stream names |
 | `limit` | no | Max results |
 | `filter` | no | Metadata key-value pairs to match |
@@ -904,6 +916,7 @@ Pull data from an external source into a thingd collection. Each row becomes an 
 | `batchSize` | no | Rows per batch (default: 1000) |
 | `columnMapping` | no | Map external column names to thingd field names: `{ "old_name": "new_name" }` |
 | `syncStrategy` | no | `"full"` (default) or `"incremental"` |
+| `returnObjects` | no | When `true`, include imported row objects in the response for projection consumers. Disabled by default. |
 
 ```bash
 curl -X POST http://localhost:8757/v1/connectors/postgres/pull \
@@ -1008,7 +1021,8 @@ hardening:
   rate_limit_requests_per_minute: 300
 ```
 
-- Per-IP token bucket (keyed by `X-Forwarded-For` or connection address)
+- Per-IP token bucket keyed by the TCP peer address; untrusted `X-Forwarded-For`
+  headers are ignored
 - Returns `429 Too Many Requests` with `Retry-After` header when exceeded
 - Enabled by default (300 rpm per IP). Set `rate_limit_enabled: false` to disable.
 

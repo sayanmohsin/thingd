@@ -196,7 +196,7 @@ curl -X POST http://localhost:8757/v1/search \
 
 ## Vector Search
 
-Search objects by cosine similarity to a query vector. Vectors are stored alongside objects via the optional `vector` field on put (array of floats). Returns results ranked by similarity score (0.0 to 1.0).
+Search objects by cosine similarity to a query vector. Vectors are stored alongside objects via the optional `vector` field on put (array of floats). The current implementation performs an exact collection scan and returns results ranked by similarity score (-1.0 to 1.0). HNSW/ANN is planned for larger datasets.
 
 ### MCP
 

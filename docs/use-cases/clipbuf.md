@@ -48,7 +48,7 @@ server.tool("clip_write", { text: z.string(), source: z.string().optional() },
 
 ### Searching clipboard history
 
-thingd's full-text search (FTS5 with BM25 ranking) makes this useful —
+thingd's full-text search (Tantivy BM25 ranking) makes this useful —
 find that URL you copied yesterday, or that error message from last week.
 
 ```typescript

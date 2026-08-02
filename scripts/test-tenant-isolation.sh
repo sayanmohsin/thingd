@@ -12,10 +12,24 @@ set -uo pipefail
 ENGINE_BIN="${1:-cargo run --}"
 TMPDIR=$(mktemp -d /tmp/thingd-tenant-test-XXXXXX)
 DB_PREFIX="$TMPDIR/tenants/"
+CONFIG_FILE="$TMPDIR/config.yaml"
 ENGINE_PORT=18757
 ENGINE_PID=""
 PASS=0
 FAIL=0
+
+ALICE_TOKEN="alice-token-for-tenant-isolation"
+BOB_TOKEN="bob-token-for-tenant-isolation"
+
+cat > "$CONFIG_FILE" <<EOF
+auth:
+  tenant_tokens:
+    alice: "$ALICE_TOKEN"
+    bob: "$BOB_TOKEN"
+tenant:
+  mode: multi-tenant
+  database_prefix: "$DB_PREFIX"
+EOF
 
 cleanup() {
   [ -n "$ENGINE_PID" ] && kill "$ENGINE_PID" 2>/dev/null && wait "$ENGINE_PID" 2>/dev/null || true
@@ -33,6 +47,7 @@ if [[ "$ENGINE_BIN" == "cargo run --" ]]; then
   THINGD_HOST=127.0.0.1 \
   THINGD_PORT=$ENGINE_PORT \
   THINGD_PATH="$TMPDIR/shared/thingd.db" \
+  THINGD_CONFIG="$CONFIG_FILE" \
   THINGD_TENANT_MODE=multi-tenant \
   THINGD_TENANT_DB_PREFIX="$DB_PREFIX" \
   cargo run &
@@ -40,6 +55,7 @@ elif [[ -x "$ENGINE_BIN" ]]; then
   THINGD_HOST=127.0.0.1 \
   THINGD_PORT=$ENGINE_PORT \
   THINGD_PATH="$TMPDIR/shared/thingd.db" \
+  THINGD_CONFIG="$CONFIG_FILE" \
   THINGD_TENANT_MODE=multi-tenant \
   THINGD_TENANT_DB_PREFIX="$DB_PREFIX" \
   "$ENGINE_BIN" &
@@ -69,8 +85,11 @@ CT="Content-Type: application/json"
 mcpcall() {
   local tenant="$1"
   shift
+  local token="$ALICE_TOKEN"
+  [ "$tenant" = "bob" ] && token="$BOB_TOKEN"
   curl -sf -X POST "$MCP_URL" \
     -H "X-Tenant-Id: $tenant" \
+    -H "Authorization: Bearer $token" \
     -H "$CT" \
     -d "$@" 2>/dev/null
 }
@@ -104,7 +123,7 @@ fi
 
 echo ""
 echo "==> Test 3: Files are physically separate"
-if [ -f "$DB_PREFIX/alice/thingd.db" ]; then
+if [ -e "$DB_PREFIX/alice/thingd.db" ]; then
   echo "  ✅ alice's DB exists: $DB_PREFIX/alice/thingd.db"
   ((PASS++))
 else
@@ -112,7 +131,7 @@ else
   ((FAIL++))
 fi
 
-if [ -f "$DB_PREFIX/bob/thingd.db" ]; then
+if [ -e "$DB_PREFIX/bob/thingd.db" ]; then
   echo "  ✅ bob's DB exists: $DB_PREFIX/bob/thingd.db"
   ((PASS++))
 else
@@ -157,9 +176,15 @@ THINGD_HOST=127.0.0.1 \
 THINGD_PORT="$SINGLE_PORT" \
 THINGD_PATH="$TMPDIR2/thingd.db" \
 THINGD_TENANT_MODE=single \
-cargo run &
+"$ENGINE_BIN" &
 SINGLE_PID=$!
-sleep 2
+
+for i in $(seq 1 20); do
+  if curl -sf "http://127.0.0.1:$SINGLE_PORT/healthz" >/dev/null 2>&1; then
+    break
+  fi
+  sleep 0.5
+done
 
 # Should work without tenant header
 single_ok=$(curl -s -o /dev/null -w "%{http_code}" -X POST "http://127.0.0.1:$SINGLE_PORT/mcp" \

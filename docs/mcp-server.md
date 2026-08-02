@@ -9,7 +9,11 @@ knowing SQL or internal storage details.
 
 ## Current Status
 
-**46 MCP tools** exposed via stdio and Streamable HTTP.
+**46 SDK MCP tools** are exposed via stdio and Streamable HTTP. The Rust sidecar exposes 36 core tools.
+
+The separate Rust sidecar MCP registry exposes 36 engine tools. The 10 scheduler
+tools are implemented by the Node SDK runtime and are intentionally not part of
+the Rust sidecar surface yet.
 
 The package implements the local stdio server plus a remote-capable Streamable
 HTTP runtime.
@@ -39,7 +43,7 @@ Implemented:
 
 ## Tool Surface
 
-All 46 tools are documented in the [API spec — MCP tools reference](api-spec/mcp-tools.md)
+All SDK tools are documented in the [API spec — MCP tools reference](api-spec/mcp-tools.md)
 with JSON schemas, input/output types, and return formats.
 
 ### Categories
@@ -70,7 +74,7 @@ This command will:
 4. Print a copy-pasteable JSON block for Cursor's MCP server configuration.
 5. Auto-create the default database directory.
 
-See the **[5-minute quickstart](./QUICKSTART.md)** for a full walkthrough including Cursor, Claude Desktop, Node SDK, and MCP tool usage.
+See the **[5-minute quickstart](./quickstart.md)** for a full walkthrough including Cursor, Claude Desktop, Node SDK, and MCP tool usage.
 
 ### Cloud MCP Connect
 
@@ -184,7 +188,7 @@ Run with the in-memory SDK store:
 thingd mcp --path :memory:
 ```
 
-Run with the private native Rust-backed SQLite driver (which automatically persists to `~/.thingd/data.db` by default if no path is given):
+Run with the native Rust-backed Fjall driver (which automatically persists to `~/.thingd/data.db` by default if no path is given):
 
 ```bash
 thingd mcp --driver native
@@ -344,7 +348,7 @@ THINGD_ADVERTISE_URL=http://thingd-0:8757
 ```
 
 Followers forward MCP traffic to the leader. This gives Kubernetes pods one
-local endpoint while avoiding multi-writer SQLite. Local follower replica
+local endpoint while avoiding multi-writer access to one Fjall directory. Local follower replica
 catch-up runs as an async background process that polls the leader every 500ms
 for new change events.
 

@@ -4,7 +4,7 @@ This document explains the agent leverage story in plain terms. For integration
 steps see [agent-implementation-guide.md](./agent-implementation-guide.md). For
 patterns see [agent-patterns.md](./agent-patterns.md).
 
-**Ready to start?** → [5-minute quickstart](./QUICKSTART.md)
+**Ready to start?** → [5-minute quickstart](./quickstart.md)
 
 ---
 
@@ -102,4 +102,4 @@ enough, teams that already expose Postgres + workers via MCP.
 2. `thingd mcp --driver native` — persistent `~/.thingd/data.db`
 3. Put records → search → enqueue → claim/ack
 
-Full guide: **[QUICKSTART.md](./QUICKSTART.md)** · Patterns: **[agent-patterns.md](./agent-patterns.md)**
+Full guide: **[quickstart.md](./quickstart.md)** · Patterns: **[agent-patterns.md](./agent-patterns.md)**
