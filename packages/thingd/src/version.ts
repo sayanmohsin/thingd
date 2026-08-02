@@ -1,5 +1,5 @@
 /**
  * The published version of the thingd SDK.
- * Updated automatically by semantic-release during the publish process.
+ * Updated automatically by Release Please during the release PR process.
  */
-export const SDK_VERSION = "0.72.0";
+export const SDK_VERSION = "0.72.0"; // x-release-please-version

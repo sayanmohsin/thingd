@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       publish_version:
-        description: "Existing release version to retry, for example 0.72.0"
+        description: "Existing release version to retry, for example 0.72.1"
         required: false
         type: string
 
@@ -17,6 +17,7 @@ concurrency:
 permissions:
   contents: write
   issues: write
+  pull-requests: write
   id-token: write
 
 env:
@@ -25,38 +26,71 @@ env:
   NPM_CONFIG_FUND: "false"
 
 jobs:
-  release-plan:
-    name: Calculate semantic-release plan
+  release-please:
+    name: Create or finalize release PR
     runs-on: ubuntu-latest
     outputs:
-      needed: ${{ steps.plan.outputs.needed }}
-      retry: ${{ steps.plan.outputs.retry }}
-      version: ${{ steps.plan.outputs.version }}
-      ref: ${{ steps.plan.outputs.ref }}
+      release_created: ${{ steps.release.outputs.release_created || steps.manual.outputs.release_created }}
+      retry: ${{ steps.manual.outputs.retry }}
+      version: ${{ steps.release.outputs.version || steps.manual.outputs.version }}
     steps:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
-          fetch-tags: true
-          ref: main
-      - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v6
+      - name: Create release App token
+        id: app-token
+        if: ${{ inputs.publish_version == '' }}
+        uses: actions/create-github-app-token@v2
         with:
-          node-version: 24
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - name: Calculate release plan
-        id: plan
+          app-id: ${{ vars.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: thingd
+      - name: Run Release Please
+        id: release
+        if: ${{ inputs.publish_version == '' }}
+        uses: googleapis/release-please-action@v4
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+      - name: Update Cargo.lock on release PR
+        if: ${{ steps.release.outputs.pr-number != '' }}
         env:
-          GITHUB_TOKEN: ${{ github.token }}
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
-          RETRY_VERSION: ${{ inputs.publish_version }}
-        run: node scripts/semantic-release-plan.mjs
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          PR_NUMBER="${{ steps.release.outputs.pr-number }}"
+          BRANCH=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" --jq '.head.ref')
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin "$BRANCH"
+          git checkout "$BRANCH"
+          cargo update -w
+          git add Cargo.lock
+          if ! git diff --cached --quiet; then
+            git commit -m "chore: update Cargo.lock [skip ci]"
+            git push origin "$BRANCH"
+          fi
+      - name: Normalize manual retry
+        id: manual
+        if: ${{ inputs.publish_version != '' }}
+        env:
+          VERSION: ${{ inputs.publish_version }}
+        run: |
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "publish_version must be a full SemVer value" >&2
+            exit 1
+          fi
+          {
+            echo "release_created=true"
+            echo "retry=true"
+            echo "version=$VERSION"
+          } >> "$GITHUB_OUTPUT"
 
   build-native:
     name: Build native (${{ matrix.platform }}-${{ matrix.arch }})
-    needs: release-plan
-    if: ${{ needs.release-plan.outputs.needed == 'true' }}
+    needs: release-please
+    if: ${{ needs.release-please.outputs.release_created == 'true' || needs.release-please.outputs.retry == 'true' }}
     strategy:
       fail-fast: false
       matrix:
@@ -86,13 +120,14 @@ jobs:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
-          ref: ${{ needs.release-plan.outputs.ref }}
+          fetch-tags: true
+          ref: v${{ needs.release-please.outputs.version }}
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
           key: native-${{ hashFiles('packages/thingd-native/**/*.rs', 'crates/thingd/src/**/*.rs') }}
       - name: Remove stale native prebuilds
-        run: |
+        run: >-
           node -e "require('node:fs').rmSync('packages/thingd-native/prebuilds', { recursive: true, force: true })"
       - name: Install cross-compilation target
         if: ${{ matrix.rust_target != '' }}
@@ -113,7 +148,7 @@ jobs:
           NATIVE_ARCH: ${{ matrix.arch }}
           NATIVE_TARGET: ${{ matrix.rust_target }}
         run: node packages/thingd-native/scripts/copy-prebuild.mjs
-      - name: Test native filter on ${{ matrix.platform }}-${{ matrix.arch }}
+      - name: Test native filter
         if: ${{ !(matrix.platform == 'darwin' && matrix.arch == 'x64') }}
         shell: bash
         run: |
@@ -136,19 +171,17 @@ jobs:
           path: packages/thingd-native/prebuilds/
           retention-days: 1
 
-  publish-release:
-    name: Run semantic-release
-    needs: [release-plan, build-native]
-    if: ${{ needs.release-plan.outputs.needed == 'true' }}
+  publish-npm:
+    name: Publish npm packages
+    needs: [release-please, build-native]
+    if: ${{ needs.release-please.outputs.release_created == 'true' || needs.release-please.outputs.retry == 'true' }}
     runs-on: ubuntu-latest
-    outputs:
-      version: ${{ needs.release-plan.outputs.version }}
     steps:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
           fetch-tags: true
-          ref: ${{ needs.release-plan.outputs.ref }}
+          ref: v${{ needs.release-please.outputs.version }}
       - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v6
         with:
@@ -156,13 +189,14 @@ jobs:
           registry-url: https://registry.npmjs.org
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - name: Configure npm auth for @thingd scope
-        run: echo "//registry.npmjs.org/:_authToken=${{ secrets.NPM_TOKEN }}" >> .npmrc
+      - run: echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" >> .npmrc
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
       - uses: actions/download-artifact@v8
         with:
           path: prebuild-artifacts
           pattern: prebuild-*
-      - name: Merge prebuilds
+      - name: Merge native prebuilds
         run: |
           mkdir -p packages/thingd-native/prebuilds
           for dir in prebuild-artifacts/*/; do [ -d "$dir" ] && cp -r "$dir". packages/thingd-native/prebuilds/; done
@@ -172,16 +206,9 @@ jobs:
         run: |
           pnpm --filter @thingd/sdk build
           pnpm verify:publish
-      - name: Run semantic-release
-        if: ${{ needs.release-plan.outputs.retry != 'true' }}
+      - name: Publish packages if missing
         env:
-          GITHUB_TOKEN: ${{ github.token }}
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: pnpm exec semantic-release
-      - name: Publish existing npm versions on retry
-        if: ${{ needs.release-plan.outputs.retry == 'true' }}
-        env:
-          VERSION: ${{ needs.release-plan.outputs.version }}
+          VERSION: ${{ needs.release-please.outputs.version }}
         run: |
           publish_if_missing() {
             PACKAGE="$1"
@@ -198,15 +225,15 @@ jobs:
 
   docker:
     name: Publish Docker image
-    needs: [release-plan, publish-release]
-    if: ${{ needs.release-plan.outputs.needed == 'true' }}
+    needs: [release-please, publish-npm]
+    if: ${{ needs.release-please.outputs.release_created == 'true' || needs.release-please.outputs.retry == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
           fetch-tags: true
-          ref: v${{ needs.release-plan.outputs.version }}
+          ref: v${{ needs.release-please.outputs.version }}
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-unknown-linux-musl, x86_64-unknown-linux-musl
@@ -241,7 +268,7 @@ jobs:
           push: true
           platforms: linux/amd64,linux/arm64
           tags: |
-            sayanmohsin/thingd:v${{ needs.release-plan.outputs.version }}
+            sayanmohsin/thingd:v${{ needs.release-please.outputs.version }}
             sayanmohsin/thingd:latest
           cache-from: type=gha,scope=thingd-release-image
           cache-to: type=gha,mode=max,scope=thingd-release-image
@@ -250,53 +277,23 @@ jobs:
 
   crates-publish:
     name: Publish crates.io package
-    needs: [release-plan, publish-release]
-    if: ${{ needs.release-plan.outputs.needed == 'true' }}
+    needs: [release-please, publish-npm]
+    if: ${{ needs.release-please.outputs.release_created == 'true' || needs.release-please.outputs.retry == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
           fetch-tags: true
-          ref: v${{ needs.release-plan.outputs.version }}
+          ref: v${{ needs.release-please.outputs.version }}
       - uses: dtolnay/rust-toolchain@stable
       - name: Publish crate if missing
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+          VERSION: ${{ needs.release-please.outputs.version }}
         run: |
-          VERSION=$(grep '^version = ' Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
-          if curl -fsS \
-            -A "thingd-release/${GITHUB_REPOSITORY} run/${GITHUB_RUN_ID}" \
-            "https://crates.io/api/v1/crates/thingd/${VERSION}" >/dev/null; then
+          if curl -fsS -A "thingd-release/${GITHUB_REPOSITORY} run/${GITHUB_RUN_ID}" "https://crates.io/api/v1/crates/thingd/${VERSION}" >/dev/null; then
             echo "thingd ${VERSION} already exists"
           else
             cargo publish -p thingd --features persistent,search
           fi
-
-  finalize-release:
-    name: Ensure GitHub Release
-    needs: [release-plan, publish-release, docker, crates-publish]
-    if: ${{ needs.release-plan.outputs.needed == 'true' }}
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-          fetch-tags: true
-          ref: v${{ needs.release-plan.outputs.version }}
-      - name: Create GitHub Release if missing
-        env:
-          GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ needs.release-plan.outputs.version }}
-        run: |
-          TAG="v${VERSION}"
-          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            echo "${TAG} already exists"
-            exit 0
-          fi
-          awk 'BEGIN { found=0 } /^## / { if (found) exit; found=1 } found { print }' CHANGELOG.md > release-notes.md
-          gh release create "$TAG" \
-            --repo "$GITHUB_REPOSITORY" \
-            --target "$(git rev-parse HEAD)" \
-            --title "$TAG" \
-            --notes-file release-notes.md
