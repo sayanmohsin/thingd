@@ -4,10 +4,11 @@ import { fileURLToPath } from "node:url";
 
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const repoRoot = resolve(packageRoot, "../..");
-const targetRoot = resolve(repoRoot, "target/release");
+const nativeTarget = process.env.NATIVE_TARGET;
+const targetRoot = resolve(repoRoot, nativeTarget ? `target/${nativeTarget}/release` : "target/release");
 
-const platform = process.platform;
-const arch = process.arch;
+const platform = process.env.NATIVE_PLATFORM ?? process.platform;
+const arch = process.env.NATIVE_ARCH ?? process.arch;
 const outputPath = resolve(packageRoot, `prebuilds/${platform}-${arch}/thingd_native.node`);
 
 const candidates = [
@@ -26,7 +27,7 @@ mkdirSync(dirname(outputPath), { recursive: true });
 copyFileSync(inputPath, outputPath);
 console.log(`Copied prebuild: ${inputPath} -> ${outputPath}`);
 
-if (process.platform === "darwin") {
+if (platform === "darwin") {
   import("node:child_process").then(({ execSync }) => {
     try {
       execSync(`codesign -s - "${outputPath}"`);
