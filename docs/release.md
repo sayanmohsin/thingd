@@ -1,6 +1,6 @@
 # Release Process
 
-`thingd` uses semantic-release to publish three npm packages (`@thingd/sdk`, `@thingd/cli`, `@thingd/native`).
+`thingd` uses semantic-release to calculate, version, tag, and publish four npm packages (`@thingd/sdk`, `@thingd/cli`, `@thingd/native`, and `@thingd/client`) plus the Rust crate.
 
 The hosted app-backend client is released as part of the public client package.
 Deploy its compatible Cloud API only after the public contract release and the
@@ -27,38 +27,32 @@ feat(storage)!: replace the storage adapter interface
 Use the following branch flow for open-source development:
 
 ```txt
-feature/* → squash merge → main → automated release PR → main → publish
+feature/* → squash merge → main → semantic-release → publish
 ```
 
 Feature branches should be squash-merged into `main` using a conventional
 commit title such as `feat:` or `fix:`. After a releasable change lands on
-`main`, the release workflow calculates the next SemVer and opens a
-`release/vX.Y.Z` pull request containing the synchronized versions and
-`CHANGELOG.md`. Required CI runs on that release PR. Publishing starts only
-after the release PR is merged into `main`.
+`main`, semantic-release calculates the next SemVer, updates the synchronized
+npm/Cargo/version files, commits the release with `[skip ci]`, creates the
+`vX.Y.Z` tag, and publishes the release. There is no intermediate release PR.
 
 ## GitHub Actions
 
-CI runs on:
+CI runs on pull requests targeting `main` and pushes to `main`.
 
-- pull requests targeting `development` or `main`
-- pushes to `development` or `main`
-
-The release workflow runs on:
-
-- pushes to `main` to either prepare a release PR or publish after a release PR
-  merge;
-- manual `workflow_dispatch` to prepare a release PR or retry an existing
-  publication by supplying `publish_version`.
+The release workflow runs on pushes to `main`. A semantic-release dry run first
+determines whether the commit range requires a release. Native artifacts and
+publishing are skipped when no release is needed. A manual `workflow_dispatch`
+with `publish_version` retries publication for an existing tagged version without
+calculating a new version.
 
 It validates the same checks, then publishes to npm when the `NPM_TOKEN` repository secret exists.
 
 ## Branch and pull request workflow
 
-Create feature branches from `development` and target all pull requests at
-`development`. Do not open pull requests directly against `main`. Once the
-integrated changes are ready for release, manually merge `development` into
-`main`; production deployment and publishing remain restricted to `main`.
+Create feature branches from `main` and target all pull requests at `main`.
+Squash-merge completed feature branches into `main`; production deployment and
+publishing remain restricted to `main`.
 
 Before configuring `NPM_TOKEN`, use the local package smoke test:
 
@@ -114,12 +108,12 @@ docker pull sayanmohsin/thingd
 The Docker image includes the native persistent driver pre-built for supported Linux targets.
 See [docker-context/Dockerfile](../docker-context/Dockerfile) and [deploy/docker-compose.yml](../deploy/docker-compose.yml) for the runtime shape.
 
-Release packaging intentionally avoids `workspace:*` dependency specs in `package.json` files. The repo uses pnpm for development, but `@semantic-release/exec` calls the npm CLI internally during version bumps, and npm rejects pnpm-only workspace protocol dependencies.
+The workspace uses `workspace:^` dependency specs during development so pnpm links the local SDK and native packages. The semantic-release prepare hook converts those internal ranges to `^${nextRelease.version}` before npm publishes and records the publishable ranges in the release commit.
 
 The release workflow pins Node.js 24. Each release automatically publishes all
-four npm packages, updates `CHANGELOG.md` in the release PR from conventional
-commits, creates a GitHub Release with release notes, and never pushes version
-bump commits directly to protected `main`.
+four npm packages, updates `CHANGELOG.md` from conventional commits, creates a
+GitHub Release with release notes, and commits the synchronized version bump to
+`main`.
 
 ## First npm Publish From CI
 
@@ -133,7 +127,7 @@ feat: initial thingd release
 ```
 
 3. Open GitHub -> Actions -> Release -> Run workflow -> branch `main`.
-4. The workflow runs checks, builds the package from `packages/thingd`, publishes `@thingd/sdk`, creates the Git tag, and creates the GitHub release.
+4. The workflow runs the semantic-release dry run, builds native artifacts, validates package tarballs, publishes all packages, creates the Git tag, and creates the GitHub release.
 
 If semantic-release says there is no release, the commits on `main` did not include a releasable conventional commit. Add a `feat:`, `fix:`, `perf:`, or breaking-change commit and run the workflow again.
 
@@ -150,7 +144,7 @@ Once Trusted Publishing is verified, remove the `NPM_TOKEN` secret.
 
 ## Branch Protection
 
-Protect both `main` and `development` in GitHub:
+Protect `main` in GitHub:
 
 - require pull requests before merging
 - require the CI workflow to pass
@@ -160,9 +154,9 @@ Protect both `main` and `development` in GitHub:
 - allow repository administrators to bypass protection while the project is small
 - require outside contributors to use forks and pull requests
 
-The release workflow never pushes directly to protected `main`. Version bump
-commits are reviewed through a release PR; tags and the GitHub Release are
-created only from the merged release commit.
+The release workflow commits the semantic-release version commit directly to
+`main`. Configure branch protection to allow only the release workflow to bypass
+the protected-branch requirement for that commit and tag.
 
 ---
 
