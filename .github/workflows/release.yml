@@ -1,10 +1,11 @@
 name: Release
 
 on:
-  workflow_run:
-    workflows: [CI]
+  push:
     branches: [main]
-    types: [completed]
+  pull_request:
+    branches: [main]
+    types: [closed]
   workflow_dispatch:
 
 concurrency:
@@ -17,37 +18,88 @@ permissions:
   pull-requests: write
   id-token: write
 
+env:
+  LEFTHOOK: "0"
+  NPM_CONFIG_AUDIT: "false"
+  NPM_CONFIG_FUND: "false"
+
 jobs:
-  check-release:
-    name: Check if release is needed
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+  prepare-release-pr:
+    name: Prepare release PR
+    if: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-latest
-    outputs:
-      needed: ${{ steps.check.outputs.needed }}
     steps:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
           fetch-tags: true
           ref: main
-      - name: Check for conventional commits since last tag
-        id: check
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Calculate release plan
+        id: plan
         run: |
-          LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
-          echo "Last tag: $LAST_TAG"
-          COMMITS=$(git log "$LAST_TAG..HEAD" --format="%s" --no-decorate 2>/dev/null || echo "")
-          if echo "$COMMITS" | grep -qiE "^(feat!?|fix!?|BREAKING CHANGE)[:(]"; then
-            echo "needed=true" >> "$GITHUB_OUTPUT"
-            echo "Release needed — found conventional commits since $LAST_TAG"
-          else
-            echo "needed=false" >> "$GITHUB_OUTPUT"
-            echo "No release needed — no conventional commits since $LAST_TAG"
+          node scripts/prepare-release-pr.mjs --plan --json release-plan.json
+          echo "needed=$(jq -r '.needed' release-plan.json)" >> "$GITHUB_OUTPUT"
+          echo "version=$(jq -r '.version // empty' release-plan.json)" >> "$GITHUB_OUTPUT"
+
+      - name: Create release branch and PR
+        if: ${{ steps.plan.outputs.needed == 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.plan.outputs.version }}
+        run: |
+          BRANCH="release/v${VERSION}"
+          BODY_FILE="release-notes.md"
+          jq -r '.notes' release-plan.json > "$BODY_FILE"
+
+          if [ "$(gh pr list --repo "$GITHUB_REPOSITORY" --state open --head "$BRANCH" --json number --jq 'length')" -gt 0 ]; then
+            echo "Release PR $BRANCH already exists"
+            exit 0
           fi
+
+          if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1; then
+            git fetch origin "$BRANCH"
+            gh pr create \
+              --repo "$GITHUB_REPOSITORY" \
+              --base main \
+              --head "$BRANCH" \
+              --title "chore(release): v${VERSION}" \
+              --body-file "$BODY_FILE"
+            exit 0
+          fi
+
+          git switch --create "$BRANCH" origin/main
+          node scripts/prepare-release-pr.mjs --apply --plan-file release-plan.json
+          rm -f release-plan.json
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add CHANGELOG.md Cargo.toml README.md \
+            crates/thingd/README.md crates/thingd-server/Cargo.toml \
+            packages/thingd/package.json packages/thingd/src/version.ts \
+            packages/thingd-cli/package.json packages/thingd-native/package.json \
+            packages/thingd-native/Cargo.toml packages/thingd-client/package.json
+          git commit -m "chore(release): v${VERSION}"
+          git push origin "$BRANCH"
+          gh pr create \
+            --repo "$GITHUB_REPOSITORY" \
+            --base main \
+            --head "$BRANCH" \
+            --title "chore(release): v${VERSION}" \
+            --body-file "$BODY_FILE"
+          rm -f "$BODY_FILE"
 
   build-native:
     name: Build native (${{ matrix.platform }}-${{ matrix.arch }})
-    needs: [check-release]
-    if: ${{ needs.check-release.outputs.needed == 'true' }}
+    if: ${{ github.event_name == 'pull_request' && github.event.pull_request.merged == true && startsWith(github.event.pull_request.head.ref, 'release/v') }}
     strategy:
       fail-fast: false
       matrix:
@@ -70,183 +122,128 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v6
-        if: ${{ needs.check-release.outputs.needed == 'true' }}
         with:
           fetch-depth: 0
           ref: main
       - uses: dtolnay/rust-toolchain@stable
-        if: ${{ needs.check-release.outputs.needed == 'true' }}
       - uses: Swatinem/rust-cache@v2
-        if: ${{ needs.check-release.outputs.needed == 'true' }}
         with:
           key: native-${{ hashFiles('packages/thingd-native/**/*.rs', 'crates/thingd/src/**/*.rs') }}
       - run: cargo build -p thingd-native --release
-        if: ${{ needs.check-release.outputs.needed == 'true' }}
       - run: node packages/thingd-native/scripts/copy-prebuild.mjs
-        if: ${{ needs.check-release.outputs.needed == 'true' }}
       - name: Test native filter on ${{ matrix.platform }}-${{ matrix.arch }}
-        if: ${{ needs.check-release.outputs.needed == 'true' }}
         shell: bash
         run: |
-          node << 'EOF'
+          node <<'EOF'
           const { NativeThingStore } = require('./packages/thingd-native');
           const path = require('node:os').tmpdir() + '/thingd-filter-test.db';
           const store = NativeThingStore.open(path);
           store.putObjectJson('test', '1', JSON.stringify({status:'active'}));
           (async () => {
-          const r1 = await store.listObjectsJson('["test"]', '{"status":"nonexistent"}', null, null, null, null);
-          if (JSON.parse(r1).length !== 0) throw new Error('Non-matching filter returned non-empty');
-          const r2 = await store.listObjectsJson('["test"]', '{"status":"active"}', null, null, null, null);
-          if (JSON.parse(r2).length !== 1) throw new Error('Matching filter returned wrong count');
-          console.log('Native filter test passed on', process.platform, process.arch);
-          try { require('node:fs').unlinkSync(path); } catch {}
-          })()
+            const r1 = await store.listObjectsJson('["test"]', '{"status":"nonexistent"}', null, null, null, null);
+            if (JSON.parse(r1).length !== 0) throw new Error('Non-matching filter returned non-empty');
+            const r2 = await store.listObjectsJson('["test"]', '{"status":"active"}', null, null, null, null);
+            if (JSON.parse(r2).length !== 1) throw new Error('Matching filter returned wrong count');
+            try { require('node:fs').unlinkSync(path); } catch {}
+          })();
+          EOF
       - uses: actions/upload-artifact@v7
         with:
           name: prebuild-${{ matrix.platform }}-${{ matrix.arch }}
           path: packages/thingd-native/prebuilds/
           retention-days: 1
-        if: ${{ needs.check-release.outputs.needed == 'true' }}
 
-  release:
-    name: Publish to npm
-    needs: [check-release, build-native]
-    if: ${{ needs.check-release.outputs.needed == 'true' }}
+  publish-packages:
+    name: Publish npm packages
+    needs: [build-native]
+    if: ${{ github.event_name == 'pull_request' && github.event.pull_request.merged == true && startsWith(github.event.pull_request.head.ref, 'release/v') }}
     runs-on: ubuntu-latest
-    outputs:
-      new_version: ${{ steps.version.outputs.new_version }}
-      released: ${{ steps.version.outputs.released }}
-    env:
-      LEFTHOOK: "0"
-      NPM_CONFIG_AUDIT: "false"
-      NPM_CONFIG_FUND: "false"
     steps:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
-          fetch-tags: true
           ref: main
-
       - uses: pnpm/action-setup@v6
-
       - uses: actions/setup-node@v6
         with:
           node-version: 24
           registry-url: https://registry.npmjs.org
           cache: pnpm
-
       - run: pnpm install --frozen-lockfile
-
       - name: Configure npm auth for @thingd scope
-        run: |
-          echo "//registry.npmjs.org/:_authToken=${{ secrets.NPM_TOKEN }}" >> .npmrc
-
-      - run: pnpm --filter @thingd/sdk --filter @thingd/cli build
-
-      - name: Download prebuild artifacts
-        uses: actions/download-artifact@v8
+        run: echo "//registry.npmjs.org/:_authToken=${{ secrets.NPM_TOKEN }}" >> .npmrc
+      - uses: actions/download-artifact@v8
         with:
           path: prebuild-artifacts
           pattern: prebuild-*
-
-      - name: Merge prebuilds into thingd-native package
+      - name: Merge prebuilds
         run: |
           mkdir -p packages/thingd-native/prebuilds
-          for dir in prebuild-artifacts/*/; do
-            if [ -d "$dir" ]; then
-              cp -r "$dir". packages/thingd-native/prebuilds/
-            fi
-          done
-          echo "Prebuilds after merge:"
-          ls -la packages/thingd-native/prebuilds/*/
-
-      - name: Publish release
-        id: version
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          for dir in prebuild-artifacts/*/; do [ -d "$dir" ] && cp -r "$dir". packages/thingd-native/prebuilds/; done
+      - name: Publish packages if missing
         run: |
-          BEFORE=$(grep '^version = ' Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
-          echo "Version before release: $BEFORE"
-          pnpm release
-          AFTER=$(grep '^version = ' Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
-          echo "Version after release: $AFTER"
-          if [ "$BEFORE" != "$AFTER" ]; then
-            echo "released=true" >> "$GITHUB_OUTPUT"
-            echo "new_version=$AFTER" >> "$GITHUB_OUTPUT"
-            echo "New release: $AFTER"
-          else
-            echo "released=false" >> "$GITHUB_OUTPUT"
-            echo "No new release created"
-          fi
+          VERSION=$(node -p "require('./packages/thingd/package.json').version")
+          publish_if_missing() {
+            PACKAGE="$1"
+            if npm view "${PACKAGE}@${VERSION}" version >/dev/null 2>&1; then
+              echo "${PACKAGE}@${VERSION} already exists"
+            else
+              pnpm --filter "$PACKAGE" publish --access public --no-git-checks
+            fi
+          }
+          publish_if_missing @thingd/sdk
+          publish_if_missing @thingd/cli
+          publish_if_missing @thingd/native
+          publish_if_missing @thingd/client
 
   docker:
-    name: Build and push Docker image (multi-arch)
-    needs: [check-release, build-native]
-    if: ${{ needs.check-release.outputs.needed == 'true' }}
+    name: Publish Docker image
+    needs: [build-native]
+    if: ${{ github.event_name == 'pull_request' && github.event.pull_request.merged == true && startsWith(github.event.pull_request.head.ref, 'release/v') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
-          fetch-tags: true
           ref: main
-
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-unknown-linux-musl, x86_64-unknown-linux-musl
-
       - uses: Swatinem/rust-cache@v2
         with:
           key: docker-${{ hashFiles('**/Cargo.lock') }}
           cache-on-failure: true
-
       - name: Install cross-compilation dependencies
         run: sudo apt-get update && sudo apt-get install -y cmake musl-tools pipx
-
-      - name: Install zig for musl cross-compilation
+      - name: Install zig
         run: |
           curl -sL https://ziglang.org/download/0.14.0/zig-linux-x86_64-0.14.0.tar.xz | tar xJ -C /tmp
           mkdir -p "$HOME/.local/bin"
           ln -sf /tmp/zig-linux-x86_64-0.14.0/zig "$HOME/.local/bin/zig"
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-
-      - name: Install cargo-zigbuild
-        run: pipx install cargo-zigbuild
-
-      - name: Build thingd-server binary (amd64, musl)
-        run: |
+      - run: pipx install cargo-zigbuild
+      - run: |
           cargo build -p thingd-server --release --target x86_64-unknown-linux-musl
           mkdir -p docker-context
           cp target/x86_64-unknown-linux-musl/release/thingd-server docker-context/thingd-server-amd64
-
-      - name: Build thingd-server binary (arm64, musl cross)
-        run: |
+      - run: |
           cargo zigbuild -p thingd-server --release --target aarch64-unknown-linux-musl
           cp target/aarch64-unknown-linux-musl/release/thingd-server docker-context/thingd-server-arm64
-
-      - name: Get next version
+      - name: Read version
         id: version
-        run: |
-          VERSION=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
-
-      - name: Log in to Docker Hub
-        uses: docker/login-action@v4
+        run: echo "version=$(node -p \"require('./packages/thingd/package.json').version\")" >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
         with:
           username: sayanmohsin
           password: ${{ secrets.DOCKER_PASSWORD }}
-
-      - name: Build and push multi-arch image
-        uses: docker/build-push-action@v7
+      - uses: docker/build-push-action@v7
         with:
           context: docker-context
           push: true
           platforms: linux/amd64,linux/arm64
           tags: |
-            sayanmohsin/thingd:${{ steps.version.outputs.version }}
+            sayanmohsin/thingd:v${{ steps.version.outputs.version }}
             sayanmohsin/thingd:latest
           cache-from: type=gha,scope=thingd-release-image
           cache-to: type=gha,mode=max,scope=thingd-release-image
@@ -254,30 +251,50 @@ jobs:
           sbom: false
 
   crates-publish:
-    name: Publish to crates.io
-    needs: [release]
-    if: ${{ needs.release.outputs.released == 'true' }}
+    name: Publish crates.io package
+    if: ${{ github.event_name == 'pull_request' && github.event.pull_request.merged == true && startsWith(github.event.pull_request.head.ref, 'release/v') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
         with:
-          ref: main
           fetch-depth: 0
-
+          ref: main
       - uses: dtolnay/rust-toolchain@stable
-
-      - name: Verify version matches
-        run: |
-          EXPECTED="${{ needs.release.outputs.new_version }}"
-          ACTUAL=$(grep '^version = ' Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
-          echo "Expected: $EXPECTED"
-          echo "Actual:   $ACTUAL"
-          if [ "$EXPECTED" != "$ACTUAL" ]; then
-            echo "::error::Version mismatch — Cargo.toml has $ACTUAL but expected $EXPECTED"
-            exit 1
-          fi
-
-      - name: Publish to crates.io
-        run: cargo publish -p thingd --features persistent,search
+      - name: Publish crate if missing
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: |
+          VERSION=$(grep '^version = ' Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
+          if curl -fsS "https://crates.io/api/v1/crates/thingd/${VERSION}" >/dev/null; then
+            echo "thingd ${VERSION} already exists"
+          else
+            cargo publish -p thingd --features persistent,search
+          fi
+
+  finalize-release:
+    name: Tag and create GitHub Release
+    needs: [publish-packages, docker, crates-publish]
+    if: ${{ github.event_name == 'pull_request' && github.event.pull_request.merged == true && startsWith(github.event.pull_request.head.ref, 'release/v') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+          ref: main
+      - name: Create tag and GitHub Release if missing
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION=$(node -p "require('./packages/thingd/package.json').version")
+          TAG="v${VERSION}"
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "${TAG} already exists"
+            exit 0
+          fi
+          awk 'BEGIN { found=0 } /^## / { if (found) exit; found=1 } found { print }' CHANGELOG.md > release-notes.md
+          gh release create "$TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$(git rev-parse HEAD)" \
+            --title "$TAG" \
+            --notes-file release-notes.md

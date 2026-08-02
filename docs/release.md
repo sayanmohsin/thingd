@@ -27,18 +27,15 @@ feat(storage)!: replace the storage adapter interface
 Use the following branch flow for open-source development:
 
 ```txt
-feature/* → squash merge → development → regular merge PR → main → release
+feature/* → squash merge → main → automated release PR → main → publish
 ```
 
-Feature branches should start from `development`. Squash-merge completed
-features into `development` using a conventional commit title such as `feat:` or
-`fix:`. CI runs on `development` and `main`, but release automation runs only
-after `main` changes.
-
-When `development` is ready, open a pull request into `main` and use a regular
-merge commit. Do not squash this release merge: semantic-release scans all
-conventional commits since the previous tag and produces one version containing
-the complete batch. After the release, sync `main` back into `development`.
+Feature branches should be squash-merged into `main` using a conventional
+commit title such as `feat:` or `fix:`. After a releasable change lands on
+`main`, the release workflow calculates the next SemVer and opens a
+`release/vX.Y.Z` pull request containing the synchronized versions and
+`CHANGELOG.md`. Required CI runs on that release PR. Publishing starts only
+after the release PR is merged into `main`.
 
 ## GitHub Actions
 
@@ -49,8 +46,9 @@ CI runs on:
 
 The release workflow runs on:
 
-- pushes to `main`
-- manual runs from GitHub Actions through `workflow_dispatch`
+- pushes to `main` or manual `workflow_dispatch` to prepare a release PR;
+- merged release PRs to publish packages, Docker, crates.io, and the GitHub
+  Release.
 
 It validates the same checks, then publishes to npm when the `NPM_TOKEN` repository secret exists.
 
@@ -158,7 +156,9 @@ Protect both `main` and `development` in GitHub:
 - allow repository administrators to bypass protection while the project is small
 - require outside contributors to use forks and pull requests
 
-The release workflow pushes version bump commits (including `CHANGELOG.md` and updated `package.json` files) back to `main` via `@semantic-release/git`. It also creates a Git tag and GitHub Release.
+The release workflow never pushes directly to protected `main`. Version bump
+commits are reviewed through a release PR; tags and the GitHub Release are
+created only from the merged release commit.
 
 ---
 
