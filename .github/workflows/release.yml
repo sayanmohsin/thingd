@@ -3,10 +3,12 @@ name: Release
 on:
   push:
     branches: [main]
-  pull_request:
-    branches: [main]
-    types: [closed]
   workflow_dispatch:
+    inputs:
+      publish_version:
+        description: "Existing release version to retry, for example 0.72.0"
+        required: false
+        type: string
 
 concurrency:
   group: release
@@ -24,9 +26,41 @@ env:
   NPM_CONFIG_FUND: "false"
 
 jobs:
+  classify_release:
+    name: Classify main update
+    if: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}
+    runs-on: ubuntu-latest
+    outputs:
+      release_merge: ${{ steps.classify.outputs.release_merge }}
+      version: ${{ steps.classify.outputs.version }}
+    steps:
+      - name: Classify event
+        id: classify
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RETRY_VERSION: ${{ inputs.publish_version }}
+        run: |
+          if [ -n "$RETRY_VERSION" ]; then
+            echo "release_merge=true" >> "$GITHUB_OUTPUT"
+            echo "version=$RETRY_VERSION" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          RELEASE_REF=$(gh api \
+            "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/pulls" \
+            --jq 'map(select(.base.ref == "main")) | .[0].head.ref // ""')
+          if [[ "$RELEASE_REF" == release/v* ]]; then
+            echo "release_merge=true" >> "$GITHUB_OUTPUT"
+            echo "version=${RELEASE_REF#release/v}" >> "$GITHUB_OUTPUT"
+          else
+            echo "release_merge=false" >> "$GITHUB_OUTPUT"
+            echo "version=" >> "$GITHUB_OUTPUT"
+          fi
+
   prepare-release-pr:
     name: Prepare release PR
-    if: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}
+    needs: classify_release
+    if: ${{ needs.classify_release.outputs.release_merge != 'true' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -99,7 +133,8 @@ jobs:
 
   build-native:
     name: Build native (${{ matrix.platform }}-${{ matrix.arch }})
-    if: ${{ github.event_name == 'pull_request' && github.event.pull_request.merged == true && startsWith(github.event.pull_request.head.ref, 'release/v') }}
+    needs: classify_release
+    if: ${{ needs.classify_release.outputs.release_merge == 'true' }}
     strategy:
       fail-fast: false
       matrix:
@@ -155,8 +190,8 @@ jobs:
 
   publish-packages:
     name: Publish npm packages
-    needs: [build-native]
-    if: ${{ github.event_name == 'pull_request' && github.event.pull_request.merged == true && startsWith(github.event.pull_request.head.ref, 'release/v') }}
+    needs: [classify_release, build-native]
+    if: ${{ needs.classify_release.outputs.release_merge == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -198,8 +233,8 @@ jobs:
 
   docker:
     name: Publish Docker image
-    needs: [build-native]
-    if: ${{ github.event_name == 'pull_request' && github.event.pull_request.merged == true && startsWith(github.event.pull_request.head.ref, 'release/v') }}
+    needs: [classify_release, build-native]
+    if: ${{ needs.classify_release.outputs.release_merge == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -254,7 +289,8 @@ jobs:
 
   crates-publish:
     name: Publish crates.io package
-    if: ${{ github.event_name == 'pull_request' && github.event.pull_request.merged == true && startsWith(github.event.pull_request.head.ref, 'release/v') }}
+    needs: classify_release
+    if: ${{ needs.classify_release.outputs.release_merge == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -275,8 +311,8 @@ jobs:
 
   finalize-release:
     name: Tag and create GitHub Release
-    needs: [publish-packages, docker, crates-publish]
-    if: ${{ github.event_name == 'pull_request' && github.event.pull_request.merged == true && startsWith(github.event.pull_request.head.ref, 'release/v') }}
+    needs: [classify_release, publish-packages, docker, crates-publish]
+    if: ${{ needs.classify_release.outputs.release_merge == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6

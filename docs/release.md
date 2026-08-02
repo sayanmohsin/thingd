@@ -46,9 +46,10 @@ CI runs on:
 
 The release workflow runs on:
 
-- pushes to `main` or manual `workflow_dispatch` to prepare a release PR;
-- merged release PRs to publish packages, Docker, crates.io, and the GitHub
-  Release.
+- pushes to `main` to either prepare a release PR or publish after a release PR
+  merge;
+- manual `workflow_dispatch` to prepare a release PR or retry an existing
+  publication by supplying `publish_version`.
 
 It validates the same checks, then publishes to npm when the `NPM_TOKEN` repository secret exists.
 
@@ -115,7 +116,10 @@ See [docker-context/Dockerfile](../docker-context/Dockerfile) and [deploy/docker
 
 Release packaging intentionally avoids `workspace:*` dependency specs in `package.json` files. The repo uses pnpm for development, but `@semantic-release/exec` calls the npm CLI internally during version bumps, and npm rejects pnpm-only workspace protocol dependencies.
 
-The release workflow pins Node.js 24 so semantic-release runs with a modern npm. Each release automatically publishes all three npm packages, updates `CHANGELOG.md` in the repo from conventional commits, creates a GitHub Release with release notes, and pushes version bump commits back to `main`.
+The release workflow pins Node.js 24. Each release automatically publishes all
+four npm packages, updates `CHANGELOG.md` in the release PR from conventional
+commits, creates a GitHub Release with release notes, and never pushes version
+bump commits directly to protected `main`.
 
 ## First npm Publish From CI
 
