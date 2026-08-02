@@ -3,21 +3,7 @@ name: CI
 on:
   pull_request:
     branches: [main, development]
-    paths:
-      - ".github/workflows/**"
-      - "Cargo.toml"
-      - "Cargo.lock"
-      - "package.json"
-      - "pnpm-lock.yaml"
-      - "biome.json"
-      - "tsconfig*.json"
-      - "crates/**"
-      - "packages/**"
-      - "scripts/**"
-      - "examples/**"
-      - "deploy/**"
-      - "docs/api-spec/**"
-      - ".dockerignore"
+    # Run required checks for history-only synchronization PRs as well as code PRs.
   push:
     branches: [main, development]
     paths:
