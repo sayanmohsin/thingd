@@ -64,18 +64,23 @@ jobs:
           - os: ubuntu-latest
             platform: linux
             arch: x64
+            rust_target: ""
           - os: ubuntu-24.04-arm
             platform: linux
             arch: arm64
+            rust_target: ""
           - os: macos-14
             platform: darwin
             arch: arm64
-          - os: macos-13
+            rust_target: ""
+          - os: macos-14
             platform: darwin
             arch: x64
+            rust_target: x86_64-apple-darwin
           - os: windows-2025
             platform: win32
             arch: x64
+            rust_target: ""
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v6
@@ -89,9 +94,26 @@ jobs:
       - name: Remove stale native prebuilds
         run: |
           node -e "require('node:fs').rmSync('packages/thingd-native/prebuilds', { recursive: true, force: true })"
-      - run: cargo build -p thingd-native --release
-      - run: node packages/thingd-native/scripts/copy-prebuild.mjs
+      - name: Install cross-compilation target
+        if: ${{ matrix.rust_target != '' }}
+        run: rustup target add "${{ matrix.rust_target }}"
+      - name: Build native library
+        env:
+          RUST_TARGET: ${{ matrix.rust_target }}
+        run: |
+          if [ -n "$RUST_TARGET" ]; then
+            cargo build -p thingd-native --release --target "$RUST_TARGET"
+          else
+            cargo build -p thingd-native --release
+          fi
+      - name: Copy native prebuild
+        env:
+          NATIVE_PLATFORM: ${{ matrix.platform }}
+          NATIVE_ARCH: ${{ matrix.arch }}
+          NATIVE_TARGET: ${{ matrix.rust_target }}
+        run: node packages/thingd-native/scripts/copy-prebuild.mjs
       - name: Test native filter on ${{ matrix.platform }}-${{ matrix.arch }}
+        if: ${{ !(matrix.platform == 'darwin' && matrix.arch == 'x64') }}
         shell: bash
         run: |
           node <<'EOF'
