@@ -54,6 +54,23 @@ jobs:
           token: ${{ steps.app-token.outputs.token }}
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
+      - name: Update Cargo.lock on release PR
+        if: ${{ steps.release.outputs.pr-number != '' }}
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          PR_NUMBER="${{ steps.release.outputs.pr-number }}"
+          BRANCH=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" --jq '.head.ref')
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin "$BRANCH"
+          git checkout "$BRANCH"
+          cargo update -w
+          git add Cargo.lock
+          if ! git diff --cached --quiet; then
+            git commit -m "chore: update Cargo.lock [skip ci]"
+            git push origin "$BRANCH"
+          fi
       - name: Normalize manual retry
         id: manual
         if: ${{ inputs.publish_version != '' }}
