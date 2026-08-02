@@ -7,9 +7,9 @@ use napi_derive::napi;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use thingd::{
-    AggregateFunction, AggregateOptions, AggregateStore, EventLog, FjallEngine, Link,
-    LinkDirection, LinkQueryOptions, LinkStore, ListEventsOptions, ListObjectsOptions, MemoryEvent,
-    MemoryObject, ObjectStore, PutObjectOptions, QueueClaimOptions, QueueJob, QueueJobStatus,
+    AggregateFunction, AggregateOptions, AggregateStore, EventLog, Link, LinkDirection,
+    LinkQueryOptions, LinkStore, ListEventsOptions, ListObjectsOptions, MemoryEvent, MemoryObject,
+    ObjectStore, PersistentEngine, PutObjectOptions, QueueClaimOptions, QueueJob, QueueJobStatus,
     QueueNackOptions, QueueStore, SchemaOptions, SearchOptions, Searcher, TimeSeriesOptions,
     VectorSearchOptions, VectorStore,
 };
@@ -40,31 +40,31 @@ struct BatchJobInput {
     delay_ms: i64,
 }
 
-/// Wraps a MutexGuard on `Option<FjallEngine>`.
-/// Derefs to `FjallEngine` — panics on access after `close()`.
-struct EngineGuard<'a>(MutexGuard<'a, Option<FjallEngine>>);
+/// Wraps a MutexGuard on `Option<PersistentEngine>`.
+/// Derefs to `PersistentEngine` — panics on access after `close()`.
+struct EngineGuard<'a>(MutexGuard<'a, Option<PersistentEngine>>);
 
 impl<'a> Deref for EngineGuard<'a> {
-    type Target = FjallEngine;
-    fn deref(&self) -> &FjallEngine {
+    type Target = PersistentEngine;
+    fn deref(&self) -> &PersistentEngine {
         self.0
             .as_ref()
-            .expect("cannot access FjallEngine after close()")
+            .expect("cannot access PersistentEngine after close()")
     }
 }
 
 impl<'a> DerefMut for EngineGuard<'a> {
-    fn deref_mut(&mut self) -> &mut FjallEngine {
+    fn deref_mut(&mut self) -> &mut PersistentEngine {
         self.0
             .as_mut()
-            .expect("cannot access FjallEngine after close()")
+            .expect("cannot access PersistentEngine after close()")
     }
 }
 
 #[napi]
 #[derive(Clone)]
 pub struct NativeThingStore {
-    store: Arc<Mutex<Option<FjallEngine>>>,
+    store: Arc<Mutex<Option<PersistentEngine>>>,
 }
 
 #[napi]
@@ -75,9 +75,9 @@ impl NativeThingStore {
             let tmp = std::env::temp_dir().join(format!("thingd-native-{}", std::process::id()));
             let unique = tmp.join(uuid::Uuid::new_v4().to_string());
             std::fs::create_dir_all(&unique).map_err(|e| Error::from_reason(format!("{e}")))?;
-            FjallEngine::open(&unique).map_err(|e| Error::from_reason(format!("{e}")))?
+            PersistentEngine::open(&unique).map_err(|e| Error::from_reason(format!("{e}")))?
         } else {
-            FjallEngine::open(path).map_err(napi_error)?
+            PersistentEngine::open(path).map_err(napi_error)?
         };
 
         Ok(Self {
@@ -679,7 +679,7 @@ use napi::bindgen_prelude::AsyncTask;
 use napi::{Env, Task};
 
 pub struct ListObjectsTask {
-    store: Arc<Mutex<Option<FjallEngine>>>,
+    store: Arc<Mutex<Option<PersistentEngine>>>,
     collections_json: Option<String>,
     filter_json: Option<String>,
     limit: Option<i64>,
@@ -748,7 +748,7 @@ impl Task for ListObjectsTask {
 }
 
 pub struct CountObjectsTask {
-    store: Arc<Mutex<Option<FjallEngine>>>,
+    store: Arc<Mutex<Option<PersistentEngine>>>,
 }
 #[napi]
 impl Task for CountObjectsTask {
@@ -771,7 +771,7 @@ impl Task for CountObjectsTask {
 }
 
 pub struct CountObjectsInCollectionTask {
-    store: Arc<Mutex<Option<FjallEngine>>>,
+    store: Arc<Mutex<Option<PersistentEngine>>>,
     collection: String,
 }
 #[napi]
@@ -797,7 +797,7 @@ impl Task for CountObjectsInCollectionTask {
 }
 
 pub struct CountEventsTask {
-    store: Arc<Mutex<Option<FjallEngine>>>,
+    store: Arc<Mutex<Option<PersistentEngine>>>,
 }
 #[napi]
 impl Task for CountEventsTask {
@@ -820,7 +820,7 @@ impl Task for CountEventsTask {
 }
 
 pub struct CountActiveJobsTask {
-    store: Arc<Mutex<Option<FjallEngine>>>,
+    store: Arc<Mutex<Option<PersistentEngine>>>,
 }
 #[napi]
 impl Task for CountActiveJobsTask {
@@ -843,7 +843,7 @@ impl Task for CountActiveJobsTask {
 }
 
 pub struct CountDeadJobsTask {
-    store: Arc<Mutex<Option<FjallEngine>>>,
+    store: Arc<Mutex<Option<PersistentEngine>>>,
 }
 #[napi]
 impl Task for CountDeadJobsTask {
@@ -866,7 +866,7 @@ impl Task for CountDeadJobsTask {
 }
 
 pub struct ListCollectionsTask {
-    store: Arc<Mutex<Option<FjallEngine>>>,
+    store: Arc<Mutex<Option<PersistentEngine>>>,
 }
 #[napi]
 impl Task for ListCollectionsTask {
@@ -889,7 +889,7 @@ impl Task for ListCollectionsTask {
 }
 
 pub struct ListStreamsTask {
-    store: Arc<Mutex<Option<FjallEngine>>>,
+    store: Arc<Mutex<Option<PersistentEngine>>>,
 }
 #[napi]
 impl Task for ListStreamsTask {
@@ -1088,7 +1088,7 @@ struct TimeSeriesBucketRecord {
 }
 
 pub struct CountLinksTask {
-    store: Arc<Mutex<Option<FjallEngine>>>,
+    store: Arc<Mutex<Option<PersistentEngine>>>,
 }
 #[napi]
 impl Task for CountLinksTask {
@@ -1180,7 +1180,7 @@ fn link_record(link: Link) -> NativeLinkRecord {
 }
 
 fn current_job_status(
-    store: &FjallEngine,
+    store: &PersistentEngine,
     queue: &str,
     id: &str,
 ) -> Result<Option<QueueJobStatus>> {

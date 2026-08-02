@@ -26,7 +26,7 @@ use crate::{
 };
 use crate::{now_iso_string, unix_timestamp_millis};
 
-/// Fjall-backed storage engine implementing all 6 storage traits.
+/// Persistent storage engine implementing all 6 storage traits.
 ///
 /// Data directory layout:
 /// - `objects`: `{collection}\0{id}` → serialized `MemoryObject`
@@ -35,7 +35,7 @@ use crate::{now_iso_string, unix_timestamp_millis};
 /// - `links_by_id`: `{link_id}` → serialized `Link`
 /// - `links_from`: `{from_ref}\0{type}\0{link_id}` → `()`
 /// - `links_to`: `{to_ref}\0{type}\0{link_id}` → `()`
-pub struct FjallEngine {
+pub struct PersistentEngine {
     #[allow(dead_code)]
     db: Database,
     objects: Keyspace,
@@ -58,8 +58,8 @@ fn value_to_vec(v: Option<fjall::Slice>) -> Option<Vec<u8>> {
     v.map(|c| c.to_vec())
 }
 
-impl FjallEngine {
-    /// Open or create a Fjall database at the given path.
+impl PersistentEngine {
+    /// Open or create a Persistent database at the given path.
     /// Creates all required keyspaces (partitions) on first open.
     pub fn open(path: impl AsRef<Path>) -> Result<Self, fjall::Error> {
         let db = Database::builder(path.as_ref()).open()?;
@@ -235,7 +235,7 @@ fn guard_data(kv: fjall::Guard) -> ThingdResult<(Vec<u8>, Vec<u8>)> {
 
 // ── ObjectStore ──────────────────────────────────────────────────────────────
 
-impl ObjectStore for FjallEngine {
+impl ObjectStore for PersistentEngine {
     fn put_object(&mut self, mut object: MemoryObject) -> ThingdResult<MemoryObject> {
         let key = Self::make_object_key(&object.key.collection, &object.key.id);
 
@@ -628,7 +628,7 @@ impl ObjectStore for FjallEngine {
 
 // ── EventLog ─────────────────────────────────────────────────────────────────
 
-impl EventLog for FjallEngine {
+impl EventLog for PersistentEngine {
     fn is_protected_stream(&self, stream: &str) -> bool {
         stream.starts_with("__thingd:")
     }
@@ -824,7 +824,7 @@ impl EventLog for FjallEngine {
 
 // ── QueueStore ───────────────────────────────────────────────────────────────
 
-impl QueueStore for FjallEngine {
+impl QueueStore for PersistentEngine {
     fn push_job(&mut self, mut job: QueueJob) -> ThingdResult<QueueJob> {
         if job.created_at.is_empty() {
             job.created_at = now_iso_string();
@@ -1051,7 +1051,7 @@ impl QueueStore for FjallEngine {
 
 // ── Searcher ─────────────────────────────────────────────────────────────────
 
-impl Searcher for FjallEngine {
+impl Searcher for PersistentEngine {
     fn search(&self, query: &str, options: SearchOptions) -> ThingdResult<Vec<SearchHit>> {
         // Try Tantivy search first
         #[cfg(feature = "search")]
@@ -1064,7 +1064,7 @@ impl Searcher for FjallEngine {
     }
 }
 
-impl FjallEngine {
+impl PersistentEngine {
     #[cfg(feature = "search")]
     fn index_object_for_search(&self, object: &MemoryObject) {
         let Some(ref index) = self.search_index else {
@@ -1395,7 +1395,7 @@ impl FjallEngine {
 
 // ── LinkStore ────────────────────────────────────────────────────────────────
 
-impl LinkStore for FjallEngine {
+impl LinkStore for PersistentEngine {
     fn create_link(&mut self, mut link: Link) -> ThingdResult<Link> {
         let id = self.next_link_id.fetch_add(1, Ordering::Relaxed);
         link.id = format!("link-{id}");
@@ -1516,7 +1516,7 @@ impl LinkStore for FjallEngine {
 
 // ── AggregateStore ───────────────────────────────────────────────────────────
 
-impl AggregateStore for FjallEngine {
+impl AggregateStore for PersistentEngine {
     fn aggregate(
         &self,
         collection: &str,
@@ -1663,7 +1663,7 @@ impl AggregateStore for FjallEngine {
 
 // ── VectorStore ──────────────────────────────────────────────────────────────
 
-impl crate::store::VectorStore for FjallEngine {
+impl crate::store::VectorStore for PersistentEngine {
     fn vector_search(
         &self,
         collection: &str,
@@ -1904,16 +1904,16 @@ mod tests {
     };
 
     /// Create a test engine with a temp directory that stays alive for the caller.
-    fn setup() -> (FjallEngine, tempfile::TempDir) {
+    fn setup() -> (PersistentEngine, tempfile::TempDir) {
         let dir = tempfile::tempdir().unwrap();
-        let engine = FjallEngine::open(dir.path()).unwrap();
+        let engine = PersistentEngine::open(dir.path()).unwrap();
         (engine, dir)
     }
 
     // ── ObjectStore ───────────────────────────────────────────────────────
 
     #[test]
-    fn fjall_stores_and_reads_objects() {
+    fn persistent_stores_and_reads_objects() {
         let (mut engine, _dir) = setup();
         let object = engine
             .put_object(MemoryObject::new(
@@ -1932,7 +1932,7 @@ mod tests {
     }
 
     #[test]
-    fn fjall_object_created_at_preserved_on_update() {
+    fn persistent_object_created_at_preserved_on_update() {
         let (mut engine, _dir) = setup();
         let first = engine
             .put_object(MemoryObject::new("col", "id", r#"{"v":1}"#))
@@ -1946,7 +1946,7 @@ mod tests {
     }
 
     #[test]
-    fn fjall_object_version_increments_on_update() {
+    fn persistent_object_version_increments_on_update() {
         let (mut engine, _dir) = setup();
         let v1 = engine
             .put_object(MemoryObject::new("col", "x", "{}"))
@@ -1959,7 +1959,7 @@ mod tests {
     }
 
     #[test]
-    fn fjall_lists_objects_with_filter() {
+    fn persistent_lists_objects_with_filter() {
         let (mut engine, _dir) = setup();
         engine
             .put_object(MemoryObject::new("w", "a", r#"{"color":"red","size":1}"#))
@@ -1982,7 +1982,7 @@ mod tests {
     }
 
     #[test]
-    fn fjall_list_objects_pagination() {
+    fn persistent_list_objects_pagination() {
         let (mut engine, _dir) = setup();
         for i in 0..5u32 {
             engine
@@ -2014,7 +2014,7 @@ mod tests {
     }
 
     #[test]
-    fn fjall_list_objects_sort_by_created_at_desc() {
+    fn persistent_list_objects_sort_by_created_at_desc() {
         let (mut engine, _dir) = setup();
         engine
             .put_object(MemoryObject::new("w", "a", r#"{"x":1}"#))
@@ -2036,7 +2036,7 @@ mod tests {
     }
 
     #[test]
-    fn fjall_list_objects_sort_by_id_asc() {
+    fn persistent_list_objects_sort_by_id_asc() {
         let (mut engine, _dir) = setup();
         engine
             .put_object(MemoryObject::new("w", "c", r#"{"x":3}"#))
@@ -2061,7 +2061,7 @@ mod tests {
     }
 
     #[test]
-    fn fjall_cas_succeeds_on_matching_version() {
+    fn persistent_cas_succeeds_on_matching_version() {
         let (mut engine, _dir) = setup();
         let stored = engine
             .put_object(MemoryObject::new("col", "id", r#"{"v":1}"#))
@@ -2078,7 +2078,7 @@ mod tests {
     }
 
     #[test]
-    fn fjall_cas_fails_on_version_mismatch() {
+    fn persistent_cas_fails_on_version_mismatch() {
         let (mut engine, _dir) = setup();
         engine
             .put_object(MemoryObject::new("col", "id", r#"{"v":1}"#))
@@ -2094,7 +2094,7 @@ mod tests {
     }
 
     #[test]
-    fn fjall_cas_fails_on_nonexistent_object() {
+    fn persistent_cas_fails_on_nonexistent_object() {
         let (mut engine, _dir) = setup();
         let opts = crate::PutObjectOptions {
             expected_version: Some(1),
@@ -2107,7 +2107,7 @@ mod tests {
     }
 
     #[test]
-    fn fjall_delete_objects_batch() {
+    fn persistent_delete_objects_batch() {
         let (mut engine, _dir) = setup();
         engine
             .put_object(MemoryObject::new("w", "a", "{}"))
@@ -2132,7 +2132,7 @@ mod tests {
     // ── EventLog ──────────────────────────────────────────────────────────
 
     #[test]
-    fn fjall_appends_events_with_sequence_numbers() {
+    fn persistent_appends_events_with_sequence_numbers() {
         let (mut engine, _dir) = setup();
         let event = engine
             .append_event(MemoryEvent::new(
@@ -2152,7 +2152,7 @@ mod tests {
     }
 
     #[test]
-    fn fjall_event_idempotency() {
+    fn persistent_event_idempotency() {
         let (mut engine, _dir) = setup();
         let mut event = MemoryEvent::new("stream", "test", r#"{"key":"val"}"#);
         event.idempotency_key = "idem-1".to_string();
@@ -2164,7 +2164,7 @@ mod tests {
     }
 
     #[test]
-    fn fjall_deletes_last_event_from_stream() {
+    fn persistent_deletes_last_event_from_stream() {
         let (mut engine, _dir) = setup();
         engine
             .append_event(MemoryEvent::new("match:1", "turn.recorded", "{}"))
@@ -2189,7 +2189,7 @@ mod tests {
     }
 
     #[test]
-    fn fjall_deletes_stream_and_returns_count() {
+    fn persistent_deletes_stream_and_returns_count() {
         let (mut engine, _dir) = setup();
         engine
             .append_event(MemoryEvent::new("match:1", "turn.recorded", "{}"))
@@ -2218,7 +2218,7 @@ mod tests {
     }
 
     #[test]
-    fn fjall_lists_streams() {
+    fn persistent_lists_streams() {
         let (mut engine, _dir) = setup();
         assert!(engine.list_streams().unwrap().is_empty());
         engine
@@ -2235,7 +2235,7 @@ mod tests {
     // ── QueueStore ────────────────────────────────────────────────────────
 
     #[test]
-    fn fjall_claims_and_acks_queue_jobs() {
+    fn persistent_claims_and_acks_queue_jobs() {
         let (mut engine, _dir) = setup();
         engine
             .push_job(QueueJob::new("embed", "job-1", "doc-1", 3))
@@ -2248,7 +2248,7 @@ mod tests {
     }
 
     #[test]
-    fn fjall_nacks_to_dead_letter_after_max_attempts() {
+    fn persistent_nacks_to_dead_letter_after_max_attempts() {
         let (mut engine, _dir) = setup();
         engine
             .push_job(QueueJob::new("embed", "job-1", "doc-1", 1))
@@ -2260,7 +2260,7 @@ mod tests {
     }
 
     #[test]
-    fn fjall_does_not_claim_delayed_jobs() {
+    fn persistent_does_not_claim_delayed_jobs() {
         let (mut engine, _dir) = setup();
         engine
             .push_job(QueueJob::new("embed", "job-1", "doc-1", 3).delay_by_ms(60_000))
@@ -2269,7 +2269,7 @@ mod tests {
     }
 
     #[test]
-    fn fjall_nacks_with_retry_delay() {
+    fn persistent_nacks_with_retry_delay() {
         let (mut engine, _dir) = setup();
         engine
             .push_job(QueueJob::new("embed", "job-1", "doc-1", 3))
@@ -2284,7 +2284,7 @@ mod tests {
     }
 
     #[test]
-    fn fjall_queue_counts() {
+    fn persistent_queue_counts() {
         let (mut engine, _dir) = setup();
         assert_eq!(engine.count_active_jobs().unwrap(), 0);
         assert_eq!(engine.count_dead_jobs().unwrap(), 0);
@@ -2305,7 +2305,7 @@ mod tests {
     }
 
     #[test]
-    fn fjall_lists_queues() {
+    fn persistent_lists_queues() {
         let (mut engine, _dir) = setup();
         engine
             .push_job(QueueJob::new("work", "j1", "p1", 3))
@@ -2319,7 +2319,7 @@ mod tests {
     }
 
     #[test]
-    fn fjall_claim_reclaims_expired_lease() {
+    fn persistent_claim_reclaims_expired_lease() {
         let (mut engine, _dir) = setup();
         engine
             .push_job(QueueJob::new("embed", "job-1", "doc-1", 3))
@@ -2335,7 +2335,7 @@ mod tests {
     }
 
     #[test]
-    fn fjall_priority_ordering() {
+    fn persistent_priority_ordering() {
         let (mut engine, _dir) = setup();
         engine
             .push_job(QueueJob::new("q", "low", "body", 3).with_priority(0))
@@ -2357,7 +2357,7 @@ mod tests {
     // ── LinkStore ─────────────────────────────────────────────────────────
 
     #[test]
-    fn fjall_create_get_delete_link() {
+    fn persistent_create_get_delete_link() {
         let (mut engine, _dir) = setup();
         engine
             .put_object(MemoryObject::new("n", "a", "{}"))
@@ -2376,7 +2376,7 @@ mod tests {
     }
 
     #[test]
-    fn fjall_neighbor_query() {
+    fn persistent_neighbor_query() {
         let (mut engine, _dir) = setup();
         engine
             .put_object(MemoryObject::new("n", "a", "{}"))
@@ -2404,7 +2404,7 @@ mod tests {
     }
 
     #[test]
-    fn fjall_link_count() {
+    fn persistent_link_count() {
         let (mut engine, _dir) = setup();
         engine
             .put_object(MemoryObject::new("n", "a", "{}"))
@@ -2422,7 +2422,7 @@ mod tests {
     // ── Searcher (naive — Tantivy is feature-gated) ──────────────────────
 
     #[test]
-    fn fjall_search_objects_and_events() {
+    fn persistent_search_objects_and_events() {
         let (mut engine, _dir) = setup();
         engine
             .put_object(MemoryObject::new("docs", "a", r#"{"text":"hello world"}"#))
@@ -2445,7 +2445,7 @@ mod tests {
     }
 
     #[test]
-    fn fjall_search_with_collections() {
+    fn persistent_search_with_collections() {
         let (mut engine, _dir) = setup();
         engine
             .put_object(MemoryObject::new("docs", "a", r#"{"text":"hello world"}"#))
@@ -2466,7 +2466,7 @@ mod tests {
 
     #[cfg(feature = "search")]
     #[test]
-    fn fjall_search_indexes_on_put() {
+    fn persistent_search_indexes_on_put() {
         let (mut engine, _dir) = setup();
         engine
             .put_object(MemoryObject::new(
@@ -2488,7 +2488,7 @@ mod tests {
 
     #[cfg(feature = "search")]
     #[test]
-    fn fjall_search_removes_on_delete() {
+    fn persistent_search_removes_on_delete() {
         let (mut engine, _dir) = setup();
         engine
             .put_object(MemoryObject::new(
@@ -2519,7 +2519,7 @@ mod tests {
 
     #[cfg(feature = "search")]
     #[test]
-    fn fjall_search_deleted_batch_removes_from_index() {
+    fn persistent_search_deleted_batch_removes_from_index() {
         let (mut engine, _dir) = setup();
         engine
             .put_object(MemoryObject::new(
@@ -2560,7 +2560,7 @@ mod tests {
     // ── AggregateStore ────────────────────────────────────────────────────
 
     #[test]
-    fn fjall_aggregate_count_sum_avg() {
+    fn persistent_aggregate_count_sum_avg() {
         let (mut engine, _dir) = setup();
         engine
             .put_object(MemoryObject::new("stats", "a", r#"{"val":10}"#))
@@ -2606,7 +2606,7 @@ mod tests {
     }
 
     #[test]
-    fn fjall_aggregate_group_by() {
+    fn persistent_aggregate_group_by() {
         let (mut engine, _dir) = setup();
         engine
             .put_object(MemoryObject::new(
@@ -2652,7 +2652,7 @@ mod tests {
     }
 
     #[test]
-    fn fjall_timeseries_bucketing() {
+    fn persistent_timeseries_bucketing() {
         let (mut engine, _dir) = setup();
         engine
             .put_object(MemoryObject::new("events", "a", r#"{"val":1}"#))
@@ -2674,10 +2674,10 @@ mod tests {
         assert_eq!(result.buckets[0].value, 2.0);
     }
 
-    // ── ready_jobs index behavior (Fjall-specific) ───────────────────────
+    // ── ready_jobs index behavior (Persistent-specific) ───────────────────────
 
     #[test]
-    fn fjall_ready_jobs_indexes_on_push() {
+    fn persistent_ready_jobs_indexes_on_push() {
         let (mut engine, _dir) = setup();
         engine
             .push_job(QueueJob::new("q", "j1", "body", 3))
@@ -2688,7 +2688,7 @@ mod tests {
     }
 
     #[test]
-    fn fjall_ready_jobs_removed_on_claim() {
+    fn persistent_ready_jobs_removed_on_claim() {
         let (mut engine, _dir) = setup();
         engine
             .push_job(QueueJob::new("q", "j1", "body", 3))
@@ -2703,7 +2703,7 @@ mod tests {
     }
 
     #[test]
-    fn fjall_ready_jobs_priority_order() {
+    fn persistent_ready_jobs_priority_order() {
         let (mut engine, _dir) = setup();
         engine
             .push_job(QueueJob::new("q", "low", "body", 3).with_priority(0))
@@ -2731,7 +2731,7 @@ mod tests {
     }
 
     #[test]
-    fn fjall_ready_jobs_fifo_order() {
+    fn persistent_ready_jobs_fifo_order() {
         let (mut engine, _dir) = setup();
         engine
             .push_job(QueueJob::new("q", "first", "body", 3))
@@ -2759,7 +2759,7 @@ mod tests {
     }
 
     #[test]
-    fn fjall_ready_jobs_reindex_on_nack() {
+    fn persistent_ready_jobs_reindex_on_nack() {
         let (mut engine, _dir) = setup();
         engine
             .push_job(QueueJob::new("q", "j1", "body", 3))
@@ -2779,7 +2779,7 @@ mod tests {
     }
 
     #[test]
-    fn fjall_ready_jobs_reindex_on_lease_expire() {
+    fn persistent_ready_jobs_reindex_on_lease_expire() {
         let (mut engine, _dir) = setup();
         engine
             .push_job(QueueJob::new("q", "j1", "body", 3))
@@ -2810,7 +2810,7 @@ mod tests {
 
     #[cfg(feature = "vectors")]
     #[test]
-    fn fjall_vector_search_returns_by_cosine_similarity() {
+    fn persistent_vector_search_returns_by_cosine_similarity() {
         let (mut engine, _dir) = setup();
         engine
             .put_object(
@@ -2835,7 +2835,7 @@ mod tests {
 
     #[cfg(feature = "vectors")]
     #[test]
-    fn fjall_vector_search_respects_filter() {
+    fn persistent_vector_search_respects_filter() {
         let (mut engine, _dir) = setup();
         engine
             .put_object(
@@ -2864,7 +2864,7 @@ mod tests {
 
     #[cfg(feature = "vectors")]
     #[test]
-    fn fjall_vector_search_excludes_deleted_objects() {
+    fn persistent_vector_search_excludes_deleted_objects() {
         let (mut engine, _dir) = setup();
         engine
             .put_object(MemoryObject::new("docs", "a", "{}").with_vector(vec![1.0, 0.0]))
@@ -2878,7 +2878,7 @@ mod tests {
 
     #[cfg(feature = "vectors")]
     #[test]
-    fn fjall_vector_search_respects_top_k() {
+    fn persistent_vector_search_respects_top_k() {
         let (mut engine, _dir) = setup();
         engine
             .put_object(
@@ -2907,7 +2907,7 @@ mod tests {
 
     #[cfg(feature = "vectors")]
     #[test]
-    fn fjall_vector_search_empty_collection_returns_empty() {
+    fn persistent_vector_search_empty_collection_returns_empty() {
         let (engine, _dir) = setup();
         let results = engine
             .vector_search("docs", &[1.0, 0.0, 0.0], VectorSearchOptions::default())
@@ -2917,7 +2917,7 @@ mod tests {
 
     #[cfg(feature = "vectors")]
     #[test]
-    fn fjall_vector_search_rejects_dimension_mismatch() {
+    fn persistent_vector_search_rejects_dimension_mismatch() {
         let (mut engine, _dir) = setup();
         engine
             .put_object(MemoryObject::new("docs", "a", "{}").with_vector(vec![1.0, 0.0]))
@@ -2933,7 +2933,7 @@ mod tests {
 
     #[cfg(feature = "vectors")]
     #[test]
-    fn fjall_vector_search_rejects_empty_query() {
+    fn persistent_vector_search_rejects_empty_query() {
         let (engine, _dir) = setup();
         let error = engine
             .vector_search("docs", &[], VectorSearchOptions::default())
@@ -2943,7 +2943,7 @@ mod tests {
 
     #[cfg(feature = "vectors")]
     #[test]
-    fn fjall_put_object_without_vector_does_not_store_vector() {
+    fn persistent_put_object_without_vector_does_not_store_vector() {
         let (mut engine, _dir) = setup();
         engine
             .put_object(MemoryObject::new("docs", "a", "{}"))
@@ -2956,10 +2956,10 @@ mod tests {
 
     #[cfg(feature = "vectors")]
     #[test]
-    fn fjall_vector_search_persists_across_engine_reopen() {
+    fn persistent_vector_search_persists_across_engine_reopen() {
         let dir = tempfile::tempdir().unwrap();
         {
-            let mut engine = FjallEngine::open(dir.path()).unwrap();
+            let mut engine = PersistentEngine::open(dir.path()).unwrap();
             engine
                 .put_object(
                     MemoryObject::new("docs", "a", r#"{"text":"persist"}"#)
@@ -2968,7 +2968,7 @@ mod tests {
                 .unwrap();
         }
         {
-            let engine = FjallEngine::open(dir.path()).unwrap();
+            let engine = PersistentEngine::open(dir.path()).unwrap();
             let results = engine
                 .vector_search("docs", &[1.0, 0.0, 0.0], VectorSearchOptions::default())
                 .unwrap();
@@ -2980,11 +2980,11 @@ mod tests {
     // ── Reopen tests ─────────────────────────────────────────────────────────
 
     #[test]
-    fn fjall_event_sequence_survives_reopen() {
+    fn persistent_event_sequence_survives_reopen() {
         let dir = tempfile::tempdir().unwrap();
         let stream = "test-stream";
         {
-            let mut engine = FjallEngine::open(dir.path()).unwrap();
+            let mut engine = PersistentEngine::open(dir.path()).unwrap();
             let e1 = engine
                 .append_event(MemoryEvent::new(stream, "t1", "{}"))
                 .unwrap();
@@ -2995,7 +2995,7 @@ mod tests {
             assert_eq!(e2.sequence, 2);
         }
         {
-            let mut engine = FjallEngine::open(dir.path()).unwrap();
+            let mut engine = PersistentEngine::open(dir.path()).unwrap();
             // Next event should continue at sequence 3
             let e3 = engine
                 .append_event(MemoryEvent::new(stream, "t3", "{}"))
@@ -3013,18 +3013,18 @@ mod tests {
     }
 
     #[test]
-    fn fjall_event_idempotency_survives_reopen() {
+    fn persistent_event_idempotency_survives_reopen() {
         let dir = tempfile::tempdir().unwrap();
         let stream = "test-stream";
         {
-            let mut engine = FjallEngine::open(dir.path()).unwrap();
+            let mut engine = PersistentEngine::open(dir.path()).unwrap();
             let mut e = MemoryEvent::new(stream, "t1", r#"{"x":1}"#);
             e.idempotency_key = "key-1".to_string();
             let e1 = engine.append_event(e).unwrap();
             assert_eq!(e1.sequence, 1);
         }
         {
-            let mut engine = FjallEngine::open(dir.path()).unwrap();
+            let mut engine = PersistentEngine::open(dir.path()).unwrap();
             // Same idempotency key — must return existing event, not duplicate
             let mut e = MemoryEvent::new(stream, "t1", r#"{"x":1}"#);
             e.idempotency_key = "key-1".to_string();
@@ -3043,10 +3043,10 @@ mod tests {
 
     #[cfg(feature = "vectors")]
     #[test]
-    fn fjall_vector_survives_reopen() {
+    fn persistent_vector_survives_reopen() {
         let dir = tempfile::tempdir().unwrap();
         {
-            let mut engine = FjallEngine::open(dir.path()).unwrap();
+            let mut engine = PersistentEngine::open(dir.path()).unwrap();
             engine
                 .put_object(
                     MemoryObject::new("docs", "a", r#"{"text":"persist"}"#)
@@ -3055,7 +3055,7 @@ mod tests {
                 .unwrap();
         }
         {
-            let engine = FjallEngine::open(dir.path()).unwrap();
+            let engine = PersistentEngine::open(dir.path()).unwrap();
             let results = engine
                 .vector_search("docs", &[1.0, 0.0, 0.0], VectorSearchOptions::default())
                 .unwrap();
@@ -3066,10 +3066,10 @@ mod tests {
 
     #[cfg(feature = "vectors")]
     #[test]
-    fn fjall_vector_removed_on_update_without_vector_reopen() {
+    fn persistent_vector_removed_on_update_without_vector_reopen() {
         let dir = tempfile::tempdir().unwrap();
         {
-            let mut engine = FjallEngine::open(dir.path()).unwrap();
+            let mut engine = PersistentEngine::open(dir.path()).unwrap();
             engine
                 .put_object(
                     MemoryObject::new("docs", "a", r#"{"v":1}"#).with_vector(vec![1.0, 0.0, 0.0]),
@@ -3077,14 +3077,14 @@ mod tests {
                 .unwrap();
         }
         {
-            let mut engine = FjallEngine::open(dir.path()).unwrap();
+            let mut engine = PersistentEngine::open(dir.path()).unwrap();
             // Update without vector — old vector must be removed
             engine
                 .put_object(MemoryObject::new("docs", "a", r#"{"v":2}"#))
                 .unwrap();
         }
         {
-            let engine = FjallEngine::open(dir.path()).unwrap();
+            let engine = PersistentEngine::open(dir.path()).unwrap();
             let results = engine
                 .vector_search("docs", &[1.0, 0.0, 0.0], VectorSearchOptions::default())
                 .unwrap();
@@ -3094,57 +3094,57 @@ mod tests {
 
     // ── Shared contract tests ───────────────────────────────────────────────
 
-    fn setup_fjall() -> (FjallEngine, tempfile::TempDir) {
+    fn setup_persistent() -> (PersistentEngine, tempfile::TempDir) {
         let dir = tempfile::tempdir().unwrap();
-        let engine = FjallEngine::open(dir.path()).unwrap();
+        let engine = PersistentEngine::open(dir.path()).unwrap();
         (engine, dir)
     }
 
     #[test]
     fn contract_object_lifecycle() {
-        let (mut engine, _dir) = setup_fjall();
+        let (mut engine, _dir) = setup_persistent();
         crate::contract_tests::test_contract_object_lifecycle(&mut engine);
     }
 
     #[test]
     fn contract_vector_lifecycle() {
-        let (mut engine, _dir) = setup_fjall();
+        let (mut engine, _dir) = setup_persistent();
         crate::contract_tests::test_contract_vector_lifecycle(&mut engine);
     }
 
     #[test]
     fn contract_event_idempotency() {
-        let (mut engine, _dir) = setup_fjall();
+        let (mut engine, _dir) = setup_persistent();
         crate::contract_tests::test_contract_event_idempotency(&mut engine);
     }
 
     #[test]
     fn contract_queue_lifecycle() {
-        let (mut engine, _dir) = setup_fjall();
+        let (mut engine, _dir) = setup_persistent();
         crate::contract_tests::test_contract_queue_lifecycle(&mut engine);
     }
 
     #[test]
     fn contract_delayed_job() {
-        let (mut engine, _dir) = setup_fjall();
+        let (mut engine, _dir) = setup_persistent();
         crate::contract_tests::test_contract_delayed_job(&mut engine);
     }
 
     #[test]
     fn contract_lease_expiration() {
-        let (mut engine, _dir) = setup_fjall();
+        let (mut engine, _dir) = setup_persistent();
         crate::contract_tests::test_contract_lease_expiration(&mut engine);
     }
 
     #[test]
     fn contract_nack_dead_letter() {
-        let (mut engine, _dir) = setup_fjall();
+        let (mut engine, _dir) = setup_persistent();
         crate::contract_tests::test_contract_nack_dead_letter(&mut engine);
     }
 
     #[test]
     fn contract_search() {
-        let (mut engine, _dir) = setup_fjall();
+        let (mut engine, _dir) = setup_persistent();
         crate::contract_tests::test_contract_search(&mut engine);
     }
 }

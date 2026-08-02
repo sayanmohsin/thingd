@@ -155,7 +155,7 @@ Supported cluster modes:
 - `leader`: Handles local reads and writes, records change events to the system stream `__thingd:system:replication`, and serves incremental replication logs.
 - `follower`: Enforces eventually consistent local reads and strict write forwarding:
   - **Write Forwarding**: Automatically forwards all incoming MCP write requests to the active Leader. If primary leader is unreachable and `THINGD_CLUSTER_LEADER_FALLBACK_URL` is set, the follower tries the fallback URL.
-  - **Pull Replication**: In follower mode, replication applies change events to the follower's local Fjall runtime. Active replication behavior and status are exposed through the cluster endpoints.
+  - **Pull Replication**: In follower mode, replication applies change events to the follower's local persistent runtime. Active replication behavior and status are exposed through the cluster endpoints.
 
 Replication lag and diagnostics are monitored dynamically via `/cluster/status`, which reports active peer sequence indexes and computed lag (events difference between leader and follower) for Kubernetes liveness/readiness probes.
 

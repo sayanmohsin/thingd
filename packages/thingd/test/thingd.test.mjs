@@ -32,7 +32,7 @@ if (nativeAvailable) {
     });
     await first.put("decisions", {
       id: "native-persistence",
-      text: "Native thingd with Fjall.",
+      text: "Native thingd with persistent.",
     });
     await first.close();
 
@@ -42,7 +42,7 @@ if (nativeAvailable) {
     });
     const stored = await second.get("decisions", "native-persistence");
 
-    assert.equal(stored?.text, "Native thingd with Fjall.");
+    assert.equal(stored?.text, "Native thingd with persistent.");
     assert.equal(stored?.version, 1);
     await second.close();
   });

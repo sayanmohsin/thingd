@@ -188,7 +188,7 @@ Run with the in-memory SDK store:
 thingd mcp --path :memory:
 ```
 
-Run with the native Rust-backed Fjall driver (which automatically persists to `~/.thingd/data.db` by default if no path is given):
+Run with the native Rust-backed persistent driver (which automatically persists to `~/.thingd/data.db` by default if no path is given):
 
 ```bash
 thingd mcp --driver native
@@ -348,7 +348,7 @@ THINGD_ADVERTISE_URL=http://thingd-0:8757
 ```
 
 Followers forward MCP traffic to the leader. This gives Kubernetes pods one
-local endpoint while avoiding multi-writer access to one Fjall directory. Local follower replica
+local endpoint while avoiding multi-writer access to one persistent directory. Local follower replica
 catch-up runs as an async background process that polls the leader every 500ms
 for new change events.
 

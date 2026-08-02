@@ -3,7 +3,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use parking_lot::{Mutex, RwLock};
-use thingd::{FjallEngine, MemoryEngine, ThingStore};
+use thingd::{MemoryEngine, PersistentEngine, ThingStore};
 
 pub type SharedEngine = Arc<Mutex<Box<dyn ThingStore + Send>>>;
 
@@ -20,7 +20,7 @@ pub fn create_engine(
         std::fs::create_dir_all(parent)?;
     }
 
-    match FjallEngine::open(db_path) {
+    match PersistentEngine::open(db_path) {
         Ok(engine) => Ok(Box::new(engine)),
         Err(e) => Err(Box::new(e)),
     }
@@ -92,7 +92,7 @@ impl EnginePool {
         guard.remove("");
 
         if path != ":memory:" && !path.is_empty() {
-            // Delete the Fjall directory
+            // Delete the Persistent directory
             if let Err(e) = std::fs::remove_dir_all(&path)
                 && e.kind() != std::io::ErrorKind::NotFound
             {
@@ -152,7 +152,7 @@ mod tests {
         let writer = pool.get_writer(&db_path);
         let reader = pool.get_reader(&db_path);
 
-        // With Fjall, reader and writer share the same engine
+        // With Persistent, reader and writer share the same engine
         assert!(Arc::ptr_eq(&writer, &reader));
 
         let _ = std::fs::remove_dir_all(&dir);

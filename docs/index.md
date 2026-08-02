@@ -42,7 +42,7 @@ features:
     # MCP tool count: update docs/.vitepress/config.ts (mcpToolCount) and packages/thingd/src/constants.ts
   - icon: ⚡
     title: Multi-mode
-    details: Embedded, sidecar, or cluster. In-memory ~675K ops/s cache or persistent Fjall LSM engine. Same API everywhere.
+    details: Embedded, sidecar, or cluster. In-memory cache or persistent local engine. Same API everywhere.
   - icon: 🌐
     title: WASM-ready
     details: Compiles to wasm32 for browser agents and edge workers. Same API, in-memory backend.

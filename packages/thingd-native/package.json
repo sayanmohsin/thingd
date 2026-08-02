@@ -12,7 +12,6 @@
   "keywords": [
     "thingd",
     "native",
-    "fjall",
     "napi-rs",
     "rust",
     "data-engine"
