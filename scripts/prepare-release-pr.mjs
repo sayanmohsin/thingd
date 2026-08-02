@@ -147,6 +147,23 @@ function replaceIfPresent(file, pattern, replacement) {
   }
 }
 
+function updateThingdDependencyVersion(file, majorMinor) {
+  const absolute = path.join(root, file);
+  const source = fs.readFileSync(absolute, "utf8");
+  const explicitVersion = /(^\s*thingd\s*=\s*\{[^\n]*\bversion\s*=\s*)"[^"]+"/m;
+  const updated = source.replace(explicitVersion, `$1"${majorMinor}"`);
+  if (source !== updated) {
+    fs.writeFileSync(absolute, updated);
+    return;
+  }
+
+  if (/^\s*thingd\s*=\s*\{[^\n]*\bversion\.workspace\s*=\s*true/m.test(source)) {
+    return;
+  }
+
+  throw new Error(`Expected thingd dependency version pattern was not found in ${file}`);
+}
+
 function applyPlan(plan) {
   const { version } = plan;
   const majorMinor = version.split(".").slice(0, 2).join(".");
@@ -168,7 +185,7 @@ function applyPlan(plan) {
     replaceIfPresent(file, /version = "\d+\.\d+"/g, `version = "${majorMinor}"`);
   }
   for (const file of ["crates/thingd-server/Cargo.toml", "packages/thingd-native/Cargo.toml"]) {
-    replaceFirst(file, /(thingd\s*=\s*\{[^\n]*version = )"\d+\.\d+"/, `$1"${majorMinor}"`);
+    updateThingdDependencyVersion(file, majorMinor);
   }
 
   const changelog = path.join(root, "CHANGELOG.md");
