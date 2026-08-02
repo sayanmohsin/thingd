@@ -138,6 +138,15 @@ function replaceFirst(file, pattern, replacement) {
   fs.writeFileSync(absolute, updated);
 }
 
+function replaceIfPresent(file, pattern, replacement) {
+  const absolute = path.join(root, file);
+  const source = fs.readFileSync(absolute, "utf8");
+  const updated = source.replace(pattern, replacement);
+  if (source !== updated) {
+    fs.writeFileSync(absolute, updated);
+  }
+}
+
 function applyPlan(plan) {
   const { version } = plan;
   const majorMinor = version.split(".").slice(0, 2).join(".");
@@ -156,7 +165,7 @@ function applyPlan(plan) {
   replaceFirst("Cargo.toml", /^version = ".*"$/m, `version = "${version}"`);
   replaceFirst("packages/thingd/src/version.ts", /SDK_VERSION = ".*"/, `SDK_VERSION = "${version}"`);
   for (const file of ["README.md", "crates/thingd/README.md"]) {
-    replaceFirst(file, /version = "\d+\.\d+"/g, `version = "${majorMinor}"`);
+    replaceIfPresent(file, /version = "\d+\.\d+"/g, `version = "${majorMinor}"`);
   }
   for (const file of ["crates/thingd-server/Cargo.toml", "packages/thingd-native/Cargo.toml"]) {
     replaceFirst(file, /(thingd\s*=\s*\{[^\n]*version = )"\d+\.\d+"/, `$1"${majorMinor}"`);
