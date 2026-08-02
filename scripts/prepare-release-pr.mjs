@@ -150,18 +150,24 @@ function replaceIfPresent(file, pattern, replacement) {
 function updateThingdDependencyVersion(file, majorMinor) {
   const absolute = path.join(root, file);
   const source = fs.readFileSync(absolute, "utf8");
-  const explicitVersion = /(^\s*thingd\s*=\s*\{[^\n]*\bversion\s*=\s*)"[^"]+"/m;
-  const updated = source.replace(explicitVersion, `$1"${majorMinor}"`);
-  if (source !== updated) {
-    fs.writeFileSync(absolute, updated);
+  const lines = source.split("\n");
+  const start = lines.findIndex((line) => /^\s*thingd\s*=/.test(line));
+  if (start === -1) {
     return;
   }
 
-  if (/^\s*thingd\s*=\s*\{[^\n]*\bversion\.workspace\s*=\s*true/m.test(source)) {
-    return;
+  let end = start;
+  while (end < lines.length && !lines[end].includes("}")) {
+    end += 1;
   }
 
-  throw new Error(`Expected thingd dependency version pattern was not found in ${file}`);
+  const block = lines.slice(start, end + 1).join("\n");
+  const updatedBlock = block.replace(/(\bversion\s*=\s*)"[^"]+"/, `$1"${majorMinor}"`);
+  if (block !== updatedBlock) {
+    lines.splice(start, end - start + 1, ...updatedBlock.split("\n"));
+    fs.writeFileSync(absolute, lines.join("\n"));
+    return;
+  }
 }
 
 function applyPlan(plan) {
