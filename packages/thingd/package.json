@@ -18,7 +18,6 @@
     "memory",
     "queue",
     "durable-queues",
-    "fjall",
     "rust",
     "local-first",
     "data-engine",

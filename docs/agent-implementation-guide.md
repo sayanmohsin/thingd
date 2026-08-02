@@ -6,13 +6,13 @@ Read this file before making integration changes. It explains the current projec
 
 ## Current State
 
-`thingd` is an open source project. The public Node.js API is real enough to test locally, and the default path still uses the TypeScript in-memory store. The Rust core has durable Fjall storage for objects, events, queues, search, and vectors.
+`thingd` is an open source project. The public Node.js API is real enough to test locally, and the default path still uses the TypeScript in-memory store. The Rust core has durable persistent storage for objects, events, queues, search, and vectors.
 
 Current implementation:
 
 - `packages/thingd` exposes the Node.js SDK.
 - `packages/thingd/src/stores/in-memory-thing-store.ts` is the current in-memory store.
-- `crates/thingd` contains the Rust storage boundary, in-memory Rust engine, and `FjallEngine` behind the `fjall` feature.
+- `crates/thingd` contains the Rust storage boundary, in-memory Rust engine, and `PersistentEngine` behind the `persistent` feature.
 - `packages/thingd-native` is a private N-API binding for local native driver testing.
 - `packages/thingd/src/client/http-thing-store.ts` lets the SDK talk to a sidecar over HTTP REST.
 - `packages/thingd-cli` exposes the visual TUI dashboard, non-interactive CLI commands, and integrated stdio and Streamable HTTP MCP servers.
@@ -26,7 +26,7 @@ Do not present the public Node package as production-ready persistent storage ye
 `thingd` is meant to feel like:
 
 ```txt
-Fjall-simple local deployment
+simple persistent local deployment
 + object-shaped app memory
 + events and timelines
 + durable queues
@@ -38,7 +38,7 @@ There are two runtime modes:
 
 ```txt
 embedded mode:
-  Node.js app -> native Rust binding -> local Fjall directory
+  Node.js app -> native Rust binding -> local persistent directory
 
 server/sidecar mode:
   Node.js app -> HTTP/gRPC/Unix socket -> thingd server -> local thingd file
@@ -48,7 +48,7 @@ cluster sidecar mode:
 ```
 
 Current Node.js code uses the TypeScript in-memory store by default. Durable
-local persistence uses the native Fjall adapter through `driver: "native"`
+local persistence uses the native persistent adapter through `driver: "native"`
 after `thingd-native` is built locally. The deprecated SQLite adapter remains
 available only for historical compatibility and is not the current runtime
 model.
@@ -269,7 +269,7 @@ crates/thingd
   EventLog
   QueueStore
   ThingStore
-  FjallEngine behind the fjall feature
+  PersistentEngine behind the persistent feature
 ```
 
 Do not introduce a second app-facing API from the native package. The native path should pass the same SDK tests that the in-memory store passes.
@@ -318,7 +318,7 @@ pnpm rust:clippy
 pnpm test:rust
 ```
 
-Rust checks run with all features enabled so the Fjall adapter is covered in CI.
+Rust checks run with all features enabled so the persistent adapter is covered in CI.
 
 `pnpm test:local` does not run Rust checks because some local environments may not have `cargo` installed.
 
@@ -339,4 +339,4 @@ pnpm bench:rust:smoke
 - Adding npm publish assumptions before `NPM_TOKEN` is configured.
 - Using queue consumers without idempotency keys for repeatable work.
 - Assuming `ThingD.open("./thingd.db")` persists. Use `driver: "native"` for
-  embedded Fjall or `THINGD_URL` for sidecar mode.
+  embedded persistent or `THINGD_URL` for sidecar mode.

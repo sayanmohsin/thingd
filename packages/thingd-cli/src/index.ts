@@ -474,7 +474,7 @@ async function runBench(context: CliContext): Promise<void> {
         "--example",
         "storage_bench",
         "--features",
-        "fjall,search",
+        "persistent,search",
         "--",
         String(count),
       ],

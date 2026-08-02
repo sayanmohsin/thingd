@@ -4,4 +4,4 @@
 
 Native Node.js binding for [thingd](https://github.com/sayanmohsin/thingd) — wraps `crates/thingd` (published on crates.io as `thingd`).
 
-This package is an internal dependency of `@thingd/sdk` and provides the native Fjall-backed store via napi-rs. You don't need to install it directly — `@thingd/sdk` pulls it in automatically when using `driver: "native"`.
+This package is an internal dependency of `@thingd/sdk` and provides the native persistent store via napi-rs. You don't need to install it directly — `@thingd/sdk` pulls it in automatically when using `driver: "native"`.

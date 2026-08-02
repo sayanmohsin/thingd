@@ -94,7 +94,7 @@ On every release, the workflow publishes `thingd` to [crates.io](https://crates.
 
 ```toml
 [dependencies]
-thingd = { version = "0.71", features = ["fjall", "search"] }
+thingd = { version = "0.71", features = ["persistent", "search"] }
 ```
 
 The publish runs in parallel with npm and Docker publishing.
@@ -112,7 +112,7 @@ Pull the image:
 docker pull sayanmohsin/thingd
 ```
 
-The Docker image includes the native Fjall driver pre-built for supported Linux targets.
+The Docker image includes the native persistent driver pre-built for supported Linux targets.
 See [docker-context/Dockerfile](../docker-context/Dockerfile) and [deploy/docker-compose.yml](../deploy/docker-compose.yml) for the runtime shape.
 
 Release packaging intentionally avoids `workspace:*` dependency specs in `package.json` files. The repo uses pnpm for development, but `@semantic-release/exec` calls the npm CLI internally during version bumps, and npm rejects pnpm-only workspace protocol dependencies.

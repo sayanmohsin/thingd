@@ -2,7 +2,7 @@
 
 This is the language-agnostic API contract for thingd. Any SDK (Node.js, Go, Rust, Flutter) implements this spec in its own language.
 
-thingd is a fast, object-first data engine for applications and AI agents. It supports in-memory, file-based (Fjall), Docker, and hosted HTTP instances.
+thingd is a fast, object-first data engine for applications and AI agents. It supports in-memory, file-based (persistent), Docker, and hosted HTTP instances.
 
 The hosted mobile/web app backend contract is documented in
 [App Backend](../app-backend.md). It is implemented by thingd Cloud and does
@@ -22,7 +22,7 @@ not add Cloud tenancy or authentication to the open-source engine.
 ┌─────────────────────────────────────────────────────┐
 │              thingd (Rust engine)                    │
 │  ObjectStore, EventLog, QueueStore, Searcher,       │
-│  LinkStore — in-memory + Fjall implementations      │
+│  LinkStore — in-memory + persistent implementations      │
 └──────────────────────┬──────────────────────────────┘
                        │
           ┌────────────┼────────────┬────────────┬────────────┐

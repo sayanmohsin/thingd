@@ -278,6 +278,6 @@ jobs:
           fi
 
       - name: Publish to crates.io
-        run: cargo publish -p thingd --features fjall,search
+        run: cargo publish -p thingd --features persistent,search
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}

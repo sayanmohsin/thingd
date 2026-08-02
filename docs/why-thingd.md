@@ -86,7 +86,7 @@ thingd runs everywhere with the same API:
 | Mode | What you get |
 |---|---|
 | **In-memory** | Zero setup, fast tests, REPL-style exploration, WASM target |
-| **Fjall** | Durable persistence, pure Rust LSM-tree, 100K+ ops/s |
+| **PersistentEngine** | Durable local persistence for objects, events, queues, search, and vectors |
 | **Docker** | Sidecar server, ~15MB image, instant startup |
 | **Embedded** | In-process with your Node.js app, zero network calls |
 
@@ -98,9 +98,9 @@ No cluster to configure. No cloud to sign up for. Just `npm install` and go.
 
 - **Small to medium apps** — one runtime instead of 3-5 infrastructure dependencies
 - **Devtools and internal tools** — ship with embedded data, no Postgres required
-- **Edge and single-node deployments** — Fjall is the default durable Rust backend
+- **Edge and single-node deployments** — persistent is the default durable Rust backend
 - **AI agent memory** — persistent, structured, tool-addressable state
-- **Prototypes and MVPs** — start with memory, graduate to native Fjall or Docker
+- **Prototypes and MVPs** — start with memory, graduate to native persistent or Docker
 
 ## When to skip thingd
 

@@ -1,5 +1,5 @@
 // The functions here are `pub` because they are called from other test
-// modules (in_memory::tests, fjall::tests). The `pub(crate)` module makes
+// modules (in_memory::tests, persistent::tests). The `pub(crate)` module makes
 // them accessible crate-wide; the `pub` on each function is technically
 // unreachable from outside the crate, so we allow the lint.
 #![allow(unreachable_pub)]
