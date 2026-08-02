@@ -2,7 +2,7 @@
 //!
 //! This crate owns the durable engine boundary: object storage, append-only
 //! events, and queue storage. The default implementation is in-memory, with a
-//! feature-gated `Fjall` adapter for persistent storage.
+//! feature-gated persistent storage adapter.
 //!
 //! # Feature Flags
 //!
@@ -16,7 +16,7 @@
     clippy::manual_let_else
 )]
 //! |---------|---------|-------------|
-//! | `fjall` | Yes | Enables [`FjallEngine`] — pure Rust LSM-tree persistent storage |
+//! | `persistent` | Yes | Enables [`PersistentEngine`] — durable local storage |
 //! | `connectors` | No | Enables CSV/JSON file connectors for data import |
 //!
 //! # Example (in-memory)
@@ -36,12 +36,12 @@
 //! engine.append_event(event).unwrap();
 //! ```
 //!
-//! # Example (persistent — Fjall)
+//! # Example (persistent storage)
 //!
 //! ```rust,no_run
-//! use thingd::{FjallEngine, ObjectStore, MemoryObject};
+//! use thingd::{PersistentEngine, ObjectStore, MemoryObject};
 //!
-//! let mut db = FjallEngine::open("/tmp/thingd-data").unwrap();
+//! let mut db = PersistentEngine::open("/tmp/thingd-data").unwrap();
 //! db.put_object(MemoryObject::new("users", "alice", r#"{"name":"Alice"}"#)).unwrap();
 //! let user = db.get_object("users", "alice").unwrap();
 //! assert_eq!(user.unwrap().body, r#"{"name":"Alice"}"#);
@@ -58,10 +58,10 @@ pub mod connector;
 #[cfg(feature = "connectors")]
 pub mod connectors;
 mod error;
-#[cfg(feature = "fjall")]
-mod fjall;
 mod in_memory;
 mod model;
+#[cfg(feature = "persistent")]
+mod persistent;
 mod store;
 
 #[cfg(feature = "connectors")]
@@ -72,9 +72,6 @@ pub use connector::{
 #[cfg(feature = "connectors")]
 pub use connectors::{MysqlConnector, PostgresConnector};
 pub use error::{ThingdError, ThingdResult};
-#[cfg(feature = "fjall")]
-#[cfg_attr(docsrs, doc(cfg(feature = "fjall")))]
-pub use fjall::FjallEngine;
 pub use in_memory::MemoryEngine;
 pub use model::{
     AggregateFunction, AggregateGroupResult, AggregateOptions, AggregateResult, CollectionSchema,
@@ -84,6 +81,9 @@ pub use model::{
     SortDirection, TimeBucket, TimeSeriesBucket, TimeSeriesOptions, TimeSeriesResult,
     VectorSearchHit, VectorSearchOptions,
 };
+#[cfg(feature = "persistent")]
+#[cfg_attr(docsrs, doc(cfg(feature = "persistent")))]
+pub use persistent::PersistentEngine;
 pub use store::{
     AggregateStore, EventLog, LinkStore, ObjectStore, QueueStore, Searcher, ThingStore, VectorStore,
 };

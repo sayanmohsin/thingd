@@ -25,8 +25,8 @@ See the [full feature status and roadmap](https://github.com/sayanmohsin/thingd-
 
 ### Shipped
 
-- **Rust engine** (`thingd` — crates.io) — memory + Fjall adapters, Tantivy FTS, cosine vector search, queue lifecycle, graph links, aggregate analytics, NLQ
-- **Node.js SDK** (`@thingd/sdk`) — three drivers: memory (default in-memory TS store), native (napi-rs Rust Fjall), cloud (remote HTTP REST)
+- **Rust engine** (`thingd` — crates.io) — memory + persistent adapters, Tantivy FTS, cosine vector search, queue lifecycle, graph links, aggregate analytics, NLQ
+- **Node.js SDK** (`@thingd/sdk`) — three drivers: memory (default in-memory TS store), native (napi-rs Rust persistent engine), cloud (remote HTTP REST)
 - **Browser/Edge client** (`@thingd/client`) — zero-dependency REST client for browsers, Cloudflare Workers, AWS Lambda, Bun, Deno
 - **App backend client** (`createThingdAppClient`) — project-user auth and named actions for hosted mobile/web apps
 - **CLI** (`@thingd/cli`) — TUI dashboard, 30+ subcommands (search, objects, events, queues, export/import/snapshot/backup, doctor, bench, db maintenance). Support for importing from Postgres/MySQL via sidecar REST.
@@ -41,8 +41,8 @@ See the [full feature status and roadmap](https://github.com/sayanmohsin/thingd-
 - Browser and edge runtime packaging via WASM
 
 The default public Node.js SDK path uses the TypeScript in-memory store for
-API exploration and local integration tests. The Rust core has Fjall-backed
-object, event, and queue persistence (pure Rust LSM-tree, 100K+ ops/s). Node apps can
+API exploration and local integration tests. The Rust core has persistent
+object, event, and queue storage. Node apps can
 use the cloud driver to talk to a `thingd` sidecar through `THINGD_URL`.
 
 For browsers, edge runtimes, and non-Node.js environments, use the standalone
@@ -137,7 +137,7 @@ npm install @thingd/sdk
 
 ```toml
 [dependencies]
-thingd = { version = "0.71", features = ["fjall", "search"] }
+thingd = { version = "0.71", features = ["persistent", "search"] }
 ```
 
 ### Subpath imports
@@ -202,7 +202,7 @@ const hits = await db.search("why did we choose rust?", {
 });
 ```
 
-For the local Rust-backed Fjall path, build the native package and
+For the local Rust-backed persistent path, build the native package and
 request the native driver:
 
 ```bash
@@ -488,10 +488,10 @@ The long-term deployment model has two simple modes:
 
 ```txt
 embedded:
-  Node app -> native Rust binding -> Fjall directory
+  Node app -> native Rust binding -> persistent storage directory
 
 sidecar:
-  Node app -> localhost thingd sidecar -> Fjall directory
+  Node app -> localhost thingd sidecar -> persistent storage directory
 ```
 
 Cluster mode should be owned by the sidecar, not by app code:
@@ -559,10 +559,10 @@ Rust core (crates/thingd)
   |-- object store
   |-- event log
   |-- queue engine
-  |-- search indexes (Tantivy FTS + Fjall vector keyspace)
+  |-- search indexes (Tantivy FTS + vector index)
   |-- storage adapters
       |-- MemoryEngine (cache, WASM)
-      |-- FjallEngine (persistent LSM-tree)
+      |-- PersistentEngine (durable local storage)
 ```
 
 Package layout:
@@ -663,7 +663,7 @@ pnpm rust:clippy
 pnpm test
 ```
 
-Rust checks run all crate features, including the Fjall adapter:
+Rust checks run all crate features, including the persistent adapter:
 
 ```bash
 pnpm rust:check

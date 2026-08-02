@@ -125,7 +125,7 @@ export async function runDoctor(context: CliContext): Promise<void> {
     }
   } else {
     context.stderr.write(
-      `  ${pc.green("✓")} Connectivity:   ${pc.cyan("Local Fjall Store")} (${pc.dim(connection.path)})\n`
+      `  ${pc.green("✓")} Connectivity:   ${pc.cyan("Local persistent store")} (${pc.dim(connection.path)})\n`
     );
   }
 

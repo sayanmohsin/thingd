@@ -1,10 +1,10 @@
 use std::env;
-use thingd::SqliteThingStore;
+use thingd::PersistentEngine;
 
 fn main() {
     let path = env::var("THINGD_PATH").unwrap_or_else(|_| "data.db".to_string());
     println!("Opening {path}...");
-    let store = SqliteThingStore::open(&path).unwrap_or_else(|e| {
+    let store = PersistentEngine::open(&path).unwrap_or_else(|e| {
         eprintln!("Failed to open database: {e}");
         std::process::exit(1);
     });

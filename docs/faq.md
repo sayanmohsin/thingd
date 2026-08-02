@@ -6,11 +6,11 @@ Honest answers for experienced developers evaluating thingd.
 
 ### What consistency model does thingd guarantee?
 
-**Single-node (embedded / sidecar):** Strong consistency. Fjall serializes durable writes; reads observe the latest committed write through the engine.
+**Single-node (embedded / sidecar):** Strong consistency. The persistent engine serializes durable writes; reads observe the latest committed write through the engine.
 
 **Cluster (leader/follower):** Two modes:
 - **Strong** — route reads to the leader. Guarantees read-after-write.
-- **Local** — read from the follower's local Fjall replica. May serve stale data (eventual consistency). Replication is async.
+- **Local** — read from the follower's local persistent replica. May serve stale data (eventual consistency). Replication is async.
 
 thingd does **not** support tunable consistency per-collection, quorum reads, or multi-primary writes.
 
@@ -22,7 +22,7 @@ thingd supports compare-and-swap (CAS) via the `expectedVersion` parameter on `p
 
 ### Can two writers modify the same object in parallel in cluster mode?
 
-Yes, and the last write wins. There is no distributed lock per object. For single-node, Fjall serializes durable writes.
+Yes, and the last write wins. There is no distributed lock per object. For single-node, the persistent engine serializes durable writes.
 
 ### What does "atomic write" mean in thingd?
 
@@ -38,9 +38,9 @@ No. An object write and an event append are separate operations. If you need bot
 
 ### What happens on crash during a queue ack or object write?
 
-Fjall write batches provide atomicity for primary object/vector updates. The queue job stays in its pre-operation status (leased or ready) if a durable write is interrupted.
+persistent-engine write batches provide atomicity for primary object/vector updates. The queue job stays in its pre-operation status (leased or ready) if a durable write is interrupted.
 
-The durable sidecar uses Fjall persistent storage and write-batch facilities. Recovery behavior is covered by engine restart tests.
+The durable sidecar uses persistent storage and write-batch facilities. Recovery behavior is covered by engine restart tests.
 
 ### How durable are queues under failure?
 
@@ -48,19 +48,19 @@ At-least-once delivery. A worker that claims a job but crashes before acking wil
 
 ### Are writes fsync'd per operation or batched?
 
-Fjall controls persistence and flush behavior. Related primary writes use a write batch; secondary search-index maintenance remains a separate hardening concern.
+The persistent engine controls persistence and flush behavior. Related primary writes use a write batch; secondary search-index maintenance remains a separate hardening concern.
 
 ### How do you prevent data loss in in-memory mode?
 
-You don't — in-memory mode is ephemeral by design. It exits cleanly for testing and prototyping. For persistence, use the native Fjall driver or the sidecar mode.
+You don't — in-memory mode is ephemeral by design. It exits cleanly for testing and prototyping. For persistence, use the native persistent driver or sidecar mode.
 
 ### What's the recovery story after corruption?
 
-Fjall corruption or incomplete writes can still occur through hardware faults or improper shutdown. Recovery relies on backups and engine reopen/rebuild checks; thingd does not currently provide automatic corruption repair.
+Corruption or incomplete writes can still occur through hardware faults or improper shutdown. Recovery relies on backups and engine reopen/rebuild checks; thingd does not currently provide automatic corruption repair.
 
 ### How large can datasets grow before performance degrades?
 
-thingd is designed for small-to-medium datasets (hundreds of MB to low GBs). The Fjall LSM-tree backend handles multi-GB datasets efficiently, and Tantivy BM25 search performs well into millions of rows on modern hardware. Benchmarks publish per-operation latency at small scale; we do not yet have published degradation curves for large datasets.
+thingd is designed for small-to-medium datasets (hundreds of MB to low GBs). The persistent backend is intended for multi-GB datasets, and Tantivy BM25 search performs well into millions of rows on modern hardware. Benchmarks publish per-operation latency at small scale; we do not yet have published degradation curves for large datasets.
 
 ## Performance
 
@@ -68,7 +68,7 @@ thingd is designed for small-to-medium datasets (hundreds of MB to low GBs). The
 
 Published benchmarks (local development hardware, 5000 iterations):
 
-| Operation | In-memory | Fjall (file) |
+| Operation | In-memory | persistent (file) |
 |-----------|-----------|---------------|
 | Object put | 868k ops/sec | 2.2k ops/sec |
 | Object get | 1.9M ops/sec | 237k ops/sec |
@@ -77,7 +77,7 @@ Published benchmarks (local development hardware, 5000 iterations):
 
 Node.js (native driver, 1000 iterations):
 
-| Operation | In-memory | Native (Fjall) |
+| Operation | In-memory | Native (persistent) |
 |-----------|-----------|-----------------|
 | Object put | 435k ops/sec | 9.8k ops/sec |
 | Object get | 2.9M ops/sec | 192k ops/sec |
@@ -95,13 +95,13 @@ Queue claim scans by `(queue, status, created_at)` index — performance is O(lo
 
 ### Is thingd single-threaded or multi-threaded?
 
-The Rust Fjall adapter is shared through the sidecar's engine pool. The HTTP MCP server can handle concurrent requests while durable write serialization is provided by the engine.
+The Rust persistent adapter is shared through the sidecar's engine pool. The HTTP MCP server can handle concurrent requests while durable write serialization is provided by the engine.
 
 ## Concurrency and scaling
 
 ### How does leader/follower replication work?
 
-The leader assigns a monotonic sequence to each event. Followers replicate into their local Fjall runtime. Object state and search indexes on followers are derived from the replicated event stream.
+The leader assigns a monotonic sequence to each event. Followers replicate into their local persistent runtime. Object state and search indexes on followers are derived from the replicated event stream.
 
 ### Is replication synchronous or async?
 
@@ -239,7 +239,7 @@ Not currently. Collections are flat namespaces with no schema, no type enforceme
 
 ### How do you handle migrations?
 
-thingd has internal recovery for the durable Fjall storage layer. There is no migration system for user data shapes. Application-level schema evolution is the caller's responsibility.
+thingd has internal recovery for the durable persistent-storage layer. There is no migration system for user data shapes. Application-level schema evolution is the caller's responsibility.
 
 ### What happens when object shapes evolve over time?
 
@@ -249,15 +249,15 @@ Older and newer object shapes coexist in the same collection. Search indexing in
 
 ### How do backups and restores work?
 
-CLI snapshot commands: `thingd snapshot create --out backup.thingd.json` (exports all objects, events, and queue jobs as JSON lines). Restore with `thingd snapshot restore --in backup.thingd.json`. For file-level backups, stop the engine and copy the complete Fjall data directory.
+CLI snapshot commands: `thingd snapshot create --out backup.thingd.json` (exports all objects, events, and queue jobs as JSON lines). Restore with `thingd snapshot restore --in backup.thingd.json`. For file-level backups, stop the engine and copy the complete persistent storage directory.
 
 ### Can I run this in Kubernetes with persistence?
 
-Yes. Kubernetes deployment manifests are in `deploy/kubernetes/`. Use a PersistentVolumeClaim for the complete Fjall data directory. For leader/follower mode, use a StatefulSet with stable pod identity.
+Yes. Kubernetes deployment manifests are in `deploy/kubernetes/`. Use a persistentVolumeClaim for the complete persistent storage directory. For leader/follower mode, use a StatefulSet with stable pod identity.
 
 ### What happens during rolling upgrades?
 
-thingd does not have built-in zero-downtime upgrade support. Restarting the process reopens the Fjall directory. Connection-based recovery is the application's responsibility.
+thingd does not have built-in zero-downtime upgrade support. Restarting the process reopens the persistent storage directory. Connection-based recovery is the application's responsibility.
 
 ### Is there a health check / observability API?
 
@@ -277,7 +277,7 @@ The SDK is designed to be driver-agnostic — the same `ThingD.open()` call work
 
 ### Is multi-tenancy supported?
 
-Yes, at the sidecar level. Set `THINGD_TENANT_MODE=multi-tenant` to enable per-tenant file isolation. Each HTTP request's `X-Tenant-Id` header routes to a separate Fjall database file at `{database_prefix}/{tenant_id}/thingd.db`. In single-tenant mode (default), behavior is unchanged — all data uses the default database path.
+Yes, at the sidecar level. Set `THINGD_TENANT_MODE=multi-tenant` to enable per-tenant file isolation. Each HTTP request's `X-Tenant-Id` header routes to a separate persistent database directory at `{database_prefix}/{tenant_id}/thingd.db`. In single-tenant mode (default), behavior is unchanged — all data uses the default database path.
 
 ## Positioning
 
@@ -310,7 +310,7 @@ Both, but honestly: it prioritizes developer experience first. The infrastructur
 
 ### What's the long-term tradeoff of using thingd?
 
-The tradeoff is: simpler deployment + unified API vs. less operational maturity than specialized systems. If thingd's abstraction fits your data model, you save on integration complexity. If your requirements outgrow the current embedded Fjall runtime, migration to a more scalable system will require architectural changes.
+The tradeoff is: simpler deployment + unified API vs. less operational maturity than specialized systems. If thingd's abstraction fits your data model, you save on integration complexity. If your requirements outgrow the current embedded persistent engine, migration to a more scalable system will require architectural changes.
 
 ## Security
 

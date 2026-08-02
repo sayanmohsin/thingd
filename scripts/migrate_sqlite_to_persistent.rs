@@ -1,9 +1,9 @@
-/// One-shot migration: reads all data from an existing SQLite file and writes it to Fjall.
+/// One-shot migration: reads all data from an existing SQLite file and writes it to persistent.
 ///
 /// Usage:
-///   cargo run --example migrate_sqlite_to_fjall -- /path/to/data.sqlite /path/to/fjall-dir
+///   cargo run --example migrate_sqlite_to_persistent -- /path/to/data.sqlite /path/to/persistent-dir
 ///
-/// This is intended to be run ONCE per database. After migration, use the Fjall directory.
+/// This is intended to be run ONCE per database. After migration, use the persistent directory.
 ///
 /// Note: This script requires the old sqlite feature temporarily.
 /// Temporarily add to Cargo.toml:
@@ -15,7 +15,7 @@
 use std::path::Path;
 
 use thingd::{
-    FjallEngine, MemoryEvent, MemoryObject, QueueJob,
+    PersistentEngine, MemoryEvent, MemoryObject, QueueJob,
     store::{EventLog, LinkStore, ObjectStore, QueueStore},
     ListEventsOptions, ListObjectsOptions,
 };
@@ -23,28 +23,28 @@ use thingd::{
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     if args.len() != 3 {
-        eprintln!("Usage: {} <sqlite-path> <fjall-dir>", args[0]);
+        eprintln!("Usage: {} <sqlite-path> <persistent-dir>", args[0]);
         std::process::exit(1);
     }
 
     let sqlite_path = &args[1];
-    let fjall_path = &args[2];
+    let persistent_path = &args[2];
 
     if !Path::new(sqlite_path).exists() {
         eprintln!("Error: SQLite file not found: {sqlite_path}");
         std::process::exit(1);
     }
 
-    if Path::new(fjall_path).exists() {
-        eprintln!("Error: Fjall directory already exists at {fjall_path}. Remove it first or use a different path.");
+    if Path::new(persistent_path).exists() {
+        eprintln!("Error: persistent directory already exists at {persistent_path}. Remove it first or use a different path.");
         std::process::exit(1);
     }
 
     println!("Opening SQLite: {sqlite_path}");
     let source = SqliteThingStore::open(sqlite_path).expect("Failed to open SQLite");
 
-    println!("Creating Fjall: {fjall_path}");
-    let mut dest = FjallEngine::open(fjall_path).expect("Failed to create Fjall");
+    println!("Creating persistent: {persistent_path}");
+    let mut dest = PersistentEngine::open(persistent_path).expect("Failed to create persistent");
 
     // Migrate objects
     println!("Migrating objects...");
@@ -67,7 +67,7 @@ fn main() {
             }
             let count = batch.len();
             dest.put_objects_batch(batch)
-                .expect("Failed to write objects to Fjall");
+                .expect("Failed to write objects to persistent");
             offset += count as u64;
             print!("  {collection}: {offset} objects\r");
         }
@@ -96,7 +96,7 @@ fn main() {
             seq = batch.last().map(|e| e.sequence).unwrap_or(seq);
             let count = batch.len();
             dest.append_events_batch(batch)
-                .expect("Failed to write events to Fjall");
+                .expect("Failed to write events to persistent");
             print!("  {stream}: {count} events\r");
         }
         println!("  {stream}: events done");
@@ -111,7 +111,7 @@ fn main() {
             continue;
         }
         dest.push_jobs_batch(jobs)
-            .expect("Failed to write jobs to Fjall");
+            .expect("Failed to write jobs to persistent");
         println!("  {queue}: done");
     }
 
@@ -124,7 +124,7 @@ fn main() {
 
     println!("Migration complete.");
     println!("Source: {sqlite_path}");
-    println!("Dest:   {fjall_path}");
+    println!("Dest:   {persistent_path}");
     println!("");
     println!("Verify your data, then delete the old SQLite file.");
 }

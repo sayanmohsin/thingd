@@ -40,7 +40,7 @@ Search objects by vector similarity (cosine similarity). Provide a query vector 
 
 **Returns:** `VectorSearchHit[]` — each result has `id`, `score` (cosine similarity), and `value` (full `StoredMemoryObject`).
 
-Stores vectors alongside objects via the optional `vector` field on put. Vectors persist in Fjall (feature-gated behind `vectors` flag). Collections without vectors return empty results.
+Stores vectors alongside objects via the optional `vector` field on put. Vectors persist in persistent (feature-gated behind `vectors` flag). Collections without vectors return empty results.
 
 ---
 

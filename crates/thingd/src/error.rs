@@ -35,7 +35,7 @@ impl Display for ThingdError {
 
 impl Error for ThingdError {}
 
-#[cfg(feature = "fjall")]
+#[cfg(feature = "persistent")]
 impl From<fjall::Error> for ThingdError {
     fn from(error: fjall::Error) -> Self {
         Self::Storage(error.to_string())

@@ -58,7 +58,7 @@ Configure via environment variables or a YAML config file pointed at by `THINGD_
 |---|---|---|
 | `THINGD_HOST` | `0.0.0.0` | Bind address |
 | `THINGD_PORT` | `7377` | HTTP port |
-| `THINGD_DATABASE` | `thingd.db` | Fjall database directory |
+| `THINGD_DATABASE` | `thingd.db` | persistent database directory |
 | `THINGD_AUTH_TOKEN` | — | Bearer token for authenticated requests |
 | `THINGD_ALLOW_UNAUTHENTICATED` | `false` | Skip auth entirely |
 | `THINGD_MCP_MAX_OBJECT_SIZE` | `1 MB` | Max object size for MCP puts |

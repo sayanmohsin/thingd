@@ -2,7 +2,7 @@
 
 The storage benchmark is a local development signal, not a portable product
 claim. Results vary with CPU, filesystem, thermal state, Rust version, and
-iteration count. The benchmark currently compares the in-memory and Fjall
+iteration count. The benchmark currently compares the in-memory and persistent
 adapters; it does not benchmark REST, MCP, or sidecar throughput.
 
 ## Run
@@ -19,7 +19,7 @@ verify that the benchmark remains buildable and runnable.
 
 The benchmark measures object, event, queue, search, vector search, batch,
 count, delete, concurrent-read, and lock-contention operations for `in-memory`
-and `fjall`.
+and `persistent`.
 It uses temporary databases and does not leave benchmark data in the repo.
 
 ## Latest smoke run
@@ -40,10 +40,10 @@ deliberate baseline update.
 | in-memory | object_get | 555,555 |
 | in-memory | event_append | 1,666,666 |
 | in-memory | queue_claim_ack | 3,333,333 |
-| fjall | object_put | 10 |
-| fjall | object_get | 147,058 |
-| fjall | event_append | 6 |
-| fjall | queue_claim_ack | 26,178 |
+| persistent | object_put | 10 |
+| persistent | object_get | 147,058 |
+| persistent | event_append | 6 |
+| persistent | queue_claim_ack | 26,178 |
 
 The complete output is available from the command above. Do not compare this
 smoke table with results from a different machine or iteration count.

@@ -92,7 +92,7 @@ thingd backup --in backup.db
 ```
 
 Creates a consistent snapshot of the deprecated SQLite backend using `VACUUM INTO`.
-For current Fjall runtimes, use JSON snapshot export/restore and filesystem-level
+For current persistent runtimes, use JSON snapshot export/restore and filesystem-level
 backups of the database directory.
 
 ### Database Maintenance
@@ -159,7 +159,7 @@ THINGD_URL set:
   use remote SDK driver over HTTP REST
 
 --driver native --path ./thingd.db:
-  use local native Rust Fjall driver
+  use local native Rust persistent driver
 
 no URL and no native driver:
   use in-memory store
