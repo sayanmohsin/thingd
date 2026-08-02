@@ -1,3 +1,18 @@
+## [0.72.0](https://github.com/sayanmohsin/thingd/compare/v0.71.0...v0.72.0) (2026-08-02)
+
+### Features
+
+- align docs metadata and return imported objects (#69) (4084502)
+- add hosted app backend contract and client (#70) (5d5e307)
+
+### Bug Fixes
+
+- tolerate missing release doc version examples (d8df795)
+- prepare protected semantic release PRs (5982c3c)
+- make metadata generation cwd independent (#74) (d8eac3f)
+- server: harden security boundaries (0961ffe)
+- complete public SDK type exports (8a8889a)
+
 ## [0.71.0](https://github.com/sayanmohsin/thingd/compare/v0.70.0...v0.71.0) (2026-07-31)
 
 ## [0.70.0](https://github.com/sayanmohsin/thingd/compare/v0.69.1...v0.70.0) (2026-07-29)
