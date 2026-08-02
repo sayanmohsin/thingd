@@ -303,7 +303,9 @@ jobs:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
         run: |
           VERSION=$(grep '^version = ' Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
-          if curl -fsS "https://crates.io/api/v1/crates/thingd/${VERSION}" >/dev/null; then
+          if curl -fsS \
+            -A "thingd-release/${GITHUB_REPOSITORY} run/${GITHUB_RUN_ID}" \
+            "https://crates.io/api/v1/crates/thingd/${VERSION}" >/dev/null; then
             echo "thingd ${VERSION} already exists"
           else
             cargo publish -p thingd --features persistent,search
