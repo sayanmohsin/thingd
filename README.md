@@ -36,9 +36,9 @@ See the [full feature status and roadmap](https://github.com/sayanmohsin/thingd-
 
 ### What's next
 
-- In-process vector search with cosine similarity; current durable search is a brute-force scan, with HNSW/ANN planned for larger datasets
-- Browser and edge runtime via WASM compilation
-- Leader/follower clustering for high availability
+- HNSW/ANN vector indexing for larger datasets; durable vector search is currently a brute-force cosine scan
+- Additional deployment integrations and operational hardening
+- Browser and edge runtime packaging via WASM
 
 The default public Node.js SDK path uses the TypeScript in-memory store for
 API exploration and local integration tests. The Rust core has Fjall-backed
