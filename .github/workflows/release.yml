@@ -87,7 +87,8 @@ jobs:
         with:
           key: native-${{ hashFiles('packages/thingd-native/**/*.rs', 'crates/thingd/src/**/*.rs') }}
       - name: Remove stale native prebuilds
-        run: node -e "require('node:fs').rmSync('packages/thingd-native/prebuilds', { recursive: true, force: true })"
+        run: |
+          node -e "require('node:fs').rmSync('packages/thingd-native/prebuilds', { recursive: true, force: true })"
       - run: cargo build -p thingd-native --release
       - run: node packages/thingd-native/scripts/copy-prebuild.mjs
       - name: Test native filter on ${{ matrix.platform }}-${{ matrix.arch }}
