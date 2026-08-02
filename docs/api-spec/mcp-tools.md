@@ -1,8 +1,8 @@
 # MCP Tools Reference
 
-thingd exposes 36 MCP tools for AI agents. All tools are available via the stdio MCP server or Streamable HTTP endpoint.
+The Node SDK/stdio MCP server exposes 46 SDK tools, including 10 SDK-level scheduler tools. The Rust sidecar exposes 36 engine tools; scheduler tools are not part of the sidecar surface.
 
-**Tool count:** 36 (24 read-only, 12 write — 3 of which are destructive)
+**Tool count:** 46 Node SDK tools (34 read-only, 12 write — 3 of which are destructive); the Rust sidecar exposes 36 core tools.
 
 ---
 
@@ -40,7 +40,7 @@ Search objects by vector similarity (cosine similarity). Provide a query vector 
 
 **Returns:** `VectorSearchHit[]` — each result has `id`, `score` (cosine similarity), and `value` (full `StoredMemoryObject`).
 
-Stores vectors alongside objects via the optional `vector` field on put. Vectors persist in Fjall (feature-gated behind `vectors` flag). Collections without vectors return empty results.
+Stores vectors alongside objects via the optional `vector` field on put. Vectors persist in persistent (feature-gated behind `vectors` flag). Collections without vectors return empty results.
 
 ---
 

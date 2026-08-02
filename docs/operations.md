@@ -1,5 +1,9 @@
 # Operations
 
+> The SQLite backup procedure below is retained for the deprecated SQLite
+> adapter. Current persistent runtimes should use filesystem-level directory backups
+> or the Cloud runtime backup procedure.
+
 Backup, recovery, database health, and maintenance procedures for thingd.
 
 ## Backup
@@ -10,7 +14,8 @@ Backup, recovery, database health, and maintenance procedures for thingd.
 thingd backup --out /path/to/backup.db
 ```
 
-The backup is created using SQLite's `VACUUM INTO` command, which produces a fully consistent snapshot of the database at the point in time the command runs. The backup file is a standard SQLite database that can be opened with any SQLite client.
+The deprecated SQLite backup is created using `VACUUM INTO`. It does not apply
+to current persistent database directories.
 
 **Options:**
 - `--out <path>` — Destination path for the backup file
@@ -134,7 +139,7 @@ Migrations are applied automatically when a database is opened with an older sch
 ### Migration History
 
 > Note: These SQLite schema versions apply to the deprecated SQLite backend.
-> The current Fjall backend has no manual schema management — schema is defined
+> The current persistent backend has no manual schema management — schema is defined
 > by the Rust struct layout and evolved through code changes.
 
 | Version | Name | Changes |

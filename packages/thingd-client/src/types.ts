@@ -32,6 +32,58 @@ export type ListObjectsOptions = {
   sortBy?: SortBy;
 };
 
+// ── Hosted app backend ──────────────────────────────
+
+export type AppUser = {
+  id: string;
+  email: string;
+  name: string;
+  role: string;
+  createdAt: string;
+};
+
+export type AppAuthResponse = {
+  user: AppUser;
+  accessToken: string;
+  refreshToken: string;
+  expiresIn: number;
+};
+
+export type AppFunction = {
+  name: string;
+  description: string;
+  auth: "public" | "user" | "role";
+  roles?: string[];
+  inputSchema: Record<string, unknown>;
+  outputSchema: Record<string, unknown>;
+  version: number;
+  idempotency: "optional" | "required";
+};
+
+export type AppManifest = {
+  version: string;
+  project: { id: string; slug: string };
+  functions: AppFunction[];
+  capabilities: { reads: boolean; namedWrites: boolean };
+};
+
+export type AppObject = {
+  id: string;
+  [key: string]: unknown;
+};
+
+export type AppSearchOptions = {
+  collections?: string[];
+  limit?: number;
+};
+
+export type AppSearchResult = {
+  id: string;
+  collection?: string;
+  score: number;
+  value: Record<string, unknown>;
+};
+
 // ── Events ───────────────────────────────────────────
 
 export type MemoryEvent = {

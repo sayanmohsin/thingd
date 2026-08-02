@@ -1,8 +1,8 @@
 //! Local storage benchmark for thingd adapters.
 //!
 //! Usage:
-//!   cargo run --example `storage_bench` --release --features fjall,search [<iterations>]
-//!   `THINGD_BENCH_ITERS=10000` cargo run --example `storage_bench` --release --features fjall,search
+//!   cargo run --example `storage_bench` --release --features persistent,search [<iterations>]
+//!   `THINGD_BENCH_ITERS=10000` cargo run --example `storage_bench` --release --features persistent,search
 
 #![allow(unused_crate_dependencies)]
 
@@ -13,8 +13,9 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use thingd::{
-    EventLog, FjallEngine, ListEventsOptions, ListObjectsOptions, MemoryEngine, MemoryEvent,
-    MemoryObject, ObjectStore, QueueClaimOptions, QueueJob, QueueStore, SearchOptions, Searcher,
+    EventLog, ListEventsOptions, ListObjectsOptions, MemoryEngine, MemoryEvent, MemoryObject,
+    ObjectStore, PersistentEngine, QueueClaimOptions, QueueJob, QueueStore, SearchOptions,
+    Searcher, VectorSearchOptions, VectorStore,
 };
 
 const DEFAULT_ITERATIONS: usize = 5_000;
@@ -44,14 +45,14 @@ fn main() -> Result<(), Box<dyn Error>> {
     bench_concurrent("in-memory", || Ok(MemoryEngine::new()), iterations)?;
 
     let dir = tempfile::tempdir()?;
-    let fjall_engine = FjallEngine::open(dir.path())?;
-    bench_store("fjall", fjall_engine, iterations)?;
+    let persistent_engine = PersistentEngine::open(dir.path())?;
+    bench_store("persistent", persistent_engine, iterations)?;
 
     let conc_dir = tempfile::tempdir()?;
     bench_concurrent(
-        "fjall",
+        "persistent",
         || {
-            let engine = FjallEngine::open(conc_dir.path())?;
+            let engine = PersistentEngine::open(conc_dir.path())?;
             Ok(engine)
         },
         iterations,
@@ -73,7 +74,7 @@ fn iterations() -> usize {
 
 fn bench_store<S>(name: &str, mut store: S, iterations: usize) -> Result<(), Box<dyn Error>>
 where
-    S: EventLog + ObjectStore + QueueStore + Searcher,
+    S: EventLog + ObjectStore + QueueStore + Searcher + VectorStore,
 {
     let elapsed = time_object_puts(&mut store, iterations)?;
     report(name, "object_put", iterations, elapsed);
@@ -169,6 +170,7 @@ where
     report(name, "queue_claim_ack2", iterations, elapsed);
 
     time_search_benchmarks(name, &store)?;
+    time_vector_benchmarks(name, &mut store, iterations)?;
 
     time_batch_scale_benchmarks(name, &mut store, iterations)?;
 
@@ -408,6 +410,38 @@ where
     black_box(filtered_hits.len());
     report(name, "search_filtered", 1, elapsed);
 
+    Ok(())
+}
+
+fn time_vector_benchmarks<S>(
+    name: &str,
+    store: &mut S,
+    iterations: usize,
+) -> Result<(), Box<dyn Error>>
+where
+    S: ObjectStore + VectorStore,
+{
+    let count = iterations.max(10);
+    for index in 0..count {
+        #[allow(clippy::cast_precision_loss)]
+        let ratio = index as f32 / count as f32;
+        let vector = vec![ratio.sin(), ratio.cos(), 0.5, 0.25];
+        store.put_object(
+            MemoryObject::new("bench_vectors", format!("vec-{index}"), "{}").with_vector(vector),
+        )?;
+    }
+    let started = Instant::now();
+    let hits = store.vector_search(
+        "bench_vectors",
+        &[0.0, 1.0, 0.5, 0.25],
+        VectorSearchOptions {
+            top_k: Some(10),
+            filter: None,
+        },
+    )?;
+    let elapsed = started.elapsed();
+    black_box(hits.len());
+    report(name, "vector_search_top10", 1, elapsed);
     Ok(())
 }
 

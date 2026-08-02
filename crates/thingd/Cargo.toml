@@ -7,14 +7,14 @@ license.workspace = true
 repository.workspace = true
 description = "Core primitives for thingd, an object-shaped local memory engine for apps and agents."
 readme = "README.md"
-keywords = ["ai", "memory", "mcp", "database", "lsm"]
+keywords = ["ai", "memory", "mcp", "database", "persistence"]
 categories = ["database-implementations", "caching"]
 exclude = ["examples/"]
 
 [features]
-default = ["fjall", "search"]
+default = ["persistent", "search"]
 search = ["dep:tantivy"]
-fjall = ["dep:fjall"]
+persistent = ["dep:fjall"]
 vectors = []
 connectors = ["dep:csv", "dep:sqlx", "dep:tokio"]
 
@@ -38,5 +38,5 @@ path = "src/lib.rs"
 workspace = true
 
 [package.metadata.docs.rs]
-features = ["fjall"]
+features = ["persistent"]
 rustdoc-args = ["--cfg", "docsrs"]

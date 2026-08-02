@@ -4,7 +4,7 @@
 
 **thingd** is a fast object-first data engine for applications and AI agents.
 It provides object storage, durable queues, event streams, full-text search,
-graph links, and 36 MCP tools — all in one binary. Runs embedded (Rust/Node),
+graph links, and 46 Node MCP tools — all in one binary. Runs embedded (Rust/Node),
 as a sidecar MCP server, in Docker, or in Kubernetes.
 
 **thingd Cloud** (at [thingd.cloud](https://thingd.cloud), private repo
@@ -51,7 +51,7 @@ packages/
 
 | Layer | Location |
 |-------|----------|
-| Engine (Rust) | `crates/thingd/src/` (store.rs, model.rs, in_memory.rs, fjall.rs) |
+| Engine (Rust) | `crates/thingd/src/` (store.rs, model.rs, in_memory.rs, persistent.rs) |
 | Native binding (Rust napi) | `packages/thingd-native/native/src/lib.rs` |
 | Sidecar REST (Rust axum) | `crates/thingd-server/src/rest.rs` |
 | Sidecar MCP (Rust) | `crates/thingd-server/src/mcp.rs` |
@@ -63,7 +63,7 @@ packages/
 | CLI | `packages/thingd-cli/src/index.ts` |
 | Tests | `packages/thingd/test/`, `packages/thingd-cli/test/`, `crates/thingd/` |
 
-**Sidecar MCP** (46 tools) — `crates/thingd-server/src/mcp.rs` via a registry-based dispatch. The Node.js SDK MCP (`packages/thingd/src/mcp/tools.ts`) remains the primary reference and adds auth gating.
+**MCP surfaces** — the Node.js SDK MCP (`packages/thingd/src/mcp/tools.ts`) exposes 46 tools, including 10 SDK-level scheduler tools. The Rust sidecar (`crates/thingd-server/src/mcp.rs`) exposes 36 engine tools; scheduler tools remain Node SDK-only.
 
 **Sidecar cluster** returns real config (mode, peers, discovery). Real cluster forwarding/leader election logic is in `packages/thingd-cli/src/mcp/cluster.ts`.
 
@@ -79,9 +79,9 @@ pnpm check                    # biome lint
 pnpm check:write              # biome auto-fix
 pnpm test:node                # 91 Node SDK tests
 pnpm test:cli                 # 44 CLI tests
-pnpm test:rust                # cargo test --workspace --all-features (226 tests — 43 fjall unit tests*)
+pnpm test:rust                # cargo test --workspace --all-features (226 tests — 43 persistent unit tests*)
 pnpm test:local               # check → build → node+cli+package tests
-pnpm bench:rust               # full Rust benchmark (in-memory + fjall)
+pnpm bench:rust               # full Rust benchmark (in-memory + persistent)
 pnpm bench:rust:smoke         # quick Rust benchmark (100 iters)
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 ```
@@ -124,6 +124,17 @@ This file should stay useful but not become a dump. Rules:
 3. **Use small sections** — if a section exceeds 15-20 lines, it needs its own doc file.
 4. **No binary files** — paths to screenshots/diagrams go elsewhere (issue comments, design docs).
 5. **Delete stale entries** — when you upgrade deps or fix a workaround, remove the old guidance.
+
+## Branch and pull request workflow
+
+Use `development` as the integration branch in this repo. Create feature
+branches from `development` and open every feature, fix, documentation, or
+maintenance pull request against `development` — never directly against
+`main`. After the work is integrated and ready for release, manually merge
+`development` into `main`; `main` remains the production and release branch.
+
+Use semantic branch prefixes such as `feature/<name>`, `fix/<name>`,
+`docs/<name>`, `refactor/<name>`, `test/<name>`, or `chore/<name>`.
 
 ## Common miss patterns
 
@@ -206,7 +217,7 @@ Manual first publish (for new scoped packages):
 pnpm --filter @thingd/sdk publish --access public --no-git-checks
 pnpm --filter @thingd/cli publish --access public --no-git-checks
 pnpm --filter @thingd/native publish --access public --no-git-checks
-cargo publish -p thingd --features fjall,search
+cargo publish -p thingd --features persistent,search
 ```
 
 ## Skills
@@ -214,4 +225,3 @@ cargo publish -p thingd --features fjall,search
 - `/skill upgrade-deps-and-benchmark` — audit all deps, bump to latest, run benchmarks
 
 > Audit-after-change is not a skill — use the checklist under "Doc audit after every change" above.
-

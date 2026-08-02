@@ -1,7 +1,20 @@
+export {
+  createThingdAppClient,
+  ThingdAppClient,
+  type ThingdAppClientOptions,
+  ThingdAppError,
+} from "./app.js";
 export { ThingdClient, type ThingdClientOptions } from "./client.js";
 export type {
   AggregateOptions,
   AggregateResult,
+  AppAuthResponse,
+  AppFunction,
+  AppManifest,
+  AppObject,
+  AppSearchOptions,
+  AppSearchResult,
+  AppUser,
   CollectionSchema,
   Link,
   LinkDirection,

@@ -1,8 +1,9 @@
 use std::collections::HashMap;
+use std::path::Path;
 use std::sync::Arc;
 
 use parking_lot::{Mutex, RwLock};
-use thingd::{FjallEngine, MemoryEngine, ThingStore};
+use thingd::{MemoryEngine, PersistentEngine, ThingStore};
 
 pub type SharedEngine = Arc<Mutex<Box<dyn ThingStore + Send>>>;
 
@@ -13,12 +14,15 @@ pub fn create_engine(
         return Ok(Box::new(MemoryEngine::new()));
     }
 
-    match FjallEngine::open(db_path) {
+    if let Some(parent) = Path::new(db_path).parent()
+        && !parent.as_os_str().is_empty()
+    {
+        std::fs::create_dir_all(parent)?;
+    }
+
+    match PersistentEngine::open(db_path) {
         Ok(engine) => Ok(Box::new(engine)),
-        Err(e) => {
-            tracing::warn!("Failed to open Fjall at {db_path}: {e}. Falling back to memory.");
-            Ok(Box::new(MemoryEngine::new()))
-        },
+        Err(e) => Err(Box::new(e)),
     }
 }
 
@@ -62,19 +66,7 @@ impl EnginePool {
 
         let writer = match create_engine(&path) {
             Ok(engine) => Arc::new(Mutex::new(engine)),
-            Err(e) => {
-                tracing::error!(
-                    "CRITICAL: Failed to open database at {path}: {e}. \
-                     Falling back to in-memory storage. ALL DATA WILL BE LOST ON RESTART."
-                );
-                eprintln!(
-                    "CRITICAL: Failed to open database at {path}: {e}. \
-                     Falling back to in-memory storage. ALL DATA WILL BE LOST ON RESTART."
-                );
-                Arc::new(Mutex::new(
-                    Box::new(MemoryEngine::new()) as Box<dyn ThingStore + Send>
-                ))
-            },
+            Err(e) => panic!("failed to open durable database at {path}: {e}"),
         };
 
         guard.insert(path.clone(), writer.clone());
@@ -100,7 +92,7 @@ impl EnginePool {
         guard.remove("");
 
         if path != ":memory:" && !path.is_empty() {
-            // Delete the Fjall directory
+            // Delete the Persistent directory
             if let Err(e) = std::fs::remove_dir_all(&path)
                 && e.kind() != std::io::ErrorKind::NotFound
             {
@@ -160,7 +152,7 @@ mod tests {
         let writer = pool.get_writer(&db_path);
         let reader = pool.get_reader(&db_path);
 
-        // With Fjall, reader and writer share the same engine
+        // With Persistent, reader and writer share the same engine
         assert!(Arc::ptr_eq(&writer, &reader));
 
         let _ = std::fs::remove_dir_all(&dir);
@@ -202,6 +194,7 @@ mod tests {
     #[tokio::test]
     async fn concurrent_readers_share_writer() {
         let dir = std::env::temp_dir().join("thingd-test-concurrent-readers");
+        let _ = std::fs::remove_dir_all(&dir);
         let _ = std::fs::create_dir_all(&dir);
         let db_path = dir.join("test.db").to_str().unwrap().to_string();
         let pool = Arc::new(EnginePool::new(db_path.clone()));

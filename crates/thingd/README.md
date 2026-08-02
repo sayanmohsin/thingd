@@ -10,7 +10,7 @@ object-first data engine for applications and AI agents.
 This crate provides the storage boundary: object CRUD, append-only events,
 durable job queues, full-text search, and graph links. It ships with two
 engines: an in-memory engine for fast prototyping and testing, and an optional
-SQLite-backed engine for durable production storage.
+persistent engine for durable local storage.
 
 ## Why thingd?
 
@@ -29,7 +29,7 @@ all five primitives behind a single composable trait interface.
 
 | Feature | Default | Description |
 |---------|---------|-------------|
-| `sqlite` | No | Enables `rusqlite`-backed `SqliteThingStore` with FTS5 search, WAL mode, and auto-migration |
+| `persistent` | Yes | Enables the durable persistent engine |
 | `connectors` | No | Enables CSV/JSON file connectors for data import |
 
 ## Quick Start
@@ -47,12 +47,12 @@ let user = engine.get_object("users", "alice").unwrap();
 assert_eq!(user.unwrap().body, r#"{"name":"Alice"}"#);
 ```
 
-### SQLite engine (durable storage)
+### persistent engine (durable storage)
 
 ```rust
-use thingd::{SqliteThingStore, ObjectStore, MemoryObject};
+use thingd::{PersistentEngine, ObjectStore, MemoryObject};
 
-let mut db = SqliteThingStore::open_in_memory().unwrap();
+let mut db = PersistentEngine::open("/tmp/thingd-data").unwrap();
 
 db.put_object(MemoryObject::new("users", "alice", r#"{"name":"Alice"}"#)).unwrap();
 
@@ -63,9 +63,9 @@ assert_eq!(user.unwrap().body, r#"{"name":"Alice"}"#);
 ### Full-text search
 
 ```rust
-use thingd::{SqliteThingStore, ObjectStore, MemoryObject, Searcher};
+use thingd::{PersistentEngine, ObjectStore, MemoryObject, Searcher};
 
-let mut db = SqliteThingStore::open_in_memory().unwrap();
+let mut db = PersistentEngine::open("/tmp/thingd-data").unwrap();
 
 db.put_object(MemoryObject::new("docs", "readme", "# Hello\nThis is the project README")).unwrap();
 db.put_object(MemoryObject::new("docs", "api", "# API Reference\nEndpoints for the REST API")).unwrap();
@@ -77,9 +77,9 @@ assert!(!hits.is_empty());
 ### Append-only events
 
 ```rust
-use thingd::{SqliteThingStore, EventLog, MemoryEvent};
+use thingd::{PersistentEngine, EventLog, MemoryEvent};
 
-let mut db = SqliteThingStore::open_in_memory().unwrap();
+let mut db = PersistentEngine::open("/tmp/thingd-data").unwrap();
 
 db.append_event(MemoryEvent::new("project:thingd", "decision.made", r#"{"text":"Use Rust for the core"}"#)).unwrap();
 ```
@@ -87,9 +87,9 @@ db.append_event(MemoryEvent::new("project:thingd", "decision.made", r#"{"text":"
 ### Durable job queues
 
 ```rust
-use thingd::{SqliteThingStore, QueueStore, QueueJob, QueueClaimOptions};
+use thingd::{PersistentEngine, QueueStore, QueueJob, QueueClaimOptions};
 
-let mut db = SqliteThingStore::open_in_memory().unwrap();
+let mut db = PersistentEngine::open("/tmp/thingd-data").unwrap();
 
 let job = QueueJob::new("embeddings", "job-1", r#"{"doc_id":"readme"}"#, 3).into();
 db.push_job(job).unwrap();
@@ -102,9 +102,9 @@ db.ack_job("embeddings", &claimed.unwrap().id).unwrap();
 ### Graph links
 
 ```rust
-use thingd::{SqliteThingStore, LinkStore, Link, LinkDirection};
+use thingd::{PersistentEngine, LinkStore, Link, LinkDirection};
 
-let mut db = SqliteThingStore::open_in_memory().unwrap();
+let mut db = PersistentEngine::open("/tmp/thingd-data").unwrap();
 
 db.create_link(Link::new("users/alice", "authored", "docs/readme")).unwrap();
 
@@ -125,7 +125,7 @@ The crate is built around composable traits:
 | `LinkStore` | Typed graph links between objects |
 | `ThingStore` | Super-trait combining all of the above |
 
-Both `MemoryEngine` and `SqliteThingStore` implement all five traits.
+Both `MemoryEngine` and `PersistentEngine` implement all storage traits.
 
 ## Key Types
 
@@ -142,7 +142,7 @@ Both `MemoryEngine` and `SqliteThingStore` implement all five traits.
 
 | Tool | Great at | Why thingd is different |
 |------|----------|------------------------------|
-| SQLite | relational storage | object API, events, queues, search, graph |
+| PersistentEngine | durable local storage | object API, events, queues, search, graph, vectors |
 | MongoDB | flexible documents | local-first, Rust, no server process |
 | Redis / BullMQ | fast queues | durable local storage without Redis |
 | LanceDB | vector search | broader memory runtime with events and queues |

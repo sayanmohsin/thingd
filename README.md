@@ -25,23 +25,24 @@ See the [full feature status and roadmap](https://github.com/sayanmohsin/thingd-
 
 ### Shipped
 
-- **Rust engine** (`thingd` — crates.io) — memory + Fjall adapters, Tantivy FTS, embedvec vector search, queue lifecycle, graph links, aggregate analytics, NLQ
-- **Node.js SDK** (`@thingd/sdk`) — three drivers: memory (default in-memory TS store), native (napi-rs Rust SQLite), cloud (remote HTTP REST)
+- **Rust engine** (`thingd` — crates.io) — memory + persistent adapters, Tantivy FTS, cosine vector search, queue lifecycle, graph links, aggregate analytics, NLQ
+- **Node.js SDK** (`@thingd/sdk`) — three drivers: memory (default in-memory TS store), native (napi-rs Rust persistent engine), cloud (remote HTTP REST)
 - **Browser/Edge client** (`@thingd/client`) — zero-dependency REST client for browsers, Cloudflare Workers, AWS Lambda, Bun, Deno
+- **App backend client** (`createThingdAppClient`) — project-user auth and named actions for hosted mobile/web apps
 - **CLI** (`@thingd/cli`) — TUI dashboard, 30+ subcommands (search, objects, events, queues, export/import/snapshot/backup, doctor, bench, db maintenance). Support for importing from Postgres/MySQL via sidecar REST.
-- **MCP server** — 36 tools, stdio + Streamable HTTP, audit events, collection allowlists, read-only mode (tool count defined in packages/thingd/src/constants.ts)
+- **MCP server** — 46 SDK tools, stdio + Streamable HTTP, audit events, collection allowlists, and read-only mode; the Rust sidecar exposes 36 core tools (scheduler tools are SDK-only)
 - **Docker** — multi-stage image, compose + K8s for leader/follower cluster
 - **CI/tooling** — semantic-release, biome, lefthook, doc tests, cargo audit, cargo deny, CodeQL
 
 ### What's next
 
-- In-process vector search with HNSW (Fjall) + cosine similarity (memory)
-- Browser and edge runtime via WASM compilation
-- Leader/follower clustering for high availability
+- HNSW/ANN vector indexing for larger datasets; durable vector search is currently a brute-force cosine scan
+- Additional deployment integrations and operational hardening
+- Browser and edge runtime packaging via WASM
 
 The default public Node.js SDK path uses the TypeScript in-memory store for
-API exploration and local integration tests. The Rust core has Fjall-backed
-object, event, and queue persistence (pure Rust LSM-tree, 100K+ ops/s). Node apps can
+API exploration and local integration tests. The Rust core has persistent
+object, event, and queue storage. Node apps can
 use the cloud driver to talk to a `thingd` sidecar through `THINGD_URL`.
 
 For browsers, edge runtimes, and non-Node.js environments, use the standalone
@@ -136,7 +137,7 @@ npm install @thingd/sdk
 
 ```toml
 [dependencies]
-thingd = { version = "0.70", features = ["fjall", "search"] }
+thingd = { version = "0.71", features = ["persistent", "search"] }
 ```
 
 ### Subpath imports
@@ -201,7 +202,7 @@ const hits = await db.search("why did we choose rust?", {
 });
 ```
 
-For the local Rust-backed SQLite path, build the private native package and
+For the local Rust-backed persistent path, build the native package and
 request the native driver:
 
 ```bash
@@ -434,7 +435,7 @@ const hits = await db.search("customers who upgraded after a failed deployment",
 
 ## MCP-native access
 
-thingd ships with 36 built-in MCP tools (search,
+thingd ships with 46 SDK MCP tools (search,
 objects, events, queues, links, aggregate, schema, NLQ, vector). Every primitive is accessible through stdio
 or Streamable HTTP — see the [MCP tools reference](docs/api-spec/mcp-tools.md)
 for all tools with schemas and examples.
@@ -487,10 +488,10 @@ The long-term deployment model has two simple modes:
 
 ```txt
 embedded:
-  Node app -> native Rust binding -> SQLite file
+  Node app -> native Rust binding -> persistent storage directory
 
 sidecar:
-  Node app -> localhost thingd sidecar -> SQLite file
+  Node app -> localhost thingd sidecar -> persistent storage directory
 ```
 
 Cluster mode should be owned by the sidecar, not by app code:
@@ -558,10 +559,10 @@ Rust core (crates/thingd)
   |-- object store
   |-- event log
   |-- queue engine
-  |-- search indexes (Tantivy FTS + embedvec vector)
+  |-- search indexes (Tantivy FTS + vector index)
   |-- storage adapters
       |-- MemoryEngine (cache, WASM)
-      |-- FjallEngine (persistent LSM-tree)
+      |-- PersistentEngine (durable local storage)
 ```
 
 Package layout:
@@ -662,7 +663,7 @@ pnpm rust:clippy
 pnpm test
 ```
 
-Rust checks run all crate features, including the SQLite adapter:
+Rust checks run all crate features, including the persistent adapter:
 
 ```bash
 pnpm rust:check

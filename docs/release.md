@@ -2,6 +2,10 @@
 
 `thingd` uses semantic-release to publish three npm packages (`@thingd/sdk`, `@thingd/cli`, `@thingd/native`).
 
+The hosted app-backend client is released as part of the public client package.
+Deploy its compatible Cloud API only after the public contract release and the
+Cloud compatibility matrix has been updated.
+
 ## Versioning
 
 Versions follow standard SemVer through conventional commits:
@@ -50,6 +54,13 @@ The release workflow runs on:
 
 It validates the same checks, then publishes to npm when the `NPM_TOKEN` repository secret exists.
 
+## Branch and pull request workflow
+
+Create feature branches from `development` and target all pull requests at
+`development`. Do not open pull requests directly against `main`. Once the
+integrated changes are ready for release, manually merge `development` into
+`main`; production deployment and publishing remain restricted to `main`.
+
 Before configuring `NPM_TOKEN`, use the local package smoke test:
 
 ```bash
@@ -83,7 +94,7 @@ On every release, the workflow publishes `thingd` to [crates.io](https://crates.
 
 ```toml
 [dependencies]
-thingd = { version = "0.41", features = ["fjall", "search"] }
+thingd = { version = "0.71", features = ["persistent", "search"] }
 ```
 
 The publish runs in parallel with npm and Docker publishing.
@@ -92,7 +103,7 @@ The publish runs in parallel with npm and Docker publishing.
 
 On every release, the workflow builds and pushes a Docker image to [Docker Hub](https://hub.docker.com/r/sayanmohsin/thingd):
 
-- `sayanmohsin/thingd:<version>` — tagged with the exact SemVer (e.g., `v0.19.0`)
+- `sayanmohsin/thingd:<version>` — tagged with the exact SemVer (e.g., `v0.71.0`)
 - `sayanmohsin/thingd:latest` — always points to the latest release
 
 Pull the image:
@@ -101,7 +112,7 @@ Pull the image:
 docker pull sayanmohsin/thingd
 ```
 
-The Docker image includes the native SQLite driver pre-built for `linux-x64`.
+The Docker image includes the native persistent driver pre-built for supported Linux targets.
 See [docker-context/Dockerfile](../docker-context/Dockerfile) and [deploy/docker-compose.yml](../deploy/docker-compose.yml) for the runtime shape.
 
 Release packaging intentionally avoids `workspace:*` dependency specs in `package.json` files. The repo uses pnpm for development, but `@semantic-release/exec` calls the npm CLI internally during version bumps, and npm rejects pnpm-only workspace protocol dependencies.

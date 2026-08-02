@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "dev": "vitepress dev",
+    "prebuild": "node ../scripts/generate-doc-metadata.mjs",
     "build": "vitepress build",
     "preview": "vitepress preview"
   },

@@ -6,13 +6,13 @@ Read this file before making integration changes. It explains the current projec
 
 ## Current State
 
-`thingd` is an early open source project. The public Node.js API is real enough to test locally, and the default path still uses the TypeScript in-memory store. The Rust core has durable storage with a feature-gated SQLite adapter for objects, events, and queues.
+`thingd` is an open source project. The public Node.js API is real enough to test locally, and the default path still uses the TypeScript in-memory store. The Rust core has durable persistent storage for objects, events, queues, search, and vectors.
 
 Current implementation:
 
 - `packages/thingd` exposes the Node.js SDK.
 - `packages/thingd/src/stores/in-memory-thing-store.ts` is the current in-memory store.
-- `crates/thingd` contains the Rust storage boundary, in-memory Rust engine, and `SqliteThingStore` behind the `sqlite` feature.
+- `crates/thingd` contains the Rust storage boundary, in-memory Rust engine, and `PersistentEngine` behind the `persistent` feature.
 - `packages/thingd-native` is a private N-API binding for local native driver testing.
 - `packages/thingd/src/client/http-thing-store.ts` lets the SDK talk to a sidecar over HTTP REST.
 - `packages/thingd-cli` exposes the visual TUI dashboard, non-interactive CLI commands, and integrated stdio and Streamable HTTP MCP servers.
@@ -26,7 +26,7 @@ Do not present the public Node package as production-ready persistent storage ye
 `thingd` is meant to feel like:
 
 ```txt
-SQLite-simple local deployment
+simple persistent local deployment
 + object-shaped app memory
 + events and timelines
 + durable queues
@@ -38,7 +38,7 @@ There are two runtime modes:
 
 ```txt
 embedded mode:
-  Node.js app -> native Rust binding -> local thingd file
+  Node.js app -> native Rust binding -> local persistent directory
 
 server/sidecar mode:
   Node.js app -> HTTP/gRPC/Unix socket -> thingd server -> local thingd file
@@ -47,8 +47,11 @@ cluster sidecar mode:
   Node.js app -> localhost thingd sidecar -> leader/follower thingd cluster
 ```
 
-Current Node.js code uses the TypeScript in-memory proof layer by default.
-The Rust crate includes `SqliteThingStore` for object, event, and queue persistence, including delayed jobs, configurable lease expiration, retry delay, dead-letter state, and schema migration guardrails. The SDK can opt into the private native bridge with `driver: "native"` after `thingd-native` is built locally.
+Current Node.js code uses the TypeScript in-memory store by default. Durable
+local persistence uses the native persistent adapter through `driver: "native"`
+after `thingd-native` is built locally. The deprecated SQLite adapter remains
+available only for historical compatibility and is not the current runtime
+model.
 The SDK can opt into sidecar mode with `driver: "cloud"` or automatically when
 `THINGD_URL` is set.
 The HTTP MCP runtime can run as a bridge follower and forward MCP traffic to a
@@ -266,7 +269,7 @@ crates/thingd
   EventLog
   QueueStore
   ThingStore
-  SqliteThingStore behind the sqlite feature
+  PersistentEngine behind the persistent feature
 ```
 
 Do not introduce a second app-facing API from the native package. The native path should pass the same SDK tests that the in-memory store passes.
@@ -315,7 +318,7 @@ pnpm rust:clippy
 pnpm test:rust
 ```
 
-Rust checks run with all features enabled so the SQLite adapter is covered in CI.
+Rust checks run with all features enabled so the persistent adapter is covered in CI.
 
 `pnpm test:local` does not run Rust checks because some local environments may not have `cargo` installed.
 
@@ -336,4 +339,4 @@ pnpm bench:rust:smoke
 - Adding npm publish assumptions before `NPM_TOKEN` is configured.
 - Using queue consumers without idempotency keys for repeatable work.
 - Assuming `ThingD.open("./thingd.db")` persists. Use `driver: "native"` for
-  embedded SQLite or `THINGD_URL` for sidecar mode.
+  embedded persistent or `THINGD_URL` for sidecar mode.

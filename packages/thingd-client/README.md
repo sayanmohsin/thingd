@@ -36,6 +36,29 @@ const client = new ThingdClient({
 });
 ```
 
+### Mobile and web app backends
+
+Use the app client for a project-user backend. It works with browsers,
+React Native/Expo, Node.js, and other runtimes with `fetch`:
+
+```ts
+import { createThingdAppClient } from "@thingd/client";
+
+const app = createThingdAppClient({
+  baseUrl: "https://api.thingd.cloud",
+  publishableKey: "pk_...",
+});
+
+await app.auth.signUp({ email, password, name });
+const profile = await app.functions.invoke("createProfile", { timezone: "UTC" }, {
+  idempotencyKey: "profile:create:user-1",
+});
+```
+
+The publishable key is safe for app bundles. Do not use a secret Cloud API key
+or engine runtime token in a browser or mobile application. See
+`docs/app-backend.md` for the public contract.
+
 ### Objects
 
 ```ts

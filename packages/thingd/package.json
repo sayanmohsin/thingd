@@ -1,6 +1,6 @@
 {
   "name": "@thingd/sdk",
-  "version": "0.70.0",
+  "version": "0.71.0",
   "description": "A fast object-first data engine for applications and AI agents.",
   "type": "module",
   "author": "Sayan Mohsin",
@@ -18,7 +18,6 @@
     "memory",
     "queue",
     "durable-queues",
-    "fjall",
     "rust",
     "local-first",
     "data-engine",

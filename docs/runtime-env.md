@@ -22,7 +22,7 @@ THINGD_DRIVER=native
 ```
 
 `THINGD_DRIVER` can be `memory` or `native`. Use `native` for the Rust-backed
-SQLite store after the native package has been built into the runtime image.
+persistent store after the native package has been built into the runtime image.
 
 ## HTTP
 
@@ -69,14 +69,18 @@ server:
   database: "/data/thingd.db"
   production_mode: false
 auth:
-  token: ""
-  allow_unauthenticated: true
+  token: "change-me-with-a-random-token"
+  allow_unauthenticated: false
 hardening:
   cors_allowed_origins:
     - "http://localhost:8757"
   rate_limit_enabled: true
   rate_limit_requests_per_minute: 300
   max_payload_bytes: 524288
+  max_connector_file_bytes: 67108864
+  connector_file_root: "/srv/thingd/imports"
+  connector_allowed_hosts: ["db.internal.example"]
+  connector_require_tls: true
 ```
 
 ## MCP Audit
@@ -141,7 +145,7 @@ kubernetes  derive a service URL from THINGD_CLUSTER_SERVICE and namespace
 
 Current bridge behavior: followers forward MCP traffic to the leader. Follower
 local replica catch-up polls the leader every 500ms and applies replicated
-events to the local SQLite database. If `THINGD_CLUSTER_LEADER_FALLBACK_URL` is
+events to the local persistent runtime. If `THINGD_CLUSTER_LEADER_FALLBACK_URL` is
 set, the follower falls back to that URL when the primary leader is unreachable.
 
 ### Leader Election (static config)

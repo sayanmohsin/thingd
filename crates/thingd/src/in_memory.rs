@@ -839,6 +839,12 @@ impl crate::store::VectorStore for MemoryEngine {
         query_vector: &[f32],
         options: VectorSearchOptions,
     ) -> ThingdResult<Vec<VectorSearchHit>> {
+        if query_vector.is_empty() {
+            return Err(ThingdError::InvalidInput(
+                "query vector must not be empty".to_string(),
+            ));
+        }
+
         let mut hits: Vec<VectorSearchHit> = Vec::new();
 
         for ((col, id), vec) in &self.vectors {
@@ -849,6 +855,14 @@ impl crate::store::VectorStore for MemoryEngine {
             let Some(object) = self.objects.get(&ObjectKey::new(col, id)) else {
                 continue;
             };
+
+            if vec.len() != query_vector.len() {
+                return Err(ThingdError::InvalidInput(format!(
+                    "query vector dimension {} does not match stored vector dimension {}",
+                    query_vector.len(),
+                    vec.len()
+                )));
+            }
 
             if let Some(ref filter) = options.filter
                 && !matches_filter_memory(&object.body, filter)
@@ -1921,6 +1935,30 @@ mod tests {
             .vector_search("docs", &[1.0, 0.0, 0.0], VectorSearchOptions::default())
             .unwrap();
         assert!(results.is_empty());
+    }
+
+    #[test]
+    fn vector_search_rejects_dimension_mismatch() {
+        let mut engine = MemoryEngine::new();
+        engine
+            .put_object(MemoryObject::new("docs", "a", "{}").with_vector(vec![1.0, 0.0]))
+            .unwrap();
+
+        let error = engine
+            .vector_search("docs", &[1.0, 0.0, 0.0], VectorSearchOptions::default())
+            .unwrap_err();
+        assert!(
+            matches!(error, ThingdError::InvalidInput(message) if message.contains("dimension"))
+        );
+    }
+
+    #[test]
+    fn vector_search_rejects_empty_query() {
+        let engine = MemoryEngine::new();
+        let error = engine
+            .vector_search("docs", &[], VectorSearchOptions::default())
+            .unwrap_err();
+        assert!(matches!(error, ThingdError::InvalidInput(message) if message.contains("empty")));
     }
 
     #[test]

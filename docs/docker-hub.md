@@ -38,7 +38,7 @@ Without an auth token, the server only binds to loopback (127.0.0.1). Setting `T
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `THINGD_PATH` | `/data/thingd.db` | Path to the SQLite database file |
+| `THINGD_PATH` | `/data/thingd.db` | Path to the persistent database directory |
 | `THINGD_DRIVER` | `native` | Storage driver (`native` or `memory`) |
 | `THINGD_HOST` | `0.0.0.0` | Bind address |
 | `THINGD_PORT` | `8757` | HTTP server port |
@@ -115,7 +115,7 @@ docker run -p 8757:8757 \
   sayanmohsin/thingd
 ```
 
-See [sidecar-cluster.md](https://github.com/sayanmohsin/thingd/blob/main/docs/sidecar-cluster.md) for full cluster documentation.
+See [runtime-env.md](./runtime-env.md) and [mcp-server.md](./mcp-server.md) for the public cluster and runtime configuration reference.
 
 ## Kubernetes
 

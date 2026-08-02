@@ -603,8 +603,8 @@ pub trait VectorStore {
     ///
     /// # Errors
     ///
-    /// Returns an error when the query vector dimension does not match
-    /// stored vectors.
+    /// Returns an error when the query vector is empty or its dimension does
+    /// not match stored vectors.
     fn vector_search(
         &self,
         collection: &str,

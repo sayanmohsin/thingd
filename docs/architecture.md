@@ -24,10 +24,7 @@ pub fn create_engine(db_path: &str) -> Result<Box<dyn ThingStore + Send>> {
     if db_path == ":memory:" || db_path.is_empty() {
         return Ok(Box::new(MemoryEngine::new()));
     }
-    if is_fjall_path(db_path) {
-        return Ok(Box::new(FjallEngine::open(db_path)?));
-    }
-    Ok(Box::new(FjallEngine::open(db_path)?))
+    Ok(Box::new(PersistentEngine::open(db_path)?))
 }
 ```
 
@@ -36,22 +33,22 @@ pub fn create_engine(db_path: &str) -> Result<Box<dyn ThingStore + Send>> {
 thingd ships with two backends. A third backend means implementing the six traits:
 
 ```
-Native binary:    Fjall (persistent LSM-tree) + InMemory (cache/warm)
+Native binary:    PersistentEngine (durable local storage) + MemoryEngine (cache/warm)
 WASM binary:      InMemory (browser/edge, no file I/O available)
 ```
 
 | Backend | Type | Persist | WASM | Use case |
 |---------|------|---------|------|----------|
 | **MemoryEngine** | `BTreeMap` + `Vec` | No | Yes | Cache, WASM, testing ~675K ops/s |
-| **FjallEngine** | LSM-tree (pure Rust) | Yes (WAL) | No | Production, multi-GB datasets, 100K+ ops/s |
+| **PersistentEngine** | durable local storage | Yes | No | Production and single-node deployments |
 
-No SQLite. No RocksDB. No redb. Two backends. Pure Rust.
+### persistent storage layout
 
-### Fjall partition layout
+The persistent engine stores objects, events, queues, links, search data, and vectors
+under one configured storage directory. The layout is an implementation detail and
+may change between engine versions:
 
-A single `fjall::Database` directory holds all data in isolated keyspaces:
-
-| Keyspace | Key format | Value | Operations |
+| Area | Key format | Value | Operations |
 |----------|-----------|-------|------------|
 | `objects` | `{collection}\0{id}` | serialized `MemoryObject` | prefix scan by collection, point get/put/delete |
 | `events` | `{stream}\0{seq:8BE}` | serialized `MemoryEvent` | prefix scan by stream, sequence counter |
@@ -60,22 +57,14 @@ A single `fjall::Database` directory holds all data in isolated keyspaces:
 | `links_from` | `{from_ref}\0{type}\0{link_id}` | `()` | prefix scan for outgoing neighbors |
 | `links_to` | `{to_ref}\0{type}\0{link_id}` | `()` | prefix scan for incoming neighbors |
 
-Prefix scans enable efficient collection-scoped queries. The `objects` partition's `{collection}\0{id}` key layout turns `list_objects("users")` into a fast prefix iteration without a full scan.
+Callers should use the public store traits and backup/restore commands rather than
+depending on internal files or directory entries.
 
-### Why Fjall over SQLite
-
-- LSМ-tree architecture handles 100K+ write ops/s (SQLite bottlenecks at ~50K)
-- Pure Rust — zero C dependencies, `cargo build` just works
-- No cmake, no C toolchain, no ARM cross-compile pain
-- ~3-5MB binary overhead vs SQLite's bundled C (also ~3-5MB)
-- Daily development with active benchmarks and performance tracking
-- MVCC snapshots for concurrent readers
-
-The `ThingStore` trait ensures the storage backend is invisible above the engine layer. If a better backend emerges, implement the six traits and swap.
+The `ThingStore` trait ensures the storage backend is invisible above the engine layer. If a different persistence implementation emerges, it can implement the six traits without changing callers.
 
 ## Full-text search: Tantivy
 
-thingd uses **Tantivy** (pure Rust, BM25 ranking) for full-text search, replacing the SQLite FTS5 that was tied to the old SQLite backend.
+thingd uses **Tantivy** (pure Rust, BM25 ranking) for full-text search.
 
 ```
 Search index directory:  {data_dir}/search/
@@ -84,22 +73,22 @@ On delete:              remove from Tantivy
 On startup:             verify index consistency, rebuild if stale
 ```
 
-Tantivy is always available with the Fjall backend. Feature-gated with `search`.
+Tantivy is used by the persistent backend for full-text search and is feature-gated
+with `search`.
 
-## Vector search: embedvec
+## Vector search: persisted cosine similarity
 
-thingd integrates **embedvec** (0.8.0+) for semantic vector search, using the same Fjall database instance for HNSW graph persistence.
+thingd stores optional object vectors in persistent storage and ranks matches by cosine similarity. The current implementation scans the collection exactly; HNSW/ANN is a future scale milestone.
 
 ```
-embedvec:   HNSW index persisted in Fjall partitions
-Features:   metadata filtering, E8/H4 lattice quantization (up to 24.8x compression)
+Storage:    vectors persisted alongside objects
+Features:   metadata filtering and exact cosine ranking
 Use case:   agent semantic memory, similarity search over embeddings
-WASM:       embedvec has a `wasm` feature for in-memory vector search in browsers
+WASM:       in-memory vector search remains the browser-compatible path
 ```
 
 New MCP tools when vectors are enabled:
 
-- `thing_vector_upsert` — store embedding + metadata reference to an object
 - `thing_vector_search` — kNN search by embedding vector with optional metadata filter
 
 Vector search is additive — it doesn't replace keyword FTS. Search queries can combine both signals.
@@ -123,7 +112,7 @@ Future: an IndexedDB persist adapter for browser WASM, enabling cross-session du
 
 ## MCP server
 
-thingd ships **36 MCP tools** across objects, events, queues, search, graph links, aggregation, schema, and NLQ. Every tool goes through the same `ThingStore` trait — the backend choice is invisible to the agent.
+The Node SDK MCP server ships **46 tools** across objects, events, queues, search, graph links, aggregation, schema, NLQ, vectors, and scheduling. The Rust sidecar ships 36 engine tools; every sidecar tool goes through the same `ThingStore` trait.
 
 ```
 Object CRUD:    thing_get, thing_put, thing_delete, thing_objects_list
@@ -160,25 +149,25 @@ See [mcp-server.md](./mcp-server.md) for the full reference.
 │  ┌──────┴───────────────┴──────────────────┴────────────────┐ │
 │  │                ThingStore trait (6 sub-traits)             │ │
 │  └──────┬───────────────────────────────┬────────────────────┘ │
-│         │ InMemory                     │ Fjall                 │
+│         │ InMemory                     │ persistent                 │
 │         │ (cache, WASM)                │ (production, persist) │
-│         │ ~675K ops/s                  │ ~100K+ ops/s + WAL    │
+│         │ in-memory speed              │ durable local storage  │
 │         │ + Tantivy (FTS)              │ + Tantivy (FTS)       │
-│         │ + embedvec (vectors, WASM)   │ + embedvec (vectors)  │
+│         │ + in-memory vectors          │ + persistent vectors       │
 │         └──────────────────────────────┘───────────────────────┘
 ```
 
 | Mode | How | Backend |
 |------|-----|---------|
-| **Rust embedded** | `use thingd::{FjallEngine, ObjectStore}` | Fjall or InMemory |
-| **Node.js embedded** | `new ThingD({driver:"native"})` | Fjall or InMemory |
-| **MCP sidecar** | `thingd mcp` | Fjall (persisted) |
-| **REST sidecar** | `thingd-server` (axum) | Fjall (persisted) |
-| **Docker** | `docker run thingd/thingd-server` | Fjall (persistent volume) |
+| **Rust embedded** | `use thingd::{PersistentEngine, ObjectStore}` | persistent or InMemory |
+| **Node.js embedded** | `new ThingD({driver:"native"})` | persistent or InMemory |
+| **MCP sidecar** | `thingd mcp` | PersistentEngine |
+| **REST sidecar** | `thingd-server` (axum) | PersistentEngine |
+| **Docker** | `docker run thingd/thingd-server` | PersistentEngine on a persistent volume |
 | **Browser/edge** | `@thingd/client` + SDK memory store | InMemory |
 | **WASM agent** | compiled to `wasm32-unknown-unknown` | InMemory |
-| **Cluster** | leader/follower via Raft (`open-raft`) | Fjall + Raft log |
-| **thingd.cloud** | managed hosted | Fjall per workspace |
+| **Cluster** | leader/follower via Raft (`open-raft`) | persistent + Raft log |
+| **thingd.cloud** | managed hosted | persistent per workspace |
 
 ## Multi-pod / clustering
 
@@ -191,13 +180,14 @@ Followers:  serve read queries, forward writes to leader
 
 Queue operations (`claim_job`, `ack_job`) require linearizability — they go through the leader. Read operations (`get_object`, `search`) dispatch to any follower.
 
-Raft log is stored in the same Fjall database. The state machine is the `ThingStore` trait — clustering wraps it, not replaces it.
+The cluster log is stored alongside the persistent data. The state machine is the
+`ThingStore` trait — clustering wraps it, not replaces it.
 
 ## Package layout
 
 ```
 crates/
-  thingd/              Rust engine — traits, InMemory, Fjall, Tantivy, embedvec
+  thingd/              Rust engine — traits, InMemory, persistent, Tantivy, vectors
   thingd-server/       Rust sidecar — axum REST + MCP + cluster
 
 packages/
