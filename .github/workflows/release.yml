@@ -98,6 +98,7 @@ jobs:
         if: ${{ matrix.rust_target != '' }}
         run: rustup target add "${{ matrix.rust_target }}"
       - name: Build native library
+        shell: bash
         env:
           RUST_TARGET: ${{ matrix.rust_target }}
         run: |
