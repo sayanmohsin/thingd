@@ -29,6 +29,9 @@ importers:
       '@semantic-release/github':
         specifier: 12.0.9
         version: 12.0.9(semantic-release@25.0.8(typescript@7.0.2))
+      '@semantic-release/npm':
+        specifier: ^13.1.0
+        version: 13.1.5(semantic-release@25.0.8(typescript@7.0.2))
       '@semantic-release/release-notes-generator':
         specifier: 14.1.1
         version: 14.1.1(semantic-release@25.0.8(typescript@7.0.2))
@@ -64,7 +67,7 @@ importers:
         version: 4.4.3
     optionalDependencies:
       '@thingd/native':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../thingd-native
 
   packages/thingd-cli:
@@ -73,7 +76,7 @@ importers:
         specifier: ^1.29.0
         version: 1.29.0(zod@4.4.3)
       '@thingd/sdk':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../thingd
       cli-table3:
         specifier: ^0.6.5

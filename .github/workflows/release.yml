@@ -17,7 +17,6 @@ concurrency:
 permissions:
   contents: write
   issues: write
-  pull-requests: write
   id-token: write
 
 env:
@@ -26,115 +25,38 @@ env:
   NPM_CONFIG_FUND: "false"
 
 jobs:
-  classify_release:
-    name: Classify main update
-    if: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}
+  release-plan:
+    name: Calculate semantic-release plan
     runs-on: ubuntu-latest
     outputs:
-      release_merge: ${{ steps.classify.outputs.release_merge }}
-      version: ${{ steps.classify.outputs.version }}
-    steps:
-      - name: Classify event
-        id: classify
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RETRY_VERSION: ${{ inputs.publish_version }}
-        run: |
-          if [ -n "$RETRY_VERSION" ]; then
-            echo "release_merge=true" >> "$GITHUB_OUTPUT"
-            echo "version=$RETRY_VERSION" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          RELEASE_REF=$(gh api \
-            "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/pulls" \
-            --jq 'map(select(.base.ref == "main")) | .[0].head.ref // ""')
-          if [[ "$RELEASE_REF" == release/v* ]]; then
-            echo "release_merge=true" >> "$GITHUB_OUTPUT"
-            echo "version=${RELEASE_REF#release/v}" >> "$GITHUB_OUTPUT"
-          else
-            echo "release_merge=false" >> "$GITHUB_OUTPUT"
-            echo "version=" >> "$GITHUB_OUTPUT"
-          fi
-
-  prepare-release-pr:
-    name: Prepare release PR
-    needs: classify_release
-    if: ${{ needs.classify_release.outputs.release_merge != 'true' }}
-    runs-on: ubuntu-latest
+      needed: ${{ steps.plan.outputs.needed }}
+      retry: ${{ steps.plan.outputs.retry }}
+      version: ${{ steps.plan.outputs.version }}
+      ref: ${{ steps.plan.outputs.ref }}
     steps:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
           fetch-tags: true
           ref: main
-
       - uses: pnpm/action-setup@v6
-
       - uses: actions/setup-node@v6
         with:
           node-version: 24
           cache: pnpm
-
       - run: pnpm install --frozen-lockfile
-
       - name: Calculate release plan
         id: plan
-        run: |
-          node scripts/prepare-release-pr.mjs --plan --json release-plan.json
-          echo "needed=$(jq -r '.needed' release-plan.json)" >> "$GITHUB_OUTPUT"
-          echo "version=$(jq -r '.version // empty' release-plan.json)" >> "$GITHUB_OUTPUT"
-
-      - name: Create release branch and PR
-        if: ${{ steps.plan.outputs.needed == 'true' }}
         env:
-          GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ steps.plan.outputs.version }}
-        run: |
-          BRANCH="release/v${VERSION}"
-          BODY_FILE="release-notes.md"
-          jq -r '.notes' release-plan.json > "$BODY_FILE"
-
-          if [ "$(gh pr list --repo "$GITHUB_REPOSITORY" --state open --head "$BRANCH" --json number --jq 'length')" -gt 0 ]; then
-            echo "Release PR $BRANCH already exists"
-            exit 0
-          fi
-
-          if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1; then
-            git fetch origin "$BRANCH"
-            gh pr create \
-              --repo "$GITHUB_REPOSITORY" \
-              --base main \
-              --head "$BRANCH" \
-              --title "chore(release): v${VERSION}" \
-              --body-file "$BODY_FILE"
-            exit 0
-          fi
-
-          git switch --create "$BRANCH" origin/main
-          node scripts/prepare-release-pr.mjs --apply --plan-file release-plan.json
-          rm -f release-plan.json
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add CHANGELOG.md Cargo.toml README.md \
-            crates/thingd/README.md crates/thingd-server/Cargo.toml \
-            packages/thingd/package.json packages/thingd/src/version.ts \
-            packages/thingd-cli/package.json packages/thingd-native/package.json \
-            packages/thingd-native/Cargo.toml packages/thingd-client/package.json
-          git commit -m "chore(release): v${VERSION}"
-          git push origin "$BRANCH"
-          gh pr create \
-            --repo "$GITHUB_REPOSITORY" \
-            --base main \
-            --head "$BRANCH" \
-            --title "chore(release): v${VERSION}" \
-            --body-file "$BODY_FILE"
-          rm -f "$BODY_FILE"
+          GITHUB_TOKEN: ${{ github.token }}
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          RETRY_VERSION: ${{ inputs.publish_version }}
+        run: node scripts/semantic-release-plan.mjs
 
   build-native:
     name: Build native (${{ matrix.platform }}-${{ matrix.arch }})
-    needs: classify_release
-    if: ${{ needs.classify_release.outputs.release_merge == 'true' }}
+    needs: release-plan
+    if: ${{ needs.release-plan.outputs.needed == 'true' }}
     strategy:
       fail-fast: false
       matrix:
@@ -159,7 +81,7 @@ jobs:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
-          ref: main
+          ref: ${{ needs.release-plan.outputs.ref }}
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
@@ -188,16 +110,19 @@ jobs:
           path: packages/thingd-native/prebuilds/
           retention-days: 1
 
-  publish-packages:
-    name: Publish npm packages
-    needs: [classify_release, build-native]
-    if: ${{ needs.classify_release.outputs.release_merge == 'true' }}
+  publish-release:
+    name: Run semantic-release
+    needs: [release-plan, build-native]
+    if: ${{ needs.release-plan.outputs.needed == 'true' }}
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ needs.release-plan.outputs.version }}
     steps:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
-          ref: main
+          fetch-tags: true
+          ref: ${{ needs.release-plan.outputs.ref }}
       - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v6
         with:
@@ -215,15 +140,23 @@ jobs:
         run: |
           mkdir -p packages/thingd-native/prebuilds
           for dir in prebuild-artifacts/*/; do [ -d "$dir" ] && cp -r "$dir". packages/thingd-native/prebuilds/; done
-      - name: Build and validate npm package artifacts
+      - name: Validate package artifacts
         env:
           REQUIRED_NATIVE_PREBUILDS: "5"
         run: |
           pnpm --filter @thingd/sdk build
           pnpm verify:publish
-      - name: Publish packages if missing
+      - name: Run semantic-release
+        if: ${{ needs.release-plan.outputs.retry != 'true' }}
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: pnpm exec semantic-release
+      - name: Publish existing npm versions on retry
+        if: ${{ needs.release-plan.outputs.retry == 'true' }}
+        env:
+          VERSION: ${{ needs.release-plan.outputs.version }}
         run: |
-          VERSION=$(node -p "require('./packages/thingd/package.json').version")
           publish_if_missing() {
             PACKAGE="$1"
             if npm view "${PACKAGE}@${VERSION}" version >/dev/null 2>&1; then
@@ -239,14 +172,15 @@ jobs:
 
   docker:
     name: Publish Docker image
-    needs: [classify_release, build-native]
-    if: ${{ needs.classify_release.outputs.release_merge == 'true' }}
+    needs: [release-plan, publish-release]
+    if: ${{ needs.release-plan.outputs.needed == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
-          ref: main
+          fetch-tags: true
+          ref: v${{ needs.release-plan.outputs.version }}
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-unknown-linux-musl, x86_64-unknown-linux-musl
@@ -270,11 +204,6 @@ jobs:
       - run: |
           cargo zigbuild -p thingd-server --release --target aarch64-unknown-linux-musl
           cp target/aarch64-unknown-linux-musl/release/thingd-server docker-context/thingd-server-arm64
-      - name: Read version
-        id: version
-        run: |
-          VERSION=$(node -p "require('./packages/thingd/package.json').version")
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
       - uses: docker/setup-buildx-action@v4
       - uses: docker/login-action@v4
         with:
@@ -286,7 +215,7 @@ jobs:
           push: true
           platforms: linux/amd64,linux/arm64
           tags: |
-            sayanmohsin/thingd:v${{ steps.version.outputs.version }}
+            sayanmohsin/thingd:v${{ needs.release-plan.outputs.version }}
             sayanmohsin/thingd:latest
           cache-from: type=gha,scope=thingd-release-image
           cache-to: type=gha,mode=max,scope=thingd-release-image
@@ -295,14 +224,15 @@ jobs:
 
   crates-publish:
     name: Publish crates.io package
-    needs: classify_release
-    if: ${{ needs.classify_release.outputs.release_merge == 'true' }}
+    needs: [release-plan, publish-release]
+    if: ${{ needs.release-plan.outputs.needed == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
-          ref: main
+          fetch-tags: true
+          ref: v${{ needs.release-plan.outputs.version }}
       - uses: dtolnay/rust-toolchain@stable
       - name: Publish crate if missing
         env:
@@ -318,21 +248,21 @@ jobs:
           fi
 
   finalize-release:
-    name: Tag and create GitHub Release
-    needs: [classify_release, publish-packages, docker, crates-publish]
-    if: ${{ needs.classify_release.outputs.release_merge == 'true' }}
+    name: Ensure GitHub Release
+    needs: [release-plan, publish-release, docker, crates-publish]
+    if: ${{ needs.release-plan.outputs.needed == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
           fetch-tags: true
-          ref: main
-      - name: Create tag and GitHub Release if missing
+          ref: v${{ needs.release-plan.outputs.version }}
+      - name: Create GitHub Release if missing
         env:
           GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.release-plan.outputs.version }}
         run: |
-          VERSION=$(node -p "require('./packages/thingd/package.json').version")
           TAG="v${VERSION}"
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             echo "${TAG} already exists"

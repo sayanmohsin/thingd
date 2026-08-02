@@ -44,7 +44,7 @@
     "@modelcontextprotocol/sdk": "^1.29.0",
     "cli-table3": "^0.6.5",
     "picocolors": "^1.1.1",
-    "@thingd/sdk": "workspace:*",
+    "@thingd/sdk": "workspace:^",
     "zod": "^4.4.3"
   },
   "scripts": {
