@@ -1,8 +1,5 @@
 {
-  "generatedFrom": [
-    "packages/thingd/src/mcp/tools.ts",
-    "crates/thingd-server/src/mcp.rs"
-  ],
+  "generatedFrom": ["packages/thingd/src/mcp/tools.ts", "crates/thingd-server/src/mcp.rs"],
   "sdkToolCount": 46,
   "sidecarToolCount": 36,
   "schedulerToolCount": 10,
