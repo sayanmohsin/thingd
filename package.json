@@ -35,6 +35,7 @@
     "test:mcp": "pnpm --filter @thingd/cli test",
     "test:tenant": "cargo build -p thingd-server && bash scripts/test-tenant-isolation.sh ./target/debug/thingd-server",
     "test:node": "pnpm --filter @thingd/sdk test",
+    "verify:publish": "node scripts/verify-publish-artifacts.mjs",
     "examples": "pnpm --filter \"thingd-node-basic-example\" start && pnpm --filter \"thingd-node-stream-example\" start && pnpm --filter \"thingd-node-queue-example\" start",
     "examples:load": "pnpm --filter \"thingd-node-load-example\" start",
     "test:package": "pnpm --filter @thingd/sdk build && node scripts/verify-package.mjs",

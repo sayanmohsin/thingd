@@ -75,6 +75,7 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
+    "prepack": "pnpm build",
     "test": "pnpm build && node --test test/*.test.mjs"
   },
   "engines": {
