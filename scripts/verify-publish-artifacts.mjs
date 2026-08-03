@@ -6,7 +6,7 @@ const rootDir = resolve(cwd());
 const requiredNativePrebuilds = Number.parseInt(process.env.REQUIRED_NATIVE_PREBUILDS ?? "1", 10);
 
 function pack(packageDir) {
-  const result = spawn.sync("pnpm", ["pack", "--dry-run", "--json"], {
+  const result = spawn.sync("pnpm", ["pack", "--json"], {
     cwd: join(rootDir, packageDir),
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
