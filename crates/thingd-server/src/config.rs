@@ -504,6 +504,16 @@ impl Config {
                 .filter(|s| !s.is_empty())
                 .collect();
         }
+        if let Ok(v) = std::env::var("THINGD_CONNECTOR_ALLOWED_HOSTS") {
+            self.hardening.connector_allowed_hosts = v
+                .split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect();
+        }
+        if let Ok(v) = std::env::var("THINGD_CONNECTOR_REQUIRE_TLS") {
+            self.hardening.connector_require_tls = v == "true";
+        }
         if let Ok(v) = std::env::var("THINGD_NLQ_ENABLED") {
             self.nlq.enabled = v == "true";
         }

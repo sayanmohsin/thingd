@@ -37,6 +37,7 @@ skip = [
     { name = "syn", version = "3" },
     { name = "tower-http", version = "0.6" },
     { name = "tower-http", version = "0.7" },
+    { name = "webpki-roots", version = "0.26" },
     { name = "redox_syscall", version = "0.5" },
     { name = "redox_syscall", version = "0.9" },
     { name = "windows-sys", version = "0.48" },

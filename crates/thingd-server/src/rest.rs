@@ -774,7 +774,7 @@ fn validate_connector_access(
             if !hardening
                 .connector_allowed_hosts
                 .iter()
-                .any(|host| host == &auth.host)
+                .any(|host| host == "*" || host == &auth.host)
             {
                 return Err(AppError::forbidden("Connector host is not allowlisted"));
             }
@@ -808,8 +808,9 @@ pub async fn discover_schema(
     let connector = get_connector(&connector_type)?;
     let config = build_connector_config(&connector_type, &body);
     validate_connector_access(&connector_type, &config, &state.hardening_config)?;
-    let schema = connector
-        .discover_schema(&config)
+    let schema = tokio::task::spawn_blocking(move || connector.discover_schema(&config))
+        .await
+        .map_err(|e| AppError::internal(format!("Connector task failed: {e}")))?
         .map_err(|e| AppError::internal(e.to_string()))?;
 
     let columns: Vec<Value> = schema
@@ -848,8 +849,9 @@ pub async fn list_connector_tables(
     let connector = get_connector(&connector_type)?;
     let config = build_connector_config(&connector_type, &body);
     validate_connector_access(&connector_type, &config, &state.hardening_config)?;
-    let tables = connector
-        .list_tables(&config)
+    let tables = tokio::task::spawn_blocking(move || connector.list_tables(&config))
+        .await
+        .map_err(|e| AppError::internal(format!("Connector task failed: {e}")))?
         .map_err(|e| AppError::internal(e.to_string()))?;
 
     ok(json!({ "tables": tables }))
@@ -863,7 +865,9 @@ pub async fn ping_connector(
     let connector = get_connector(&connector_type)?;
     let config = build_connector_config(&connector_type, &body);
     validate_connector_access(&connector_type, &config, &state.hardening_config)?;
-    let result = connector.list_tables(&config);
+    let result = tokio::task::spawn_blocking(move || connector.list_tables(&config))
+        .await
+        .map_err(|e| AppError::internal(format!("Connector task failed: {e}")))?;
     match result {
         Ok(_tables) => ok(json!({ "ok": true, "connector": connector_type })),
         Err(e) => Err(AppError::bad_request(format!("Connection failed: {e}"))),
@@ -880,13 +884,15 @@ pub async fn pull_data(
     let config = build_connector_config(&connector_type, &body);
     validate_connector_access(&connector_type, &config, &state.hardening_config)?;
     let collection = config.collection.clone();
+    let batch_size = config.batch_size;
     let return_objects = body
         .get("returnObjects")
         .and_then(|value| value.as_bool())
         .unwrap_or(false);
 
-    let stream = connector
-        .pull(&config)
+    let stream = tokio::task::spawn_blocking(move || connector.pull(&config))
+        .await
+        .map_err(|e| AppError::internal(format!("Connector task failed: {e}")))?
         .map_err(|e| AppError::internal(e.to_string()))?;
 
     let mut imported = 0u64;
@@ -911,10 +917,10 @@ pub async fn pull_data(
         }
         batch.push(obj);
 
-        if batch.len() >= config.batch_size {
+        if batch.len() >= batch_size {
             g.put_objects_batch(std::mem::take(&mut batch))
                 .map_err(|e| AppError::internal(e.to_string()))?;
-            imported += config.batch_size as u64;
+            imported += batch_size as u64;
         }
     }
 
