@@ -236,14 +236,13 @@ jobs:
       - name: Publish packages if missing
         env:
           VERSION: ${{ needs.release-please.outputs.version }}
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           publish_if_missing() {
             PACKAGE="$1"
             if npm view "${PACKAGE}@${VERSION}" version >/dev/null 2>&1; then
               echo "${PACKAGE}@${VERSION} already exists"
             else
-              pnpm --filter "$PACKAGE" publish --access public --no-git-checks
+              pnpm --filter "$PACKAGE" exec npm publish --access public --provenance
             fi
           }
           publish_if_missing @thingd/sdk
