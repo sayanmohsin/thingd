@@ -219,9 +219,6 @@ jobs:
           registry-url: https://registry.npmjs.org
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" >> .npmrc
-        env:
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
       - uses: actions/download-artifact@v8
         with:
           path: prebuild-artifacts
@@ -239,6 +236,7 @@ jobs:
       - name: Publish packages if missing
         env:
           VERSION: ${{ needs.release-please.outputs.version }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           publish_if_missing() {
             PACKAGE="$1"
