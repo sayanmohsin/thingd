@@ -13,6 +13,13 @@
 - server: harden security boundaries (0961ffe)
 - complete public SDK type exports (8a8889a)
 
+## [0.74.0](https://github.com/sayanmohsin/thingd/compare/thingd-v0.73.1...thingd-v0.74.0) (2026-08-03)
+
+
+### Features
+
+* add scalable tenant JWT authentication ([#100](https://github.com/sayanmohsin/thingd/issues/100)) ([cb6ffca](https://github.com/sayanmohsin/thingd/commit/cb6ffcaaf50bdf3bfeceadf6cdbadc7bbe6db9e8))
+
 ## [0.73.1](https://github.com/sayanmohsin/thingd/compare/thingd-v0.73.0...thingd-v0.73.1) (2026-08-02)
 
 
