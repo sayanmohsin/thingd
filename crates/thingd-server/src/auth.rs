@@ -208,27 +208,21 @@ pub async fn auth_middleware(
         .map(|s| s.to_string());
 
     if state.tenant_config.mode == crate::config::TenantMode::MultiTenant
-        && state.auth_verifier.is_some()
+        && let Some(verifier) = state.auth_verifier.as_ref()
     {
         let token = provided
             .as_deref()
             .ok_or_else(|| AppError::unauthorized("Missing or invalid Bearer token"))?;
-        let tenant_id = state
-            .auth_verifier
-            .as_ref()
-            .expect("checked above")
-            .tenant_id(token)
-            .await?;
+        let tenant_id = verifier.tenant_id(token).await?;
         if let Some(header_tenant) = req
             .headers()
             .get(&state.tenant_config.header)
             .and_then(|value| value.to_str().ok())
+            && header_tenant.trim() != tenant_id
         {
-            if header_tenant.trim() != tenant_id {
-                return Err(AppError::unauthorized(
-                    "Tenant identity does not match token",
-                ));
-            }
+            return Err(AppError::unauthorized(
+                "Tenant identity does not match token",
+            ));
         }
         let header_name: HeaderName = state
             .tenant_config
