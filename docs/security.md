@@ -38,13 +38,29 @@ export THINGD_AUTH_TOKEN="your-secure-token-here-min-16-chars"
 
 **Multi-tenant mode:**
 
-Multi-tenant mode requires per-tenant bearer tokens; a caller-supplied tenant
-header is not an authorization mechanism by itself.
+Multi-tenant mode supports either static per-tenant bearer tokens or
+`tenant-jwt` authentication. For hosted gateways, `tenant-jwt` is preferred:
+the engine validates a signed tenant claim from the configured JWKS endpoint,
+and a caller-supplied tenant header is never trusted by itself.
 
 ```yaml
 tenant:
   mode: multi-tenant
 auth:
+  mode: tenant-jwt
+  jwks_url: "https://cloud.example/.well-known/jwks.json"
+  issuer: "https://cloud.example"
+  audience: "thingd-runtime"
+  tenant_claim: tenant_id
+```
+
+Static self-hosted configuration remains available:
+
+```yaml
+tenant:
+  mode: multi-tenant
+auth:
+  mode: bearer
   tenant_tokens:
     tenant-a: "tenant-a-token-min-16-chars"
     tenant-b: "tenant-b-token-min-16-chars"

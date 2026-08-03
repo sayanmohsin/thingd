@@ -45,11 +45,32 @@ pub struct ServerConfig {
 #[derive(Default)]
 pub struct AuthConfig {
     #[serde(default)]
+    pub mode: AuthMode,
+    #[serde(default)]
     pub token: String,
     #[serde(default)]
     pub allow_unauthenticated: bool,
     #[serde(default)]
     pub tenant_tokens: HashMap<String, String>,
+    #[serde(default)]
+    pub jwks_url: String,
+    #[serde(default)]
+    pub issuer: String,
+    #[serde(default)]
+    pub audience: String,
+    #[serde(default = "default_auth_tenant_claim")]
+    pub tenant_claim: String,
+    #[serde(default = "default_auth_jwks_cache_secs")]
+    pub jwks_cache_secs: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub enum AuthMode {
+    #[default]
+    #[serde(rename = "bearer")]
+    Bearer,
+    #[serde(rename = "tenant-jwt")]
+    TenantJwt,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -305,6 +326,14 @@ fn default_tenant_header() -> String {
 fn default_tenant_db_prefix() -> String {
     "/data/".into()
 }
+
+fn default_auth_tenant_claim() -> String {
+    "tenant_id".into()
+}
+
+fn default_auth_jwks_cache_secs() -> u64 {
+    300
+}
 fn default_mcp_path() -> String {
     "/mcp".into()
 }
@@ -380,6 +409,29 @@ impl Config {
         }
         if let Ok(v) = std::env::var("THINGD_AUTH_TOKEN") {
             self.auth.token = v;
+        }
+        if let Ok(v) = std::env::var("THINGD_AUTH_MODE") {
+            self.auth.mode = match v.as_str() {
+                "tenant-jwt" => AuthMode::TenantJwt,
+                _ => AuthMode::Bearer,
+            };
+        }
+        if let Ok(v) = std::env::var("THINGD_AUTH_JWKS_URL") {
+            self.auth.jwks_url = v;
+        }
+        if let Ok(v) = std::env::var("THINGD_AUTH_ISSUER") {
+            self.auth.issuer = v;
+        }
+        if let Ok(v) = std::env::var("THINGD_AUTH_AUDIENCE") {
+            self.auth.audience = v;
+        }
+        if let Ok(v) = std::env::var("THINGD_AUTH_TENANT_CLAIM") {
+            self.auth.tenant_claim = v;
+        }
+        if let Ok(v) = std::env::var("THINGD_AUTH_JWKS_CACHE_SECS")
+            && let Ok(n) = v.parse()
+        {
+            self.auth.jwks_cache_secs = n;
         }
         if let Ok(v) = std::env::var("THINGD_ALLOW_UNAUTHENTICATED") {
             self.auth.allow_unauthenticated = v == "true";
@@ -522,6 +574,7 @@ impl Config {
                 .is_none()
             && self.auth.token.is_empty()
             && self.auth.tenant_tokens.is_empty()
+            && self.auth.mode != AuthMode::TenantJwt
         {
             return Err("auth.token is required when server.production_mode is true".into());
         }
@@ -529,21 +582,40 @@ impl Config {
         {
             return Err("tenant.database_prefix must not contain '..'".into());
         }
-        if self.tenant.mode == TenantMode::MultiTenant
-            && (self.auth.allow_unauthenticated || self.auth.tenant_tokens.is_empty())
+        if self.tenant.mode == TenantMode::MultiTenant {
+            if self.auth.allow_unauthenticated {
+                return Err("multi-tenant mode disallows unauthenticated access".into());
+            }
+            match self.auth.mode {
+                AuthMode::Bearer if self.auth.tenant_tokens.is_empty() => {
+                    return Err(
+                        "multi-tenant bearer mode requires authenticated tenant_tokens".into(),
+                    );
+                },
+                AuthMode::TenantJwt
+                    if self.auth.jwks_url.is_empty()
+                        || self.auth.issuer.is_empty()
+                        || self.auth.audience.is_empty() =>
+                {
+                    return Err(
+                        "tenant-jwt mode requires auth.jwks_url, auth.issuer, and auth.audience"
+                            .into(),
+                    );
+                },
+                _ => {},
+            }
+        }
+        if self.auth.mode == AuthMode::Bearer
+            && self
+                .auth
+                .tenant_tokens
+                .iter()
+                .any(|(tenant, token)| tenant.is_empty() || token.len() < 16)
         {
             return Err(
-                "multi-tenant mode requires authenticated tenant_tokens and disallows unauthenticated access"
-                .into(),
+                "auth.tenant_tokens require non-empty tenant IDs and tokens of at least 16 characters"
+                    .into(),
             );
-        }
-        if self
-            .auth
-            .tenant_tokens
-            .iter()
-            .any(|(tenant, token)| tenant.is_empty() || token.len() < 16)
-        {
-            return Err("auth.tenant_tokens require non-empty tenant IDs and tokens of at least 16 characters".into());
         }
         if self.hardening.max_connector_file_bytes == 0 {
             return Err("hardening.max_connector_file_bytes must be greater than 0".into());
@@ -604,6 +676,17 @@ mod tests {
             "tenant-a".to_string(),
             "tenant-a-token-that-is-long-enough".to_string(),
         );
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn multi_tenant_jwt_mode_does_not_require_per_tenant_tokens() {
+        let mut config = Config::default();
+        config.tenant.mode = TenantMode::MultiTenant;
+        config.auth.mode = AuthMode::TenantJwt;
+        config.auth.jwks_url = "https://cloud.example/.well-known/jwks.json".to_string();
+        config.auth.issuer = "https://cloud.example".to_string();
+        config.auth.audience = "thingd-runtime".to_string();
         assert!(config.validate().is_ok());
     }
 

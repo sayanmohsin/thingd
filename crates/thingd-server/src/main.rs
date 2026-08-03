@@ -73,6 +73,15 @@ async fn main() {
         mcp_config: config.mcp.clone(),
         auth_token: config.auth.token.clone(),
         tenant_tokens: config.auth.tenant_tokens.clone(),
+        auth_verifier: match config.auth.mode {
+            config::AuthMode::TenantJwt => Some(Arc::new(
+                auth::AuthVerifier::new(&config.auth).unwrap_or_else(|e| {
+                    eprintln!("Auth verifier error: {}", e);
+                    std::process::exit(1);
+                }),
+            )),
+            config::AuthMode::Bearer => None,
+        },
         allow_unauthenticated: config.auth.allow_unauthenticated,
         cluster_config: config.cluster.clone(),
         nlq_config: config.nlq.clone(),
