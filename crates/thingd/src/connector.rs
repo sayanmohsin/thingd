@@ -10,7 +10,7 @@ use crate::{ThingdError, ThingdResult};
 
 /// A streaming iterator of rows returned by a connector's `pull()` method.
 /// Each item is either a JSON value or an error from the underlying source.
-pub type PullStream = Box<dyn Iterator<Item = ThingdResult<serde_json::Value>>>;
+pub type PullStream = Box<dyn Iterator<Item = ThingdResult<serde_json::Value>> + Send>;
 
 /// SSL/TLS mode for database connections.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]

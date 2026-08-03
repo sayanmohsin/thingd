@@ -11,16 +11,28 @@ use sqlx::{Column, Row};
 
 /// Connector that pulls data from a MySQL/MariaDB database.
 pub struct MysqlConnector {
-    runtime: tokio::runtime::Runtime,
+    runtime: Option<tokio::runtime::Runtime>,
 }
 
 impl Default for MysqlConnector {
     fn default() -> Self {
         Self {
-            runtime: tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .expect("failed to build tokio runtime for MysqlConnector"),
+            runtime: Some(
+                tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .expect("failed to build tokio runtime for MysqlConnector"),
+            ),
+        }
+    }
+}
+
+impl Drop for MysqlConnector {
+    fn drop(&mut self) {
+        // See PostgresConnector::drop. The connector is often dropped by an
+        // async sidecar handler, where blocking runtime shutdown is invalid.
+        if let Some(runtime) = self.runtime.take() {
+            runtime.shutdown_background();
         }
     }
 }
@@ -39,6 +51,8 @@ impl MysqlConnector {
 
         let uri = auth.mysql_uri();
         self.runtime
+            .as_ref()
+            .expect("MysqlConnector runtime already shut down")
             .block_on(sqlx::MySqlPool::connect(&uri))
             .map_err(|e| ThingdError::Storage(format!("failed to connect to MySQL: {e}")))
     }
@@ -53,6 +67,8 @@ impl Connector for MysqlConnector {
         let pool = self.pool(config)?;
         let rows = self
             .runtime
+            .as_ref()
+            .expect("MysqlConnector runtime already shut down")
             .block_on(
                 sqlx::query_as::<_, (String,)>(
                     "SELECT table_name FROM information_schema.tables \
@@ -78,6 +94,8 @@ impl Connector for MysqlConnector {
         // Query information_schema for column metadata
         let rows = self
             .runtime
+            .as_ref()
+            .expect("MysqlConnector runtime already shut down")
             .block_on(
                 sqlx::query_as::<_, (String, String, String)>(
                     "SELECT column_name, data_type, is_nullable \
@@ -118,6 +136,8 @@ impl Connector for MysqlConnector {
 
         let rows = self
             .runtime
+            .as_ref()
+            .expect("MysqlConnector runtime already shut down")
             .block_on(sqlx::query(&query).fetch_all(&pool))
             .map_err(|e| ThingdError::Storage(format!("MySQL query failed: {e}")))?;
 
@@ -215,6 +235,11 @@ fn mysql_row_to_json_value(row: &sqlx::mysql::MySqlRow, index: usize) -> serde_j
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn can_drop_inside_async_context() {
+        drop(MysqlConnector::new());
+    }
 
     #[test]
     fn maps_mysql_types() {
