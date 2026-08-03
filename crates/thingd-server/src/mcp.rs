@@ -1538,6 +1538,7 @@ mod tests {
             mcp_config: config.mcp,
             auth_token: config.auth.token,
             tenant_tokens: config.auth.tenant_tokens,
+            auth_verifier: None,
             allow_unauthenticated: config.auth.allow_unauthenticated,
             cluster_config: config.cluster,
             nlq_config: config.nlq,

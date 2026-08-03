@@ -11,7 +11,7 @@ use tower::ServiceBuilder;
 use tower::timeout::TimeoutLayer;
 use tower_http::cors::CorsLayer;
 
-use crate::auth::auth_middleware;
+use crate::auth::{AuthVerifier, auth_middleware};
 
 use crate::config::{ClusterConfig, Config, McpConfig, NlqConfig, TenantConfig};
 use crate::engine::EnginePool;
@@ -24,6 +24,7 @@ pub struct AppState {
     pub mcp_config: McpConfig,
     pub auth_token: String,
     pub tenant_tokens: std::collections::HashMap<String, String>,
+    pub auth_verifier: Option<Arc<AuthVerifier>>,
     pub allow_unauthenticated: bool,
     pub cluster_config: ClusterConfig,
     pub nlq_config: NlqConfig,

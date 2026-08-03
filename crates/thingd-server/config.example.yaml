@@ -13,6 +13,8 @@ server:
   max_connections: 256
 
 auth:
+  # "bearer" for a static token, or "tenant-jwt" for scalable multi-tenant gateways.
+  mode: "bearer"
   # Bearer token for API authentication (min 16 chars)
   # Override: THINGD_AUTH_TOKEN
   token: "change-me-with-a-random-token"
@@ -20,6 +22,12 @@ auth:
   allow_unauthenticated: false
   # Required per-tenant bearer tokens when tenant.mode is multi-tenant.
   tenant_tokens: {}
+  # Required by tenant-jwt mode.
+  jwks_url: ""
+  issuer: ""
+  audience: ""
+  tenant_claim: "tenant_id"
+  jwks_cache_secs: 300
 
 tenant:
   # "single" for single-tenant, "multi-tenant" for file-per-tenant
