@@ -2737,7 +2737,7 @@ dependencies = [
 
 [[package]]
 name = "thingd"
-version = "0.73.0"
+version = "0.73.1"
 dependencies = [
  "chrono",
  "csv",
@@ -2752,7 +2752,7 @@ dependencies = [
 
 [[package]]
 name = "thingd-native"
-version = "0.73.0"
+version = "0.73.1"
 dependencies = [
  "napi",
  "napi-build",
@@ -2765,7 +2765,7 @@ dependencies = [
 
 [[package]]
 name = "thingd-server"
-version = "0.73.0"
+version = "0.73.1"
 dependencies = [
  "axum",
  "http-body-util",

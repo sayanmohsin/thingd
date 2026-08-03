@@ -51,7 +51,11 @@ const runJson = (args, options = {}) => {
     }
     process.exit(result.status ?? 1);
   }
-  return JSON.parse(result.stdout);
+  const jsonStart = result.stdout.indexOf("{");
+  if (jsonStart === -1) {
+    throw new Error(`pnpm pack did not return JSON: ${result.stdout}`);
+  }
+  return JSON.parse(result.stdout.slice(jsonStart));
 };
 
 const tempDir = await mkdtemp(join(tmpdir(), "thingd-package-smoke-"));
