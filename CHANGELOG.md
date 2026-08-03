@@ -13,6 +13,13 @@
 - server: harden security boundaries (0961ffe)
 - complete public SDK type exports (8a8889a)
 
+## [0.74.1](https://github.com/sayanmohsin/thingd/compare/thingd-v0.74.0...thingd-v0.74.1) (2026-08-03)
+
+
+### Bug Fixes
+
+* support pnpm publish artifact validation ([#102](https://github.com/sayanmohsin/thingd/issues/102)) ([e557950](https://github.com/sayanmohsin/thingd/commit/e557950d99e08b6765d284a16afc942789b2e22f))
+
 ## [0.74.0](https://github.com/sayanmohsin/thingd/compare/thingd-v0.73.1...thingd-v0.74.0) (2026-08-03)
 
 
