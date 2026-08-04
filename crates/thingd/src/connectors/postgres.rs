@@ -11,16 +11,30 @@ use sqlx::{Column, Row};
 
 /// Connector that pulls data from a `PostgreSQL` database.
 pub struct PostgresConnector {
-    runtime: tokio::runtime::Runtime,
+    runtime: Option<tokio::runtime::Runtime>,
 }
 
 impl Default for PostgresConnector {
     fn default() -> Self {
         Self {
-            runtime: tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .expect("failed to build tokio runtime for PostgresConnector"),
+            runtime: Some(
+                tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .expect("failed to build tokio runtime for PostgresConnector"),
+            ),
+        }
+    }
+}
+
+impl Drop for PostgresConnector {
+    fn drop(&mut self) {
+        // The connector is owned by async sidecar request handlers. Tokio's
+        // normal Runtime::drop blocks while shutting down, which panics when
+        // called from an async context. Background shutdown avoids blocking
+        // the request executor and lets in-flight database work finish.
+        if let Some(runtime) = self.runtime.take() {
+            runtime.shutdown_background();
         }
     }
 }
@@ -38,6 +52,8 @@ impl PostgresConnector {
 
         let uri = auth.postgres_uri();
         self.runtime
+            .as_ref()
+            .expect("PostgresConnector runtime already shut down")
             .block_on(sqlx::PgPool::connect(&uri))
             .map_err(|e| ThingdError::Storage(format!("failed to connect to Postgres: {e}")))
     }
@@ -52,6 +68,8 @@ impl Connector for PostgresConnector {
         let pool = self.pool(config)?;
         let rows = self
             .runtime
+            .as_ref()
+            .expect("PostgresConnector runtime already shut down")
             .block_on(
                 sqlx::query_as::<_, (String,)>(
                     "SELECT table_name FROM information_schema.tables \
@@ -77,6 +95,8 @@ impl Connector for PostgresConnector {
         // Query information_schema for column metadata
         let rows = self
             .runtime
+            .as_ref()
+            .expect("PostgresConnector runtime already shut down")
             .block_on(
                 sqlx::query_as::<_, (String, String, String)>(
                     "SELECT column_name, data_type, is_nullable::text \
@@ -121,6 +141,8 @@ impl Connector for PostgresConnector {
         // loading into memory is fast enough.
         let rows = self
             .runtime
+            .as_ref()
+            .expect("PostgresConnector runtime already shut down")
             .block_on(sqlx::query(&query).fetch_all(&pool))
             .map_err(|e| ThingdError::Storage(format!("Postgres query failed: {e}")))?;
 
@@ -256,6 +278,11 @@ mod tests {
             pg_type_to_column_type("character varying"),
             ColumnType::Text
         );
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn can_drop_inside_async_context() {
+        drop(PostgresConnector::new());
     }
 
     #[test]
