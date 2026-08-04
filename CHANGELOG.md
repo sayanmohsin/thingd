@@ -13,6 +13,14 @@
 - server: harden security boundaries (0961ffe)
 - complete public SDK type exports (8a8889a)
 
+## [0.74.3](https://github.com/sayanmohsin/thingd/compare/thingd-v0.74.2...thingd-v0.74.3) (2026-08-04)
+
+
+### Bug Fixes
+
+* harden connector sidecar execution ([#106](https://github.com/sayanmohsin/thingd/issues/106)) ([054876e](https://github.com/sayanmohsin/thingd/commit/054876eec8582dee5173a483f268779e8d525646))
+* resolve 10 CodeQL security alerts ([#108](https://github.com/sayanmohsin/thingd/issues/108)) ([1781864](https://github.com/sayanmohsin/thingd/commit/17818644d0279189723df349e7eb3d4a61ae39a8))
+
 ## [0.74.2](https://github.com/sayanmohsin/thingd/compare/thingd-v0.74.1...thingd-v0.74.2) (2026-08-03)
 
 
