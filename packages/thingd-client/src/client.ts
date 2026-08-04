@@ -35,6 +35,14 @@ export type ThingdClientOptions = {
   authToken?: string;
 };
 
+function trimTrailingSlashes(s: string): string {
+  let end = s.length;
+  while (end > 0 && s.charCodeAt(end - 1) === 47) {
+    end--;
+  }
+  return s.slice(0, end);
+}
+
 /**
  * Zero-dependency HTTP client for thingd REST API.
  *
@@ -54,7 +62,7 @@ export class ThingdClient {
   private readonly base: string;
 
   constructor(private readonly options: ThingdClientOptions) {
-    const base = options.url.replace(/\/+$/, "");
+    const base = trimTrailingSlashes(options.url);
     this.base = base.endsWith("/v1") ? base : `${base}/v1`;
   }
 

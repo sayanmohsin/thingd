@@ -507,7 +507,8 @@ Example: { "action": "aggregate", "collection": "orders", "function": "sum", "fi
 
           if (!llmResponse.ok) {
             const errText = await llmResponse.text();
-            sendError(res, 502, `LLM returned ${llmResponse.status}: ${errText}`);
+            console.error("LLM request failed:", llmResponse.status, errText);
+            sendError(res, 502, "LLM request failed");
             return;
           }
 
@@ -610,7 +611,8 @@ Example: { "action": "aggregate", "collection": "orders", "function": "sum", "fi
             res.writeHead(200, { "Content-Type": "application/json" });
             res.end(JSON.stringify(result));
           } catch (e) {
-            sendError(res, 400, e instanceof Error ? e.message : String(e));
+            console.error("Checkpoint failed:", e);
+            sendError(res, 400, "Checkpoint failed");
           }
           return;
         }
@@ -622,10 +624,9 @@ Example: { "action": "aggregate", "collection": "orders", "function": "sum", "fi
             res.writeHead(200, { "Content-Type": "application/json" });
             res.end(JSON.stringify({ ok: true, message: "Database is accessible" }));
           } catch (e) {
+            console.error("Integrity check failed:", e);
             res.writeHead(200, { "Content-Type": "application/json" });
-            res.end(
-              JSON.stringify({ ok: false, message: e instanceof Error ? e.message : String(e) })
-            );
+            res.end(JSON.stringify({ ok: false, message: "Database integrity check failed" }));
           }
           return;
         }
@@ -648,7 +649,8 @@ Example: { "action": "aggregate", "collection": "orders", "function": "sum", "fi
             res.writeHead(200, { "Content-Type": "application/json" });
             res.end(JSON.stringify({ path: backupPath, sizeBytes: stats.size }));
           } catch (e) {
-            sendError(res, 500, e instanceof Error ? e.message : String(e));
+            console.error("Backup failed:", e);
+            sendError(res, 500, "Backup failed");
           }
           return;
         }
@@ -695,7 +697,7 @@ Example: { "action": "aggregate", "collection": "orders", "function": "sum", "fi
       }
     } catch (err: unknown) {
       console.error("Dashboard server exception:", err);
-      sendError(res, 500, err instanceof Error ? err.message : String(err));
+      sendError(res, 500, "Internal server error");
     }
   });
 
