@@ -109,11 +109,10 @@ If clippy or fmt fails, fix and amend. Never use `--no-verify` to bypass pre-pus
 
 ## Branch workflow
 
-Use `development` as the integration branch. Create feature branches from
-`development`, then squash-merge each completed feature into `development` with
-a conventional commit title. Open a release PR from `development` to `main` and
-use a regular merge commit rather than a squash merge. CI runs on both branches;
-release automation runs only after `main` changes.
+Use `main` as the integration, production, and release branch. Create feature
+branches from `main` and open every feature, fix, documentation, or maintenance
+pull request against `main`. Squash-merge completed work into `main` with a
+conventional commit title.
 
 ## Keeping AGENTS.md healthy
 
@@ -127,11 +126,10 @@ This file should stay useful but not become a dump. Rules:
 
 ## Branch and pull request workflow
 
-Use `development` as the integration branch in this repo. Create feature
-branches from `development` and open every feature, fix, documentation, or
-maintenance pull request against `development` — never directly against
-`main`. After the work is integrated and ready for release, manually merge
-`development` into `main`; `main` remains the production and release branch.
+Use `main` as the integration branch in this repo. Create feature branches from
+`main` and open every feature, fix, documentation, or maintenance pull request
+against `main`. Squash-merge completed work into `main`; `main` remains the
+production and release branch.
 
 Use semantic branch prefixes such as `feature/<name>`, `fix/<name>`,
 `docs/<name>`, `refactor/<name>`, `test/<name>`, or `chore/<name>`.
