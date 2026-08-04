@@ -208,12 +208,13 @@ async function handleRequest(
 
     await handleMcpRequest(state, wrappedRequest, response);
   } catch (error) {
+    console.error("MCP request error:", error);
     if (!response.headersSent) {
       writeJson(response, 500, {
         jsonrpc: "2.0",
         error: {
           code: -32_603,
-          message: error instanceof Error ? error.message : "Internal server error",
+          message: "Internal server error",
         },
         id: null,
       });

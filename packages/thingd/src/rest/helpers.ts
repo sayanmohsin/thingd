@@ -10,6 +10,25 @@ type LocalSortBy = {
 
 const MAX_BODY_SIZE = 524_288; // 512KB
 
+function sanitizeForJson(value: unknown): unknown {
+  if (value instanceof Error) {
+    return { message: value.message };
+  }
+  if (Array.isArray(value)) {
+    return value.map(sanitizeForJson);
+  }
+  if (value && typeof value === "object") {
+    const clean: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value)) {
+      if (k !== "stack") {
+        clean[k] = sanitizeForJson(v);
+      }
+    }
+    return clean;
+  }
+  return value;
+}
+
 export function readBody(req: IncomingMessage, maxSize = MAX_BODY_SIZE): Promise<string> {
   return new Promise((resolve, reject) => {
     let body = "";
@@ -27,7 +46,7 @@ export function readBody(req: IncomingMessage, maxSize = MAX_BODY_SIZE): Promise
 
 export function sendJson(res: ServerResponse, status: number, data: unknown): void {
   res.writeHead(status, { "Content-Type": "application/json" });
-  res.end(JSON.stringify(data));
+  res.end(JSON.stringify(sanitizeForJson(data)));
 }
 
 export function sendData(res: ServerResponse, data: unknown): void {

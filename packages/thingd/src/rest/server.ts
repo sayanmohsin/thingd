@@ -541,7 +541,7 @@ export async function handleRestRequest(
     // ─── 404 ─────────────────────────────────────────────────────
     sendError(res, 404, "not_found", `No route for ${method} ${pathname}`);
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    sendError(res, 500, "internal_error", message);
+    console.error("Unhandled REST error", err);
+    sendError(res, 500, "internal_error", "An internal error occurred");
   }
 }

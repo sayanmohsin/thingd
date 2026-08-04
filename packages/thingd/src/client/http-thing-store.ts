@@ -38,6 +38,14 @@ export type HttpThingStoreOptions = {
   instanceSlug?: string;
 };
 
+function trimTrailingSlashes(s: string): string {
+  let end = s.length;
+  while (end > 0 && s.charCodeAt(end - 1) === 47) {
+    end--;
+  }
+  return s.slice(0, end);
+}
+
 export class HttpThingStore implements ThingStore {
   static async open(urlOrOptions: string | HttpThingStoreOptions): Promise<HttpThingStore> {
     const options = typeof urlOrOptions === "string" ? { url: urlOrOptions } : urlOrOptions;
@@ -47,7 +55,7 @@ export class HttpThingStore implements ThingStore {
   constructor(private readonly options: HttpThingStoreOptions) {}
 
   private get base(): string {
-    const base = this.options.url.replace(/\/+$/, "");
+    const base = trimTrailingSlashes(this.options.url);
     return base.endsWith("/v1") ? base : `${base}/v1`;
   }
 

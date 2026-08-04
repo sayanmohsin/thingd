@@ -1,4 +1,4 @@
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import * as os from "node:os";
 import { createInterface, type Interface } from "node:readline/promises";
 import { setTimeout as sleep } from "node:timers/promises";
@@ -53,15 +53,40 @@ function buildWebUrl(apiUrl: string): string {
   return apiUrl;
 }
 
+function sanitizeBrowserUrl(url: string): string | null {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return null;
+  }
+
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    return null;
+  }
+
+  // Disallow characters that can be interpreted by cmd.exe
+  if (/[%"!\r\n]/.test(url)) {
+    return null;
+  }
+
+  return parsed.toString();
+}
+
 function openBrowser(url: string): void {
+  const safeUrl = sanitizeBrowserUrl(url);
+  if (!safeUrl) {
+    return;
+  }
+
   try {
     const platform = process.platform;
     if (platform === "darwin") {
-      execSync(`open "${url}"`, { timeout: 5_000 });
+      execFileSync("open", [safeUrl], { timeout: 5_000 });
     } else if (platform === "win32") {
-      execSync(`start "" "${url}"`, { timeout: 5_000 });
+      execFileSync("cmd", ["/c", "start", "", safeUrl], { timeout: 5_000 });
     } else {
-      execSync(`xdg-open "${url}"`, { timeout: 5_000 });
+      execFileSync("xdg-open", [safeUrl], { timeout: 5_000 });
     }
   } catch {
     // browser open is best-effort
