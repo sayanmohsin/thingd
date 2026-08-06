@@ -39,6 +39,11 @@ import type {
 
 export type ThingDDriver = "memory" | "native" | "cloud";
 
+export type ThingDEncryptionOptions = {
+  /** 64 hexadecimal characters representing a 32-byte key. */
+  key?: string;
+};
+
 export type ThingDOpenOptions = {
   driver?: ThingDDriver;
   store?: ThingStore;
@@ -47,6 +52,7 @@ export type ThingDOpenOptions = {
   apiKey?: string;
   /** Cloud instance slug for multi-instance routing. Passed as X-Instance-Slug header. */
   instanceSlug?: string;
+  encryption?: ThingDEncryptionOptions;
 };
 
 export type ThingDOpenConfig = ThingDOpenOptions & {
@@ -384,11 +390,18 @@ async function openStore(path: string, options: ResolvedThingDOpenOptions): Prom
   }
 
   if (options.driver === "cloud") {
+    if (options.encryption) {
+      throw new Error("Encryption options are only supported by the native persistent driver");
+    }
     return HttpThingStore.open({
       url: path,
       authToken: options.authToken,
       instanceSlug: options.instanceSlug,
     });
+  }
+
+  if (options.driver === "memory" && options.encryption) {
+    throw new Error("Encryption options are only supported by the native persistent driver");
   }
 
   const hasNative = await NativeThingStore.isAvailable();
@@ -399,13 +412,13 @@ async function openStore(path: string, options: ResolvedThingDOpenOptions): Prom
         `The native thingd driver is not available. Install @thingd/native with "npm install @thingd/native". For monorepo development: "pnpm --filter thingd-native build".`
       );
     }
-    return NativeThingStore.open(path);
+    return NativeThingStore.open(path, options.encryption?.key);
   }
 
   // Auto-detect and promote file paths to native store when available, with a warning fallback to memory.
   if (!options.driver && path !== ":memory:") {
     if (hasNative) {
-      return NativeThingStore.open(path);
+      return NativeThingStore.open(path, options.encryption?.key);
     }
 
     console.warn(

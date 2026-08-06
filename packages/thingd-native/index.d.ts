@@ -1,5 +1,11 @@
 export class NativeThingStore {
-  static open(path: string): NativeThingStore;
+  static open(path: string, encryptionKey?: string): NativeThingStore;
+  static reencrypt(
+    sourcePath: string,
+    destinationPath: string,
+    sourceKey?: string,
+    destinationKey?: string
+  ): void;
 
   putObjectJson(collection: string, id: string, body: string): string;
   getObjectJson(collection: string, id: string): string | null;

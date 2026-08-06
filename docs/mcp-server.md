@@ -201,9 +201,13 @@ The CLI also reads:
 ```txt
 THINGD_PATH
 THINGD_DRIVER
+THINGD_ENCRYPTION_KEY
 ```
 
 `THINGD_DRIVER` can be `memory` or `native`. Defaults to `~/.thingd/data.db` and `native` for persistent local storage.
+
+`THINGD_ENCRYPTION_KEY` is an optional 64-character hexadecimal key for native
+persistent storage. Encrypted databases require the same key on reopen.
 
 ## Streamable HTTP Usage
 

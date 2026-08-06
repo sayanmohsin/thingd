@@ -59,6 +59,7 @@ Configure via environment variables or a YAML config file pointed at by `THINGD_
 | `THINGD_HOST` | `0.0.0.0` | Bind address |
 | `THINGD_PORT` | `7377` | HTTP port |
 | `THINGD_DATABASE` | `thingd.db` | persistent database directory |
+| `THINGD_ENCRYPTION_KEY` | — | optional 64-character hexadecimal key for encrypted persistent storage |
 | `THINGD_AUTH_TOKEN` | — | Bearer token for authenticated requests |
 | `THINGD_ALLOW_UNAUTHENTICATED` | `false` | Skip auth entirely |
 | `THINGD_MCP_MAX_OBJECT_SIZE` | `1 MB` | Max object size for MCP puts |
@@ -69,6 +70,11 @@ Configure via environment variables or a YAML config file pointed at by `THINGD_
 | `THINGD_CORS_ORIGINS` | `*` | Comma-separated allowed origins |
 | `THINGD_CLUSTER_MODE` | `standalone` | `standalone` or `cluster` |
 | `THINGD_CLUSTER_PEERS` | — | Comma-separated peer URLs |
+
+Set `THINGD_ENCRYPTION_KEY` before startup to open encrypted persistent
+storage. Missing or incorrect keys fail startup; the server never falls back
+to memory for an encrypted database. Filesystem backups remain encrypted,
+while JSON exports are decrypted logical data and must be protected separately.
 
 ## Architecture
 

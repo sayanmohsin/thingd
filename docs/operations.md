@@ -6,6 +6,19 @@
 
 Backup, recovery, database health, and maintenance procedures for thingd.
 
+## Encrypted persistent storage
+
+Set `THINGD_ENCRYPTION_KEY` to a 64-character hexadecimal key before opening a
+native persistent database. Missing or incorrect keys fail safely. Changing
+the variable does not rotate an existing database; use the explicit offline
+re-encryption API to migrate or rotate into a new destination.
+
+Filesystem backups remain encrypted and require the same key to restore. JSON
+snapshots and logical exports contain decrypted data and must be protected as
+plaintext artifacts. Encrypted search does not persist a Tantivy directory;
+search is rebuilt from records at startup and uses process memory. Stop the
+engine before copying a live database directory.
+
 ## Backup
 
 ### Creating a Backup
