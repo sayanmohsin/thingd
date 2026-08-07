@@ -13,6 +13,18 @@
 - server: harden security boundaries (0961ffe)
 - complete public SDK type exports (8a8889a)
 
+## [0.76.0](https://github.com/sayanmohsin/thingd/compare/thingd-v0.75.0...thingd-v0.76.0) (2026-08-07)
+
+
+### Features
+
+* **storage:** complete encrypted persistence integration ([#114](https://github.com/sayanmohsin/thingd/issues/114)) ([caba1b5](https://github.com/sayanmohsin/thingd/commit/caba1b5a2087680f9d9a981ae4438489232d2c5c))
+
+
+### Bug Fixes
+
+* **storage:** rebuild incompatible legacy search indexes ([#116](https://github.com/sayanmohsin/thingd/issues/116)) ([de88f56](https://github.com/sayanmohsin/thingd/commit/de88f562d9350cb1c05325c325285e2cf131014a))
+
 ## [0.75.0](https://github.com/sayanmohsin/thingd/compare/thingd-v0.74.3...thingd-v0.75.0) (2026-08-07)
 
 
