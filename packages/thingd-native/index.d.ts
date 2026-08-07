@@ -4,7 +4,8 @@ export class NativeThingStore {
     sourcePath: string,
     destinationPath: string,
     sourceKey?: string,
-    destinationKey?: string
+    destinationKey?: string,
+    allowPlaintextOutput?: boolean
   ): void;
 
   putObjectJson(collection: string, id: string, body: string): string;

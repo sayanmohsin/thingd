@@ -386,6 +386,9 @@ function isCloudPath(path: string): boolean {
 
 async function openStore(path: string, options: ResolvedThingDOpenOptions): Promise<ThingStore> {
   if (options.store) {
+    if (options.encryption) {
+      throw new Error("Encryption options require the native persistent driver");
+    }
     return options.store;
   }
 
@@ -406,6 +409,10 @@ async function openStore(path: string, options: ResolvedThingDOpenOptions): Prom
 
   const hasNative = await NativeThingStore.isAvailable();
 
+  if (options.encryption?.key !== undefined && !/^[0-9a-fA-F]{64}$/.test(options.encryption.key)) {
+    throw new Error("Invalid encryption key: expected 64 hexadecimal characters (32 bytes)");
+  }
+
   if (options.driver === "native") {
     if (!hasNative) {
       throw new Error(
@@ -419,6 +426,10 @@ async function openStore(path: string, options: ResolvedThingDOpenOptions): Prom
   if (!options.driver && path !== ":memory:") {
     if (hasNative) {
       return NativeThingStore.open(path, options.encryption?.key);
+    }
+
+    if (options.encryption) {
+      throw new Error("Encryption options require the native persistent driver");
     }
 
     console.warn(

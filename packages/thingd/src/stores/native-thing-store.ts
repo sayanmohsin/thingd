@@ -119,7 +119,8 @@ type NativeThingStoreModule = {
     sourcePath: string,
     destinationPath: string,
     sourceKey?: string,
-    destinationKey?: string
+    destinationKey?: string,
+    allowPlaintextOutput?: boolean
   ): void;
   loadedPath?: string;
 };
@@ -228,10 +229,11 @@ export class NativeThingStore implements ThingStore {
     sourcePath: string,
     destinationPath: string,
     sourceKey?: string,
-    destinationKey?: string
+    destinationKey?: string,
+    allowPlaintextOutput = false
   ): Promise<void> {
     const native = await loadNativeModule();
-    native.reencrypt(sourcePath, destinationPath, sourceKey, destinationKey);
+    native.reencrypt(sourcePath, destinationPath, sourceKey, destinationKey, allowPlaintextOutput);
   }
 
   static async getLoadedPath(): Promise<string | undefined> {

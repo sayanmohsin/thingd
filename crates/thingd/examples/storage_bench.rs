@@ -13,9 +13,9 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use thingd::{
-    EventLog, ListEventsOptions, ListObjectsOptions, MemoryEngine, MemoryEvent, MemoryObject,
-    ObjectStore, PersistentEngine, QueueClaimOptions, QueueJob, QueueStore, SearchOptions,
-    Searcher, VectorSearchOptions, VectorStore,
+    EncryptionConfig, EventLog, ListEventsOptions, ListObjectsOptions, MemoryEngine, MemoryEvent,
+    MemoryObject, ObjectStore, PersistentEngine, PersistentOpenOptions, QueueClaimOptions,
+    QueueJob, QueueStore, SearchOptions, Searcher, VectorSearchOptions, VectorStore,
 };
 
 const DEFAULT_ITERATIONS: usize = 5_000;
@@ -54,6 +54,27 @@ fn main() -> Result<(), Box<dyn Error>> {
         || {
             let engine = PersistentEngine::open(conc_dir.path())?;
             Ok(engine)
+        },
+        iterations,
+    )?;
+
+    let encrypted_dir = tempfile::tempdir()?;
+    let encrypted_options = PersistentOpenOptions {
+        encryption: Some(EncryptionConfig::from_key(&[0x42_u8; 32])?),
+        ..PersistentOpenOptions::default()
+    };
+    let encrypted_engine =
+        PersistentEngine::open_with_options(encrypted_dir.path(), encrypted_options.clone())?;
+    bench_store("persistent-encrypted", encrypted_engine, iterations)?;
+
+    let encrypted_conc_dir = tempfile::tempdir()?;
+    bench_concurrent(
+        "persistent-encrypted",
+        || {
+            Ok(PersistentEngine::open_with_options(
+                encrypted_conc_dir.path(),
+                encrypted_options.clone(),
+            )?)
         },
         iterations,
     )?;

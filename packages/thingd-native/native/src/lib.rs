@@ -79,7 +79,10 @@ impl NativeThingStore {
             .map(|key| EncryptionConfig::from_key(&key))
             .transpose()
             .map_err(napi_error)?;
-        let options = PersistentOpenOptions { encryption };
+        let options = PersistentOpenOptions {
+            encryption,
+            ..PersistentOpenOptions::default()
+        };
         let store = if path == ":memory:" || path.is_empty() {
             let tmp = std::env::temp_dir().join(format!("thingd-native-{}", std::process::id()));
             let unique = tmp.join(uuid::Uuid::new_v4().to_string());
@@ -708,6 +711,7 @@ pub fn reencrypt(
     destination_path: String,
     source_key: Option<String>,
     destination_key: Option<String>,
+    allow_plaintext_output: bool,
 ) -> Result<()> {
     let source_options = PersistentOpenOptions {
         encryption: source_key
@@ -718,6 +722,7 @@ pub fn reencrypt(
             .map(|key| EncryptionConfig::from_key(&key))
             .transpose()
             .map_err(napi_error)?,
+        ..PersistentOpenOptions::default()
     };
     let destination_options = PersistentOpenOptions {
         encryption: destination_key
@@ -728,6 +733,7 @@ pub fn reencrypt(
             .map(|key| EncryptionConfig::from_key(&key))
             .transpose()
             .map_err(napi_error)?,
+        allow_plaintext_output,
     };
     PersistentEngine::reencrypt_to(
         source_path,

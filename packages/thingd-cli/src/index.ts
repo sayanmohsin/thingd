@@ -458,7 +458,8 @@ async function runDbReencrypt(context: CliContext): Promise<void> {
     source,
     destination,
     context.env.THINGD_ENCRYPTION_SOURCE_KEY ?? context.env.THINGD_ENCRYPTION_KEY,
-    destinationKey
+    destinationKey,
+    hasFlag(context.parsed, "allow-plaintext-output")
   );
   writeJson(
     context.stdout,
