@@ -166,9 +166,6 @@ Persistent format changes are versioned by the engine and encrypted databases
 also validate their storage manifest and envelope version during open. Key
 rotation is never automatic; use `db reencrypt`.
 
-Persistent format changes are versioned by the engine and validated during
-open. Key rotation is never automatic; use `db reencrypt`.
-
 ### Legacy SQLite migration history
 
 > Note: These SQLite schema versions apply to the deprecated SQLite backend.

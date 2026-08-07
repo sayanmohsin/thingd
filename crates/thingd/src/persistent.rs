@@ -144,10 +144,10 @@ impl PersistentEngine {
         }
 
         #[cfg(feature = "search")]
-        let search_index = if encrypted {
-            Self::create_search_index(true)
+        let (search_index, rebuild_search_index) = if encrypted {
+            (Self::create_search_index(true), true)
         } else {
-            Self::init_search_index(path)
+            Self::init_search_index(path)?
         };
 
         let engine = Self {
@@ -170,7 +170,7 @@ impl PersistentEngine {
         };
 
         #[cfg(feature = "search")]
-        if encrypted {
+        if rebuild_search_index {
             for entry in engine.objects.iter() {
                 let (_, value) = guard_data(entry)?;
                 let object: MemoryObject = engine.deserialize(&value)?;
@@ -348,19 +348,40 @@ impl PersistentEngine {
     }
 
     #[cfg(feature = "search")]
-    fn init_search_index(path: &Path) -> Option<tantivy::Index> {
+    fn init_search_index(path: &Path) -> ThingdResult<(Option<tantivy::Index>, bool)> {
         let search_dir = path.join("search");
-        let _ = std::fs::create_dir_all(&search_dir);
+        std::fs::create_dir_all(&search_dir)
+            .map_err(|e| ThingdError::Storage(format!("create search directory: {e}")))?;
 
-        // Try to open an existing Tantivy index first; create a fresh one if absent
-        if let Ok(index) = tantivy::Index::open_in_dir(&search_dir) {
-            return Some(index);
+        // A Tantivy index is derived state. If an older SDK wrote an
+        // incompatible schema (for example without `doc_key`), discard only
+        // that derived directory and rebuild it from Fjall records. Never let
+        // a schema mismatch panic or make the primary database unreadable.
+        if let Ok(index) = tantivy::Index::open_in_dir(&search_dir)
+            && Self::search_schema_is_compatible(&index.schema())
+        {
+            return Ok((Some(index), false));
         }
+
+        if search_dir.exists() {
+            std::fs::remove_dir_all(&search_dir)
+                .map_err(|e| ThingdError::Storage(format!("replace legacy search index: {e}")))?;
+        }
+        std::fs::create_dir_all(&search_dir)
+            .map_err(|e| ThingdError::Storage(format!("recreate search directory: {e}")))?;
 
         let schema = Self::search_schema();
 
-        let index = tantivy::Index::create_in_dir(&search_dir, schema).ok()?;
-        Some(index)
+        let index = tantivy::Index::create_in_dir(&search_dir, schema)
+            .map_err(|e| ThingdError::Storage(format!("create search index: {e}")))?;
+        Ok((Some(index), true))
+    }
+
+    #[cfg(feature = "search")]
+    fn search_schema_is_compatible(schema: &tantivy::schema::Schema) -> bool {
+        ["doc_key", "collection", "id", "body", "kind"]
+            .iter()
+            .all(|field| schema.get_field(field).is_ok())
     }
 
     fn serialize<T: serde::Serialize>(&self, value: &T) -> ThingdResult<Vec<u8>> {
@@ -3039,6 +3060,37 @@ mod tests {
             "search must find indexed content immediately after put"
         );
         assert_eq!(results[0].id, "a");
+    }
+
+    #[cfg(feature = "search")]
+    #[test]
+    fn legacy_search_schema_is_rebuilt_without_panicking() {
+        let dir = tempfile::tempdir().unwrap();
+        {
+            let mut engine = PersistentEngine::open(dir.path()).unwrap();
+            engine
+                .put_object(MemoryObject::new(
+                    "legacy",
+                    "object",
+                    r#"{"text":"legacy_search_term"}"#,
+                ))
+                .unwrap();
+        }
+
+        let search_dir = dir.path().join("search");
+        std::fs::remove_dir_all(&search_dir).unwrap();
+        std::fs::create_dir_all(&search_dir).unwrap();
+        let mut schema_builder = tantivy::schema::Schema::builder();
+        schema_builder.add_text_field("body", tantivy::schema::TEXT | tantivy::schema::STORED);
+        let legacy_schema = schema_builder.build();
+        tantivy::Index::create_in_dir(&search_dir, legacy_schema).unwrap();
+
+        let engine = PersistentEngine::open(dir.path()).unwrap();
+        let results = engine
+            .search("legacy_search_term", SearchOptions::default())
+            .unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].id, "object");
     }
 
     #[cfg(feature = "search")]
