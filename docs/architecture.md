@@ -74,7 +74,10 @@ On startup:             verify index consistency, rebuild if stale
 ```
 
 Tantivy is used by the persistent backend for full-text search and is feature-gated
-with `search`.
+with `search`. The index is derived state: if an older SDK created an incompatible
+schema (including one without `doc_key`), thingd discards only the Tantivy
+directory and rebuilds it from the durable object and event records. Primary data
+is not migrated or discarded.
 
 ## Vector search: persisted cosine similarity
 
