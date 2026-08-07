@@ -552,7 +552,7 @@ export async function runBackup(context: CliContext): Promise<void> {
 
     await withDb(context, async (db) => {
       if (db.path === ":memory:") {
-        throw new Error("Cannot restore an in-memory database. Use a file-based SQLite database.");
+        throw new Error("Cannot restore an in-memory database. Use a file-based native database.");
       }
       // Close current DB, copy backup over, reopen happens after callback
       await db.close();
@@ -569,7 +569,7 @@ export async function runBackup(context: CliContext): Promise<void> {
 
   await withDb(context, async (db) => {
     if (db.path === ":memory:") {
-      throw new Error("Cannot backup an in-memory database. Use a file-based SQLite database.");
+      throw new Error("Cannot backup an in-memory database. Use a file-based native database.");
     }
 
     db.backupTo(outPath);

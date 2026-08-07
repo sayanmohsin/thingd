@@ -54,7 +54,20 @@ impl EnginePool {
             .transpose()
             .map_err(|error| error.to_string())?;
         let mut pool = Self::new(default_path);
-        pool.open_options = PersistentOpenOptions { encryption };
+        pool.open_options = PersistentOpenOptions {
+            encryption,
+            ..PersistentOpenOptions::default()
+        };
+        // Validate and open the configured default database during startup. This
+        // makes missing or wrong keys a startup error instead of a request-time
+        // panic or an accidental fallback to memory storage.
+        let default_path = pool.default_path.clone();
+        let engine = create_engine(&default_path, &pool.open_options).map_err(|error| {
+            format!("failed to open durable database at {default_path}: {error}")
+        })?;
+        pool.writers
+            .write()
+            .insert(default_path, Arc::new(Mutex::new(engine)));
         Ok(pool)
     }
 
@@ -259,6 +272,23 @@ mod tests {
             h.await.unwrap();
         }
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn configured_pool_opens_database_during_startup() {
+        let dir = std::env::temp_dir().join(format!(
+            "thingd-server-encryption-startup-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        let path = dir.join("encrypted").to_string_lossy().to_string();
+        let key = "11".repeat(32);
+        let pool = EnginePool::new_with_encryption_key(path.clone(), Some(&key)).unwrap();
+        assert!(pool.writers.read().contains_key(&path));
+        let missing = EnginePool::new_with_encryption_key(path, None);
+        assert!(missing.is_err());
+        drop(pool);
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[tokio::test]

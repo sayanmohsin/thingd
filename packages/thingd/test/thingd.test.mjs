@@ -47,6 +47,33 @@ if (nativeAvailable) {
     await second.close();
   });
 
+  test("native: encrypted storage reopens and rejects missing or wrong keys", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "thingd-native-encrypted-"));
+    const path = join(directory, "thingd.db");
+    const key = "11".repeat(32);
+    const wrongKey = "22".repeat(32);
+
+    const first = await ThingD.open({ path, driver: "native", encryption: { key } });
+    await first.put("private", { id: "secret-id", text: "secret_vector_object", vector: [1, 0] });
+    await first.events.append("private-stream", { type: "private", text: "secret event" });
+    await first.close();
+
+    await assert.rejects(
+      () => ThingD.open({ path, driver: "native" }),
+      /encryption required/i,
+    );
+    await assert.rejects(
+      () => ThingD.open({ path, driver: "native", encryption: { key: wrongKey } }),
+      /encryption authentication failed/i,
+    );
+
+    const reopened = await ThingD.open({ path, driver: "native", encryption: { key } });
+    assert.equal((await reopened.get("private", "secret-id"))?.text, "secret_vector_object");
+    assert.equal((await reopened.search("secret_vector_object")).length, 1);
+    assert.equal((await reopened.events.list("private-stream")).length, 1);
+    await reopened.close();
+  });
+
 } else {
   test("native driver behavior suite", { skip: "native binary has not been built yet" }, () => {});
 }

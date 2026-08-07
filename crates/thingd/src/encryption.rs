@@ -84,8 +84,9 @@ pub(crate) struct StorageCrypto {
 pub(crate) trait StorageCodec: Send + Sync {
     fn encode_value(&self, domain: &str, value: &[u8]) -> ThingdResult<Vec<u8>>;
     fn decode_value(&self, domain: &str, value: &[u8]) -> ThingdResult<Vec<u8>>;
-    #[allow(dead_code)]
     fn encode_key(&self, domain: &str, key: &[u8]) -> Vec<u8>;
+    fn encode_scoped_key(&self, domain: &str, namespace: &[u8], suffix: &[u8]) -> Vec<u8>;
+    fn encode_scoped_prefix(&self, domain: &str, namespace: &[u8]) -> Vec<u8>;
     fn encrypted(&self) -> bool;
 }
 
@@ -102,6 +103,20 @@ impl StorageCodec for RawStorageCodec {
 
     fn encode_key(&self, _domain: &str, key: &[u8]) -> Vec<u8> {
         key.to_vec()
+    }
+
+    fn encode_scoped_key(&self, _domain: &str, namespace: &[u8], suffix: &[u8]) -> Vec<u8> {
+        let mut key = Vec::with_capacity(namespace.len() + 1 + suffix.len());
+        key.extend_from_slice(namespace);
+        key.push(0);
+        key.extend_from_slice(suffix);
+        key
+    }
+
+    fn encode_scoped_prefix(&self, _domain: &str, namespace: &[u8]) -> Vec<u8> {
+        let mut prefix = namespace.to_vec();
+        prefix.push(0);
+        prefix
     }
 
     fn encrypted(&self) -> bool {
@@ -124,6 +139,19 @@ impl StorageCodec for EncryptedStorageCodec {
 
     fn encode_key(&self, domain: &str, key: &[u8]) -> Vec<u8> {
         self.crypto.hash_key(domain, key)
+    }
+
+    fn encode_scoped_key(&self, domain: &str, namespace: &[u8], suffix: &[u8]) -> Vec<u8> {
+        let mut key = self
+            .crypto
+            .hash_key(&format!("{domain}:namespace"), namespace);
+        key.extend_from_slice(&self.crypto.hash_key(&format!("{domain}:suffix"), suffix));
+        key
+    }
+
+    fn encode_scoped_prefix(&self, domain: &str, namespace: &[u8]) -> Vec<u8> {
+        self.crypto
+            .hash_key(&format!("{domain}:namespace"), namespace)
     }
 
     fn encrypted(&self) -> bool {

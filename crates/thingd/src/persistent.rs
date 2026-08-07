@@ -61,6 +61,17 @@ pub struct PersistentEngine {
 pub struct PersistentOpenOptions {
     /// Optional authenticated-encryption configuration.
     pub encryption: Option<EncryptionConfig>,
+    /// Permit an explicit encrypted-to-plaintext migration when used by
+    /// `PersistentEngine::reencrypt_to`. Ignored during normal open.
+    pub allow_plaintext_output: bool,
+}
+
+#[cfg(feature = "vectors")]
+#[derive(serde::Serialize, serde::Deserialize)]
+struct StoredVector {
+    collection: String,
+    id: String,
+    vector: Vec<f32>,
 }
 
 fn value_to_vec(v: Option<fjall::Slice>) -> Option<Vec<u8>> {
@@ -99,9 +110,12 @@ impl PersistentEngine {
 
         let mut next_link_id = 0u64;
         for kv in links_by_id.iter() {
-            let (key, _) = kv.into_inner()?;
-            let key_str = String::from_utf8_lossy(&key);
-            if let Some(id_str) = key_str.strip_prefix("link-")
+            let (_, value) = guard_data(kv)?;
+            let link: Link = {
+                let decoded = codec.decode_value("record", &value)?;
+                serde_json::from_slice(&decoded).map_err(|e| ThingdError::Storage(e.to_string()))?
+            };
+            if let Some(id_str) = link.id.strip_prefix("link-")
                 && let Ok(id) = id_str.parse::<u64>()
                 && id > next_link_id
             {
@@ -114,31 +128,29 @@ impl PersistentEngine {
         let mut event_seq_counters: HashMap<String, u64> = HashMap::new();
         let mut event_idempotency_keys: HashMap<(String, String), u64> = HashMap::new();
         for kv in events.iter() {
-            if let Ok((key, value)) = guard_data(kv)
-                && let Ok((stream, seq)) = Self::split_event_key(&key)
-            {
-                event_seq_counters
-                    .entry(stream.clone())
-                    .and_modify(|max| *max = (*max).max(seq))
-                    .or_insert(seq);
-                let decoded = codec.decode_value("record", &value).ok();
-                if let Some(decoded) = decoded
-                    && let Ok(event) = serde_json::from_slice::<MemoryEvent>(&decoded)
-                    && !event.idempotency_key.is_empty()
-                {
-                    event_idempotency_keys.insert((stream, event.idempotency_key), seq);
-                }
+            let (_, value) = guard_data(kv)?;
+            let decoded = codec.decode_value("record", &value)?;
+            let event: MemoryEvent = serde_json::from_slice(&decoded)
+                .map_err(|e| ThingdError::Storage(e.to_string()))?;
+            let stream = event.stream.clone();
+            let seq = event.sequence;
+            event_seq_counters
+                .entry(stream.clone())
+                .and_modify(|max| *max = (*max).max(seq))
+                .or_insert(seq);
+            if !event.idempotency_key.is_empty() {
+                event_idempotency_keys.insert((stream, event.idempotency_key), seq);
             }
         }
 
         #[cfg(feature = "search")]
         let search_index = if encrypted {
-            None
+            Self::create_search_index(true)
         } else {
             Self::init_search_index(path)
         };
 
-        Ok(Self {
+        let engine = Self {
             db,
             objects,
             events,
@@ -155,7 +167,23 @@ impl PersistentEngine {
             #[cfg(feature = "vectors")]
             vectors,
             codec,
-        })
+        };
+
+        #[cfg(feature = "search")]
+        if encrypted {
+            for entry in engine.objects.iter() {
+                let (_, value) = guard_data(entry)?;
+                let object: MemoryObject = engine.deserialize(&value)?;
+                engine.index_object_for_search(&object);
+            }
+            for entry in engine.events.iter() {
+                let (_, value) = guard_data(entry)?;
+                let event: MemoryEvent = engine.deserialize(&value)?;
+                engine.index_event_for_search(&event);
+            }
+        }
+
+        Ok(engine)
     }
 
     /// Re-encrypt a database into a new destination without modifying the source.
@@ -182,84 +210,141 @@ impl PersistentEngine {
             ));
         }
 
-        let source = Self::open_with_options(source_path, source_options)?;
-        let destination = Self::open_with_options(destination_path, destination_options)?;
-
-        fn copy_keyspace(
-            source: &Keyspace,
-            destination: &Keyspace,
-            source_codec: &dyn StorageCodec,
-            destination_codec: &dyn StorageCodec,
-        ) -> ThingdResult<()> {
-            for entry in source.iter() {
-                let (key, value) = guard_data(entry)?;
-                let output = if value.is_empty() {
-                    value
-                } else {
-                    let plaintext = source_codec.decode_value("record", &value)?;
-                    destination_codec.encode_value("record", &plaintext)?
-                };
-                destination
-                    .insert(&key, &output)
-                    .map_err(|e| ThingdError::EncryptionMigration(e.to_string()))?;
-            }
-            Ok(())
+        if source_options.encryption.is_some()
+            && destination_options.encryption.is_none()
+            && !destination_options.allow_plaintext_output
+        {
+            return Err(ThingdError::EncryptionMigration(
+                "encrypted-to-plaintext migration requires explicit opt-in".to_string(),
+            ));
         }
 
-        copy_keyspace(
-            &source.objects,
-            &destination.objects,
-            source.codec.as_ref(),
-            destination.codec.as_ref(),
-        )?;
-        copy_keyspace(
-            &source.events,
-            &destination.events,
-            source.codec.as_ref(),
-            destination.codec.as_ref(),
-        )?;
-        copy_keyspace(
-            &source.queue_jobs,
-            &destination.queue_jobs,
-            source.codec.as_ref(),
-            destination.codec.as_ref(),
-        )?;
-        copy_keyspace(
-            &source.ready_jobs,
-            &destination.ready_jobs,
-            source.codec.as_ref(),
-            destination.codec.as_ref(),
-        )?;
-        copy_keyspace(
-            &source.links_by_id,
-            &destination.links_by_id,
-            source.codec.as_ref(),
-            destination.codec.as_ref(),
-        )?;
-        copy_keyspace(
-            &source.links_from,
-            &destination.links_from,
-            source.codec.as_ref(),
-            destination.codec.as_ref(),
-        )?;
-        copy_keyspace(
-            &source.links_to,
-            &destination.links_to,
-            source.codec.as_ref(),
-            destination.codec.as_ref(),
-        )?;
-        #[cfg(feature = "vectors")]
-        copy_keyspace(
-            &source.vectors,
-            &destination.vectors,
-            source.codec.as_ref(),
-            destination.codec.as_ref(),
-        )?;
-        destination
-            .db
-            .persist(PersistMode::SyncAll)
-            .map_err(|e| ThingdError::EncryptionMigration(e.to_string()))?;
-        Ok(())
+        let result = (|| {
+            let source = Self::open_with_options(source_path, source_options)?;
+            let destination = Self::open_with_options(destination_path, destination_options)?;
+
+            for entry in source.objects.iter() {
+                let (_, value) = guard_data(entry)?;
+                let object: MemoryObject = source.deserialize(&value)?;
+                let key = destination.make_object_key(&object.key.collection, &object.key.id);
+                let data = destination.serialize(&object)?;
+                destination.objects.insert(&key, &data)?;
+                #[cfg(feature = "vectors")]
+                if let Some(vector) = object.vector {
+                    let vkey = destination.make_vector_key(&object.key.collection, &object.key.id);
+                    let vdata = destination.serialize(&StoredVector {
+                        collection: object.key.collection.clone(),
+                        id: object.key.id.clone(),
+                        vector,
+                    })?;
+                    destination.vectors.insert(&vkey, &vdata)?;
+                }
+            }
+
+            for entry in source.events.iter() {
+                let (_, value) = guard_data(entry)?;
+                let event: MemoryEvent = source.deserialize(&value)?;
+                let key = destination.make_event_key(&event.stream, event.sequence);
+                let data = destination.serialize(&event)?;
+                destination.events.insert(&key, &data)?;
+            }
+
+            for entry in source.queue_jobs.iter() {
+                let (_, value) = guard_data(entry)?;
+                let job: QueueJob = source.deserialize(&value)?;
+                let key = destination.make_queue_key(&job.queue, &job.id);
+                let data = destination.serialize(&job)?;
+                destination.queue_jobs.insert(&key, &data)?;
+                if job.status == QueueJobStatus::Ready {
+                    let ready_key = destination.make_ready_key(
+                        &job.queue,
+                        job.priority,
+                        &job.created_at,
+                        &job.id,
+                    );
+                    let ready_data = destination.serialize(&job.id)?;
+                    destination.ready_jobs.insert(&ready_key, &ready_data)?;
+                }
+            }
+
+            #[cfg(feature = "vectors")]
+            for entry in source.vectors.iter() {
+                let (physical_key, value) = guard_data(entry)?;
+                let vector = if let Ok(vector) = source.deserialize::<StoredVector>(&value) {
+                    vector
+                } else {
+                    let Some(separator) = physical_key.iter().rposition(|byte| *byte == 0) else {
+                        return Err(ThingdError::Storage(
+                            "legacy vector record has no collection/id separator".to_string(),
+                        ));
+                    };
+                    let collection = String::from_utf8_lossy(&physical_key[..separator]);
+                    let id = String::from_utf8_lossy(&physical_key[separator + 1..]);
+                    StoredVector {
+                        collection: collection.into_owned(),
+                        id: id.into_owned(),
+                        vector: source.deserialize(&value)?,
+                    }
+                };
+                let key = destination.make_vector_key(&vector.collection, &vector.id);
+                let data = destination.serialize(&vector)?;
+                destination.vectors.insert(&key, &data)?;
+            }
+
+            for entry in source.links_by_id.iter() {
+                let (_, value) = guard_data(entry)?;
+                let link: Link = source.deserialize(&value)?;
+                let data = destination.serialize(&link)?;
+                let index_data = destination.serialize(&link.id)?;
+                destination
+                    .links_by_id
+                    .insert(destination.make_link_id_key(&link.id), &data)?;
+                destination.links_from.insert(
+                    destination.make_link_from_key(&link.from_ref, &link.link_type, &link.id),
+                    &index_data,
+                )?;
+                destination.links_to.insert(
+                    destination.make_link_to_key(&link.to_ref, &link.link_type, &link.id),
+                    &index_data,
+                )?;
+            }
+
+            destination
+                .db
+                .persist(PersistMode::SyncAll)
+                .map_err(ThingdError::from)
+        })();
+
+        if result.is_err() {
+            let _ = std::fs::remove_dir_all(destination_path);
+        }
+        result.map_err(|error: ThingdError| {
+            ThingdError::EncryptionMigration(format!("logical database copy failed: {error}"))
+        })
+    }
+
+    #[cfg(feature = "search")]
+    fn search_schema() -> tantivy::schema::Schema {
+        let mut schema_builder = tantivy::schema::Schema::builder();
+        schema_builder.add_text_field("doc_key", tantivy::schema::STRING | tantivy::schema::STORED);
+        schema_builder.add_text_field(
+            "collection",
+            tantivy::schema::STRING | tantivy::schema::STORED,
+        );
+        schema_builder.add_text_field("id", tantivy::schema::STRING | tantivy::schema::STORED);
+        schema_builder.add_text_field("body", tantivy::schema::TEXT | tantivy::schema::STORED);
+        schema_builder.add_text_field("kind", tantivy::schema::STRING | tantivy::schema::STORED);
+        schema_builder.build()
+    }
+
+    #[cfg(feature = "search")]
+    fn create_search_index(in_memory: bool) -> Option<tantivy::Index> {
+        let schema = Self::search_schema();
+        if in_memory {
+            Some(tantivy::Index::create_in_ram(schema))
+        } else {
+            None
+        }
     }
 
     #[cfg(feature = "search")]
@@ -272,16 +357,7 @@ impl PersistentEngine {
             return Some(index);
         }
 
-        let mut schema_builder = tantivy::schema::Schema::builder();
-        schema_builder.add_text_field("doc_key", tantivy::schema::STRING | tantivy::schema::STORED);
-        schema_builder.add_text_field(
-            "collection",
-            tantivy::schema::STRING | tantivy::schema::STORED,
-        );
-        schema_builder.add_text_field("id", tantivy::schema::STRING | tantivy::schema::STORED);
-        schema_builder.add_text_field("body", tantivy::schema::TEXT | tantivy::schema::STORED);
-        schema_builder.add_text_field("kind", tantivy::schema::STRING | tantivy::schema::STORED);
-        let schema = schema_builder.build();
+        let schema = Self::search_schema();
 
         let index = tantivy::Index::create_in_dir(&search_dir, schema).ok()?;
         Some(index)
@@ -297,45 +373,60 @@ impl PersistentEngine {
         serde_json::from_slice(&data).map_err(|e| ThingdError::Storage(e.to_string()))
     }
 
-    fn make_object_key(collection: &str, id: &str) -> Vec<u8> {
-        format!("{collection}\0{id}").into_bytes()
+    fn make_object_key(&self, collection: &str, id: &str) -> Vec<u8> {
+        self.codec
+            .encode_scoped_key("objects", collection.as_bytes(), id.as_bytes())
     }
 
-    fn split_object_key(key: &[u8]) -> ThingdResult<(String, String)> {
-        let key_str = String::from_utf8_lossy(key);
-        let Some((collection, id)) = key_str.split_once('\0') else {
-            return Err(ThingdError::Storage("invalid object key format".into()));
-        };
-        Ok((collection.to_string(), id.to_string()))
+    fn make_object_prefix(&self, collection: &str) -> Vec<u8> {
+        self.codec
+            .encode_scoped_prefix("objects", collection.as_bytes())
     }
 
-    fn make_event_key(stream: &str, sequence: u64) -> Vec<u8> {
+    fn make_event_key(&self, stream: &str, sequence: u64) -> Vec<u8> {
         let seq_be = sequence.to_be_bytes();
-        let mut key = Vec::with_capacity(stream.len() + 1 + 8);
-        key.extend_from_slice(stream.as_bytes());
-        key.push(0);
+        let mut key = if self.codec.encrypted() {
+            self.codec.encode_key("events.stream", stream.as_bytes())
+        } else {
+            let mut raw = Vec::with_capacity(stream.len() + 1);
+            raw.extend_from_slice(stream.as_bytes());
+            raw.push(0);
+            raw
+        };
         key.extend_from_slice(&seq_be);
         key
     }
 
-    fn split_event_key(key: &[u8]) -> ThingdResult<(String, u64)> {
-        let Some(pos) = key.iter().position(|&b| b == 0) else {
-            return Err(ThingdError::Storage("invalid event key format".into()));
-        };
-        let stream = String::from_utf8_lossy(&key[..pos]).to_string();
-        let mut seq_bytes = [0u8; 8];
-        seq_bytes.copy_from_slice(&key[pos + 1..pos + 9]);
-        let sequence = u64::from_be_bytes(seq_bytes);
-        Ok((stream, sequence))
+    fn make_event_prefix(&self, stream: &str) -> Vec<u8> {
+        if self.codec.encrypted() {
+            self.codec.encode_key("events.stream", stream.as_bytes())
+        } else {
+            let mut prefix = stream.as_bytes().to_vec();
+            prefix.push(0);
+            prefix
+        }
     }
 
-    fn make_queue_key(queue: &str, id: &str) -> Vec<u8> {
-        format!("{queue}\0{id}").into_bytes()
+    fn make_queue_key(&self, queue: &str, id: &str) -> Vec<u8> {
+        self.codec
+            .encode_scoped_key("queue_jobs", queue.as_bytes(), id.as_bytes())
+    }
+
+    fn make_queue_prefix(&self, queue: &str) -> Vec<u8> {
+        self.codec
+            .encode_scoped_prefix("queue_jobs", queue.as_bytes())
     }
 
     /// Ready jobs index key: {`queue}\0{priority_rev:8BE}\0{created_at}\0{id`}
-    fn make_ready_key(queue: &str, priority: i32, created_at: &str, id: &str) -> Vec<u8> {
+    fn make_ready_key(&self, queue: &str, priority: i32, created_at: &str, id: &str) -> Vec<u8> {
         let priority_rev = (i32::MAX - priority).to_be_bytes();
+        if self.codec.encrypted() {
+            let mut key = self.codec.encode_key("ready_jobs.queue", queue.as_bytes());
+            key.extend_from_slice(&priority_rev);
+            key.extend_from_slice(created_at.as_bytes());
+            key.extend_from_slice(&self.codec.encode_key("ready_jobs.id", id.as_bytes()));
+            return key;
+        }
         let mut key = Vec::new();
         key.extend_from_slice(queue.as_bytes());
         key.push(b'\0');
@@ -347,17 +438,52 @@ impl PersistentEngine {
         key
     }
 
+    fn make_ready_prefix(&self, queue: &str) -> Vec<u8> {
+        if self.codec.encrypted() {
+            self.codec.encode_key("ready_jobs.queue", queue.as_bytes())
+        } else {
+            let mut prefix = queue.as_bytes().to_vec();
+            prefix.push(0);
+            prefix
+        }
+    }
+
     #[cfg(feature = "vectors")]
-    fn make_vector_key(collection: &str, id: &str) -> Vec<u8> {
-        format!("{collection}\0{id}").into_bytes()
+    fn make_vector_key(&self, collection: &str, id: &str) -> Vec<u8> {
+        self.codec
+            .encode_scoped_key("vectors", collection.as_bytes(), id.as_bytes())
     }
 
-    fn make_link_from_key(from_ref: &str, link_type: &str, link_id: &str) -> Vec<u8> {
-        format!("{from_ref}\0{link_type}\0{link_id}").into_bytes()
+    #[cfg(feature = "vectors")]
+    fn make_vector_prefix(&self, collection: &str) -> Vec<u8> {
+        self.codec
+            .encode_scoped_prefix("vectors", collection.as_bytes())
     }
 
-    fn make_link_to_key(to_ref: &str, link_type: &str, link_id: &str) -> Vec<u8> {
-        format!("{to_ref}\0{link_type}\0{link_id}").into_bytes()
+    fn make_link_id_key(&self, link_id: &str) -> Vec<u8> {
+        self.codec.encode_key("links_by_id", link_id.as_bytes())
+    }
+
+    fn make_link_from_key(&self, from_ref: &str, link_type: &str, link_id: &str) -> Vec<u8> {
+        let suffix = format!("{link_type}\0{link_id}");
+        self.codec
+            .encode_scoped_key("links_from", from_ref.as_bytes(), suffix.as_bytes())
+    }
+
+    fn make_link_from_prefix(&self, from_ref: &str) -> Vec<u8> {
+        self.codec
+            .encode_scoped_prefix("links_from", from_ref.as_bytes())
+    }
+
+    fn make_link_to_key(&self, to_ref: &str, link_type: &str, link_id: &str) -> Vec<u8> {
+        let suffix = format!("{link_type}\0{link_id}");
+        self.codec
+            .encode_scoped_key("links_to", to_ref.as_bytes(), suffix.as_bytes())
+    }
+
+    fn make_link_to_prefix(&self, to_ref: &str) -> Vec<u8> {
+        self.codec
+            .encode_scoped_prefix("links_to", to_ref.as_bytes())
     }
 }
 
@@ -372,7 +498,7 @@ fn guard_data(kv: fjall::Guard) -> ThingdResult<(Vec<u8>, Vec<u8>)> {
 
 impl ObjectStore for PersistentEngine {
     fn put_object(&mut self, mut object: MemoryObject) -> ThingdResult<MemoryObject> {
-        let key = Self::make_object_key(&object.key.collection, &object.key.id);
+        let key = self.make_object_key(&object.key.collection, &object.key.id);
 
         if object.created_at.is_empty() {
             object.created_at = now_iso_string();
@@ -394,9 +520,13 @@ impl ObjectStore for PersistentEngine {
         batch.insert(&self.objects, &key, &data);
         #[cfg(feature = "vectors")]
         {
-            let vkey = Self::make_vector_key(&object.key.collection, &object.key.id);
+            let vkey = self.make_vector_key(&object.key.collection, &object.key.id);
             if let Some(ref vector) = object.vector {
-                let vdata = self.serialize(vector)?;
+                let vdata = self.serialize(&StoredVector {
+                    collection: object.key.collection.clone(),
+                    id: object.key.id.clone(),
+                    vector: vector.clone(),
+                })?;
                 batch.insert(&self.vectors, &vkey, vdata);
             } else {
                 batch.remove(&self.vectors, vkey);
@@ -417,7 +547,7 @@ impl ObjectStore for PersistentEngine {
         object: MemoryObject,
         options: PutObjectOptions,
     ) -> ThingdResult<MemoryObject> {
-        let key = Self::make_object_key(&object.key.collection, &object.key.id);
+        let key = self.make_object_key(&object.key.collection, &object.key.id);
 
         if let Some(expected_version) = options.expected_version {
             match value_to_vec(self.objects.get(&key)?) {
@@ -443,7 +573,7 @@ impl ObjectStore for PersistentEngine {
     }
 
     fn get_object(&self, collection: &str, id: &str) -> ThingdResult<Option<MemoryObject>> {
-        let key = Self::make_object_key(collection, id);
+        let key = self.make_object_key(collection, id);
         match value_to_vec(self.objects.get(&key)?) {
             Some(data) => Ok(Some(self.deserialize(&data)?)),
             None => Ok(None),
@@ -468,7 +598,7 @@ impl ObjectStore for PersistentEngine {
         let prefix = if let Some(collections) = collections
             && collections.len() == 1
         {
-            Some(Self::make_object_key(&collections[0], ""))
+            Some(self.make_object_prefix(&collections[0]))
         } else {
             None
         };
@@ -597,7 +727,7 @@ impl ObjectStore for PersistentEngine {
     }
 
     fn delete_object(&mut self, collection: &str, id: &str) -> ThingdResult<bool> {
-        let key = Self::make_object_key(collection, id);
+        let key = self.make_object_key(collection, id);
         let existed = self.objects.get(&key)?.is_some();
 
         // Atomic batch: object + vector removal
@@ -605,7 +735,7 @@ impl ObjectStore for PersistentEngine {
         batch.remove(&self.objects, key);
         #[cfg(feature = "vectors")]
         {
-            let vkey = Self::make_vector_key(collection, id);
+            let vkey = self.make_vector_key(collection, id);
             batch.remove(&self.vectors, vkey);
         }
         batch
@@ -622,14 +752,14 @@ impl ObjectStore for PersistentEngine {
         let mut batch = self.db.batch();
 
         for (collection, id) in keys {
-            let key = Self::make_object_key(collection, id);
+            let key = self.make_object_key(collection, id);
             if self.objects.get(&key)?.is_some() {
                 batch.remove(&self.objects, key);
                 count += 1;
             }
             #[cfg(feature = "vectors")]
             {
-                let vkey = Self::make_vector_key(collection, id);
+                let vkey = self.make_vector_key(collection, id);
                 batch.remove(&self.vectors, vkey);
             }
         }
@@ -658,7 +788,7 @@ impl ObjectStore for PersistentEngine {
     }
 
     fn count_objects_in_collection(&self, collection: &str) -> ThingdResult<u64> {
-        let prefix = Self::make_object_key(collection, "");
+        let prefix = self.make_object_prefix(collection);
         let mut count = 0u64;
         for kv in self.objects.prefix(&prefix) {
             let _ = kv;
@@ -670,10 +800,10 @@ impl ObjectStore for PersistentEngine {
     fn list_collections(&self) -> ThingdResult<Vec<String>> {
         let mut collections: Vec<String> = Vec::new();
         for kv in self.objects.iter() {
-            let (key, _) = guard_data(kv)?;
-            let (collection, _) = Self::split_object_key(&key)?;
-            if !collections.contains(&collection) {
-                collections.push(collection);
+            let (_, value) = guard_data(kv)?;
+            let object: MemoryObject = self.deserialize(&value)?;
+            if !collections.contains(&object.key.collection) {
+                collections.push(object.key.collection);
             }
         }
         Ok(collections)
@@ -702,7 +832,7 @@ impl ObjectStore for PersistentEngine {
         };
 
         for col in collections {
-            let prefix = Self::make_object_key(&col, "");
+            let prefix = self.make_object_prefix(&col);
             let mut objects: Vec<MemoryObject> = Vec::new();
             let mut count = 0u64;
             for kv in self.objects.prefix(&prefix) {
@@ -772,7 +902,7 @@ impl EventLog for PersistentEngine {
         if !event.idempotency_key.is_empty() {
             let idem_key = (event.stream.clone(), event.idempotency_key.clone());
             if let Some(&existing_seq) = self.event_idempotency_keys.get(&idem_key) {
-                let ekey = Self::make_event_key(&event.stream, existing_seq);
+                let ekey = self.make_event_key(&event.stream, existing_seq);
                 if let Some(data) = value_to_vec(self.events.get(&ekey)?) {
                     let existing: MemoryEvent = self.deserialize(&data)?;
                     return Ok(existing);
@@ -791,7 +921,7 @@ impl EventLog for PersistentEngine {
             event.created_at = now_iso_string();
         }
 
-        let ekey = Self::make_event_key(&event.stream, event.sequence);
+        let ekey = self.make_event_key(&event.stream, event.sequence);
         let data = self.serialize(&event)?;
         self.events.insert(&ekey, &data)?;
 
@@ -824,18 +954,17 @@ impl EventLog for PersistentEngine {
         let mut results: Vec<MemoryEvent> = Vec::new();
 
         if let Some(stream_name) = stream {
-            for kv in self.events.iter() {
-                let (key, value) = guard_data(kv)?;
-                let (s, seq) = Self::split_event_key(&key)?;
-                if s != stream_name {
+            for kv in self.events.prefix(self.make_event_prefix(stream_name)) {
+                let (_, value) = guard_data(kv)?;
+                let event: MemoryEvent = self.deserialize(&value)?;
+                if event.stream != stream_name {
                     continue;
                 }
                 if let Some(from_seq) = options.from_sequence
-                    && seq <= from_seq
+                    && event.sequence <= from_seq
                 {
                     continue;
                 }
-                let event: MemoryEvent = self.deserialize(&value)?;
                 if let Some(ref since) = options.since
                     && event.created_at.as_str() < since.as_str()
                 {
@@ -881,10 +1010,14 @@ impl EventLog for PersistentEngine {
 
         for kv in self.events.iter() {
             let (key, value) = guard_data(kv)?;
-            let (s, _) = Self::split_event_key(&key)?;
-            if s == stream {
+            let event: MemoryEvent = self.deserialize(&value)?;
+            if event.stream == stream
+                && last_event
+                    .as_ref()
+                    .is_none_or(|last| event.sequence > last.sequence)
+            {
                 last_key = Some(key);
-                last_event = Some(self.deserialize(&value)?);
+                last_event = Some(event);
             }
         }
 
@@ -907,20 +1040,14 @@ impl EventLog for PersistentEngine {
             )));
         }
 
-        let entries: Vec<(Vec<u8>, u64)> = self
-            .events
-            .iter()
-            .filter_map(|kv| {
-                guard_data(kv)
-                    .ok()
-                    .and_then(|(key, _)| Self::split_event_key(&key).ok())
-                    .filter(|(s, _)| s == stream)
-                    .map(|(_, seq)| {
-                        let ekey = Self::make_event_key(stream, seq);
-                        (ekey, seq)
-                    })
-            })
-            .collect();
+        let mut entries: Vec<(Vec<u8>, u64)> = Vec::new();
+        for kv in self.events.iter() {
+            let (key, value) = guard_data(kv)?;
+            let event: MemoryEvent = self.deserialize(&value)?;
+            if event.stream == stream {
+                entries.push((key, event.sequence));
+            }
+        }
 
         let count = entries.len() as u64;
         for (key, seq) in &entries {
@@ -947,8 +1074,9 @@ impl EventLog for PersistentEngine {
     fn list_streams(&self) -> ThingdResult<Vec<String>> {
         let mut streams: Vec<String> = Vec::new();
         for kv in self.events.iter() {
-            let (key, _) = guard_data(kv)?;
-            let (stream, _) = Self::split_event_key(&key)?;
+            let (_, value) = guard_data(kv)?;
+            let event: MemoryEvent = self.deserialize(&value)?;
+            let stream = event.stream;
             if !streams.contains(&stream) {
                 streams.push(stream);
             }
@@ -964,13 +1092,14 @@ impl QueueStore for PersistentEngine {
         if job.created_at.is_empty() {
             job.created_at = now_iso_string();
         }
-        let key = Self::make_queue_key(&job.queue, &job.id);
+        let key = self.make_queue_key(&job.queue, &job.id);
         let data = self.serialize(&job)?;
         self.queue_jobs.insert(&key, &data)?;
         // Index in ready_jobs for O(1) claiming
         if job.status == QueueJobStatus::Ready {
-            let rkey = Self::make_ready_key(&job.queue, job.priority, &job.created_at, &job.id);
-            self.ready_jobs.insert(&rkey, [])?;
+            let rkey = self.make_ready_key(&job.queue, job.priority, &job.created_at, &job.id);
+            let rdata = self.serialize(&job.id)?;
+            self.ready_jobs.insert(&rkey, &rdata)?;
         }
         Ok(job)
     }
@@ -991,7 +1120,7 @@ impl QueueStore for PersistentEngine {
         let now = unix_timestamp_millis();
 
         // Release expired leases and re-index into ready_jobs
-        let qprefix = Self::make_queue_key(queue, "");
+        let qprefix = self.make_queue_prefix(queue);
         for kv in self.queue_jobs.prefix(&qprefix) {
             let (key, value) = guard_data(kv)?;
             let mut job: QueueJob = self.deserialize(&value)?;
@@ -1003,25 +1132,30 @@ impl QueueStore for PersistentEngine {
                 job.lease_expires_at_ms = None;
                 let data = self.serialize(&job)?;
                 self.queue_jobs.insert(&key, &data)?;
-                let rkey = Self::make_ready_key(&job.queue, job.priority, &job.created_at, &job.id);
-                self.ready_jobs.insert(&rkey, [])?;
+                let rkey = self.make_ready_key(&job.queue, job.priority, &job.created_at, &job.id);
+                let rdata = self.serialize(&job.id)?;
+                self.ready_jobs.insert(&rkey, &rdata)?;
             }
         }
 
         // Scan ready_jobs index in priority order, skipping delayed and stale entries
-        let prefix = format!("{queue}\0");
-        for kv in self.ready_jobs.prefix(prefix.as_bytes()) {
-            let (key, _) = guard_data(kv)?;
-            let key_str = String::from_utf8_lossy(&key);
-            let parts: Vec<&str> = key_str.splitn(4, '\0').collect();
-            if parts.len() < 4 {
-                continue;
-            }
-            let job_id = parts[3].to_string();
+        let prefix = self.make_ready_prefix(queue);
+        for kv in self.ready_jobs.prefix(&prefix) {
+            let (key, value) = guard_data(kv)?;
+            let job_id = if value.is_empty() {
+                let key_str = String::from_utf8_lossy(&key);
+                let parts: Vec<&str> = key_str.splitn(4, '\0').collect();
+                if parts.len() < 4 {
+                    continue;
+                }
+                parts[3].to_string()
+            } else {
+                self.deserialize::<String>(&value)?
+            };
             let rkey = key;
 
             // Read full job from queue_jobs
-            let qkey = Self::make_queue_key(queue, &job_id);
+            let qkey = self.make_queue_key(queue, &job_id);
             let Some(job_data) = value_to_vec(self.queue_jobs.get(&qkey)?) else {
                 // Job record missing — remove stale index entry
                 let _ = self.ready_jobs.remove(&rkey);
@@ -1063,7 +1197,7 @@ impl QueueStore for PersistentEngine {
     }
 
     fn ack_job(&mut self, queue: &str, id: &str) -> ThingdResult<Option<QueueJob>> {
-        let key = Self::make_queue_key(queue, id);
+        let key = self.make_queue_key(queue, id);
         match value_to_vec(self.queue_jobs.get(&key)?) {
             Some(data) => {
                 let mut job: QueueJob = self.deserialize(&data)?;
@@ -1086,7 +1220,7 @@ impl QueueStore for PersistentEngine {
         id: &str,
         options: QueueNackOptions,
     ) -> ThingdResult<Option<QueueJob>> {
-        let key = Self::make_queue_key(queue, id);
+        let key = self.make_queue_key(queue, id);
         match value_to_vec(self.queue_jobs.get(&key)?) {
             Some(data) => {
                 let mut job: QueueJob = self.deserialize(&data)?;
@@ -1112,8 +1246,9 @@ impl QueueStore for PersistentEngine {
                 // Re-index if retrying
                 if !is_dead {
                     let rkey =
-                        Self::make_ready_key(&job.queue, job.priority, &job.created_at, &job.id);
-                    self.ready_jobs.insert(&rkey, [])?;
+                        self.make_ready_key(&job.queue, job.priority, &job.created_at, &job.id);
+                    let rdata = self.serialize(&job.id)?;
+                    self.ready_jobs.insert(&rkey, &rdata)?;
                 }
 
                 Ok(Some(job))
@@ -1123,7 +1258,7 @@ impl QueueStore for PersistentEngine {
     }
 
     fn list_jobs(&self, queue: &str) -> ThingdResult<Vec<QueueJob>> {
-        let prefix = Self::make_queue_key(queue, "");
+        let prefix = self.make_queue_prefix(queue);
         let mut jobs = Vec::new();
         for kv in self.queue_jobs.prefix(&prefix) {
             let (_, value) = guard_data(kv)?;
@@ -1133,7 +1268,7 @@ impl QueueStore for PersistentEngine {
     }
 
     fn list_dead_jobs(&self, queue: &str) -> ThingdResult<Vec<QueueJob>> {
-        let prefix = Self::make_queue_key(queue, "");
+        let prefix = self.make_queue_prefix(queue);
         let mut jobs = Vec::new();
         for kv in self.queue_jobs.prefix(&prefix) {
             let (_, value) = guard_data(kv)?;
@@ -1148,12 +1283,10 @@ impl QueueStore for PersistentEngine {
     fn list_queues(&self) -> ThingdResult<Vec<String>> {
         let mut queues: Vec<String> = Vec::new();
         for kv in self.queue_jobs.iter() {
-            let (key, _) = guard_data(kv)?;
-            let key_str = String::from_utf8_lossy(&key);
-            if let Some((queue, _)) = key_str.split_once('\0')
-                && !queues.contains(&queue.to_string())
-            {
-                queues.push(queue.to_string());
+            let (_, value) = guard_data(kv)?;
+            let job: QueueJob = self.deserialize(&value)?;
+            if !queues.contains(&job.queue) {
+                queues.push(job.queue);
             }
         }
         Ok(queues)
@@ -1383,7 +1516,7 @@ impl PersistentEngine {
             if kind == "object"
                 && let Some(obj_data) = self
                     .objects
-                    .get(Self::make_object_key(&col, &doc_id))
+                    .get(self.make_object_key(&col, &doc_id))
                     .ok()
                     .and_then(value_to_vec)
                 && let Ok(obj) = self.deserialize::<MemoryObject>(&obj_data)
@@ -1404,7 +1537,7 @@ impl PersistentEngine {
                 && let Ok(seq) = id.parse::<u64>()
                 && let Some(ev_data) = self
                     .events
-                    .get(Self::make_event_key(&collection, seq))
+                    .get(self.make_event_key(&collection, seq))
                     .ok()
                     .and_then(value_to_vec)
                 && let Ok(event) = self.deserialize::<MemoryEvent>(&ev_data)
@@ -1540,30 +1673,30 @@ impl LinkStore for PersistentEngine {
 
         let data = self.serialize(&link)?;
 
-        self.links_by_id.insert(link.id.as_bytes(), &data)?;
+        let link_id_key = self.make_link_id_key(&link.id);
+        let index_data = self.serialize(&link.id)?;
+        self.links_by_id.insert(&link_id_key, &data)?;
         self.links_from.insert(
-            Self::make_link_from_key(&link.from_ref, &link.link_type, &link.id),
-            [],
+            self.make_link_from_key(&link.from_ref, &link.link_type, &link.id),
+            &index_data,
         )?;
         self.links_to.insert(
-            Self::make_link_to_key(&link.to_ref, &link.link_type, &link.id),
-            [],
+            self.make_link_to_key(&link.to_ref, &link.link_type, &link.id),
+            &index_data,
         )?;
 
         Ok(link)
     }
 
     fn delete_link(&mut self, id: &str) -> ThingdResult<bool> {
-        if let Some(data) = value_to_vec(self.links_by_id.get(id.as_bytes())?) {
+        let link_id_key = self.make_link_id_key(id);
+        if let Some(data) = value_to_vec(self.links_by_id.get(&link_id_key)?) {
             let link: Link = self.deserialize(&data)?;
-            self.links_by_id.remove(id.as_bytes())?;
-            self.links_from.remove(Self::make_link_from_key(
-                &link.from_ref,
-                &link.link_type,
-                id,
-            ))?;
+            self.links_by_id.remove(&link_id_key)?;
+            self.links_from
+                .remove(self.make_link_from_key(&link.from_ref, &link.link_type, id))?;
             self.links_to
-                .remove(Self::make_link_to_key(&link.to_ref, &link.link_type, id))?;
+                .remove(self.make_link_to_key(&link.to_ref, &link.link_type, id))?;
             Ok(true)
         } else {
             Ok(false)
@@ -1571,7 +1704,7 @@ impl LinkStore for PersistentEngine {
     }
 
     fn get_link(&self, id: &str) -> ThingdResult<Option<Link>> {
-        match value_to_vec(self.links_by_id.get(id.as_bytes())?) {
+        match value_to_vec(self.links_by_id.get(self.make_link_id_key(id))?) {
             Some(data) => Ok(Some(self.deserialize(&data)?)),
             None => Ok(None),
         }
@@ -1584,25 +1717,27 @@ impl LinkStore for PersistentEngine {
         options: LinkQueryOptions,
     ) -> ThingdResult<Vec<Link>> {
         let mut results: Vec<Link> = Vec::new();
-        let ref_prefix = format!("{reference}\0");
+        let outgoing_prefix = self.make_link_from_prefix(reference);
+        let incoming_prefix = self.make_link_to_prefix(reference);
 
         if direction == LinkDirection::Outgoing || direction == LinkDirection::Both {
-            for kv in self.links_from.prefix(ref_prefix.as_bytes()) {
-                let (key, _) = guard_data(kv)?;
-                let key_str = String::from_utf8_lossy(&key);
-                let parts: Vec<&str> = key_str.splitn(3, '\0').collect();
-                if parts.len() >= 3 {
-                    let link_type = parts[1];
-                    let link_id = parts[2];
-
-                    if let Some(ref lt) = options.link_type
-                        && link_type != lt.as_str()
+            for kv in self.links_from.prefix(&outgoing_prefix) {
+                let (key, value) = guard_data(kv)?;
+                let link_id = if value.is_empty() {
+                    let key_str = String::from_utf8_lossy(&key);
+                    key_str.splitn(3, '\0').nth(2).unwrap_or("").to_string()
+                } else {
+                    self.deserialize::<String>(&value)?
+                };
+                if let Some(data) =
+                    value_to_vec(self.links_by_id.get(self.make_link_id_key(&link_id))?)
+                {
+                    let link: Link = self.deserialize(&data)?;
+                    if options
+                        .link_type
+                        .as_ref()
+                        .is_none_or(|link_type| link.link_type == *link_type)
                     {
-                        continue;
-                    }
-
-                    if let Some(data) = value_to_vec(self.links_by_id.get(link_id.as_bytes())?) {
-                        let link: Link = self.deserialize(&data)?;
                         results.push(link);
                     }
                 }
@@ -1610,22 +1745,23 @@ impl LinkStore for PersistentEngine {
         }
 
         if direction == LinkDirection::Incoming || direction == LinkDirection::Both {
-            for kv in self.links_to.prefix(ref_prefix.as_bytes()) {
-                let (key, _) = guard_data(kv)?;
-                let key_str = String::from_utf8_lossy(&key);
-                let parts: Vec<&str> = key_str.splitn(3, '\0').collect();
-                if parts.len() >= 3 {
-                    let link_type = parts[1];
-                    let link_id = parts[2];
-
-                    if let Some(ref lt) = options.link_type
-                        && link_type != lt.as_str()
+            for kv in self.links_to.prefix(&incoming_prefix) {
+                let (key, value) = guard_data(kv)?;
+                let link_id = if value.is_empty() {
+                    let key_str = String::from_utf8_lossy(&key);
+                    key_str.splitn(3, '\0').nth(2).unwrap_or("").to_string()
+                } else {
+                    self.deserialize::<String>(&value)?
+                };
+                if let Some(data) =
+                    value_to_vec(self.links_by_id.get(self.make_link_id_key(&link_id))?)
+                {
+                    let link: Link = self.deserialize(&data)?;
+                    if options
+                        .link_type
+                        .as_ref()
+                        .is_none_or(|link_type| link.link_type == *link_type)
                     {
-                        continue;
-                    }
-
-                    if let Some(data) = value_to_vec(self.links_by_id.get(link_id.as_bytes())?) {
-                        let link: Link = self.deserialize(&data)?;
                         results.push(link);
                     }
                 }
@@ -1657,7 +1793,7 @@ impl AggregateStore for PersistentEngine {
         collection: &str,
         options: &AggregateOptions,
     ) -> ThingdResult<AggregateResult> {
-        let prefix = Self::make_object_key(collection, "");
+        let prefix = self.make_object_prefix(collection);
         let mut objects: Vec<MemoryObject> = Vec::new();
 
         for kv in self.objects.prefix(&prefix) {
@@ -1720,7 +1856,7 @@ impl AggregateStore for PersistentEngine {
         collection: &str,
         options: &TimeSeriesOptions,
     ) -> ThingdResult<TimeSeriesResult> {
-        let prefix = Self::make_object_key(collection, "");
+        let prefix = self.make_object_prefix(collection);
         let mut bucket_map: HashMap<String, Vec<f64>> = HashMap::new();
 
         for kv in self.objects.prefix(&prefix) {
@@ -1819,17 +1955,27 @@ impl crate::store::VectorStore for PersistentEngine {
 
         #[cfg(feature = "vectors")]
         {
-            let prefix = Self::make_vector_key(collection, "");
+            let prefix = self.make_vector_prefix(collection);
             let mut hits: Vec<VectorSearchHit> = Vec::new();
 
             for kv in self.vectors.prefix(&prefix) {
-                let (key, value) = guard_data(kv)?;
-                let key_str = String::from_utf8_lossy(&key);
-                let Some((_, id)) = key_str.split_once('\0') else {
-                    continue;
+                let (physical_key, value) = guard_data(kv)?;
+                let stored = if let Ok(stored) = self.deserialize::<StoredVector>(&value) {
+                    stored
+                } else {
+                    let Some(separator) = physical_key.iter().rposition(|byte| *byte == 0) else {
+                        return Err(ThingdError::Storage(
+                            "legacy vector record has no collection/id separator".to_string(),
+                        ));
+                    };
+                    StoredVector {
+                        collection: collection.to_string(),
+                        id: String::from_utf8_lossy(&physical_key[separator + 1..]).into_owned(),
+                        vector: self.deserialize(&value)?,
+                    }
                 };
-
-                let vector: Vec<f32> = self.deserialize(&value)?;
+                let id = stored.id;
+                let vector = stored.vector;
 
                 if vector.len() != query_vector.len() {
                     return Err(ThingdError::InvalidInput(format!(
@@ -1839,7 +1985,7 @@ impl crate::store::VectorStore for PersistentEngine {
                     )));
                 }
 
-                let Some(object) = self.get_object(collection, id)? else {
+                let Some(object) = self.get_object(collection, &id)? else {
                     continue;
                 };
 
@@ -1851,7 +1997,7 @@ impl crate::store::VectorStore for PersistentEngine {
 
                 let score = crate::cosine_similarity(query_vector, &vector);
                 hits.push(VectorSearchHit {
-                    id: id.to_string(),
+                    id: id.clone(),
                     score,
                     value: object,
                 });
@@ -1879,8 +2025,12 @@ impl crate::store::VectorStore for PersistentEngine {
 
         #[cfg(feature = "vectors")]
         {
-            let vkey = Self::make_vector_key(collection, id);
-            let vdata = self.serialize(&vector.to_vec())?;
+            let vkey = self.make_vector_key(collection, id);
+            let vdata = self.serialize(&StoredVector {
+                collection: collection.to_string(),
+                id: id.to_string(),
+                vector: vector.to_vec(),
+            })?;
             self.vectors.insert(&vkey, &vdata)?;
         }
 
@@ -1895,7 +2045,7 @@ impl crate::store::VectorStore for PersistentEngine {
 
         #[cfg(feature = "vectors")]
         {
-            let vkey = Self::make_vector_key(collection, id);
+            let vkey = self.make_vector_key(collection, id);
             let _ = self.vectors.remove(&vkey);
         }
 
@@ -2051,6 +2201,7 @@ mod tests {
         let key = [9_u8; 32];
         let options = PersistentOpenOptions {
             encryption: Some(EncryptionConfig::from_key(&key).unwrap()),
+            ..PersistentOpenOptions::default()
         };
         {
             let mut engine =
@@ -2066,6 +2217,7 @@ mod tests {
             dir.path(),
             PersistentOpenOptions {
                 encryption: Some(EncryptionConfig::from_key(&[8_u8; 32]).unwrap()),
+                ..PersistentOpenOptions::default()
             },
         );
         assert!(matches!(
@@ -2077,6 +2229,129 @@ mod tests {
             engine.get_object("private", "id").unwrap().unwrap().body,
             r#"{"secret":"value"}"#
         );
+    }
+
+    #[cfg(feature = "search")]
+    #[test]
+    fn encrypted_search_rebuilds_in_memory_without_search_directory() {
+        let dir = tempfile::tempdir().unwrap();
+        let key = [7_u8; 32];
+        let options = PersistentOpenOptions {
+            encryption: Some(EncryptionConfig::from_key(&key).unwrap()),
+            ..PersistentOpenOptions::default()
+        };
+        {
+            let mut engine =
+                PersistentEngine::open_with_options(dir.path(), options.clone()).unwrap();
+            engine
+                .put_object(MemoryObject::new(
+                    "private_collection",
+                    "private_id",
+                    r#"{"body":"encrypted_search_term"}"#,
+                ))
+                .unwrap();
+            engine
+                .append_event(MemoryEvent::new(
+                    "private_stream",
+                    "event-id",
+                    "encrypted event",
+                ))
+                .unwrap();
+            engine
+                .push_job(QueueJob::new(
+                    "private_queue",
+                    "private_job",
+                    "private payload",
+                    2,
+                ))
+                .unwrap();
+            engine
+                .put_object(MemoryObject::new("private_nodes", "a", "{}"))
+                .unwrap();
+            engine
+                .put_object(MemoryObject::new("private_nodes", "b", "{}"))
+                .unwrap();
+            engine
+                .create_link(Link::new(
+                    "private_nodes/a",
+                    "private_link",
+                    "private_nodes/b",
+                ))
+                .unwrap();
+            assert_eq!(
+                engine
+                    .search("encrypted_search_term", SearchOptions::default())
+                    .unwrap()
+                    .len(),
+                1
+            );
+        }
+        assert!(!dir.path().join("search").exists());
+        for bytes in walk_files(dir.path()) {
+            assert!(
+                !bytes
+                    .windows("private_collection".len())
+                    .any(|w| w == b"private_collection")
+            );
+            assert!(
+                !bytes
+                    .windows("private_id".len())
+                    .any(|w| w == b"private_id")
+            );
+            assert!(
+                !bytes
+                    .windows("encrypted_search_term".len())
+                    .any(|w| w == b"encrypted_search_term")
+            );
+            for identifier in [
+                "private_stream",
+                "private_queue",
+                "private_job",
+                "private_nodes",
+                "private_link",
+                "private payload",
+            ] {
+                assert!(
+                    !bytes
+                        .windows(identifier.len())
+                        .any(|w| w == identifier.as_bytes())
+                );
+            }
+        }
+
+        let mut reopened = PersistentEngine::open_with_options(dir.path(), options).unwrap();
+        assert_eq!(
+            reopened
+                .search("encrypted_search_term", SearchOptions::default())
+                .unwrap()
+                .len(),
+            1
+        );
+        reopened
+            .delete_object("private_collection", "private_id")
+            .unwrap();
+        assert!(
+            reopened
+                .search("encrypted_search_term", SearchOptions::default())
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    fn walk_files(path: &std::path::Path) -> Vec<Vec<u8>> {
+        let mut files = Vec::new();
+        let Ok(entries) = std::fs::read_dir(path) else {
+            return files;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                files.extend(walk_files(&path));
+            } else if let Ok(bytes) = std::fs::read(path) {
+                files.push(bytes);
+            }
+        }
+        files
     }
 
     #[test]
@@ -2092,6 +2367,7 @@ mod tests {
         }
         let destination_options = PersistentOpenOptions {
             encryption: Some(EncryptionConfig::from_key(&[3_u8; 32]).unwrap()),
+            ..PersistentOpenOptions::default()
         };
         PersistentEngine::reencrypt_to(
             &source_path,
@@ -2111,6 +2387,81 @@ mod tests {
                 .unwrap()
                 .body,
             r#"{"name":"Alice"}"#
+        );
+    }
+
+    #[test]
+    fn rotates_encrypted_database_without_overwriting_source() {
+        let root = tempfile::tempdir().unwrap();
+        let source_path = root.path().join("source-encrypted");
+        let destination_path = root.path().join("rotated-encrypted");
+        let source_options = PersistentOpenOptions {
+            encryption: Some(EncryptionConfig::from_key(&[0x11_u8; 32]).unwrap()),
+            ..PersistentOpenOptions::default()
+        };
+        let destination_options = PersistentOpenOptions {
+            encryption: Some(EncryptionConfig::from_key(&[0x22_u8; 32]).unwrap()),
+            ..PersistentOpenOptions::default()
+        };
+        {
+            let mut source =
+                PersistentEngine::open_with_options(&source_path, source_options.clone()).unwrap();
+            source
+                .put_object(MemoryObject::new("objects", "object", r#"{"value":true}"#))
+                .unwrap();
+            source
+                .append_event(MemoryEvent::new("events", "created", "event body"))
+                .unwrap();
+            source
+                .push_job(QueueJob::new("queue", "job", "payload", 2))
+                .unwrap();
+        }
+        PersistentEngine::reencrypt_to(
+            &source_path,
+            &destination_path,
+            source_options,
+            destination_options.clone(),
+        )
+        .unwrap();
+
+        let destination =
+            PersistentEngine::open_with_options(&destination_path, destination_options).unwrap();
+        assert!(
+            destination
+                .get_object("objects", "object")
+                .unwrap()
+                .is_some()
+        );
+        assert_eq!(
+            destination
+                .list_events(Some("events"), ListEventsOptions::default())
+                .unwrap()
+                .len(),
+            1
+        );
+        assert_eq!(destination.list_jobs("queue").unwrap().len(), 1);
+        let old_key = PersistentEngine::open_with_options(
+            &destination_path,
+            PersistentOpenOptions {
+                encryption: Some(EncryptionConfig::from_key(&[0x11_u8; 32]).unwrap()),
+                ..PersistentOpenOptions::default()
+            },
+        );
+        assert!(matches!(
+            old_key,
+            Err(ThingdError::EncryptionAuthentication(_))
+        ));
+        assert!(
+            PersistentEngine::reencrypt_to(
+                &source_path,
+                root.path().join("plaintext-refused"),
+                PersistentOpenOptions {
+                    encryption: Some(EncryptionConfig::from_key(&[0x11_u8; 32]).unwrap()),
+                    ..PersistentOpenOptions::default()
+                },
+                PersistentOpenOptions::default(),
+            )
+            .is_err()
         );
     }
 

@@ -42,11 +42,14 @@ remains unchanged if the copy fails.
 thingd backup --out /path/to/backup.db
 ```
 
-The deprecated SQLite backup is created using `VACUUM INTO`. It does not apply
-to current persistent database directories.
+For the current native backend, a filesystem backup is an opaque database
+directory. It remains encrypted when the source is encrypted and must be made
+only after the engine is stopped or after `thingd db checkpoint` completes.
+JSON snapshots are logical, decrypted exports and are not equivalent to an
+opaque filesystem backup.
 
 **Options:**
-- `--out <path>` — Destination path for a legacy SQLite backup
+- `--out <path>` — Destination path for the filesystem backup
 - `--path <path>` — Source database path (overrides `THINGD_PATH`)
 
 **Output:**
@@ -158,12 +161,13 @@ durability boundary.
 
 ## Schema and format migrations
 
-The current native backend does not expose manual SQLite schema migrations.
+The current native backend does not expose manual SQL schema migrations.
 Persistent format changes are versioned by the engine and encrypted databases
 also validate their storage manifest and envelope version during open. Key
 rotation is never automatic; use `db reencrypt`.
 
-Migrations are applied automatically when a database is opened with an older schema version. Before each migration, an automatic backup is created at `{database_path}.pre-v{version}`.
+Persistent format changes are versioned by the engine and validated during
+open. Key rotation is never automatic; use `db reencrypt`.
 
 ### Legacy SQLite migration history
 

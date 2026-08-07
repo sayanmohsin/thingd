@@ -15,6 +15,16 @@ The separate Rust sidecar MCP registry exposes 36 engine tools. The 10 scheduler
 tools are implemented by the Node SDK runtime and are intentionally not part of
 the Rust sidecar surface yet.
 
+### Encrypted local storage
+
+MCP is an application protocol and does not carry the native storage key. Supply
+`THINGD_ENCRYPTION_KEY` to the host process before starting the native stdio
+server or sidecar. The engine opens and authenticates the database before MCP
+initialization; missing or wrong keys therefore fail startup rather than
+appearing as a tool-level error. Once open, MCP tool schemas and results are
+unchanged. Encrypted search rebuilds its Tantivy index in process memory and
+does not create a persistent `search` directory.
+
 The package implements the local stdio server plus a remote-capable Streamable
 HTTP runtime.
 
