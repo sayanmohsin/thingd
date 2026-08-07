@@ -39,6 +39,7 @@ docker run --rm \
   -p 8757:8757 \
   -v thingd-data:/data \
   -e THINGD_AUTH_TOKEN=change-me \
+  -e THINGD_ENCRYPTION_KEY=<64-hex-characters> \
   thingd:local
 ```
 
@@ -53,6 +54,7 @@ Default container environment:
 ```txt
 THINGD_PATH=/data/thingd.db
 THINGD_DRIVER=native
+THINGD_ENCRYPTION_KEY=<64 hexadecimal characters, optional>
 THINGD_HOST=0.0.0.0
 THINGD_PORT=8757
 THINGD_CLUSTER_MODE=single
@@ -78,6 +80,13 @@ Authorization: Bearer <token>
 ```
 
 Do not set `THINGD_ALLOW_UNAUTHENTICATED=true` in a public or shared runtime.
+
+The encryption key is a startup secret for the native persistent directory. It
+is not sent to MCP clients or included in MCP requests. Inject it through a
+secret mechanism rather than committing it to Compose files or image layers.
+Missing or wrong keys terminate startup; the server does not create an
+in-memory replacement. Encrypted backups remain encrypted and require the same
+key to restore.
 
 ## Health Check
 

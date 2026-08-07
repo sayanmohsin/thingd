@@ -3,12 +3,13 @@ use std::path::Path;
 use std::sync::Arc;
 
 use parking_lot::{Mutex, RwLock};
-use thingd::{MemoryEngine, PersistentEngine, ThingStore};
+use thingd::{EncryptionConfig, MemoryEngine, PersistentEngine, PersistentOpenOptions, ThingStore};
 
 pub type SharedEngine = Arc<Mutex<Box<dyn ThingStore + Send>>>;
 
 pub fn create_engine(
     db_path: &str,
+    options: &PersistentOpenOptions,
 ) -> Result<Box<dyn ThingStore + Send>, Box<dyn std::error::Error>> {
     if db_path == ":memory:" || db_path.is_empty() {
         return Ok(Box::new(MemoryEngine::new()));
@@ -20,7 +21,7 @@ pub fn create_engine(
         std::fs::create_dir_all(parent)?;
     }
 
-    match PersistentEngine::open(db_path) {
+    match PersistentEngine::open_with_options(db_path, options.clone()) {
         Ok(engine) => Ok(Box::new(engine)),
         Err(e) => Err(Box::new(e)),
     }
@@ -29,6 +30,7 @@ pub fn create_engine(
 pub struct EnginePool {
     writers: RwLock<HashMap<String, SharedEngine>>,
     default_path: String,
+    open_options: PersistentOpenOptions,
 }
 
 impl EnginePool {
@@ -36,7 +38,24 @@ impl EnginePool {
         Self {
             writers: RwLock::new(HashMap::new()),
             default_path,
+            open_options: PersistentOpenOptions::default(),
         }
+    }
+
+    /// Construct a pool with an optional 64-character hexadecimal encryption key.
+    pub fn new_with_encryption_key(
+        default_path: String,
+        key: Option<&str>,
+    ) -> Result<Self, String> {
+        let encryption = key
+            .map(parse_hex_key)
+            .transpose()?
+            .map(|bytes| EncryptionConfig::from_key(&bytes))
+            .transpose()
+            .map_err(|error| error.to_string())?;
+        let mut pool = Self::new(default_path);
+        pool.open_options = PersistentOpenOptions { encryption };
+        Ok(pool)
     }
 
     fn resolve_path(&self, db_path: &str) -> String {
@@ -64,7 +83,7 @@ impl EnginePool {
             return engine.clone();
         }
 
-        let writer = match create_engine(&path) {
+        let writer = match create_engine(&path, &self.open_options) {
             Ok(engine) => Arc::new(Mutex::new(engine)),
             Err(e) => panic!("failed to open durable database at {path}: {e}"),
         };
@@ -107,6 +126,19 @@ impl EnginePool {
     }
 }
 
+fn parse_hex_key(value: &str) -> Result<Vec<u8>, String> {
+    if value.len() != 64 {
+        return Err("encryption key must contain 64 hexadecimal characters".to_string());
+    }
+    (0..value.len())
+        .step_by(2)
+        .map(|index| {
+            u8::from_str_radix(&value[index..index + 2], 16)
+                .map_err(|_| "encryption key must contain hexadecimal characters".to_string())
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -118,7 +150,7 @@ mod tests {
 
     #[tokio::test]
     async fn creates_in_memory_engine() {
-        let mut engine = create_engine(":memory:").unwrap();
+        let mut engine = create_engine(":memory:", &PersistentOpenOptions::default()).unwrap();
         let obj = MemoryObject::new("test", "1", r#"{"hello":"world"}"#);
         let stored = engine.put_object(obj).unwrap();
         assert_eq!(stored.key.id, "1");

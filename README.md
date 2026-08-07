@@ -15,6 +15,10 @@ thingd is a high-performance object-first data engine built for modern applicati
 
 thingd stores versioned JSON objects in collections, with built-in durable queues, append-only event streams, and full-text search — no stitching together separate infrastructure. The same API works in-memory, persisted locally, or connected to a remote sidecar.
 
+Native persistent storage optionally supports authenticated encryption through
+`THINGD_ENCRYPTION_KEY` (64 hexadecimal characters). Encrypted databases
+require the key on reopen and filesystem backups remain encrypted.
+
 ## Status
 
 `thingd` is in early-to-mid stage prototype (0.x track). The core engine,
@@ -446,6 +450,9 @@ thingd install
 
 # Connect to a remote thingd instance
 thingd mcp --driver native
+
+# Optional local encrypted storage; the key stays outside MCP configuration
+THINGD_ENCRYPTION_KEY=<64-hex-characters> thingd mcp --driver native
 
 # Connect to thingd Cloud
 thingd mcp connect

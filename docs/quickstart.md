@@ -61,6 +61,26 @@ await db.close();
 
 That's it — object storage, search, events, and queues in a dozen lines.
 
+### Optional encrypted native database
+
+For a file-backed native store, inject a 64-character hexadecimal key before
+opening the database:
+
+```bash
+export THINGD_ENCRYPTION_KEY=<64-hex-characters>
+```
+
+```ts
+const db = await ThingD.open({
+  driver: "native",
+  path: "./thingd-data",
+  encryption: { key: process.env.THINGD_ENCRYPTION_KEY },
+});
+```
+
+The key is a process startup secret, not an MCP or REST credential. Encrypted
+databases require it on every reopen; changing it does not rotate the database.
+
 ## 3. Try the CLI
 
 The CLI gives you the same primitives from the terminal:
@@ -89,6 +109,10 @@ Opens a dark-mode browser dashboard at `http://localhost:8758`. Browse collectio
 ## 4. Connect your editor (MCP)
 
 thingd ships with 46 Node MCP tools. The Rust sidecar exposes 36 engine tools; connect your editor to search, read, write, and queue data directly from your agent.
+
+If the native database is encrypted, configure `THINGD_ENCRYPTION_KEY` in the
+host process before starting MCP. The editor's MCP configuration and tool calls
+remain unchanged, and the editor never receives the database key.
 
 ### Cursor
 

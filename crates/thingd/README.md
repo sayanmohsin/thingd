@@ -12,6 +12,13 @@ durable job queues, full-text search, and graph links. It ships with two
 engines: an in-memory engine for fast prototyping and testing, and an optional
 persistent engine for durable local storage.
 
+Persistent callers can use `PersistentEngine::open(path)` for the existing
+unencrypted behavior or `PersistentEngine::open_with_options(path, options)`
+with an `EncryptionConfig`. Encryption uses a fallible `KeyProvider`; native
+and CLI boundaries commonly use a validated 32-byte `StaticKeyProvider`.
+Encryption is opt-in, fails closed on missing or wrong keys, and does not add
+encryption fields to the logical engine API.
+
 ## Why thingd?
 
 Modern apps and AI agents commonly need:

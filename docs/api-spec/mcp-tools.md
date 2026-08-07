@@ -4,6 +4,31 @@ The Node SDK/stdio MCP server exposes 46 SDK tools, including 10 SDK-level sched
 
 **Tool count:** 46 Node SDK tools (34 read-only, 12 write — 3 of which are destructive); the Rust sidecar exposes 36 core tools.
 
+## Encrypted storage and MCP
+
+Encryption is configured when the host process opens its native persistent
+store. It is not an MCP capability and does not change `tools/list`, tool
+arguments, resources, or tool results.
+
+- Local stdio MCP reads `THINGD_ENCRYPTION_KEY` before starting and passes it to
+  the native persistent store.
+- CLI Streamable HTTP MCP reads the same environment value before binding its
+  HTTP endpoint.
+- The Rust sidecar receives the key through `THINGD_ENCRYPTION_KEY` or its
+  generic server configuration and opens the shared engine before serving REST
+  or MCP.
+- MCP clients do not send or receive the key. They use normal MCP calls after
+  the server has opened successfully.
+- Missing or wrong keys prevent startup. They are not silently converted to
+  memory storage and are not reported as successful MCP tool responses.
+- MCP authentication, collection allowlists, read-only mode, and audit events
+  remain active independently of storage encryption. Audit events are stored
+  in the configured database and therefore require the database key to read.
+
+Encrypted search keeps the same logical results but rebuilds its index in
+memory during startup. Operators should expect higher startup cost and memory
+usage, and should not expect a persistent `<database>/search` directory.
+
 ---
 
 ## Object Tools

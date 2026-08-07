@@ -1,10 +1,38 @@
 # Operations
 
-> The SQLite backup procedure below is retained for the deprecated SQLite
-> adapter. Current persistent runtimes should use filesystem-level directory backups
-> or the Cloud runtime backup procedure.
+thingd's current native persistent backend stores a database as a directory.
+The procedures below distinguish opaque filesystem backups from logical exports;
+deprecated SQLite compatibility commands are retained only for older installs.
 
 Backup, recovery, database health, and maintenance procedures for thingd.
+
+## Encrypted persistent storage
+
+Set `THINGD_ENCRYPTION_KEY` to a 64-character hexadecimal key before opening a
+native persistent database. Missing or incorrect keys fail safely. Changing
+the variable does not rotate an existing database; use the explicit offline
+re-encryption API to migrate or rotate into a new destination.
+
+Filesystem backups remain encrypted and require the same key to restore. JSON
+snapshots and logical exports contain decrypted data and must be protected as
+plaintext artifacts. Encrypted search does not persist a Tantivy directory;
+search is rebuilt from records at startup and uses process memory. Stop the
+engine, or use the documented durability checkpoint, before copying a live
+database directory. Changing `THINGD_ENCRYPTION_KEY` does not rotate a key.
+Use the explicit offline re-encryption workflow instead.
+
+### Offline migration and key rotation
+
+```bash
+thingd db reencrypt --source ./old-db --destination ./new-db
+```
+
+The source key is read from `THINGD_ENCRYPTION_SOURCE_KEY` or, for the common
+case, `THINGD_ENCRYPTION_KEY`. The destination key is read from
+`THINGD_ENCRYPTION_DESTINATION_KEY`. Source and destination must be different,
+and an existing destination is never overwritten implicitly. Converting an
+encrypted source to plaintext requires `--allow-plaintext-output`. The source
+remains unchanged if the copy fails.
 
 ## Backup
 
@@ -18,7 +46,7 @@ The deprecated SQLite backup is created using `VACUUM INTO`. It does not apply
 to current persistent database directories.
 
 **Options:**
-- `--out <path>` — Destination path for the backup file
+- `--out <path>` — Destination path for a legacy SQLite backup
 - `--path <path>` — Source database path (overrides `THINGD_PATH`)
 
 **Output:**
@@ -28,18 +56,19 @@ Backup created: /path/to/backup.db (1.25 MB)
 
 ### Restoring from Backup
 
-There is no dedicated restore command. To restore:
+For a current native persistent database, restore the directory while the
+engine is stopped:
 
 ```bash
 # Stop thingd-server
-cp /path/to/backup.db /path/to/thingd.db
+cp -R /path/to/backup-directory /path/to/thingd.db
 # Start thingd-server
 ```
 
 Or use the CLI with a file copy:
 
 ```bash
-thingd db restore --in /path/to/backup.db
+thingd db restore --in /path/to/backup-directory
 ```
 
 ## Snapshots
@@ -107,36 +136,36 @@ When `--redact` is used during export, the following are automatically redacted:
 thingd db integrity
 ```
 
-Runs `PRAGMA quick_check` against the database and reports whether it passes. The check runs automatically on startup.
+Checks that the configured persistent directory can be opened and reports
+storage errors without replacing it with memory storage. For an encrypted
+database, the correct key must be present.
 
 **Output:**
 ```json
 { "ok": true, "message": "Database is accessible" }
 ```
 
-### WAL Checkpoint
+### Durability checkpoint
 
 ```bash
 thingd db checkpoint
 ```
 
-Triggers `PRAGMA wal_checkpoint(TRUNCATE)` to flush the Write-Ahead Log into the main database file. This reduces WAL file size and improves read performance.
+Flushes pending native persistent writes through the engine's durability
+boundary before an operator copies the database directory. It does not rotate
+an encryption key or decrypt a backup. In-memory databases have no filesystem
+durability boundary.
 
-**Output:**
-```json
-{ "framesBefore": 42, "framesAfter": 0 }
-```
+## Schema and format migrations
 
-- WAL checkpoint also runs automatically when the database connection is closed
-- In-memory databases do not support WAL mode
-
-## Schema Migrations
-
-thingd uses a forward-only, versioned schema migration system. Current schema version: `4`.
+The current native backend does not expose manual SQLite schema migrations.
+Persistent format changes are versioned by the engine and encrypted databases
+also validate their storage manifest and envelope version during open. Key
+rotation is never automatic; use `db reencrypt`.
 
 Migrations are applied automatically when a database is opened with an older schema version. Before each migration, an automatic backup is created at `{database_path}.pre-v{version}`.
 
-### Migration History
+### Legacy SQLite migration history
 
 > Note: These SQLite schema versions apply to the deprecated SQLite backend.
 > The current persistent backend has no manual schema management — schema is defined
@@ -149,7 +178,7 @@ Migrations are applied automatically when a database is opened with an older sch
 | 3 | `queue_jobs_last_error` | Adds `last_error` column to `queue_jobs` |
 | 4 | `graph_links` | Creates `links` table with graph relationship support |
 
-### Safety
+### Legacy SQLite safety
 
 - All migrations run inside transactions
 - A backup is automatically created before any migration (file-based databases only)
@@ -167,7 +196,7 @@ The doctor command checks:
 - Native addon availability
 - Auth token configuration (for cloud driver)
 - Connectivity to remote endpoints (for cloud driver)
-- Database integrity (via `PRAGMA quick_check`)
+- Database accessibility and native storage configuration
 
 ## Health Check Endpoints
 

@@ -120,6 +120,17 @@ impl From<thingd::ThingdError> for AppError {
                     AppError::internal(msg)
                 }
             },
+            thingd::ThingdError::EncryptionRequired(msg)
+            | thingd::ThingdError::InvalidEncryptionKey(msg)
+            | thingd::ThingdError::EncryptionAuthentication(msg)
+            | thingd::ThingdError::UnsupportedEncryptionVersion(msg)
+            | thingd::ThingdError::EncryptionMigration(msg) => {
+                if is_production_mode() {
+                    AppError::internal("encrypted storage unavailable".to_string())
+                } else {
+                    AppError::internal(msg)
+                }
+            },
         }
     }
 }

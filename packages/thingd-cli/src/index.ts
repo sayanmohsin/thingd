@@ -11,6 +11,7 @@ import {
   type MemoryEvent,
   type MemoryObject,
   type MemorySearchOptions,
+  NativeThingStore,
   type QueueClaimOptions,
   type QueueJobOptions,
   type QueueNackOptions,
@@ -100,6 +101,7 @@ export type ConnectionOptions = {
   cloud: boolean;
   /** Cloud instance slug for multi-instance routing. */
   instanceSlug?: string;
+  encryptionKey?: string;
 };
 
 const HELP_TEXT = `${logoLine()}Admin and operator CLI for thingd.
@@ -162,12 +164,14 @@ Usage:
   thingd cloud api-key create <project> <name>
   thingd db checkpoint [--path <path>]
   thingd db integrity [--path <path>]
+  thingd db reencrypt --source <path> --destination <path> [--allow-plaintext-output]
 
 Options:
   --url <url>          remote thingd URL. Defaults to THINGD_URL
   --auth-token <tok>  remote bearer token. Defaults to THINGD_AUTH_TOKEN
   --path <path>       local database path. Defaults to THINGD_PATH or ~/.thingd/data.db
   --driver <driver>   memory, native, or cloud
+  Encryption:          set THINGD_ENCRYPTION_KEY to a 64-character hex key for native storage
   --pretty            opencode-style log output (human-readable)
   --limit <n>         result limit for search and list commands
   --filter <json>     metadata key-value filter (e.g. '{"status":"active"}')
@@ -425,10 +429,42 @@ async function runCommand(context: CliContext): Promise<void> {
       await runDbIntegrity(context);
       return;
     }
-    throw new Error(`Unknown db subcommand: ${sub}. Expected: checkpoint, integrity`);
+    if (sub === "reencrypt") {
+      await runDbReencrypt(context);
+      return;
+    }
+    throw new Error(`Unknown db subcommand: ${sub}. Expected: checkpoint, integrity, reencrypt`);
   }
 
   throw new Error(`Unknown command: ${command}`);
+}
+
+async function runDbReencrypt(context: CliContext): Promise<void> {
+  const source = stringFlag(context.parsed, "source");
+  const destination = stringFlag(context.parsed, "destination");
+  if (!source || !destination) {
+    throw new Error("db reencrypt requires --source <path> and --destination <path>");
+  }
+  if (source === destination) {
+    throw new Error("db reencrypt requires different source and destination paths");
+  }
+  const destinationKey = context.env.THINGD_ENCRYPTION_DESTINATION_KEY;
+  if (!destinationKey && !hasFlag(context.parsed, "allow-plaintext-output")) {
+    throw new Error(
+      "Refusing unencrypted output. Set THINGD_ENCRYPTION_DESTINATION_KEY or pass --allow-plaintext-output explicitly."
+    );
+  }
+  await NativeThingStore.reencrypt(
+    source,
+    destination,
+    context.env.THINGD_ENCRYPTION_SOURCE_KEY ?? context.env.THINGD_ENCRYPTION_KEY,
+    destinationKey
+  );
+  writeJson(
+    context.stdout,
+    { source, destination, encrypted: Boolean(destinationKey) },
+    context.pretty
+  );
 }
 
 async function runBench(context: CliContext): Promise<void> {
@@ -1250,6 +1286,7 @@ export async function withDb(
     driver: connection.driver,
     authToken: connection.authToken,
     instanceSlug: connection.instanceSlug,
+    encryption: connection.encryptionKey ? { key: connection.encryptionKey } : undefined,
   });
 
   try {
@@ -1338,6 +1375,7 @@ export function resolveConnection(context: CliContext): ConnectionOptions {
     authToken: resolvedAuthToken,
     cloud,
     instanceSlug: cloudCfg?.instanceSlug,
+    encryptionKey: context.env.THINGD_ENCRYPTION_KEY,
   };
 }
 

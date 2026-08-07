@@ -193,7 +193,7 @@ The job has reached a terminal state and cannot be acked or nacked again.
 
 | Scenario | Example |
 |----------|---------|
-| Database corruption | SQLite disk I/O error |
+| Database corruption | Persistent storage I/O or corruption |
 | Unhandled exception | Unexpected null reference |
 | Store failure | Underlying storage backend error |
 
@@ -208,6 +208,30 @@ The job has reached a terminal state and cannot be acked or nacked again.
   }
 }
 ```
+
+## Storage and Encryption Errors
+
+Encryption errors occur while opening a native persistent database, before
+REST or MCP request handling begins. A runtime must fail closed and must never
+replace an unavailable database with an in-memory store.
+
+| Engine condition | Stable category | Runtime behavior |
+|---|---|---|
+| Encrypted database opened without a key | `encryption_required` | Startup/open fails |
+| Key is not exactly 32 bytes after boundary decoding | `invalid_key_format` | Startup/open fails |
+| Key cannot authenticate the manifest or a value | `encryption_authentication_failed` | Startup/open or read fails without fallback |
+| Unsupported envelope or manifest version | `unsupported_encryption_version` | Startup/open fails safely |
+| Re-encryption copy cannot complete | `encryption_migration_failed` | Source remains unchanged; destination is not published |
+
+The native and CLI boundaries accept a 64-character hexadecimal representation
+of a 32-byte key. Error messages identify the category and remediation without
+printing key material or decrypted database contents. The key is not sent in
+MCP initialization, MCP tool arguments, REST headers, URLs, or tool results.
+
+Wrong-key failures are startup failures for sidecar and CLI MCP runtimes. A
+client therefore sees a connection/startup failure rather than a per-tool
+MCP error. Once the engine is open, normal object, event, queue, link, vector,
+search, REST, and MCP error contracts remain unchanged.
 
 **Example response (production mode):**
 ```json

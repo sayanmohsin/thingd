@@ -149,11 +149,11 @@ spec:
 
 | Feature | Bun + HTTP | Node.js Native |
 |---------|-----------|----------------|
-| SQLite persistence | ✅ via sidecar | ✅ in-process |
+| Persistent storage | ✅ via sidecar | ✅ in-process |
 | Full-text search (Tantivy BM25) | ✅ via sidecar | ✅ in-process |
 | Performance | Network hop (<1ms local) | In-process (zero-copy) |
 | `backupTo()` | ❌ sidecar API call | ✅ direct |
-| `walCheckpoint()` | ❌ sidecar API call | ✅ direct |
+| Durability checkpoint | ❌ sidecar API call | ✅ direct |
 | Startup | Sidecar + app (2 processes) | Single process |
 
 For local development the network hop is negligible (< 0.5ms on loopback). For production, the sidecar pattern is actually cleaner — your app restarts don't affect the engine's state.
