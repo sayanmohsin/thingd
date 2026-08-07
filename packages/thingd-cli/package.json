@@ -41,10 +41,10 @@
     "url": "git+https://github.com/sayanmohsin/thingd.git"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "@thingd/sdk": "workspace:^",
     "cli-table3": "^0.6.5",
     "picocolors": "^1.1.1",
-    "@thingd/sdk": "workspace:^",
     "zod": "^4.4.3"
   },
   "scripts": {
