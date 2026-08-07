@@ -451,6 +451,9 @@ thingd install
 # Connect to a remote thingd instance
 thingd mcp --driver native
 
+# Optional local encrypted storage; the key stays outside MCP configuration
+THINGD_ENCRYPTION_KEY=<64-hex-characters> thingd mcp --driver native
+
 # Connect to thingd Cloud
 thingd mcp connect
 ```

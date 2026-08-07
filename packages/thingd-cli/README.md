@@ -19,6 +19,14 @@ thingd mcp
 # Start the HTTP MCP server + dashboard
 thingd mcp-http
 
+# Optional encrypted native storage; inject the key, do not put it in MCP config
+THINGD_ENCRYPTION_KEY=<64-hex-characters> thingd mcp --driver native
+
+# Offline migration or key rotation
+THINGD_ENCRYPTION_SOURCE_KEY=<old-key> \
+THINGD_ENCRYPTION_DESTINATION_KEY=<new-key> \
+thingd db reencrypt --source ./old-db --destination ./new-db
+
 # Open the TUI dashboard
 thingd dashboard
 

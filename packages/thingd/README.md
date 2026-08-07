@@ -21,6 +21,25 @@ const obj = await db.get("notes", "hello");
 console.log(obj); // { id: "hello", text: "Hello world", collection: "notes", version: 1, ... }
 ```
 
+### Optional native storage encryption
+
+Native persistent storage accepts a 64-character hexadecimal representation of
+a 32-byte encryption key:
+
+```typescript
+const db = await ThingD.open({
+  driver: "native",
+  path: "./thingd-data",
+  encryption: { key: process.env.THINGD_ENCRYPTION_KEY },
+});
+```
+
+The key is required every time an encrypted database is reopened. Memory and
+cloud drivers reject this local option. Do not commit keys or put them in MCP
+configuration; inject them through the deployment environment. Storage
+encryption does not change object, event, queue, graph, vector, search, REST,
+or MCP APIs.
+
 ## Subpath imports
 
 ```typescript

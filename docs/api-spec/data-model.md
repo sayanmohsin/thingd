@@ -2,6 +2,22 @@
 
 thingd stores four core entity types: objects, events, queue jobs, and links. All timestamps are ISO 8601 strings. IDs are strings (UUIDs or custom).
 
+## Persistence and encryption
+
+The logical data model is identical for memory, unencrypted native, and
+encrypted native stores. Encryption does not add fields to objects, events,
+queues, links, vectors, indexes, or search results. It protects persistent
+values and metadata at rest; data is decoded in process memory while the engine
+is running.
+
+Encrypted databases require their configured key on every reopen. Filesystem
+backups remain encrypted and require the same key. JSON snapshots and logical
+exports are decrypted plaintext artifacts and must be protected separately.
+
+Encrypted search does not persist a Tantivy directory. Search content is
+rebuilt from decrypted records at startup and held in process memory, which
+increases startup time and memory usage without changing search semantics.
+
 ## StoredMemoryObject
 
 An object stored in a collection. Objects have arbitrary JSON bodies with required `id` field.

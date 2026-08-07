@@ -136,8 +136,10 @@ THINGD_URL=http://127.0.0.1:8757
 THINGD_AUTH_TOKEN=...
 ```
 
-App uses `ThingD.open()`; agents use the same sidecar MCP endpoint. One SQLite
-file per pod (leader writes in cluster mode).
+App uses `ThingD.open()`; agents use the same sidecar MCP endpoint. One native
+persistent database can serve both paths. If it is encrypted, configure the
+key in the host process before startup; neither app requests nor MCP calls
+carry the key.
 
 ---
 

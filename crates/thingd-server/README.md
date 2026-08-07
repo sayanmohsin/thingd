@@ -94,6 +94,13 @@ thingd-server binary
 
 The binary embeds the `thingd` crate directly (no FFI, no subprocess). All MCP and REST handlers use the same engine — there is no network hop between the HTTP layer and the database.
 
+When `THINGD_ENCRYPTION_KEY` is configured, the sidecar opens the encrypted
+database before starting its HTTP, REST, or MCP handlers. The key is never
+part of MCP requests or REST headers. Authentication still protects the
+network endpoint independently. Encrypted search rebuilds in memory and does
+not create a persistent `search` directory; expect higher startup cost and
+memory use.
+
 ## Differences from the Node.js SDK
 
 | | thingd-server | @thingd/sdk |

@@ -19,10 +19,17 @@ used automatically.
 ```txt
 THINGD_PATH=/data/thingd.db
 THINGD_DRIVER=native
+THINGD_ENCRYPTION_KEY=<64 hexadecimal characters>
 ```
 
 `THINGD_DRIVER` can be `memory` or `native`. Use `native` for the Rust-backed
 persistent store after the native package has been built into the runtime image.
+
+`THINGD_ENCRYPTION_KEY` is optional and applies only to native persistent
+storage. It must represent exactly 32 bytes as 64 hexadecimal characters. Do
+not put it in source control, container image layers, MCP configuration, URLs,
+or request payloads. Memory and cloud drivers reject this local option rather
+than ignoring it. Changing the value does not rotate an existing database.
 
 ## HTTP
 
@@ -67,6 +74,7 @@ server:
   host: "0.0.0.0"
   port: 8757
   database: "/data/thingd.db"
+  encryption_key: "<64 hexadecimal characters>"
   production_mode: false
 auth:
   token: "change-me-with-a-random-token"

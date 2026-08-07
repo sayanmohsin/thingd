@@ -24,7 +24,7 @@ pub fn create_engine(db_path: &str) -> Result<Box<dyn ThingStore + Send>> {
     if db_path == ":memory:" || db_path.is_empty() {
         return Ok(Box::new(MemoryEngine::new()));
     }
-    Ok(Box::new(PersistentEngine::open(db_path)?))
+    Ok(Box::new(PersistentEngine::open_with_options(db_path, options)?))
 }
 ```
 
@@ -112,7 +112,7 @@ Future: an IndexedDB persist adapter for browser WASM, enabling cross-session du
 
 ## MCP server
 
-The Node SDK MCP server ships **46 tools** across objects, events, queues, search, graph links, aggregation, schema, NLQ, vectors, and scheduling. The Rust sidecar ships 36 engine tools; every sidecar tool goes through the same `ThingStore` trait.
+The Node SDK MCP server ships **46 tools** across objects, events, queues, search, graph links, aggregation, schema, NLQ, vectors, and scheduling. The Rust sidecar ships 36 engine tools; every sidecar tool goes through the same `ThingStore` trait. Native persistence options, including encryption, are resolved before either MCP runtime starts.
 
 ```
 Object CRUD:    thing_get, thing_put, thing_delete, thing_objects_list
@@ -161,7 +161,7 @@ See [mcp-server.md](./mcp-server.md) for the full reference.
 |------|-----|---------|
 | **Rust embedded** | `use thingd::{PersistentEngine, ObjectStore}` | persistent or InMemory |
 | **Node.js embedded** | `new ThingD({driver:"native"})` | persistent or InMemory |
-| **MCP sidecar** | `thingd mcp` | PersistentEngine |
+| **MCP sidecar** | `thingd mcp` | PersistentEngine with optional storage codec |
 | **REST sidecar** | `thingd-server` (axum) | PersistentEngine |
 | **Docker** | `docker run thingd/thingd-server` | PersistentEngine on a persistent volume |
 | **Browser/edge** | `@thingd/client` + SDK memory store | InMemory |

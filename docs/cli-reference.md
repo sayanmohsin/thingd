@@ -91,19 +91,29 @@ thingd backup --out backup.db
 thingd backup --in backup.db
 ```
 
-Creates a consistent snapshot of the deprecated SQLite backend using `VACUUM INTO`.
-For current persistent runtimes, use JSON snapshot export/restore and filesystem-level
-backups of the database directory.
+The file backup form is for the deprecated SQLite compatibility backend. For
+current native runtimes, stop or checkpoint the engine and back up the whole
+database directory. Encrypted directory backups remain opaque and require the
+same key to restore. JSON snapshots and logical exports are decrypted data.
 
 ### Database Maintenance
 
 ```txt
 thingd db checkpoint
 thingd db integrity
+thingd db reencrypt --source <path> --destination <path> [--allow-plaintext-output]
 ```
 
-- `checkpoint` — Runs `PRAGMA wal_checkpoint(TRUNCATE)` to flush the WAL
+- `checkpoint` — Flushes pending native persistent writes before a directory backup
 - `integrity` — Checks database accessibility and reports status
+- `reencrypt` — Copies logical records into a new destination for migration or
+  key rotation without modifying the source
+
+`THINGD_ENCRYPTION_KEY` supplies the normal native database key.
+`THINGD_ENCRYPTION_SOURCE_KEY` and `THINGD_ENCRYPTION_DESTINATION_KEY` supply
+the two keys for `db reencrypt`. Source and destination must differ, existing
+destinations are not overwritten, and encrypted-to-plaintext output requires
+`--allow-plaintext-output`.
 
 ### MCP Server
 
