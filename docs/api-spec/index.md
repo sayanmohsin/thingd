@@ -15,6 +15,7 @@ not add Cloud tenancy or authentication to the open-source engine.
 - [MCP Tools](mcp-tools.md) — tool schemas for AI agents
 - [Search](search.md) — Tantivy query syntax, filters, scoring
 - [Errors](errors.md) — error codes, HTTP mapping, MCP error format
+- [Replication](replication.md) — provider-neutral Thingd-to-Thingd synchronization
 
 ## Architecture
 

@@ -84,6 +84,24 @@ thingd snapshot create --out snapshot.thingd.json
 thingd snapshot restore --in snapshot.thingd.json
 ```
 
+### Thingd-to-Thingd synchronization
+
+Configure one source/replica relationship between any two Thingd HTTP endpoints.
+The configured source pushes changes; the configured replica pulls and applies them.
+
+```txt
+thingd sync configure --local-url <url> --remote-url <url> [--role source|replica] [--local-token <token>] [--remote-token <token>]
+thingd sync status
+thingd sync push
+thingd sync pull
+thingd sync pause
+thingd sync resume
+thingd sync reset
+```
+
+The sync protocol is provider-neutral. `thingd.cloud` is only a default provider
+preset and can be replaced with any Thingd-compatible endpoint.
+
 ### Backup
 
 ```txt

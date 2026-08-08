@@ -166,6 +166,21 @@ to leader when the current leader becomes unreachable.
   single-leader failover for static deployments (Kubernetes StatefulSet with
   ordered pod names, Docker Compose with fixed service order).
 
+## Replication
+
+Thingd-to-Thingd synchronization is provider-neutral. Configure a stable source
+identity on every instance, and set replica mode on the target instance:
+
+```bash
+THINGD_SYNC_SOURCE_ID=my-app-development
+THINGD_SYNC_ROLE=source|replica
+THINGD_SYNC_COLLECTIONS=users,posts
+```
+
+The replication API is available at `/v1/replication/events`,
+`/v1/replication/apply`, and `/v1/replication/status`. `thingd.cloud` is one
+compatible provider; these endpoints also work between self-hosted instances.
+
 ## Runtime Endpoints
 
 ```txt

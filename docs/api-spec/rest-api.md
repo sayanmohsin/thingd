@@ -103,6 +103,18 @@ curl http://localhost:8757/v1/counts/links
 { "data": { "count": 3 } }
 ```
 
+## Replication
+
+Thingd instances can synchronize one authoritative source to one replica using
+the provider-neutral replication endpoints. See [Replication](replication.md)
+for the change envelope and cursor rules.
+
+| Method | Endpoint | Purpose |
+|---|---|---|
+| `GET` | `/v1/replication/events?after=<cursor>&limit=<n>` | Read source changes |
+| `POST` | `/v1/replication/apply` | Apply a batch on a replica |
+| `GET` | `/v1/replication/status` | Read source/replica status |
+
 ---
 
 ## Metadata

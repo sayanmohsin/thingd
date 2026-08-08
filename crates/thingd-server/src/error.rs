@@ -60,6 +60,15 @@ impl AppError {
         }
     }
 
+    pub fn conflict(detail: impl Into<String>) -> Self {
+        Self {
+            status: StatusCode::CONFLICT,
+            title: "Conflict",
+            detail: detail.into(),
+            error_type: "conflict",
+        }
+    }
+
     pub fn internal(detail: impl Into<String>) -> Self {
         Self {
             status: StatusCode::INTERNAL_SERVER_ERROR,

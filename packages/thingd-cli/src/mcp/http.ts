@@ -31,6 +31,12 @@ export type ThingdHttpServerOptions = {
   mcpPath?: string;
   healthPath?: string;
   hardening?: ThingdMcpHardeningOptions;
+  /** Public Thingd-to-Thingd replication role. Defaults to source. */
+  syncRole?: "source" | "replica";
+  /** Stable identifier used by the replication feed. */
+  syncSourceId?: string;
+  /** Optional allowlist of object collections replicated by this HTTP runtime. */
+  syncCollections?: string[];
 };
 
 export type RunningThingdHttpServer = {
@@ -55,6 +61,9 @@ type RuntimeState = {
   replicationStopped?: boolean;
   replicationAbort?: AbortController;
   consecutiveReplicationFailures: number;
+  syncRole: "source" | "replica";
+  syncSourceId: string;
+  syncCollections: string[];
 };
 
 export async function startThingdHttpServer(
@@ -86,6 +95,9 @@ export async function startThingdHttpServer(
     cluster,
     hardening: options.hardening,
     consecutiveReplicationFailures: 0,
+    syncRole: options.syncRole ?? "source",
+    syncSourceId: options.syncSourceId ?? "thingd-http",
+    syncCollections: options.syncCollections ?? [],
   };
   const server = createServer((request, response) => {
     void handleRequest(state, request, response);
@@ -145,7 +157,12 @@ async function handleRequest(
       return;
     }
 
-    if (path !== state.mcpPath && path !== "/v1/replication/events") {
+    if (
+      path !== state.mcpPath &&
+      path !== "/v1/replication/events" &&
+      path !== "/v1/replication/apply" &&
+      path !== "/v1/replication/status"
+    ) {
       writeJson(response, 404, {
         error: "not_found",
       });
@@ -162,6 +179,16 @@ async function handleRequest(
 
     if (path === "/v1/replication/events") {
       await handleReplicationEvents(state, request, response);
+      return;
+    }
+
+    if (path === "/v1/replication/apply") {
+      await handleReplicationApply(state, request, response);
+      return;
+    }
+
+    if (path === "/v1/replication/status") {
+      await handleReplicationStatus(state, request, response);
       return;
     }
 
@@ -787,11 +814,18 @@ async function handleReplicationEvents(
   const url = new URL(request.url ?? "", "http://localhost");
   const afterStr = url.searchParams.get("after");
   const afterSeq = afterStr ? Number.parseInt(afterStr, 10) : 0;
+  const requestedLimit = Number.parseInt(url.searchParams.get("limit") ?? "500", 10);
+  const limit = Number.isFinite(requestedLimit) ? Math.min(1000, Math.max(1, requestedLimit)) : 500;
 
   try {
     const filteredEvents = await state.db.events.list("__thingd:system:replication", {
       fromSequence: afterSeq,
+      limit,
     });
+    const changes = filteredEvents
+      .map((event) => replicationChangeFromEvent(state.syncSourceId, event))
+      .filter((change) => syncCollectionAllowed(state, change.collection));
+    const next = changes.at(-1)?.cursor ?? afterSeq;
 
     writeJson(
       response,
@@ -799,6 +833,12 @@ async function handleReplicationEvents(
       {
         success: true,
         events: filteredEvents,
+        data: {
+          sourceId: state.syncSourceId,
+          after: afterSeq,
+          next,
+          changes,
+        },
       },
       request.method === "HEAD"
     );
@@ -807,4 +847,205 @@ async function handleReplicationEvents(
       error: error instanceof Error ? error.message : String(error),
     });
   }
+}
+
+type PublicReplicationChange = {
+  cursor: number;
+  sourceId: string;
+  idempotencyKey: string;
+  operation: "object.upsert" | "object.delete" | "event.append";
+  collection?: string;
+  id?: string;
+  payload: Record<string, unknown> | null;
+};
+
+function replicationChangeFromEvent(
+  sourceId: string,
+  event: StoredReplicationEvent
+): PublicReplicationChange {
+  const raw = parseReplicationBody(event);
+  const type = typeof raw.type === "string" ? raw.type : "";
+  if (type === "replication.objects.put") {
+    return {
+      cursor: event.sequence,
+      sourceId,
+      idempotencyKey: `${sourceId}:${event.sequence}`,
+      operation: "object.upsert",
+      collection: typeof raw.collection === "string" ? raw.collection : undefined,
+      id: typeof raw.id === "string" ? raw.id : undefined,
+      payload: { body: raw.object ?? {} },
+    };
+  }
+  if (type === "replication.objects.delete") {
+    return {
+      cursor: event.sequence,
+      sourceId,
+      idempotencyKey: `${sourceId}:${event.sequence}`,
+      operation: "object.delete",
+      collection: typeof raw.collection === "string" ? raw.collection : undefined,
+      id: typeof raw.id === "string" ? raw.id : undefined,
+      payload: null,
+    };
+  }
+  const appended = (raw.event ?? {}) as Record<string, unknown>;
+  return {
+    cursor: event.sequence,
+    sourceId,
+    idempotencyKey: `${sourceId}:${event.sequence}`,
+    operation: "event.append",
+    payload: {
+      stream: typeof raw.stream === "string" ? raw.stream : "",
+      type: typeof appended.type === "string" ? appended.type : "event",
+      body: appended.body ?? appended,
+    },
+  };
+}
+
+type StoredReplicationEvent = MemoryEvent & { sequence: number };
+
+function parseReplicationBody(event: StoredReplicationEvent): Record<string, unknown> {
+  if (typeof event.body === "string") {
+    try {
+      const parsed = JSON.parse(event.body) as unknown;
+      return parsed && typeof parsed === "object" ? (parsed as Record<string, unknown>) : {};
+    } catch {
+      return {};
+    }
+  }
+  return event as unknown as Record<string, unknown>;
+}
+
+async function handleReplicationApply(
+  state: RuntimeState,
+  request: IncomingMessage,
+  response: ServerResponse
+): Promise<void> {
+  if (request.method !== "POST") {
+    response.setHeader("Allow", "POST, OPTIONS");
+    writeJson(response, 405, { error: "method_not_allowed" });
+    return;
+  }
+  if (state.syncRole !== "replica") {
+    writeJson(response, 409, { error: "replica_required" });
+    return;
+  }
+
+  try {
+    const body = (await readJson(request)) as {
+      sourceId?: string;
+      changes?: PublicReplicationChange[];
+    };
+    const changes = Array.isArray(body.changes) ? body.changes : [];
+    if (changes.some((change) => change.sourceId !== changes[0]?.sourceId)) {
+      writeJson(response, 400, { error: "mixed_source_ids" });
+      return;
+    }
+    const sourceId = body.sourceId ?? changes[0]?.sourceId;
+    if (!sourceId) {
+      writeJson(response, 400, { error: "source_id_required" });
+      return;
+    }
+    const checkpointId = `source:${sourceId}`;
+    const checkpoint = await state.originalDb.get<{ lastAppliedCursor?: number }>(
+      "__thingd:sync_state",
+      checkpointId
+    );
+    let lastAppliedCursor = checkpoint?.lastAppliedCursor ?? 0;
+    let applied = 0;
+    let skipped = 0;
+    for (const change of changes) {
+      if (change.cursor <= lastAppliedCursor) {
+        skipped++;
+        continue;
+      }
+      if (change.operation === "object.upsert" && change.collection && change.payload?.body) {
+        if (!syncCollectionAllowed(state, change.collection)) {
+          skipped++;
+          continue;
+        }
+        await state.originalDb.put(
+          change.collection,
+          change.payload.body as unknown as MemoryObject
+        );
+      } else if (change.operation === "object.delete" && change.collection && change.id) {
+        if (!syncCollectionAllowed(state, change.collection)) {
+          skipped++;
+          continue;
+        }
+        await state.originalDb.delete(change.collection, change.id);
+      } else if (change.operation === "event.append" && change.payload) {
+        await state.originalDb.events.append(String(change.payload.stream ?? ""), {
+          type: String(change.payload.type ?? "event"),
+          body: change.payload.body,
+        } as MemoryEvent);
+      }
+      lastAppliedCursor = change.cursor;
+      applied++;
+    }
+    await state.originalDb.put("__thingd:sync_state", {
+      id: checkpointId,
+      sourceId,
+      lastAppliedCursor,
+    });
+    writeJson(response, 200, {
+      success: true,
+      data: { applied, skipped, lastAppliedCursor },
+    });
+  } catch (error) {
+    writeJson(response, 400, { error: error instanceof Error ? error.message : String(error) });
+  }
+}
+
+function syncCollectionAllowed(state: RuntimeState, collection?: string): boolean {
+  if (!collection || collection.startsWith("__thingd")) {
+    return true;
+  }
+  return state.syncCollections.length === 0 || state.syncCollections.includes(collection);
+}
+
+async function handleReplicationStatus(
+  state: RuntimeState,
+  request: IncomingMessage,
+  response: ServerResponse
+): Promise<void> {
+  if (request.method !== "GET" && request.method !== "HEAD") {
+    response.setHeader("Allow", "GET, HEAD, OPTIONS");
+    writeJson(response, 405, { error: "method_not_allowed" });
+    return;
+  }
+  const events = await state.originalDb.events.list("__thingd:system:replication", {
+    limit: 1_000_000,
+  });
+  const last = events.at(-1) as (MemoryEvent & { sequence?: number }) | undefined;
+  writeJson(
+    response,
+    200,
+    {
+      success: true,
+      data: {
+        sourceId: state.syncSourceId,
+        role: state.syncRole,
+        latestCursor: last?.sequence ?? 0,
+      },
+    },
+    request.method === "HEAD"
+  );
+}
+
+function readJson(request: IncomingMessage): Promise<unknown> {
+  return new Promise((resolve, reject) => {
+    let body = "";
+    request.setEncoding("utf8");
+    request.on("data", (chunk: string) => {
+      body += chunk;
+    });
+    request.on("end", () => {
+      try {
+        resolve(body ? JSON.parse(body) : {});
+      } catch (error) {
+        reject(error);
+      }
+    });
+    request.on("error", reject);
+  });
 }

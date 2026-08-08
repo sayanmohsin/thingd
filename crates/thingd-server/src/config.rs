@@ -21,6 +21,44 @@ pub struct Config {
     pub hardening: HardeningConfig,
     #[serde(default)]
     pub nlq: NlqConfig,
+    #[serde(default)]
+    pub sync: SyncConfig,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SyncConfig {
+    /// Stable identifier for this Thingd instance's replication source.
+    #[serde(default = "default_sync_source_id")]
+    pub source_id: String,
+    /// Whether this instance accepts normal writes or is a replica.
+    #[serde(default)]
+    pub role: SyncRole,
+    /// Optional collection allowlist for replication changes.
+    #[serde(default)]
+    pub collections: Vec<String>,
+}
+
+impl Default for SyncConfig {
+    fn default() -> Self {
+        Self {
+            source_id: default_sync_source_id(),
+            role: SyncRole::Source,
+            collections: Vec::new(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum SyncRole {
+    #[default]
+    Source,
+    Replica,
+}
+
+fn default_sync_source_id() -> String {
+    std::env::var("THINGD_SYNC_SOURCE_ID").unwrap_or_else(|_| "thingd-default".to_string())
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -406,6 +444,24 @@ impl Config {
         }
         if let Ok(v) = std::env::var("THINGD_PATH") {
             self.server.database = v;
+        }
+        if let Ok(v) = std::env::var("THINGD_SYNC_SOURCE_ID") {
+            self.sync.source_id = v;
+        }
+        if let Ok(v) = std::env::var("THINGD_SYNC_ROLE") {
+            self.sync.role = if v == "replica" {
+                SyncRole::Replica
+            } else {
+                SyncRole::Source
+            };
+        }
+        if let Ok(v) = std::env::var("THINGD_SYNC_COLLECTIONS") {
+            self.sync.collections = v
+                .split(',')
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(String::from)
+                .collect();
         }
         if let Ok(v) = std::env::var("THINGD_AUTH_TOKEN") {
             self.auth.token = v;

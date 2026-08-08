@@ -28,6 +28,7 @@ pub struct AppState {
     pub allow_unauthenticated: bool,
     pub cluster_config: ClusterConfig,
     pub nlq_config: NlqConfig,
+    pub sync_config: crate::config::SyncConfig,
     pub hardening_config: crate::config::HardeningConfig,
 }
 
@@ -60,6 +61,10 @@ pub fn build_router(state: Arc<AppState>, config: &Config) -> Router {
         // Events
         .route("/v1/events/{stream}", post(rest::append_event))
         .route("/v1/events", get(rest::list_events))
+        // Provider-neutral Thingd-to-Thingd synchronization
+        .route("/v1/replication/events", get(rest::replication_events))
+        .route("/v1/replication/apply", post(rest::replication_apply))
+        .route("/v1/replication/status", get(rest::replication_status))
         // Queues
         .route("/v1/queues/{queue}/push", post(rest::push_job))
         .route("/v1/queues/{queue}/claim", post(rest::claim_job))

@@ -154,6 +154,9 @@ Usage:
   thingd snapshot restore --in <path>
   thingd backup --out <path>
   thingd backup --in <path>
+  thingd sync configure --local-url <url> --remote-url <url> [--role <source|replica>]
+  thingd sync status
+  thingd sync push|pull|pause|resume|reset
   thingd cloud login [--code <code> --token <token>]
   thingd cloud logout
   thingd cloud status
@@ -320,6 +323,12 @@ async function runCommand(context: CliContext): Promise<void> {
   if (command === "cloud") {
     const { runCloud } = await import("./commands/cloud.js");
     await runCloud(context);
+    return;
+  }
+
+  if (command === "sync") {
+    const { runSyncCommand } = await import("./commands/sync.js");
+    await runSyncCommand(context);
     return;
   }
 

@@ -85,6 +85,7 @@ async fn main() {
         allow_unauthenticated: config.auth.allow_unauthenticated,
         cluster_config: config.cluster.clone(),
         nlq_config: config.nlq.clone(),
+        sync_config: config.sync.clone(),
         hardening_config: config.hardening.clone(),
     });
     let app = server::build_router(Arc::clone(&app_state), &config)
