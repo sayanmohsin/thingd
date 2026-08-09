@@ -67,17 +67,11 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git fetch origin "$BRANCH"
           git checkout "$BRANCH"
-          WORKSPACE_VERSION=$(sed -n 's/^version = "\([0-9]*\.[0-9]*\)\.[0-9]*"/\1/p' Cargo.toml | head -n 1)
-          sed -i -E \
-            "s/(thingd = \{ path = \"\.\.\/thingd\", version = \")([0-9]+\.[0-9]+)/\1${WORKSPACE_VERSION}/" \
-            crates/thingd-server/Cargo.toml
-          sed -i -E \
-            "s/(thingd = \{ path = \"\.\.\/\.\.\/crates\/thingd\", version = \")([0-9]+\.[0-9]+)/\1${WORKSPACE_VERSION}/" \
-            packages/thingd-native/Cargo.toml
+          node scripts/sync-cargo-local-dependency-versions.mjs
           cargo update -w
           git add Cargo.lock crates/thingd-server/Cargo.toml packages/thingd-native/Cargo.toml
           if ! git diff --cached --quiet; then
-            git commit -m "chore: sync release dependency versions [skip ci]"
+            git commit -m "chore: sync release dependency versions"
             git push origin "$BRANCH"
           fi
       - name: Normalize manual retry
@@ -219,6 +213,12 @@ jobs:
           registry-url: https://registry.npmjs.org
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - name: Prepare publish manifests
+        env:
+          VERSION: ${{ needs.release-please.outputs.version }}
+        run: node scripts/prepare-publish-manifests.mjs "$VERSION"
+      - name: Refresh ephemeral lockfile for publish manifests
+        run: pnpm install --no-frozen-lockfile
       - uses: actions/download-artifact@v8
         with:
           path: prebuild-artifacts
@@ -230,8 +230,9 @@ jobs:
       - name: Validate package artifacts
         env:
           REQUIRED_NATIVE_PREBUILDS: "5"
+          RELEASE_VERSION: ${{ needs.release-please.outputs.version }}
         run: |
-          pnpm --filter @thingd/sdk build
+          pnpm --filter @thingd/sdk --filter @thingd/cli --filter @thingd/client build
           pnpm verify:publish
       - name: Publish packages if missing
         env:
@@ -246,9 +247,18 @@ jobs:
             fi
           }
           publish_if_missing @thingd/sdk
-          publish_if_missing @thingd/cli
           publish_if_missing @thingd/native
+          publish_if_missing @thingd/cli
           publish_if_missing @thingd/client
+      - name: Verify published CLI installation
+        env:
+          VERSION: ${{ needs.release-please.outputs.version }}
+        run: |
+          SMOKE_DIR=$(mktemp -d)
+          trap 'rm -rf "$SMOKE_DIR"' EXIT
+          npm init -y --prefix "$SMOKE_DIR" >/dev/null
+          npm install --prefix "$SMOKE_DIR" --no-audit --no-fund "@thingd/cli@$VERSION"
+          (cd "$SMOKE_DIR" && node --input-type=module -e "await import('@thingd/cli')")
 
   docker:
     name: Publish Docker image

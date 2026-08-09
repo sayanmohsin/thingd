@@ -38,7 +38,7 @@ See the [full feature status and roadmap](https://github.com/sayanmohsin/thingd-
 - **Provider-neutral replication** — synchronize one explicit Thingd source to one replica, including objects, deletes, tombstones, events, cursors, snapshots, provenance, and quarantined conflicts.
 - **MCP server** — 49 SDK tools, stdio + Streamable HTTP, audit events, collection allowlists, and read-only mode; the Rust sidecar exposes 39 core tools (scheduler tools are SDK-only)
 - **Docker** — multi-stage image, compose + K8s for leader/follower cluster
-- **CI/tooling** — semantic-release, biome, lefthook, doc tests, cargo audit, cargo deny, CodeQL
+- **CI/tooling** — Release Please, biome, lefthook, doc tests, cargo audit, cargo deny, CodeQL
 
 ### What's next
 
@@ -688,9 +688,9 @@ pnpm test:rust
 
 ## Releases
 
-`thingd` uses [semantic-release](https://semantic-release.gitbook.io) on `main`
-with conventional commits to determine version bumps, publish npm packages, and
-create GitHub releases.
+`thingd` uses [Release Please](https://github.com/googleapis/release-please) to
+create a versioned release PR from conventional commits. Merging that PR creates
+the tag and publishes the npm packages, Rust crate, and Docker images.
 
 See [release.md](docs/release.md) for the full release process, required secrets,
 native prebuild workflow, and troubleshooting.
@@ -699,7 +699,7 @@ Before enabling publish, run:
 
 ```bash
 pnpm test:local
-pnpm release:dry-run
+pnpm test:publish-manifests
 ```
 
 ## Comparison
