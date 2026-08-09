@@ -56,7 +56,7 @@ jobs:
           token: ${{ steps.app-token.outputs.token }}
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
-      - name: Update Cargo.lock on release PR
+      - name: Synchronize local Cargo dependency versions on release PR
         if: ${{ steps.release.outputs.pr-number != '' }}
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
@@ -67,17 +67,11 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git fetch origin "$BRANCH"
           git checkout "$BRANCH"
-          WORKSPACE_VERSION=$(sed -n 's/^version = "\([0-9]*\.[0-9]*\)\.[0-9]*"/\1/p' Cargo.toml | head -n 1)
-          sed -i -E \
-            "s/(thingd = \{ path = \"\.\.\/thingd\", version = \")([0-9]+\.[0-9]+)/\1${WORKSPACE_VERSION}/" \
-            crates/thingd-server/Cargo.toml
-          sed -i -E \
-            "s/(thingd = \{ path = \"\.\.\/\.\.\/crates\/thingd\", version = \")([0-9]+\.[0-9]+)/\1${WORKSPACE_VERSION}/" \
-            packages/thingd-native/Cargo.toml
+          node scripts/sync-cargo-local-dependency-versions.mjs
           cargo update -w
-          git add Cargo.lock crates/thingd-server/Cargo.toml packages/thingd-native/Cargo.toml
+          git add Cargo.lock crates packages
           if ! git diff --cached --quiet; then
-            git commit -m "chore: sync release dependency versions [skip ci]"
+            git commit -m "chore: sync release dependency versions"
             git push origin "$BRANCH"
           fi
       - name: Normalize manual retry

@@ -138,6 +138,7 @@ Use semantic branch prefixes such as `feature/<name>`, `fix/<name>`,
 
 - **AGENTS.md test counts** — `pnpm test:node`/`:cli`/`:rust` counts in the Commands section must match `package.json` test scripts. Run each to verify before committing.
 - **AGENTS.md version examples** — `Version specifier propagation` examples must match the current workspace `[workspace.package].version` in `Cargo.toml`.
+- **Release dependency sync** — run `pnpm check:cargo-versions`; Release Please uses `scripts/sync-cargo-local-dependency-versions.mjs` to update every local Cargo path dependency, including `thingd-schema`.
 - **MCP tool count** — update in `packages/thingd/src/constants.ts` only; VitePress docs use `{{ $themeConfig.mcpToolCount }}` from `docs/.vitepress/config.ts`
 - **Sidecar REST gap** — every REST endpoint in `docs/api-spec/rest-api.md` must exist in `crates/thingd-server/src/rest.rs`
 - **CLI import for DBs** — `thingd import <connection-string>` calls sidecar `POST /v1/connectors/{type}/pull`. Document flags in `docs/cli-reference.md`.

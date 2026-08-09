@@ -13,6 +13,7 @@
     "bench:rust:smoke": "cargo run --release -p thingd --example storage_bench --features persistent,search -- 10",
     "check": "biome check .",
     "check:docs": "node scripts/check-docs.mjs && node scripts/check-public-storage-names.mjs",
+    "check:cargo-versions": "node scripts/sync-cargo-local-dependency-versions.mjs --check",
     "docs:metadata": "node scripts/generate-doc-metadata.mjs",
     "check:write": "biome check --write .",
     "check:mcp": "node scripts/verify-mcp-tools.mjs",

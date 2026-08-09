@@ -46,6 +46,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm check
       - run: pnpm check:docs
+      - run: pnpm check:cargo-versions
       - run: pnpm docs:metadata
       - run: git diff --exit-code -- docs/.generated/mcp-metadata.json
 
