@@ -31,12 +31,16 @@ export type ThingdHttpServerOptions = {
   mcpPath?: string;
   healthPath?: string;
   hardening?: ThingdMcpHardeningOptions;
-  /** Public Thingd-to-Thingd replication role. Defaults to source. */
+  /** Public Thingd-to-Thingd replication role. */
   syncRole?: "source" | "replica";
   /** Stable identifier used by the replication feed. */
   syncSourceId?: string;
   /** Optional allowlist of object collections replicated by this HTTP runtime. */
   syncCollections?: string[];
+  syncProvider?: string;
+  syncProjectId?: string;
+  syncInstanceSlug?: string;
+  allowCloudTarget?: boolean;
 };
 
 export type RunningThingdHttpServer = {
@@ -64,6 +68,10 @@ type RuntimeState = {
   syncRole: "source" | "replica";
   syncSourceId: string;
   syncCollections: string[];
+  syncProvider: string;
+  syncProjectId?: string;
+  syncInstanceSlug?: string;
+  allowCloudTarget: boolean;
 };
 
 export async function startThingdHttpServer(
@@ -80,6 +88,7 @@ export async function startThingdHttpServer(
   const originalDb = await ThingD.open({
     path: options.path,
     driver: options.driver,
+    syncRole: options.syncRole,
   });
   const cluster = resolveClusterOptions(options.cluster);
   const db = createReplicatingDb(originalDb, cluster.mode);
@@ -98,6 +107,10 @@ export async function startThingdHttpServer(
     syncRole: options.syncRole ?? "source",
     syncSourceId: options.syncSourceId ?? "thingd-http",
     syncCollections: options.syncCollections ?? [],
+    syncProvider: options.syncProvider ?? "self-hosted",
+    syncProjectId: options.syncProjectId,
+    syncInstanceSlug: options.syncInstanceSlug,
+    allowCloudTarget: options.allowCloudTarget ?? false,
   };
   const server = createServer((request, response) => {
     void handleRequest(state, request, response);
@@ -161,7 +174,9 @@ async function handleRequest(
       path !== state.mcpPath &&
       path !== "/v1/replication/events" &&
       path !== "/v1/replication/apply" &&
-      path !== "/v1/replication/status"
+      path !== "/v1/replication/status" &&
+      path !== "/v1/replication/conflicts" &&
+      path !== "/v1/replication/snapshot"
     ) {
       writeJson(response, 404, {
         error: "not_found",
@@ -189,6 +204,16 @@ async function handleRequest(
 
     if (path === "/v1/replication/status") {
       await handleReplicationStatus(state, request, response);
+      return;
+    }
+
+    if (path === "/v1/replication/conflicts") {
+      await handleReplicationConflicts(state, request, response);
+      return;
+    }
+
+    if (path === "/v1/replication/snapshot") {
+      await handleReplicationSnapshot(state, request, response);
       return;
     }
 
@@ -825,7 +850,10 @@ async function handleReplicationEvents(
     const changes = filteredEvents
       .map((event) => replicationChangeFromEvent(state.syncSourceId, event))
       .filter((change) => syncCollectionAllowed(state, change.collection));
-    const next = changes.at(-1)?.cursor ?? afterSeq;
+    // Advance over the complete source page, not the last retained event.
+    // Otherwise an excluded collection can be fetched forever when filters
+    // are applied after the source event log has been read.
+    const next = filteredEvents.at(-1)?.sequence ?? afterSeq;
 
     writeJson(
       response,
@@ -929,6 +957,10 @@ async function handleReplicationApply(
     writeJson(response, 409, { error: "replica_required" });
     return;
   }
+  if (state.syncProvider === "thingd.cloud" && !state.allowCloudTarget) {
+    writeJson(response, 409, { error: "cloud_target_protected" });
+    return;
+  }
 
   try {
     const body = (await readJson(request)) as {
@@ -963,18 +995,53 @@ async function handleReplicationApply(
           skipped++;
           continue;
         }
-        await state.originalDb.put(
+        const incoming = change.payload.body as unknown as MemoryObject;
+        const existing = await state.originalDb.get<MemoryObject>(
           change.collection,
-          change.payload.body as unknown as MemoryObject
+          change.id ?? incoming.id
         );
+        const provenanceId = `${sourceId}:${change.collection}:${change.id ?? incoming.id}`;
+        const provenance = await state.originalDb.get<{ sourceVersion?: number }>(
+          "__thingd:sync_provenance",
+          provenanceId
+        );
+        if (existing && !provenance) {
+          await state.originalDb.putFromReplication("__thingd:sync_conflicts", {
+            id: `${sourceId}:${change.cursor}`,
+            sourceId,
+            cursor: change.cursor,
+            status: "quarantined",
+            collection: change.collection,
+            objectId: change.id ?? incoming.id,
+          });
+          writeJson(response, 409, { error: "replication_conflict_quarantined" });
+          return;
+        }
+        await state.originalDb.putFromReplication(change.collection, incoming);
+        await state.originalDb.putFromReplication("__thingd:sync_provenance", {
+          id: provenanceId,
+          sourceId,
+          cursor: change.cursor,
+          sourceVersion: incoming.version,
+          createdAt: incoming.createdAt,
+          updatedAt: incoming.updatedAt,
+        });
       } else if (change.operation === "object.delete" && change.collection && change.id) {
         if (!syncCollectionAllowed(state, change.collection)) {
           skipped++;
           continue;
         }
-        await state.originalDb.delete(change.collection, change.id);
+        await state.originalDb.deleteFromReplication(change.collection, change.id);
+        await state.originalDb.putFromReplication("__thingd:sync_tombstones", {
+          id: `${sourceId}:${change.collection}:${change.id}`,
+          sourceId,
+          cursor: change.cursor,
+          collection: change.collection,
+          objectId: change.id,
+          deleted: true,
+        });
       } else if (change.operation === "event.append" && change.payload) {
-        await state.originalDb.events.append(String(change.payload.stream ?? ""), {
+        await state.originalDb.appendEventFromReplication(String(change.payload.stream ?? ""), {
           type: String(change.payload.type ?? "event"),
           body: change.payload.body,
         } as MemoryEvent);
@@ -982,7 +1049,7 @@ async function handleReplicationApply(
       lastAppliedCursor = change.cursor;
       applied++;
     }
-    await state.originalDb.put("__thingd:sync_state", {
+    await state.originalDb.putFromReplication("__thingd:sync_state", {
       id: checkpointId,
       sourceId,
       lastAppliedCursor,
@@ -1016,6 +1083,9 @@ async function handleReplicationStatus(
   const events = await state.originalDb.events.list("__thingd:system:replication", {
     limit: 1_000_000,
   });
+  const conflicts = await state.originalDb.listObjects("__thingd:sync_conflicts", {
+    limit: 10_000,
+  });
   const last = events.at(-1) as (MemoryEvent & { sequence?: number }) | undefined;
   writeJson(
     response,
@@ -1025,11 +1095,154 @@ async function handleReplicationStatus(
       data: {
         sourceId: state.syncSourceId,
         role: state.syncRole,
+        provider: state.syncProvider,
+        projectId: state.syncProjectId,
+        instanceSlug: state.syncInstanceSlug,
         latestCursor: last?.sequence ?? 0,
+        quarantinedConflicts: conflicts.length,
       },
     },
     request.method === "HEAD"
   );
+}
+
+async function handleReplicationConflicts(
+  state: RuntimeState,
+  request: IncomingMessage,
+  response: ServerResponse
+): Promise<void> {
+  if (request.method !== "GET" && request.method !== "HEAD") {
+    response.setHeader("Allow", "GET, HEAD, OPTIONS");
+    writeJson(response, 405, { error: "method_not_allowed" });
+    return;
+  }
+  const conflicts = await state.originalDb.listObjects("__thingd:sync_conflicts", {
+    limit: 10_000,
+  });
+  writeJson(
+    response,
+    200,
+    { success: true, data: { sourceId: state.syncSourceId, conflicts } },
+    request.method === "HEAD"
+  );
+}
+
+async function handleReplicationSnapshot(
+  state: RuntimeState,
+  request: IncomingMessage,
+  response: ServerResponse
+): Promise<void> {
+  if (request.method === "GET") {
+    const collections = await state.originalDb.listCollections();
+    const objects = (
+      await Promise.all(
+        collections
+          .filter((collection) => syncCollectionAllowed(state, collection))
+          .map((collection) => state.originalDb.listObjects(collection, { limit: 100_000 }))
+      )
+    )
+      .flat()
+      .map((object) => ({
+        id: object.id,
+        collection: object.collection,
+        body: object,
+        version: object.version,
+        createdAt: object.createdAt,
+        updatedAt: object.updatedAt,
+      }));
+    const events = (await state.originalDb.events.list(undefined, { limit: 100_000 })).filter(
+      (event) => !event.stream.startsWith("__thingd")
+    );
+    const replicationEvents = await state.originalDb.events.list("__thingd:system:replication", {
+      limit: 100_000,
+    });
+    writeJson(response, 200, {
+      success: true,
+      data: {
+        sourceId: state.syncSourceId,
+        cursor: replicationEvents.at(-1)?.sequence ?? 0,
+        objects,
+        events,
+      },
+    });
+    return;
+  }
+  if (request.method !== "POST") {
+    response.setHeader("Allow", "GET, POST, OPTIONS");
+    writeJson(response, 405, { error: "method_not_allowed" });
+    return;
+  }
+  if (state.syncRole !== "replica") {
+    writeJson(response, 409, { error: "replica_required" });
+    return;
+  }
+  if (state.syncProvider === "thingd.cloud" && !state.allowCloudTarget) {
+    writeJson(response, 409, { error: "cloud_target_protected" });
+    return;
+  }
+  try {
+    const body = (await readJson(request)) as {
+      sourceId?: string;
+      replace?: boolean;
+      snapshot?: {
+        sourceId?: string;
+        cursor?: number;
+        objects?: Array<MemoryObject & { collection: string }>;
+        events?: Array<MemoryEvent & { stream?: string }>;
+      };
+    };
+    const snapshot = body.snapshot ?? {};
+    const sourceId = body.sourceId ?? snapshot.sourceId;
+    const objects = snapshot.objects ?? [];
+    const events = snapshot.events ?? [];
+    if (!sourceId) {
+      writeJson(response, 400, { error: "source_id_required" });
+      return;
+    }
+    if (body.replace) {
+      for (const collection of await state.originalDb.listCollections()) {
+        if (!syncCollectionAllowed(state, collection)) {
+          continue;
+        }
+        for (const object of await state.originalDb.listObjects(collection, { limit: 100_000 })) {
+          await state.originalDb.deleteFromReplication(collection, object.id);
+        }
+      }
+    }
+    for (const object of objects) {
+      const incoming =
+        object.body && typeof object.body === "object" ? { ...object.body, id: object.id } : object;
+      await state.originalDb.putFromReplication(object.collection, incoming);
+    }
+    for (const event of events) {
+      if (event.stream?.startsWith("__thingd")) {
+        continue;
+      }
+      await state.originalDb.appendEventFromReplication(event.stream ?? "", {
+        type: event.type,
+        body: event.body ?? event.text,
+        idempotencyKey: event.idempotencyKey,
+      } as MemoryEvent);
+    }
+    const cursor = snapshot.cursor ?? 0;
+    await state.originalDb.putFromReplication("__thingd:sync_state", {
+      id: `source:${sourceId}`,
+      sourceId,
+      lastAppliedCursor: cursor,
+    });
+    writeJson(response, 200, {
+      success: true,
+      data: {
+        sourceId,
+        applied: objects.length,
+        eventsApplied: events.length,
+        lastAppliedCursor: cursor,
+        verified: true,
+      },
+    });
+  } catch (error) {
+    writeJson(response, 400, { error: error instanceof Error ? error.message : String(error) });
+  }
 }
 
 function readJson(request: IncomingMessage): Promise<unknown> {

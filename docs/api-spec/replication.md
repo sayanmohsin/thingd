@@ -29,5 +29,29 @@ multi-master.
 
 ## Status
 
-`GET /v1/replication/status` reports the source ID, configured role, latest
-source cursor, and number of retained changes.
+`GET /v1/replication/status` reports the resolved source/provider identity,
+configured role, latest source cursor, last applied cursor, and the number of
+quarantined conflicts. `GET /v1/replication/conflicts` returns durable
+quarantine records for operator review.
+
+## Snapshot and recovery
+
+`GET /v1/replication/snapshot` returns the source ID, latest cursor, supported
+objects, and application events needed to bootstrap a replica after a stale
+cursor response. The target applies it with `POST /v1/replication/snapshot`:
+
+```json
+{
+  "sourceId": "thingd-a",
+  "snapshot": { "sourceId": "thingd-a", "cursor": 42, "objects": [], "events": [] },
+  "replace": false
+}
+```
+
+`replace: true` is a destructive rebuild and must be explicitly confirmed by
+the operator. Snapshot apply preserves source metadata, writes provenance and
+tombstone records, and advances the target checkpoint only after successful
+application. Application events are replayed with their idempotency keys.
+
+Cloud targets additionally require an explicit instance selection, an enabled
+replica policy, an allowed source ID, and an operator confirmation header.

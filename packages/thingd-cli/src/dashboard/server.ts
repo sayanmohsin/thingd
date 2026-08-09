@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { handleRestRequest, ThingD } from "@thingd/sdk";
 import type { ConnectionOptions } from "../index.js";
 import { readCloudConfig } from "../lib/cloud-config.js";
+import { readSyncConfig } from "../lib/sync-config.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -210,6 +211,25 @@ export async function startDashboardServer(
               path: activeOptions.path,
               metrics: { objects, events, activeJobs, deadJobs, dbSize },
               authRequired: !!activeOptions.authToken,
+            })
+          );
+          return;
+        }
+
+        if (pathname === "/api/replication/status" && req.method === "GET") {
+          const config = readSyncConfig();
+          const replicationEvents = await db.events.list("__thingd:system:replication", {
+            limit: 1_000_000,
+          });
+          const last = replicationEvents.at(-1) as { sequence?: number } | undefined;
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(
+            JSON.stringify({
+              configured: Boolean(config),
+              config,
+              sourceId: config?.sourceId,
+              latestCursor: last?.sequence ?? 0,
+              protectedCloudTarget: config?.provider === "thingd.cloud" && !config.allowCloudTarget,
             })
           );
           return;

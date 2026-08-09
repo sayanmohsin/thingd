@@ -307,6 +307,51 @@ impl ObjectStore for PersistentEngine {
         self.put_object(object)
     }
 
+    fn put_object_with_source_metadata(
+        &mut self,
+        object: MemoryObject,
+        options: PutObjectOptions,
+    ) -> ThingdResult<MemoryObject> {
+        let key = Self::make_object_key(&object.key.collection, &object.key.id);
+        if let Some(expected_version) = options.expected_version {
+            match value_to_vec(self.objects.get(&key)?) {
+                Some(existing) => {
+                    let existing_obj: MemoryObject = Self::deserialize(&existing)?;
+                    if existing_obj.version != expected_version {
+                        return Err(ThingdError::Conflict(format!(
+                            "expected version {} but current version is {}",
+                            expected_version, existing_obj.version
+                        )));
+                    }
+                },
+                None => {
+                    return Err(ThingdError::Conflict(format!(
+                        "object '{}/{}' does not exist",
+                        object.key.collection, object.key.id
+                    )));
+                },
+            }
+        }
+        let stored = self.put_object(object.clone())?;
+        let mut replicated = stored;
+        if object.version > 0 {
+            replicated.version = object.version;
+        }
+        if !object.created_at.is_empty() {
+            replicated.created_at = object.created_at;
+        }
+        if !object.updated_at.is_empty() {
+            replicated.updated_at = object.updated_at;
+        }
+        let data = Self::serialize(&replicated)?;
+        let mut batch = self.db.batch();
+        batch.insert(&self.objects, &key, &data);
+        batch
+            .commit()
+            .map_err(|e| ThingdError::Storage(e.to_string()))?;
+        Ok(replicated)
+    }
+
     fn get_object(&self, collection: &str, id: &str) -> ThingdResult<Option<MemoryObject>> {
         let key = Self::make_object_key(collection, id);
         match value_to_vec(self.objects.get(&key)?) {

@@ -9,9 +9,16 @@ export type SyncConfig = {
   remoteUrl: string;
   localToken?: string;
   remoteToken?: string;
-  role: SyncRole;
+  role?: SyncRole;
   cursor: number;
   paused?: boolean;
+  provider?: "self-hosted" | "thingd.cloud" | string;
+  projectId?: string;
+  instanceSlug?: string;
+  sourceId?: string;
+  allowCloudTarget?: boolean;
+  targetConfirmed?: boolean;
+  configHash?: string;
 };
 
 export function syncConfigPath(): string {

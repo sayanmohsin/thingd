@@ -1650,12 +1650,11 @@ pub async fn handle_mcp_request(
             let result = (tool.handler)(&state, tool_name, &arguments, &db_path);
             match result {
                 Ok(content) => {
-                    if tool.is_write {
-                        if let Err(error) =
+                    if tool.is_write
+                        && let Err(error) =
                             emit_mcp_replication_change(&state, &db_path, tool_name, &arguments)
-                        {
-                            tracing::warn!("Failed to append MCP replication change: {error:?}");
-                        }
+                    {
+                        tracing::warn!("Failed to append MCP replication change: {error:?}");
                     }
                     Ok(mcp_success(id, content))
                 },

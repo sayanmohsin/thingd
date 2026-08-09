@@ -114,6 +114,9 @@ for the change envelope and cursor rules.
 | `GET` | `/v1/replication/events?after=<cursor>&limit=<n>` | Read source changes |
 | `POST` | `/v1/replication/apply` | Apply a batch on a replica |
 | `GET` | `/v1/replication/status` | Read source/replica status |
+| `GET` | `/v1/replication/conflicts` | Inspect quarantined conflicts |
+| `GET` | `/v1/replication/snapshot` | Create a bootstrap snapshot |
+| `POST` | `/v1/replication/snapshot` | Apply a bootstrap snapshot on a replica |
 
 ---
 

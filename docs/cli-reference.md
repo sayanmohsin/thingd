@@ -24,6 +24,9 @@ thingd tools                list MCP tools when connected remotely
 thingd install [--raw] [--claude] [--cursor] [--antigravity]    zero-config local setup for Cursor / Claude Desktop / Antigravity IDE
 thingd doctor               diagnose installation and connectivity
 thingd search <query>       full-text search across collections
+thingd collections list     list collections
+thingd streams list          list event streams
+thingd completions [shell]   print bash, zsh, or fish completions
 ```
 
 ### Objects
@@ -56,6 +59,7 @@ thingd queues nack <queue> <jobId>
 thingd queues list <queue>
 thingd queues dead <queue>
 thingd queues stats <queue>
+thingd queues list-all
 ```
 
 ### Links
@@ -90,17 +94,24 @@ Configure one source/replica relationship between any two Thingd HTTP endpoints.
 The configured source pushes changes; the configured replica pulls and applies them.
 
 ```txt
-thingd sync configure --local-url <url> --remote-url <url> [--role source|replica] [--local-token <token>] [--remote-token <token>]
+thingd sync configure --local-url <url> --remote-url <url> --role source|replica [--provider self-hosted|thingd.cloud] [--project-id <id>] [--instance-slug <slug>] [--source-id <id>] [--allow-cloud-target --confirm-target] [--local-token <token>] [--remote-token <token>]
 thingd sync status
 thingd sync push
 thingd sync pull
+thingd sync bootstrap [--replace]
 thingd sync pause
 thingd sync resume
 thingd sync reset
 ```
 
-The sync protocol is provider-neutral. `thingd.cloud` is only a default provider
-preset and can be replaced with any Thingd-compatible endpoint.
+The sync protocol is provider-neutral. `thingd.cloud` is the protected/default
+provider preset, not an engine dependency. A sync role is mandatory: Thingd never
+guesses whether the local or remote endpoint is authoritative. Cloud targets also
+require an explicit allow flag and confirmation, plus an instance slug so the
+control plane cannot fall back to another accessible instance.
+
+Natural-language queries are exposed as `thingd nlq`. There is no separate TLQ
+implementation in the current release.
 
 ### Backup
 

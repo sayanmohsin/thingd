@@ -37,6 +37,19 @@ pub struct SyncConfig {
     /// Optional collection allowlist for replication changes.
     #[serde(default)]
     pub collections: Vec<String>,
+    /// Deployment/provider label used for safe operator decisions. This has
+    /// no effect on the provider-neutral protocol.
+    #[serde(default = "default_sync_provider")]
+    pub provider: String,
+    /// Optional cloud project identity used to prevent cross-project routing.
+    #[serde(default)]
+    pub project_id: String,
+    /// Optional cloud instance identity used to prevent default-instance fallbacks.
+    #[serde(default)]
+    pub instance_slug: String,
+    /// Explicit opt-in for writes into a protected cloud target.
+    #[serde(default)]
+    pub allow_cloud_target: bool,
 }
 
 impl Default for SyncConfig {
@@ -45,6 +58,10 @@ impl Default for SyncConfig {
             source_id: default_sync_source_id(),
             role: SyncRole::Source,
             collections: Vec::new(),
+            provider: default_sync_provider(),
+            project_id: String::new(),
+            instance_slug: String::new(),
+            allow_cloud_target: false,
         }
     }
 }
@@ -59,6 +76,10 @@ pub enum SyncRole {
 
 fn default_sync_source_id() -> String {
     std::env::var("THINGD_SYNC_SOURCE_ID").unwrap_or_else(|_| "thingd-default".to_string())
+}
+
+fn default_sync_provider() -> String {
+    std::env::var("THINGD_SYNC_PROVIDER").unwrap_or_else(|_| "self-hosted".to_string())
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
