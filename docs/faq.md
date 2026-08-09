@@ -87,7 +87,7 @@ See [benchmarks.md](./benchmarks.md) for full methodology.
 
 ### How does search scale with millions of records?
 
-Tantivy BM25 search performs well into millions of rows on modern hardware. Metadata filtering is evaluated during the index scan — performance depends on the selectivity of the filter. We recommend testing with your specific data shape and query patterns.
+Tantivy-backed full-text search is designed to perform well into millions of rows on modern hardware. Metadata filtering is evaluated during the index scan — performance depends on the selectivity of the filter. BM25 score propagation and filtered-result ordering are still being hardened, so test with your specific data shape and query patterns.
 
 ### Are queues O(1) or do they degrade with backlog size?
 
@@ -106,6 +106,21 @@ The leader assigns a monotonic sequence to each event. Followers replicate into 
 ### Is replication synchronous or async?
 
 Async. Followers poll on a timer. There is no synchronous replication, no write-ahead log shipping, and no quorum acknowledgment.
+
+### How does provider-neutral Thingd replication differ from cluster replication?
+
+Cluster replication is the sidecar's leader/follower availability mechanism.
+Provider-neutral replication synchronizes two independently deployed Thingd
+instances through `/v1/replication/*`. It requires an explicit source and
+replica role, persists cursors and provenance, preserves deletes as tombstones,
+and quarantines divergent target writes. The endpoints can connect local,
+self-hosted, or thingd.cloud instances.
+
+### Is thingd.cloud required for replication?
+
+No. thingd.cloud is the protected/default hosted provider and adds tenant,
+instance-selection, authorization, and audit controls. The open-source
+replication protocol also works between two self-hosted Thingd instances.
 
 ### What happens during leader failover?
 

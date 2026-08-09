@@ -437,7 +437,9 @@ curl -X POST http://localhost:8757/v1/search \
 }
 ```
 
-Results are sorted by relevance score (descending). Each result is either an object or an event.
+Results are intended to be sorted by descending relevance score. Persistent
+Tantivy score propagation and filter-before-limit correctness remain under
+Phase 23 hardening.
 
 ---
 
