@@ -65,6 +65,8 @@ export class NativeThingStore {
   listCollectionsJson(): Promise<string>;
   listStreamsJson(): Promise<string>;
   createIndexJson(collection: string, field: string): void;
+  createUniqueIndexJson(collection: string, field: string): void;
+  deleteIndexJson(collection: string, field: string): boolean;
   listIndexesJson(): string;
   aggregateJson(
     collection: string,

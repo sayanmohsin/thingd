@@ -2,7 +2,7 @@
 
 use std::collections::{BTreeMap, HashMap, VecDeque};
 
-use crate::model::{ListEventsOptions, ListObjectsOptions};
+use crate::model::{IndexDefinition, ListEventsOptions, ListObjectsOptions};
 use crate::{
     AggregateFunction, AggregateGroupResult, AggregateOptions, AggregateResult, CollectionSchema,
     EventLog, FieldSchema, Link, LinkDirection, LinkQueryOptions, LinkStore, MemoryEvent,
@@ -39,6 +39,7 @@ pub struct MemoryEngine {
     vectors: HashMap<(String, String), Vec<f32>>,
     schema: Option<StoredSchema>,
     migrations: BTreeMap<String, MigrationRecord>,
+    indexes: BTreeMap<(String, String), IndexDefinition>,
 }
 
 impl MemoryEngine {
@@ -70,6 +71,7 @@ impl crate::SchemaStore for MemoryEngine {
 
 impl ObjectStore for MemoryEngine {
     fn put_object(&mut self, mut object: MemoryObject) -> ThingdResult<MemoryObject> {
+        self.validate_unique_indexes(&object)?;
         let now = now_iso_string();
         let version = self
             .objects
@@ -296,6 +298,47 @@ impl ObjectStore for MemoryEngine {
         Ok(collections)
     }
 
+    fn create_index(&mut self, collection: &str, field: &str) -> ThingdResult<()> {
+        self.create_index_definition(IndexDefinition {
+            collection: collection.to_string(),
+            field: field.to_string(),
+            unique: false,
+        })
+    }
+
+    fn create_index_definition(&mut self, index: IndexDefinition) -> ThingdResult<()> {
+        if index.collection.is_empty() || index.field.is_empty() {
+            return Err(ThingdError::InvalidInput(
+                "index collection and field are required".to_string(),
+            ));
+        }
+        if index.unique {
+            self.validate_existing_unique_index(&index)?;
+        }
+        self.indexes
+            .insert((index.collection.clone(), index.field.clone()), index);
+        Ok(())
+    }
+
+    fn list_indexes(&self) -> ThingdResult<Vec<(String, String)>> {
+        Ok(self
+            .indexes
+            .keys()
+            .map(|(collection, field)| (collection.clone(), field.clone()))
+            .collect())
+    }
+
+    fn delete_index(&mut self, collection: &str, field: &str) -> ThingdResult<bool> {
+        Ok(self
+            .indexes
+            .remove(&(collection.to_string(), field.to_string()))
+            .is_some())
+    }
+
+    fn list_index_definitions(&self) -> ThingdResult<Vec<IndexDefinition>> {
+        Ok(self.indexes.values().cloned().collect())
+    }
+
     fn schema(
         &self,
         collection: Option<&str>,
@@ -336,6 +379,63 @@ impl ObjectStore for MemoryEngine {
         }
 
         Ok(schemas)
+    }
+}
+
+impl MemoryEngine {
+    fn validate_unique_indexes(&self, object: &MemoryObject) -> ThingdResult<()> {
+        let Ok(body) = serde_json::from_str::<serde_json::Value>(&object.body) else {
+            return Ok(());
+        };
+        for index in self
+            .indexes
+            .values()
+            .filter(|index| index.unique && index.collection == object.key.collection)
+        {
+            let Some(value) = body.get(&index.field) else {
+                continue;
+            };
+            if value.is_null() {
+                continue;
+            }
+            if self.objects.values().any(|existing| {
+                existing.key != object.key
+                    && existing.key.collection == object.key.collection
+                    && serde_json::from_str::<serde_json::Value>(&existing.body)
+                        .ok()
+                        .and_then(|body| body.get(&index.field).cloned())
+                        .is_some_and(|existing_value| existing_value == *value)
+            }) {
+                return Err(ThingdError::Conflict(format!(
+                    "unique index {}.{} rejects duplicate value",
+                    index.collection, index.field
+                )));
+            }
+        }
+        Ok(())
+    }
+
+    fn validate_existing_unique_index(&self, index: &IndexDefinition) -> ThingdResult<()> {
+        let mut values = Vec::new();
+        for object in self
+            .objects
+            .values()
+            .filter(|object| object.key.collection == index.collection)
+        {
+            let Ok(body) = serde_json::from_str::<serde_json::Value>(&object.body) else {
+                continue;
+            };
+            if let Some(value) = body.get(&index.field).filter(|value| !value.is_null()) {
+                if values.iter().any(|existing| existing == value) {
+                    return Err(ThingdError::Conflict(format!(
+                        "cannot create unique index {}.{}: existing values are duplicated",
+                        index.collection, index.field
+                    )));
+                }
+                values.push(value.clone());
+            }
+        }
+        Ok(())
     }
 }
 
@@ -2056,6 +2156,7 @@ mod tests {
     fn contract_schema_store() {
         let mut engine = MemoryEngine::new();
         crate::contract_tests::test_contract_schema_store(&mut engine);
+        crate::contract_tests::test_contract_indexes(&mut engine);
     }
 
     #[test]

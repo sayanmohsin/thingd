@@ -375,11 +375,35 @@ pub async fn create_index(
     let field = body["field"]
         .as_str()
         .ok_or_else(|| AppError::bad_request("field is required"))?;
+    let unique = body["unique"].as_bool().unwrap_or(false);
     let e = get_engine(&state, &headers)?;
     let mut g = e.lock();
-    g.create_index(collection, field)
-        .map_err(|e| AppError::internal(e.to_string()))?;
+    g.create_index_definition(thingd::IndexDefinition {
+        collection: collection.to_string(),
+        field: field.to_string(),
+        unique,
+    })
+    .map_err(|e| AppError::internal(e.to_string()))?;
     ok(json!({ "created": true }))
+}
+
+pub async fn delete_index(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, AppError> {
+    let collection = body["collection"]
+        .as_str()
+        .ok_or_else(|| AppError::bad_request("collection is required"))?;
+    let field = body["field"]
+        .as_str()
+        .ok_or_else(|| AppError::bad_request("field is required"))?;
+    let e = get_engine(&state, &headers)?;
+    let mut g = e.lock();
+    let deleted = g
+        .delete_index(collection, field)
+        .map_err(|e| AppError::internal(e.to_string()))?;
+    ok(json!({ "deleted": deleted }))
 }
 
 // ─── Objects ────────────────────────────────────────────────────

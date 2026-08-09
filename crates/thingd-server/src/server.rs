@@ -78,7 +78,12 @@ pub fn build_router(state: Arc<AppState>, config: &Config) -> Router {
         .route("/v1/queues/{queue}/jobs", get(rest::list_jobs))
         .route("/v1/queues/{queue}/dead", get(rest::list_dead_jobs))
         // Indexes
-        .route("/v1/indexes", get(rest::list_indexes).post(rest::create_index))
+        .route(
+            "/v1/indexes",
+            get(rest::list_indexes)
+                .post(rest::create_index)
+                .delete(rest::delete_index),
+        )
         // Links
         .route("/v1/links", post(rest::create_link).get(rest::get_links))
         .route("/v1/links/{id}", get(rest::get_link_by_id).delete(rest::delete_link))

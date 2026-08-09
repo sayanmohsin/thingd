@@ -1,7 +1,7 @@
 {
   "generatedFrom": ["packages/thingd/src/mcp/tools.ts", "crates/thingd-server/src/mcp.rs"],
-  "sdkToolCount": 48,
-  "sidecarToolCount": 38,
+  "sdkToolCount": 49,
+  "sidecarToolCount": 39,
   "schedulerToolCount": 10,
   "sdkTools": [
     "thing_aggregate",
@@ -12,6 +12,7 @@
     "thing_count_objects_in_collection",
     "thing_create_index",
     "thing_delete",
+    "thing_delete_index",
     "thing_events_append",
     "thing_events_list",
     "thing_get",
@@ -62,6 +63,7 @@
     "thing_count_objects_in_collection",
     "thing_create_index",
     "thing_delete",
+    "thing_delete_index",
     "thing_events_append",
     "thing_events_list",
     "thing_get",

@@ -390,6 +390,14 @@ export class InMemoryThingStore implements ThingStore {
     // No-op for in-memory client store
   }
 
+  async createUniqueIndex(_collection: string, _field: string): Promise<void> {
+    // No-op for in-memory client store
+  }
+
+  async deleteIndex(_collection: string, _field: string): Promise<boolean> {
+    return false;
+  }
+
   async listIndexes(): Promise<Array<[string, string]>> {
     return [];
   }

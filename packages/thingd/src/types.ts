@@ -451,6 +451,8 @@ export interface ThingDConnection {
   listStreams(): Promise<string[]>;
   listQueues(): Promise<string[]>;
   createIndex(collection: string, field: string): Promise<void>;
+  createUniqueIndex(collection: string, field: string): Promise<void>;
+  deleteIndex(collection: string, field: string): Promise<boolean>;
   listIndexes(): Promise<Array<[string, string]>>;
   listConnectors(): Promise<string[]>;
   discoverConnectorSchema(
@@ -548,6 +550,8 @@ export interface ThingStore {
   listStreams?(): Promise<string[]>;
   listQueues?(): Promise<string[]>;
   createIndex?(collection: string, field: string): Promise<void>;
+  createUniqueIndex?(collection: string, field: string): Promise<void>;
+  deleteIndex?(collection: string, field: string): Promise<boolean>;
   listIndexes?(): Promise<Array<[string, string]>>;
   listConnectors?(): Promise<string[]>;
   discoverConnectorSchema?(

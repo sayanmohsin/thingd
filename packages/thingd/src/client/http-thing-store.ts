@@ -341,7 +341,19 @@ export class HttpThingStore implements ThingStore {
   }
 
   async createIndex(collection: string, field: string): Promise<void> {
-    await this.request("POST", "/indexes", { collection, field });
+    await this.request("POST", "/indexes", { collection, field, unique: false });
+  }
+
+  async createUniqueIndex(collection: string, field: string): Promise<void> {
+    await this.request("POST", "/indexes", { collection, field, unique: true });
+  }
+
+  async deleteIndex(collection: string, field: string): Promise<boolean> {
+    const result = await this.request<{ deleted: boolean }>("DELETE", "/indexes", {
+      collection,
+      field,
+    });
+    return result.deleted;
   }
 
   async listIndexes(): Promise<Array<[string, string]>> {

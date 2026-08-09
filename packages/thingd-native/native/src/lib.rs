@@ -7,12 +7,12 @@ use napi_derive::napi;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use thingd::{
-    AggregateFunction, AggregateOptions, AggregateStore, EncryptionConfig, EventLog, Link,
-    LinkDirection, LinkQueryOptions, LinkStore, ListEventsOptions, ListObjectsOptions, MemoryEvent,
-    MemoryObject, MigrationRecord, ObjectStore, PersistentEngine, PersistentOpenOptions,
-    PutObjectOptions, QueueClaimOptions, QueueJob, QueueJobStatus, QueueNackOptions, QueueStore,
-    SchemaOptions, SchemaStore, SearchOptions, Searcher, StoredSchema, TimeSeriesOptions,
-    VectorSearchOptions, VectorStore,
+    AggregateFunction, AggregateOptions, AggregateStore, EncryptionConfig, EventLog,
+    IndexDefinition, Link, LinkDirection, LinkQueryOptions, LinkStore, ListEventsOptions,
+    ListObjectsOptions, MemoryEvent, MemoryObject, MigrationRecord, ObjectStore, PersistentEngine,
+    PersistentOpenOptions, PutObjectOptions, QueueClaimOptions, QueueJob, QueueJobStatus,
+    QueueNackOptions, QueueStore, SchemaOptions, SchemaStore, SearchOptions, Searcher,
+    StoredSchema, TimeSeriesOptions, VectorSearchOptions, VectorStore,
 };
 use thingd_schema::parse as parse_schema_source;
 
@@ -179,6 +179,24 @@ impl NativeThingStore {
     pub fn create_index_json(&self, collection: String, field: String) -> Result<()> {
         let mut store = self.lock_store()?;
         store.create_index(&collection, &field).map_err(napi_error)
+    }
+
+    #[napi(js_name = "createUniqueIndexJson")]
+    pub fn create_unique_index_json(&self, collection: String, field: String) -> Result<()> {
+        let mut store = self.lock_store()?;
+        store
+            .create_index_definition(IndexDefinition {
+                collection,
+                field,
+                unique: true,
+            })
+            .map_err(napi_error)
+    }
+
+    #[napi(js_name = "deleteIndexJson")]
+    pub fn delete_index_json(&self, collection: String, field: String) -> Result<bool> {
+        let mut store = self.lock_store()?;
+        store.delete_index(&collection, &field).map_err(napi_error)
     }
 
     #[napi(js_name = "listIndexesJson")]

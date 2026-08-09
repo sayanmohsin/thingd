@@ -407,6 +407,14 @@ export class ThingD implements LocalThingDConnection {
     await this.store.createIndex?.(collection, field);
   }
 
+  async createUniqueIndex(collection: string, field: string): Promise<void> {
+    await this.store.createUniqueIndex?.(collection, field);
+  }
+
+  async deleteIndex(collection: string, field: string): Promise<boolean> {
+    return (await this.store.deleteIndex?.(collection, field)) ?? false;
+  }
+
   /** List all custom functional indexes. */
   async listIndexes(): Promise<Array<[string, string]>> {
     return this.store.listIndexes?.() ?? [];

@@ -666,6 +666,19 @@ pub struct MigrationRecord {
     pub applied_at: String,
 }
 
+/// A functional index definition for a top-level JSON field.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IndexDefinition {
+    /// Collection containing the indexed objects.
+    pub collection: String,
+    /// Top-level JSON field covered by the index.
+    pub field: String,
+    /// Whether duplicate non-null values are rejected on writes.
+    #[serde(default)]
+    pub unique: bool,
+}
+
 impl Default for SchemaOptions {
     fn default() -> Self {
         Self {

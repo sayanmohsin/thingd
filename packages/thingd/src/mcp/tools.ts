@@ -635,6 +635,7 @@ export function registerThingdTools(
       inputSchema: {
         collection: z.string().describe("Collection name"),
         field: z.string().describe("JSON body field name to index"),
+        unique: z.boolean().optional().describe("Reject duplicate non-null values"),
       },
       annotations: {
         readOnlyHint: false,
@@ -643,10 +644,34 @@ export function registerThingdTools(
         openWorldHint: false,
       },
     },
-    async ({ collection, field }) => {
-      await db.createIndex(collection, field);
+    async ({ collection, field, unique }) => {
+      if (unique) {
+        await db.createUniqueIndex(collection, field);
+      } else {
+        await db.createIndex(collection, field);
+      }
       return jsonResult({ created: true });
     }
+  );
+
+  server.registerTool(
+    "thing_delete_index",
+    {
+      title: "Delete Index",
+      description: "Delete a custom functional index.",
+      inputSchema: {
+        collection: z.string().describe("Collection name"),
+        field: z.string().describe("JSON body field name"),
+      },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async ({ collection, field }) =>
+      jsonResult({ deleted: await db.deleteIndex(collection, field) })
   );
 
   server.registerTool(

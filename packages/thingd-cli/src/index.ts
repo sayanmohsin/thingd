@@ -1423,7 +1423,11 @@ async function runMigrate(context: CliContext): Promise<void> {
           if (
             field.annotations?.some((annotation) => ["index", "unique"].includes(annotation.name))
           ) {
-            await db.createIndex(collection.name, field.name);
+            if (field.annotations?.some((annotation) => annotation.name === "unique")) {
+              await db.createUniqueIndex(collection.name, field.name);
+            } else {
+              await db.createIndex(collection.name, field.name);
+            }
             indexes.push(`${collection.name}.${field.name}`);
           }
         }

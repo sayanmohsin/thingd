@@ -172,9 +172,22 @@ export async function handleRestRequest(
       return;
     }
     if (pathname === "/v1/indexes" && method === "POST") {
-      const body = JSON.parse(await readBody(req));
-      await db.createIndex(body.collection, body.field);
+      const body = JSON.parse(await readBody(req)) as {
+        collection: string;
+        field: string;
+        unique?: boolean;
+      };
+      if (body.unique) {
+        await db.createUniqueIndex(body.collection, body.field);
+      } else {
+        await db.createIndex(body.collection, body.field);
+      }
       sendData(res, { created: true });
+      return;
+    }
+    if (pathname === "/v1/indexes" && method === "DELETE") {
+      const body = JSON.parse(await readBody(req)) as { collection: string; field: string };
+      sendData(res, { deleted: await db.deleteIndex(body.collection, body.field) });
       return;
     }
 

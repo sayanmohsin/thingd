@@ -61,9 +61,10 @@ thingd migrate plan schema.thingd
 Planning is advisory and non-destructive. It reports collection and field
 additions/removals against the current inferred runtime schema and marks
 removals as destructive. Applying a migration persists its canonical schema
-hash and migration record, and creates `@index`/`@unique` indexes without
-deleting existing objects. Rollback and destructive schema changes are not
-enabled yet.
+hash and migration record, and creates durable `@index`/`@unique` definitions.
+Unique definitions reject duplicate non-null values on future writes. Rollback
+of the full schema document and destructive schema changes are not enabled yet;
+individual index definitions can be deleted through the index API.
 
 ## Supported declarations
 

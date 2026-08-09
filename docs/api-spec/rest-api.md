@@ -206,16 +206,32 @@ curl http://localhost:8757/v1/indexes
 
 ### `POST /v1/indexes`
 
-Create a functional index on a JSON body field for a collection. Idempotent.
+Create a functional index on a JSON body field for a collection. Set `unique`
+to `true` to reject duplicate non-null values on future writes and to validate
+existing data during creation. Idempotent.
 
 ```bash
 curl -X POST http://localhost:8757/v1/indexes \
+  -H "Content-Type: application/json" \
+  -d '{"collection": "users", "field": "email", "unique": true}'
+```
+
+```json
+{ "created": true }
+```
+
+### `DELETE /v1/indexes`
+
+Delete an index definition. This does not delete objects or alter their data.
+
+```bash
+curl -X DELETE http://localhost:8757/v1/indexes \
   -H "Content-Type: application/json" \
   -d '{"collection": "users", "field": "email"}'
 ```
 
 ```json
-{ "created": true }
+{ "deleted": true }
 ```
 
 ### `GET /v1/collections/schema`

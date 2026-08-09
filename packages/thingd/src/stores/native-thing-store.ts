@@ -104,6 +104,8 @@ type NativeThingStoreBinding = {
   listMigrationsJson(): string;
   recordMigrationJson(id: string, hash: string, appliedAt: string): void;
   createIndexJson(collection: string, field: string): void;
+  createUniqueIndexJson(collection: string, field: string): void;
+  deleteIndexJson(collection: string, field: string): boolean;
   listIndexesJson(): string;
   vectorSearchJson(
     collection: string,
@@ -594,6 +596,14 @@ export class NativeThingStore implements ThingStore {
 
   async createIndex(collection: string, field: string): Promise<void> {
     this.binding.createIndexJson(collection, field);
+  }
+
+  async createUniqueIndex(collection: string, field: string): Promise<void> {
+    this.binding.createUniqueIndexJson(collection, field);
+  }
+
+  async deleteIndex(collection: string, field: string): Promise<boolean> {
+    return this.binding.deleteIndexJson(collection, field);
   }
 
   async listIndexes(): Promise<Array<[string, string]>> {

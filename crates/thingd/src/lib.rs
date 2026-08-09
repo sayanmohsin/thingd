@@ -79,10 +79,10 @@ pub use error::{ThingdError, ThingdResult};
 pub use in_memory::MemoryEngine;
 pub use model::{
     AggregateFunction, AggregateGroupResult, AggregateOptions, AggregateResult, CollectionSchema,
-    DEFAULT_QUEUE_LEASE_MS, FieldSchema, Link, LinkDirection, LinkQueryOptions, ListEventsOptions,
-    ListObjectsOptions, MemoryEvent, MemoryObject, MigrationRecord, ObjectKey, PutObjectOptions,
-    QueueClaimOptions, QueueJob, QueueJobStatus, QueueNackOptions, SchemaOptions, SearchHit,
-    SearchOptions, SortBy, SortDirection, StoredSchema, TimeBucket, TimeSeriesBucket,
+    DEFAULT_QUEUE_LEASE_MS, FieldSchema, IndexDefinition, Link, LinkDirection, LinkQueryOptions,
+    ListEventsOptions, ListObjectsOptions, MemoryEvent, MemoryObject, MigrationRecord, ObjectKey,
+    PutObjectOptions, QueueClaimOptions, QueueJob, QueueJobStatus, QueueNackOptions, SchemaOptions,
+    SearchHit, SearchOptions, SortBy, SortDirection, StoredSchema, TimeBucket, TimeSeriesBucket,
     TimeSeriesOptions, TimeSeriesResult, VectorSearchHit, VectorSearchOptions,
 };
 #[cfg(feature = "persistent")]

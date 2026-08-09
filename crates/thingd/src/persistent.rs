@@ -15,10 +15,10 @@ use fjall::{Database, Keyspace, KeyspaceCreateOptions, PersistMode};
 use crate::encryption::{EncryptionConfig, StorageCodec, StorageCrypto, make_codec};
 use crate::error::ThingdResult;
 use crate::model::{
-    AggregateFunction, AggregateGroupResult, AggregateOptions, AggregateResult, LinkDirection,
-    LinkQueryOptions, ListEventsOptions, ListObjectsOptions, MigrationRecord, PutObjectOptions,
-    SchemaOptions, SearchOptions, SortDirection, StoredSchema, TimeBucket, TimeSeriesBucket,
-    TimeSeriesOptions, TimeSeriesResult,
+    AggregateFunction, AggregateGroupResult, AggregateOptions, AggregateResult, IndexDefinition,
+    LinkDirection, LinkQueryOptions, ListEventsOptions, ListObjectsOptions, MigrationRecord,
+    PutObjectOptions, SchemaOptions, SearchOptions, SortDirection, StoredSchema, TimeBucket,
+    TimeSeriesBucket, TimeSeriesOptions, TimeSeriesResult,
 };
 use crate::store::{AggregateStore, EventLog, LinkStore, ObjectStore, QueueStore, Searcher};
 use crate::{
@@ -48,6 +48,7 @@ pub struct PersistentEngine {
     links_to: Keyspace,
     schemas: Keyspace,
     migrations: Keyspace,
+    indexes: Keyspace,
     next_link_id: AtomicU64,
     event_seq_counters: HashMap<String, u64>,
     event_idempotency_keys: HashMap<(String, String), u64>,
@@ -108,6 +109,7 @@ impl PersistentEngine {
         let links_to = db.keyspace("links_to", KeyspaceCreateOptions::default)?;
         let schemas = db.keyspace("schemas", KeyspaceCreateOptions::default)?;
         let migrations = db.keyspace("migrations", KeyspaceCreateOptions::default)?;
+        let indexes = db.keyspace("indexes", KeyspaceCreateOptions::default)?;
 
         #[cfg(feature = "vectors")]
         let vectors = db.keyspace("vectors", KeyspaceCreateOptions::default)?;
@@ -165,6 +167,7 @@ impl PersistentEngine {
             links_to,
             schemas,
             migrations,
+            indexes,
             next_link_id: AtomicU64::new(next_link_id + 1),
             event_seq_counters,
             event_idempotency_keys,
@@ -253,6 +256,33 @@ impl PersistentEngine {
                 let key = destination.make_event_key(&event.stream, event.sequence);
                 let data = destination.serialize(&event)?;
                 destination.events.insert(&key, &data)?;
+            }
+
+            for entry in source.schemas.iter() {
+                let (_, value) = guard_data(entry)?;
+                let schema: StoredSchema = source.deserialize(&value)?;
+                let key = destination.make_schema_key();
+                destination
+                    .schemas
+                    .insert(key, destination.serialize(&schema)?)?;
+            }
+
+            for entry in source.migrations.iter() {
+                let (_, value) = guard_data(entry)?;
+                let migration: MigrationRecord = source.deserialize(&value)?;
+                destination.migrations.insert(
+                    destination.make_migration_key(&migration.id),
+                    destination.serialize(&migration)?,
+                )?;
+            }
+
+            for entry in source.indexes.iter() {
+                let (_, value) = guard_data(entry)?;
+                let index: IndexDefinition = source.deserialize(&value)?;
+                destination.indexes.insert(
+                    destination.make_index_key(&index.collection, &index.field),
+                    destination.serialize(&index)?,
+                )?;
             }
 
             for entry in source.queue_jobs.iter() {
@@ -520,6 +550,49 @@ impl PersistentEngine {
     fn make_migration_key(&self, id: &str) -> Vec<u8> {
         self.codec.encode_key("migrations.id", id.as_bytes())
     }
+
+    fn make_index_key(&self, collection: &str, field: &str) -> Vec<u8> {
+        let mut value = collection.as_bytes().to_vec();
+        value.push(0);
+        value.extend_from_slice(field.as_bytes());
+        self.codec.encode_key("indexes.definition", &value)
+    }
+
+    fn validate_unique_indexes(&self, object: &MemoryObject) -> ThingdResult<()> {
+        for index in self
+            .list_index_definitions()?
+            .into_iter()
+            .filter(|index| index.unique && index.collection == object.key.collection)
+        {
+            let body =
+                serde_json::from_str::<serde_json::Value>(&object.body).map_err(|error| {
+                    ThingdError::InvalidInput(format!("invalid object JSON: {error}"))
+                })?;
+            let Some(value) = body.get(&index.field) else {
+                continue;
+            };
+            if value.is_null() {
+                continue;
+            }
+            let objects = self.list_objects(
+                Some(std::slice::from_ref(&object.key.collection)),
+                &ListObjectsOptions::default(),
+            )?;
+            if objects.iter().any(|existing| {
+                existing.key != object.key
+                    && serde_json::from_str::<serde_json::Value>(&existing.body)
+                        .ok()
+                        .and_then(|body| body.get(&index.field).cloned())
+                        .is_some_and(|existing_value| existing_value == *value)
+            }) {
+                return Err(ThingdError::Conflict(format!(
+                    "unique index {}.{} rejects duplicate value",
+                    index.collection, index.field
+                )));
+            }
+        }
+        Ok(())
+    }
 }
 
 fn guard_data(kv: fjall::Guard) -> ThingdResult<(Vec<u8>, Vec<u8>)> {
@@ -566,6 +639,7 @@ impl crate::SchemaStore for PersistentEngine {
 
 impl ObjectStore for PersistentEngine {
     fn put_object(&mut self, mut object: MemoryObject) -> ThingdResult<MemoryObject> {
+        self.validate_unique_indexes(&object)?;
         let key = self.make_object_key(&object.key.collection, &object.key.id);
 
         if object.created_at.is_empty() {
@@ -877,12 +951,76 @@ impl ObjectStore for PersistentEngine {
         Ok(collections)
     }
 
-    fn create_index(&mut self, _collection: &str, _field: &str) -> ThingdResult<()> {
+    fn create_index(&mut self, collection: &str, field: &str) -> ThingdResult<()> {
+        self.create_index_definition(IndexDefinition {
+            collection: collection.to_string(),
+            field: field.to_string(),
+            unique: false,
+        })
+    }
+
+    fn create_index_definition(&mut self, index: IndexDefinition) -> ThingdResult<()> {
+        if index.collection.is_empty() || index.field.is_empty() {
+            return Err(ThingdError::InvalidInput(
+                "index collection and field are required".to_string(),
+            ));
+        }
+        if index.unique {
+            let objects = self.list_objects(
+                Some(std::slice::from_ref(&index.collection)),
+                &ListObjectsOptions::default(),
+            )?;
+            let mut values = Vec::new();
+            for object in objects {
+                let body =
+                    serde_json::from_str::<serde_json::Value>(&object.body).map_err(|error| {
+                        ThingdError::InvalidInput(format!("invalid object JSON: {error}"))
+                    })?;
+                if let Some(value) = body.get(&index.field).filter(|value| !value.is_null()) {
+                    if values.iter().any(|existing| existing == value) {
+                        return Err(ThingdError::Conflict(format!(
+                            "cannot create unique index {}.{}: existing values are duplicated",
+                            index.collection, index.field
+                        )));
+                    }
+                    values.push(value.clone());
+                }
+            }
+        }
+        self.indexes.insert(
+            self.make_index_key(&index.collection, &index.field),
+            self.serialize(&index)?,
+        )?;
         Ok(())
     }
 
     fn list_indexes(&self) -> ThingdResult<Vec<(String, String)>> {
-        Ok(vec![])
+        Ok(self
+            .list_index_definitions()?
+            .into_iter()
+            .map(|index| (index.collection, index.field))
+            .collect())
+    }
+
+    fn delete_index(&mut self, collection: &str, field: &str) -> ThingdResult<bool> {
+        let key = self.make_index_key(collection, field);
+        let existed = self.indexes.get(&key)?.is_some();
+        if existed {
+            self.indexes.remove(key)?;
+        }
+        Ok(existed)
+    }
+
+    fn list_index_definitions(&self) -> ThingdResult<Vec<IndexDefinition>> {
+        let mut definitions = Vec::new();
+        for entry in self.indexes.iter() {
+            let (_, value) = guard_data(entry)?;
+            definitions.push(self.deserialize(&value)?);
+        }
+        definitions.sort_by(|left: &IndexDefinition, right: &IndexDefinition| {
+            (&left.collection, &left.field).cmp(&(&right.collection, &right.field))
+        });
+        Ok(definitions)
     }
 
     fn schema(
@@ -3770,6 +3908,7 @@ mod tests {
     fn contract_schema_store() {
         let (mut engine, _dir) = setup_persistent();
         crate::contract_tests::test_contract_schema_store(&mut engine);
+        crate::contract_tests::test_contract_indexes(&mut engine);
     }
 
     #[test]
