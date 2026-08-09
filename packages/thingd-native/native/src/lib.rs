@@ -7,11 +7,11 @@ use napi_derive::napi;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use thingd::{
-    AggregateFunction, AggregateOptions, AggregateStore, EventLog, Link, LinkDirection,
-    LinkQueryOptions, LinkStore, ListEventsOptions, ListObjectsOptions, MemoryEvent, MemoryObject,
-    ObjectStore, PersistentEngine, PutObjectOptions, QueueClaimOptions, QueueJob, QueueJobStatus,
-    QueueNackOptions, QueueStore, SchemaOptions, SearchOptions, Searcher, TimeSeriesOptions,
-    VectorSearchOptions, VectorStore,
+    AggregateFunction, AggregateOptions, AggregateStore, EncryptionConfig, EventLog, Link,
+    LinkDirection, LinkQueryOptions, LinkStore, ListEventsOptions, ListObjectsOptions, MemoryEvent,
+    MemoryObject, ObjectStore, PersistentEngine, PersistentOpenOptions, PutObjectOptions,
+    QueueClaimOptions, QueueJob, QueueJobStatus, QueueNackOptions, QueueStore, SchemaOptions,
+    SearchOptions, Searcher, TimeSeriesOptions, VectorSearchOptions, VectorStore,
 };
 
 #[derive(Deserialize)]
@@ -70,26 +70,27 @@ pub struct NativeThingStore {
 #[napi]
 impl NativeThingStore {
     #[napi(factory)]
-    pub fn open(path: String) -> Result<Self> {
-        let key = match std::env::var("THINGD_ENCRYPTION_KEY") {
-            Ok(value) => Some(
-                thingd::StorageKey::from_hex(&value)
-                    .map_err(|e| Error::from_reason(e.to_string()))?,
-            ),
-            Err(std::env::VarError::NotPresent) => None,
-            Err(error) => return Err(Error::from_reason(error.to_string())),
-        };
-        let open = |path: &std::path::Path| match key.clone() {
-            Some(key) => PersistentEngine::open_with_key(path, key),
-            None => PersistentEngine::open(path),
+    pub fn open(path: String, encryption_key: Option<String>) -> Result<Self> {
+        let encryption = encryption_key
+            .as_deref()
+            .map(parse_hex_key)
+            .transpose()
+            .map_err(napi_error)?
+            .map(|key| EncryptionConfig::from_key(&key))
+            .transpose()
+            .map_err(napi_error)?;
+        let options = PersistentOpenOptions {
+            encryption,
+            ..PersistentOpenOptions::default()
         };
         let store = if path == ":memory:" || path.is_empty() {
             let tmp = std::env::temp_dir().join(format!("thingd-native-{}", std::process::id()));
             let unique = tmp.join(uuid::Uuid::new_v4().to_string());
             std::fs::create_dir_all(&unique).map_err(|e| Error::from_reason(format!("{e}")))?;
-            open(&unique).map_err(|e| Error::from_reason(format!("{e}")))?
+            PersistentEngine::open_with_options(&unique, PersistentOpenOptions::default())
+                .map_err(napi_error)?
         } else {
-            open(std::path::Path::new(&path)).map_err(napi_error)?
+            PersistentEngine::open_with_options(path, options).map_err(napi_error)?
         };
 
         Ok(Self {
@@ -685,6 +686,62 @@ impl NativeThingStore {
             *guard = None;
         }
     }
+}
+
+fn parse_hex_key(value: &str) -> Result<Vec<u8>> {
+    if value.len() != 64 {
+        return Err(Error::from_reason(
+            "invalid encryption key: expected 64 hexadecimal characters (32 bytes)".to_string(),
+        ));
+    }
+    (0..value.len())
+        .step_by(2)
+        .map(|index| {
+            u8::from_str_radix(&value[index..index + 2], 16).map_err(|_| {
+                Error::from_reason("invalid encryption key: expected hexadecimal characters")
+            })
+        })
+        .collect()
+}
+
+/// Explicitly migrate or rotate a database into a new destination.
+#[napi]
+pub fn reencrypt(
+    source_path: String,
+    destination_path: String,
+    source_key: Option<String>,
+    destination_key: Option<String>,
+    allow_plaintext_output: bool,
+) -> Result<()> {
+    let source_options = PersistentOpenOptions {
+        encryption: source_key
+            .as_deref()
+            .map(parse_hex_key)
+            .transpose()
+            .map_err(napi_error)?
+            .map(|key| EncryptionConfig::from_key(&key))
+            .transpose()
+            .map_err(napi_error)?,
+        ..PersistentOpenOptions::default()
+    };
+    let destination_options = PersistentOpenOptions {
+        encryption: destination_key
+            .as_deref()
+            .map(parse_hex_key)
+            .transpose()
+            .map_err(napi_error)?
+            .map(|key| EncryptionConfig::from_key(&key))
+            .transpose()
+            .map_err(napi_error)?,
+        allow_plaintext_output,
+    };
+    PersistentEngine::reencrypt_to(
+        source_path,
+        destination_path,
+        source_options,
+        destination_options,
+    )
+    .map_err(napi_error)
 }
 
 use napi::bindgen_prelude::AsyncTask;

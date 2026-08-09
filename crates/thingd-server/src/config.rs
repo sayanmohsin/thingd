@@ -97,6 +97,9 @@ pub struct ServerConfig {
     pub production_mode: bool,
     #[serde(default = "default_max_connections")]
     pub max_connections: u32,
+    /// Optional 64-character hexadecimal persistent encryption key.
+    #[serde(default)]
+    pub encryption_key: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -279,6 +282,7 @@ impl Default for ServerConfig {
             request_timeout_secs: default_request_timeout(),
             max_connections: default_max_connections(),
             production_mode: false,
+            encryption_key: None,
         }
     }
 }
@@ -465,6 +469,9 @@ impl Config {
         }
         if let Ok(v) = std::env::var("THINGD_PATH") {
             self.server.database = v;
+        }
+        if let Ok(v) = std::env::var("THINGD_ENCRYPTION_KEY") {
+            self.server.encryption_key = Some(v);
         }
         if let Ok(v) = std::env::var("THINGD_SYNC_SOURCE_ID") {
             self.sync.source_id = v;

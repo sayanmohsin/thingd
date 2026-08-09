@@ -19,14 +19,17 @@ used automatically.
 ```txt
 THINGD_PATH=/data/thingd.db
 THINGD_DRIVER=native
+THINGD_ENCRYPTION_KEY=<64 hexadecimal characters>
 ```
 
 `THINGD_DRIVER` can be `memory` or `native`. Use `native` for the Rust-backed
 persistent store after the native package has been built into the runtime image.
 
-`THINGD_ENCRYPTION_KEY` is an optional 64-character hexadecimal AES-256-GCM key
-for the native driver and sidecar persistent engine. Inject it through a
-runtime secret manager; it is never written to the data directory.
+`THINGD_ENCRYPTION_KEY` is optional and applies only to native persistent
+storage. It must represent exactly 32 bytes as 64 hexadecimal characters. Do
+not put it in source control, container image layers, MCP configuration, URLs,
+or request payloads. Memory and cloud drivers reject this local option rather
+than ignoring it. Changing the value does not rotate an existing database.
 
 ## HTTP
 
@@ -71,6 +74,7 @@ server:
   host: "0.0.0.0"
   port: 8757
   database: "/data/thingd.db"
+  encryption_key: "<64 hexadecimal characters>"
   production_mode: false
 auth:
   token: "change-me-with-a-random-token"
@@ -169,24 +173,6 @@ to leader when the current leader becomes unreachable.
   multiple nodes attempting to become leader simultaneously. This is a
   single-leader failover for static deployments (Kubernetes StatefulSet with
   ordered pod names, Docker Compose with fixed service order).
-
-## Replication
-
-Thingd-to-Thingd synchronization is provider-neutral. Configure a stable source
-identity on every instance, and set replica mode on the target instance:
-
-```bash
-THINGD_SYNC_SOURCE_ID=my-app-development
-THINGD_SYNC_ROLE=source|replica
-THINGD_SYNC_COLLECTIONS=users,posts
-```
-
-The replication API is available at `/v1/replication/events`,
-`/v1/replication/apply`, `/v1/replication/status`,
-`/v1/replication/conflicts`, and `/v1/replication/snapshot`. The source exposes
-the feed and snapshots; only an explicitly configured replica accepts apply
-requests. `thingd.cloud` is a protected compatible provider, and the same
-provider-neutral endpoints work between self-hosted instances.
 
 ## Runtime Endpoints
 

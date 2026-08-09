@@ -7,6 +7,8 @@ server:
   port: 8757
   # Database path (or ":memory:" for in-memory)
   database: "/data/thingd.db"
+  # Optional 64-character hexadecimal key; prefer THINGD_ENCRYPTION_KEY.
+  encryption_key: null
   # Request timeout in seconds
   request_timeout_secs: 30
   # Maximum concurrent connections

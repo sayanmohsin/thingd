@@ -39,6 +39,11 @@ import type {
 
 export type ThingDDriver = "memory" | "native" | "cloud";
 
+export type ThingDEncryptionOptions = {
+  /** 64 hexadecimal characters representing a 32-byte key. */
+  key?: string;
+};
+
 export type ThingDOpenOptions = {
   driver?: ThingDDriver;
   store?: ThingStore;
@@ -47,8 +52,7 @@ export type ThingDOpenOptions = {
   apiKey?: string;
   /** Cloud instance slug for multi-instance routing. Passed as X-Instance-Slug header. */
   instanceSlug?: string;
-  /** Reject direct writes when this embedded client represents a replica. */
-  syncRole?: "source" | "replica";
+  encryption?: ThingDEncryptionOptions;
 };
 
 export type ThingDOpenConfig = ThingDOpenOptions & {
@@ -63,25 +67,19 @@ export class ThingD implements LocalThingDConnection {
   ): Promise<ThingD> {
     const resolvedOptions = resolveOpenOptions(pathOrConfig, options);
 
-    return new ThingD(
-      resolvedOptions.path,
-      await openStore(resolvedOptions.path, resolvedOptions),
-      resolvedOptions.syncRole ?? "source"
-    );
+    return new ThingD(resolvedOptions.path, await openStore(resolvedOptions.path, resolvedOptions));
   }
 
   readonly scheduler: SchedulerFacade;
 
   private constructor(
     readonly path: string,
-    private readonly store: ThingStore,
-    private readonly syncRole: "source" | "replica"
+    private readonly store: ThingStore
   ) {
     this.scheduler = new Scheduler(store);
   }
 
   put(collection: string, object: MemoryObject, options?: PutOptions): Promise<StoredMemoryObject> {
-    this.ensureWritable();
     return this.store.put(collection, object, options);
   }
 
@@ -90,23 +88,7 @@ export class ThingD implements LocalThingDConnection {
   }
 
   delete(collection: string, id: string): Promise<ThingDeleteResult> {
-    this.ensureWritable();
     return this.store.delete(collection, id);
-  }
-
-  /** Internal replication path; bypasses the public replica write guard. */
-  putFromReplication(collection: string, object: MemoryObject): Promise<StoredMemoryObject> {
-    return this.store.put(collection, object);
-  }
-
-  /** Internal replication path; bypasses the public replica write guard. */
-  deleteFromReplication(collection: string, id: string): Promise<ThingDeleteResult> {
-    return this.store.delete(collection, id);
-  }
-
-  /** Internal replication path; bypasses the public replica write guard. */
-  appendEventFromReplication(stream: string, event: MemoryEvent): Promise<StoredMemoryEvent> {
-    return this.store.appendEvent(stream, event);
   }
 
   listObjects<T = StoredMemoryObject>(
@@ -142,7 +124,6 @@ export class ThingD implements LocalThingDConnection {
   }
 
   async putBatch(collection: string, objects: MemoryObject[]): Promise<StoredMemoryObject[]> {
-    this.ensureWritable();
     return (
       this.store.putBatch?.(collection, objects) ??
       Promise.reject(new Error("Batch put not supported by this driver"))
@@ -150,7 +131,6 @@ export class ThingD implements LocalThingDConnection {
   }
 
   async deleteBatch(collection: string, ids: string[]): Promise<number> {
-    this.ensureWritable();
     return (
       this.store.deleteBatch?.(collection, ids) ??
       Promise.reject(new Error("Batch delete not supported by this driver"))
@@ -165,38 +145,22 @@ export class ThingD implements LocalThingDConnection {
   }
 
   readonly events = {
-    append: (stream: string, event: MemoryEvent): Promise<StoredMemoryEvent> => {
-      this.ensureWritable();
-      return this.store.appendEvent(stream, event);
-    },
+    append: (stream: string, event: MemoryEvent): Promise<StoredMemoryEvent> =>
+      this.store.appendEvent(stream, event),
     list: <T = StoredMemoryEvent>(stream?: string, options?: ListEventsOptions): Promise<T[]> =>
       this.store.listEvents<T>(stream, options),
   };
 
   queue(name: string): MemoryQueue {
     return {
-      push: (payload: QueueJobPayload, options?: QueueJobOptions) => {
-        this.ensureWritable();
-        return this.store.pushJob(name, payload, options);
-      },
+      push: (payload: QueueJobPayload, options?: QueueJobOptions) =>
+        this.store.pushJob(name, payload, options),
       claim: (options?: QueueClaimOptions) => this.store.claimJob(name, options),
-      ack: (jobId: string) => {
-        this.ensureWritable();
-        return this.store.ackJob(name, jobId);
-      },
-      nack: (jobId: string, options?: QueueNackOptions) => {
-        this.ensureWritable();
-        return this.store.nackJob(name, jobId, options);
-      },
+      ack: (jobId: string) => this.store.ackJob(name, jobId),
+      nack: (jobId: string, options?: QueueNackOptions) => this.store.nackJob(name, jobId, options),
       list: () => this.store.listJobs(name),
       dead: () => this.store.listDeadJobs(name),
     };
-  }
-
-  private ensureWritable(): void {
-    if (this.syncRole === "replica") {
-      throw new Error("Thingd is configured as a replication replica; direct writes are disabled");
-    }
   }
 
   readonly links = {
@@ -206,17 +170,10 @@ export class ThingD implements LocalThingDConnection {
       toRef: string,
       weight?: number,
       metadataJson?: string
-    ) => {
-      this.ensureWritable();
-      return (
-        this.store.createLink?.(fromRef, linkType, toRef, weight, metadataJson) ??
-        Promise.reject(new Error("Graph links not supported by this driver"))
-      );
-    },
-    delete: (id: string) => {
-      this.ensureWritable();
-      return this.store.deleteLink?.(id) ?? Promise.resolve(false);
-    },
+    ) =>
+      this.store.createLink?.(fromRef, linkType, toRef, weight, metadataJson) ??
+      Promise.reject(new Error("Graph links not supported by this driver")),
+    delete: (id: string) => this.store.deleteLink?.(id) ?? Promise.resolve(false),
     get: (id: string) => this.store.getLink?.(id) ?? Promise.resolve(null),
     neighbors: (
       reference: string,
@@ -429,10 +386,16 @@ function isCloudPath(path: string): boolean {
 
 async function openStore(path: string, options: ResolvedThingDOpenOptions): Promise<ThingStore> {
   if (options.store) {
+    if (options.encryption) {
+      throw new Error("Encryption options require the native persistent driver");
+    }
     return options.store;
   }
 
   if (options.driver === "cloud") {
+    if (options.encryption) {
+      throw new Error("Encryption options are only supported by the native persistent driver");
+    }
     return HttpThingStore.open({
       url: path,
       authToken: options.authToken,
@@ -440,7 +403,15 @@ async function openStore(path: string, options: ResolvedThingDOpenOptions): Prom
     });
   }
 
+  if (options.driver === "memory" && options.encryption) {
+    throw new Error("Encryption options are only supported by the native persistent driver");
+  }
+
   const hasNative = await NativeThingStore.isAvailable();
+
+  if (options.encryption?.key !== undefined && !/^[0-9a-fA-F]{64}$/.test(options.encryption.key)) {
+    throw new Error("Invalid encryption key: expected 64 hexadecimal characters (32 bytes)");
+  }
 
   if (options.driver === "native") {
     if (!hasNative) {
@@ -448,13 +419,17 @@ async function openStore(path: string, options: ResolvedThingDOpenOptions): Prom
         `The native thingd driver is not available. Install @thingd/native with "npm install @thingd/native". For monorepo development: "pnpm --filter thingd-native build".`
       );
     }
-    return NativeThingStore.open(path);
+    return NativeThingStore.open(path, options.encryption?.key);
   }
 
   // Auto-detect and promote file paths to native store when available, with a warning fallback to memory.
   if (!options.driver && path !== ":memory:") {
     if (hasNative) {
-      return NativeThingStore.open(path);
+      return NativeThingStore.open(path, options.encryption?.key);
+    }
+
+    if (options.encryption) {
+      throw new Error("Encryption options require the native persistent driver");
     }
 
     console.warn(

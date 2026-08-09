@@ -2,6 +2,27 @@
 
 thingd's security model and hardening options.
 
+## Persistent storage encryption
+
+Native persistent storage can use authenticated encryption with a 32-byte key
+represented as 64 hexadecimal characters at the CLI, SDK, and sidecar
+boundaries. The key is required to open an encrypted database; the runtime
+fails closed on missing, invalid, or wrong keys and never falls back to memory.
+
+Storage encryption is independent of `THINGD_AUTH_TOKEN`: authentication
+protects network access, while the encryption key unlocks local database
+files. MCP clients do not receive or transmit the storage key.
+
+Keep keys in a deployment secret manager or protected environment injection.
+Do not commit them, place them in Docker image layers, include them in MCP
+configuration, or print them in diagnostics. Losing the key makes the encrypted
+data unrecoverable by design. Changing the environment variable does not rotate
+the key; use offline re-encryption to create a new destination.
+
+Filesystem backups remain encrypted and require the same key. JSON snapshots
+and logical exports are decrypted plaintext artifacts and need separate access
+controls.
+
 ## Authentication
 
 thingd uses Bearer token authentication via the `Authorization` header.
@@ -69,23 +90,6 @@ auth:
 ## TLS / HTTPS
 
 thingd-server does not serve HTTPS directly. The recommended deployment pattern uses a reverse proxy:
-
-## Persistent encryption
-
-The Rust persistent engine supports opt-in authenticated encryption for stored
-record values using AES-256-GCM. Supply a 64-character hexadecimal key through
-`THINGD_ENCRYPTION_KEY` for the sidecar/native entry points, or pass `StorageKey`
-to `PersistentEngine::open_with_key` in Rust.
-
-Encrypted databases fail closed when the key is missing, wrong, or
-incompatible. Supplying a key never silently migrates an existing plaintext
-database; use an explicit export/import migration. Rotation and backup
-re-encryption are explicit operational procedures.
-
-Encrypted mode protects persisted record payloads, events, queues, links, and
-vectors. It does not persist a plaintext Tantivy index; search uses the
-authenticated-value fallback. Structural key names and filesystem metadata may
-still reveal limited identifiers. TLS remains a separate transport concern.
 
 **Option 1: nginx (recommended)**
 
@@ -198,7 +202,10 @@ The CI pipeline runs the following security checks on every push and PR:
 - [ ] Enable production mode: `server.production_mode: true`
 - [ ] Set `hardening.max_payload_bytes` to an appropriate limit for your use case
 - [ ] Configure connector roots and host allowlists before enabling imports
-- [ ] Use persistent engine encryption or filesystem-level encryption for the Thingd data directory
+- [ ] Configure native storage encryption when filesystem-level protection is insufficient
+- [ ] Store `THINGD_ENCRYPTION_KEY` in a deployment secret manager
+- [ ] Test encrypted backup restore with the correct key
+- [ ] Keep plaintext snapshots and logical exports under separate protection
 - [ ] Regularly run `thingd db integrity` to check for corruption
 - [ ] Schedule regular backups with `thingd backup --out <path>`
 

@@ -57,7 +57,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 pub mod connector;
 #[cfg(feature = "connectors")]
 pub mod connectors;
-pub(crate) mod encryption;
+#[cfg(feature = "persistent")]
+mod encryption;
 mod error;
 mod in_memory;
 mod model;
@@ -72,7 +73,8 @@ pub use connector::{
 };
 #[cfg(feature = "connectors")]
 pub use connectors::{MysqlConnector, PostgresConnector};
-pub use encryption::StorageKey;
+#[cfg(feature = "persistent")]
+pub use encryption::{EncryptionConfig, KeyProvider, StaticKeyProvider};
 pub use error::{ThingdError, ThingdResult};
 pub use in_memory::MemoryEngine;
 pub use model::{
@@ -85,10 +87,7 @@ pub use model::{
 };
 #[cfg(feature = "persistent")]
 #[cfg_attr(docsrs, doc(cfg(feature = "persistent")))]
-pub use persistent::PersistentEngine;
-#[cfg(feature = "persistent")]
-#[cfg_attr(docsrs, doc(cfg(feature = "persistent")))]
-pub use persistent::PersistentOptions;
+pub use persistent::{PersistentEngine, PersistentOpenOptions};
 pub use store::{
     AggregateStore, EventLog, LinkStore, ObjectStore, QueueStore, Searcher, ThingStore, VectorStore,
 };

@@ -66,7 +66,16 @@ async fn main() {
         );
     }
 
-    let pool = Arc::new(engine::EnginePool::new(config.server.database.clone()));
+    let pool = Arc::new(
+        engine::EnginePool::new_with_encryption_key(
+            config.server.database.clone(),
+            config.server.encryption_key.as_deref(),
+        )
+        .unwrap_or_else(|e| {
+            eprintln!("Encryption configuration error: {e}");
+            std::process::exit(1);
+        }),
+    );
     let app_state = Arc::new(server::AppState {
         pool,
         tenant_config: config.tenant.clone(),

@@ -19,8 +19,16 @@ pub enum ThingdError {
     Protected(String),
     /// The storage adapter failed.
     Storage(String),
-    /// Persistent encryption configuration or authentication failed.
-    Encryption(String),
+    /// An encrypted database was opened without a key.
+    EncryptionRequired(String),
+    /// The supplied encryption key has an invalid format.
+    InvalidEncryptionKey(String),
+    /// Encrypted data failed authentication.
+    EncryptionAuthentication(String),
+    /// The encrypted storage format is not supported.
+    UnsupportedEncryptionVersion(String),
+    /// An explicit encryption migration failed.
+    EncryptionMigration(String),
 }
 
 impl Display for ThingdError {
@@ -31,7 +39,21 @@ impl Display for ThingdError {
             Self::Conflict(message) => write!(formatter, "conflict: {message}"),
             Self::Protected(message) => write!(formatter, "protected: {message}"),
             Self::Storage(message) => write!(formatter, "storage error: {message}"),
-            Self::Encryption(message) => write!(formatter, "encryption error: {message}"),
+            Self::EncryptionRequired(message) => {
+                write!(formatter, "encryption required: {message}")
+            },
+            Self::InvalidEncryptionKey(message) => {
+                write!(formatter, "invalid encryption key: {message}")
+            },
+            Self::EncryptionAuthentication(message) => {
+                write!(formatter, "encryption authentication failed: {message}")
+            },
+            Self::UnsupportedEncryptionVersion(message) => {
+                write!(formatter, "unsupported encryption version: {message}")
+            },
+            Self::EncryptionMigration(message) => {
+                write!(formatter, "encryption migration failed: {message}")
+            },
         }
     }
 }

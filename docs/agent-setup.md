@@ -29,6 +29,20 @@ Your agent can then call all 36 `thing_*` tools (search, objects, events, queues
 links, counts, aggregate, schema, NLQ, vector, discovery). See the [MCP tools reference](api-spec/mcp-tools.md)
 for the full list.
 
+### Optional encrypted local storage
+
+For native persistent stdio MCP, inject the key into the host process before
+starting the server:
+
+```bash
+export THINGD_ENCRYPTION_KEY=<64-hex-characters>
+thingd mcp --driver native
+```
+
+The MCP client configuration remains unchanged. The client never receives the
+key; the process must open the database successfully before it starts serving
+MCP. Missing or wrong keys appear as a startup failure, not as a tool result.
+
 ### 1b. Cloud MCP (Cursor / Claude Desktop / Antigravity IDE)
 
 For thingd Cloud users, generate agent config for your hosted MCP endpoint:
@@ -60,6 +74,7 @@ docker run -d \
   -p 8757:8757 \
   -v thingd-data:/data \
   -e THINGD_AUTH_TOKEN=my-token \
+  -e THINGD_ENCRYPTION_KEY=<64-hex-characters> \
   sayanmohsin/thingd
 ```
 

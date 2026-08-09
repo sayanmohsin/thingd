@@ -24,9 +24,9 @@ It uses temporary databases and does not leave benchmark data in the repo.
 
 ## Latest smoke run
 
-Run date: 2026-07-30
-Commit: `677aba8`
-Environment: macOS arm64, Rust 1.96.0, release build
+Run date: 2026-08-06
+Commit: `a8ab14c`
+Environment: macOS 26.6 arm64, Rust 1.97.1, Node.js 24.18.0, release build
 Iterations: 10
 
 This is intentionally a smoke baseline, not a performance regression gate.
@@ -36,14 +36,14 @@ deliberate baseline update.
 
 | Driver | Representative operation | Ops/sec |
 | --- | --- | ---: |
-| in-memory | object_put | 86,206 |
-| in-memory | object_get | 555,555 |
-| in-memory | event_append | 1,666,666 |
-| in-memory | queue_claim_ack | 3,333,333 |
-| persistent | object_put | 10 |
-| persistent | object_get | 147,058 |
-| persistent | event_append | 6 |
-| persistent | queue_claim_ack | 26,178 |
+| in-memory | object_put | 26,385 |
+| in-memory | object_get | 222,222 |
+| in-memory | event_append | 454,545 |
+| in-memory | queue_claim_ack | 238,095 |
+| persistent | object_put | 5 |
+| persistent | object_get | 222,222 |
+| persistent | event_append | 3 |
+| persistent | queue_claim_ack | 2,316 |
 
 The complete output is available from the command above. Do not compare this
 smoke table with results from a different machine or iteration count.
@@ -56,9 +56,25 @@ node packages/thingd/bench/node-bench.mjs 20000
 ```
 
 This exercises the public SDK through the native driver when available and
-through the in-memory fallback. Node benchmark numbers are also machine-local
-and should be recorded with their date, commit, Node version, and iteration
-count.
+through the in-memory fallback. Latest bounded run: 2026-08-06, commit
+`a8ab14c`, macOS 26.6 arm64, Node.js 24.18.0, 10 iterations. The native
+driver is intentionally measured through the existing `:memory:` native path,
+which uses the persistent implementation; larger runs are consequently slow
+on this workload.
+
+| Driver | Representative operation | Ops/sec |
+| --- | --- | ---: |
+| memory | object_put | 9,613 |
+| memory | object_get | 289,503 |
+| memory | event_append | 33,389 |
+| memory | queue_claim | 35,268 |
+| native | object_put | 5 |
+| native | object_get | 33,708 |
+| native | event_append | 3 |
+| native | queue_claim | 551 |
+
+Node benchmark numbers are also machine-local and should be recorded with
+their date, commit, Node version, and iteration count.
 
 ## Documentation policy
 

@@ -4,6 +4,16 @@ This is the language-agnostic API contract for thingd. Any SDK (Node.js, Go, Rus
 
 thingd is a fast, object-first data engine for applications and AI agents. It supports in-memory, file-based (persistent), Docker, and hosted HTTP instances.
 
+## Storage encryption boundary
+
+Persistent native databases may opt into authenticated encryption at process
+startup. The encryption key is supplied through the native SDK, CLI, or sidecar
+configuration before the database opens; it is never part of REST or MCP
+request payloads. REST and MCP schemas remain unchanged after an encrypted
+engine has opened successfully. See [Errors](errors.md#storage-and-encryption-errors)
+and [MCP Tools](mcp-tools.md#encrypted-storage-and-mcp) for the runtime and
+failure contract.
+
 The hosted mobile/web app backend contract is documented in
 [App Backend](../app-backend.md). It is implemented by thingd Cloud and does
 not add Cloud tenancy or authentication to the open-source engine.

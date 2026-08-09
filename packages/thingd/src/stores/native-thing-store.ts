@@ -110,11 +110,18 @@ type NativeThingStoreBinding = {
 };
 
 type NativeThingStoreConstructor = {
-  open(path: string): NativeThingStoreBinding;
+  open(path: string, encryptionKey?: string): NativeThingStoreBinding;
 };
 
 type NativeThingStoreModule = {
   NativeThingStore: NativeThingStoreConstructor;
+  reencrypt(
+    sourcePath: string,
+    destinationPath: string,
+    sourceKey?: string,
+    destinationKey?: string,
+    allowPlaintextOutput?: boolean
+  ): void;
   loadedPath?: string;
 };
 
@@ -204,9 +211,9 @@ const DEFAULT_LEASE_MS = 30_000;
 const NATIVE_PACKAGE_NAME = "@thingd/native";
 
 export class NativeThingStore implements ThingStore {
-  static async open(path: string): Promise<NativeThingStore> {
+  static async open(path: string, encryptionKey?: string): Promise<NativeThingStore> {
     const native = await loadNativeModule();
-    return new NativeThingStore(native.NativeThingStore.open(path));
+    return new NativeThingStore(native.NativeThingStore.open(path, encryptionKey));
   }
 
   static async isAvailable(): Promise<boolean> {
@@ -216,6 +223,17 @@ export class NativeThingStore implements ThingStore {
     } catch {
       return false;
     }
+  }
+
+  static async reencrypt(
+    sourcePath: string,
+    destinationPath: string,
+    sourceKey?: string,
+    destinationKey?: string,
+    allowPlaintextOutput = false
+  ): Promise<void> {
+    const native = await loadNativeModule();
+    native.reencrypt(sourcePath, destinationPath, sourceKey, destinationKey, allowPlaintextOutput);
   }
 
   static async getLoadedPath(): Promise<string | undefined> {
@@ -594,6 +612,7 @@ async function loadNativeModule(): Promise<NativeThingStoreModule> {
       const binding = require(customPath);
       return {
         NativeThingStore: binding.NativeThingStore,
+        reencrypt: binding.reencrypt,
         loadedPath: customPath,
       };
     } catch (error) {
@@ -608,6 +627,7 @@ async function loadNativeModule(): Promise<NativeThingStoreModule> {
     const mod = (await import(NATIVE_PACKAGE_NAME)) as NativeThingStoreModule;
     return {
       NativeThingStore: mod.NativeThingStore,
+      reencrypt: mod.reencrypt,
       loadedPath: mod.loadedPath,
     };
   } catch (importError) {
@@ -648,6 +668,7 @@ async function loadNativeModule(): Promise<NativeThingStoreModule> {
             if (binding?.NativeThingStore) {
               return {
                 NativeThingStore: binding.NativeThingStore,
+                reencrypt: binding.reencrypt,
                 loadedPath: candidate,
               };
             }

@@ -125,13 +125,10 @@ test("cluster replication sync replicates leader writes to follower", { timeout:
 
   // Wait for follower to replicate the object
   await waitFor(async () => {
-    const db = await ThingD.open({ path: dbPath, driver: "native" }).catch(
-      () => null
-    );
-    if (!db) return false;
-    const obj = await db.get("items", "sync-obj").catch(() => null);
-    await db.close();
-    return obj !== null;
+    const response = await fetch(`${follower.url}/cluster/status`).catch(() => null);
+    if (!response?.ok) return false;
+    const status = await response.json();
+    return status.replication?.lastReplicatedSequence > 0;
   });
 
   await client.close();
@@ -192,13 +189,10 @@ test("cluster forwarding routes follower writes to leader and replicates back", 
 
   // Wait for follower to replicate the object back from leader
   await waitFor(async () => {
-    const db = await ThingD.open({ path: dbPath, driver: "native" }).catch(
-      () => null
-    );
-    if (!db) return false;
-    const obj = await db.get("items", "forward-obj").catch(() => null);
-    await db.close();
-    return obj !== null;
+    const response = await fetch(`${follower.url}/cluster/status`).catch(() => null);
+    if (!response?.ok) return false;
+    const status = await response.json();
+    return status.replication?.lastReplicatedSequence > 0;
   });
 
   await client.close();

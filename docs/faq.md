@@ -216,7 +216,12 @@ The Rust engine uses `ThingdError` with five variants:
 - `NotFound` — requested resource does not exist
 - `Conflict` — concurrent modification conflict
 - `Protected` — operation on a protected stream (e.g., `__thingd:mcp:audit`)
-- `Storage` — underlying storage error (SQLite, I/O)
+- `Storage` — underlying persistent storage or I/O error
+- `EncryptionRequired` — encrypted database opened without a key
+- `InvalidEncryptionKey` — key is not valid at the boundary
+- `EncryptionAuthentication` — key or encrypted data failed authentication
+- `UnsupportedEncryptionVersion` — encrypted format is unsupported
+- `EncryptionMigration` — explicit offline migration failed
 
 ### How do queue job results indicate failure?
 
@@ -353,7 +358,10 @@ Yes. Set `server.production_mode: true` to strip internal details from 500 respo
 thingd backup --out /path/to/backup.db
 ```
 
-Uses `VACUUM INTO` for a consistent snapshot. See [Operations](../operations.md).
+That command applies to the deprecated SQLite compatibility backend. For the
+current native backend, stop or checkpoint the engine and copy the complete
+database directory. Encrypted directory backups remain encrypted and require
+the same key to restore. See [Operations](../operations.md).
 
 ### How do I check database integrity?
 
@@ -363,17 +371,24 @@ thingd db integrity
 
 An integrity check also runs automatically on startup.
 
-### How do I manage the WAL file?
+### How do I create an encrypted database or rotate its key?
 
 ```bash
-thingd db checkpoint
+export THINGD_ENCRYPTION_KEY=<64-hex-characters>
+thingd mcp --driver native
 ```
 
-Runs `PRAGMA wal_checkpoint(TRUNCATE)`. Also runs automatically on database close.
+The key is supplied at startup and is never sent through MCP. Changing it does
+not rotate an existing database. Use `thingd db reencrypt --source <path>
+--destination <path>` with source and destination key environment variables for
+an offline migration or key rotation. Encrypted-to-plaintext output requires
+`--allow-plaintext-output`.
 
 ### Are schema migrations safe?
 
-Yes. Each migration runs in a transaction. A backup is auto-created before migration (`{path}.pre-v{version}`). Integrity check runs after migration.
+Current native persistence does not use the old SQLite schema migration flow.
+Format versions are validated at open, and key rotation is always an explicit
+offline copy into a new destination.
 
 ## Hosted version
 

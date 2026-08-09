@@ -29,10 +29,16 @@ Data is stored at `/data/thingd.db` inside the container.
 ```bash
 docker run -p 8757:8757 \
   -e THINGD_AUTH_TOKEN=your-secret \
+  -e THINGD_ENCRYPTION_KEY=<64-hex-characters> \
   sayanmohsin/thingd
 ```
 
 Without an auth token, the server only binds to loopback (127.0.0.1). Setting `THINGD_AUTH_TOKEN` enables non-loopback binding.
+
+The encryption key is consumed at database startup and is never sent to MCP
+clients. Use an orchestration secret rather than committing it to a Compose
+file or image layer. Missing or wrong keys stop startup instead of creating a
+memory database. Encrypted directory backups require the same key to restore.
 
 ## Environment variables
 
@@ -40,6 +46,7 @@ Without an auth token, the server only binds to loopback (127.0.0.1). Setting `T
 |----------|---------|-------------|
 | `THINGD_PATH` | `/data/thingd.db` | Path to the persistent database directory |
 | `THINGD_DRIVER` | `native` | Storage driver (`native` or `memory`) |
+| `THINGD_ENCRYPTION_KEY` | — | Optional 64-character hexadecimal key for native persistent storage |
 | `THINGD_HOST` | `0.0.0.0` | Bind address |
 | `THINGD_PORT` | `8757` | HTTP server port |
 | `THINGD_AUTH_TOKEN` | — | Bearer token for `/mcp` endpoint. Required for non-loopback binding |

@@ -12,6 +12,13 @@ durable job queues, full-text search, and graph links. It ships with two
 engines: an in-memory engine for fast prototyping and testing, and an optional
 persistent engine for durable local storage.
 
+Persistent callers can use `PersistentEngine::open(path)` for the existing
+unencrypted behavior or `PersistentEngine::open_with_options(path, options)`
+with an `EncryptionConfig`. Encryption uses a fallible `KeyProvider`; native
+and CLI boundaries commonly use a validated 32-byte `StaticKeyProvider`.
+Encryption is opt-in, fails closed on missing or wrong keys, and does not add
+encryption fields to the logical engine API.
+
 ## Why thingd?
 
 Modern apps and AI agents commonly need:
@@ -32,9 +39,10 @@ all five primitives behind a single composable trait interface.
 | `persistent` | Yes | Enables the durable persistent engine |
 | `connectors` | No | Enables CSV/JSON file connectors for data import |
 
-Persistent storage can be opened with an explicit `StorageKey` through
-`PersistentEngine::open_with_key`. This encrypts stored record values with
-authenticated AES-256-GCM and fails closed if the key is missing or wrong.
+Persistent storage can be opened with an explicit `EncryptionConfig` through
+`PersistentEngine::open_with_options`. The engine uses authenticated
+encryption, validates keys at startup, and fails closed when the key is missing
+or wrong. Key retrieval remains the caller's responsibility.
 
 ## Quick Start
 

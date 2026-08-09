@@ -1,6 +1,6 @@
 {
   "name": "@thingd/sdk",
-  "version": "0.74.3",
+  "version": "0.76.0",
   "description": "A fast object-first data engine for applications and AI agents.",
   "type": "module",
   "author": "Sayan Mohsin",
@@ -67,7 +67,7 @@
     "README.md"
   ],
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@modelcontextprotocol/sdk": "^1.30.0",
     "zod": "^4.4.3"
   },
   "optionalDependencies": {
