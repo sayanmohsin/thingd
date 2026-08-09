@@ -108,9 +108,9 @@ impl PersistentEngine {
                     "unsupported persistent encryption metadata".into(),
                 ));
             }
-            Some(StorageCipher::new(
-                options.encryption_key.expect("checked above"),
-            ))
+            Some(StorageCipher::new(options.encryption_key.ok_or_else(
+                || ThingdError::Encryption("database encryption key is required".into()),
+            )?))
         } else if let Some(key) = options.encryption_key {
             let has_existing_data = objects.iter().next().is_some()
                 || events.iter().next().is_some()
@@ -248,11 +248,10 @@ impl PersistentEngine {
     fn serialize<T: serde::Serialize>(&self, value: &T) -> ThingdResult<Vec<u8>> {
         let plaintext =
             serde_json::to_vec(value).map_err(|e| ThingdError::Storage(e.to_string()))?;
-        self.cipher
-            .as_ref()
-            .map_or(Ok(plaintext.clone()), |cipher| {
-                cipher.encrypt(&plaintext).map_err(ThingdError::Encryption)
-            })
+        self.cipher.as_ref().map_or_else(
+            || Ok(plaintext.clone()),
+            |cipher| cipher.encrypt(&plaintext).map_err(ThingdError::Encryption),
+        )
     }
 
     fn deserialize<T: serde::de::DeserializeOwned>(&self, bytes: &[u8]) -> ThingdResult<T> {
@@ -3316,7 +3315,7 @@ mod tests {
             .unwrap()
             .filter_map(Result::ok)
             .filter_map(|entry| std::fs::read(entry.path()).ok())
-            .flat_map(|bytes| bytes.into_iter())
+            .flat_map(std::iter::IntoIterator::into_iter)
             .collect::<Vec<_>>();
         assert!(!String::from_utf8_lossy(&raw).contains("secret"));
 

@@ -12,12 +12,16 @@ pub struct StorageKey(pub [u8; 32]);
 
 impl StorageKey {
     /// Construct a storage key from exactly 32 bytes.
-    pub fn from_bytes(bytes: [u8; 32]) -> Self {
+    pub const fn from_bytes(bytes: [u8; 32]) -> Self {
         Self(bytes)
     }
 
     /// Parse a 64-character hexadecimal key, suitable for environment-based
     /// sidecar configuration.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the input is not exactly 64 hexadecimal characters.
     pub fn from_hex(value: &str) -> Result<Self, String> {
         if value.len() != 64 {
             return Err("encryption key must contain exactly 64 hexadecimal characters".into());
@@ -32,12 +36,13 @@ impl StorageKey {
 }
 
 #[derive(Clone, Debug)]
+#[allow(clippy::redundant_pub_crate)]
 pub(crate) struct StorageCipher {
     key: StorageKey,
 }
 
 impl StorageCipher {
-    pub(crate) fn new(key: StorageKey) -> Self {
+    pub(crate) const fn new(key: StorageKey) -> Self {
         Self { key }
     }
 

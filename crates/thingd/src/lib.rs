@@ -57,7 +57,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 pub mod connector;
 #[cfg(feature = "connectors")]
 pub mod connectors;
-mod encryption;
+pub(crate) mod encryption;
 mod error;
 mod in_memory;
 mod model;
