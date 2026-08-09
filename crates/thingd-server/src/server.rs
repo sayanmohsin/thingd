@@ -47,8 +47,14 @@ pub fn build_router(state: Arc<AppState>, config: &Config) -> Router {
         .route("/v1/collections/schema", get(rest::list_schemas))
         .route("/v1/collections/{name}/schema", get(rest::get_schema))
         .route("/v1/schema/validate", post(rest::validate_schema))
-        .route("/v1/schema/current", get(rest::current_schema))
-        .route("/v1/migrations", get(rest::list_migrations))
+        .route(
+            "/v1/schema/current",
+            get(rest::current_schema).put(rest::put_schema_document),
+        )
+        .route(
+            "/v1/migrations",
+            get(rest::list_migrations).post(rest::record_migration),
+        )
         .route("/v1/streams", get(rest::list_streams))
         .route("/v1/queues", get(rest::list_queues))
         // Objects

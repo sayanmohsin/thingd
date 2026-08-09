@@ -2033,6 +2033,37 @@ pub async fn current_schema(
         .map_err(|error| AppError::internal(error.to_string()))?)
 }
 
+/// Persist canonical schema metadata after an explicit migration approval.
+pub async fn put_schema_document(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, AppError> {
+    let schema_json = body
+        .get("schemaJson")
+        .and_then(Value::as_str)
+        .ok_or_else(|| AppError::bad_request("Missing schemaJson"))?;
+    let hash = body
+        .get("hash")
+        .and_then(Value::as_str)
+        .ok_or_else(|| AppError::bad_request("Missing hash"))?;
+    let updated_at = body
+        .get("updatedAt")
+        .and_then(Value::as_str)
+        .ok_or_else(|| AppError::bad_request("Missing updatedAt"))?;
+    serde_json::from_str::<Value>(schema_json)
+        .map_err(|error| AppError::bad_request(format!("Invalid schemaJson: {error}")))?;
+    let e = get_engine(&state, &headers)?;
+    let mut g = e.lock();
+    g.put_schema_document(StoredSchema {
+        schema_json: schema_json.to_string(),
+        hash: hash.to_string(),
+        updated_at: updated_at.to_string(),
+    })
+    .map_err(|error| AppError::internal(error.to_string()))?;
+    ok(json!({ "stored": true, "hash": hash }))
+}
+
 /// Return durable migration records in application order.
 pub async fn list_migrations(
     State(state): State<Arc<AppState>>,
@@ -2042,6 +2073,35 @@ pub async fn list_migrations(
     let g = e.lock();
     ok(g.list_migrations()
         .map_err(|error| AppError::internal(error.to_string()))?)
+}
+
+/// Record an explicitly approved schema migration.
+pub async fn record_migration(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, AppError> {
+    let id = body
+        .get("id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| AppError::bad_request("Missing migration id"))?;
+    let hash = body
+        .get("hash")
+        .and_then(Value::as_str)
+        .ok_or_else(|| AppError::bad_request("Missing migration hash"))?;
+    let applied_at = body
+        .get("appliedAt")
+        .and_then(Value::as_str)
+        .ok_or_else(|| AppError::bad_request("Missing migration timestamp"))?;
+    let e = get_engine(&state, &headers)?;
+    let mut g = e.lock();
+    g.record_migration(MigrationRecord {
+        id: id.to_string(),
+        hash: hash.to_string(),
+        applied_at: applied_at.to_string(),
+    })
+    .map_err(|error| AppError::internal(error.to_string()))?;
+    ok(json!({ "recorded": true, "id": id, "hash": hash }))
 }
 
 #[cfg(test)]
@@ -2119,6 +2179,42 @@ mod tests {
             .await
             .expect_err("empty schema should fail");
         assert!(error.detail.contains("must not be empty"));
+    }
+
+    #[tokio::test]
+    async fn schema_metadata_can_be_stored_and_migration_recorded() {
+        let (state, _config) = test_state_and_config();
+        let headers = HeaderMap::new();
+        let _ = put_schema_document(
+            State(Arc::clone(&state)),
+            headers.clone(),
+            Json(json!({
+                "schemaJson": "{\"version\":1,\"collections\":[]}",
+                "hash": "sha256:test",
+                "updatedAt": "2026-08-09T00:00:00Z"
+            })),
+        )
+        .await
+        .expect("schema metadata should be stored");
+        let _ = record_migration(
+            State(Arc::clone(&state)),
+            headers,
+            Json(json!({
+                "id": "001_initial",
+                "hash": "sha256:test",
+                "appliedAt": "2026-08-09T00:00:00Z"
+            })),
+        )
+        .await
+        .expect("migration should be recorded");
+        let current = current_schema(State(state.clone()), HeaderMap::new())
+            .await
+            .expect("schema should be readable");
+        assert_eq!(current.0["data"]["hash"], "sha256:test");
+        let migrations = list_migrations(State(state), HeaderMap::new())
+            .await
+            .expect("migrations should be readable");
+        assert_eq!(migrations.0["data"][0]["id"], "001_initial");
     }
 
     #[tokio::test]
