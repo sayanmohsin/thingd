@@ -217,8 +217,6 @@ jobs:
         env:
           VERSION: ${{ needs.release-please.outputs.version }}
         run: node scripts/prepare-publish-manifests.mjs "$VERSION"
-      - name: Refresh ephemeral lockfile for publish manifests
-        run: pnpm install --no-frozen-lockfile
       - uses: actions/download-artifact@v8
         with:
           path: prebuild-artifacts
@@ -240,10 +238,17 @@ jobs:
         run: |
           publish_if_missing() {
             PACKAGE="$1"
+            case "$PACKAGE" in
+              @thingd/sdk) PACKAGE_DIR="packages/thingd" ;;
+              @thingd/native) PACKAGE_DIR="packages/thingd-native" ;;
+              @thingd/cli) PACKAGE_DIR="packages/thingd-cli" ;;
+              @thingd/client) PACKAGE_DIR="packages/thingd-client" ;;
+              *) echo "Unknown package: $PACKAGE" >&2; return 1 ;;
+            esac
             if npm view "${PACKAGE}@${VERSION}" version >/dev/null 2>&1; then
               echo "${PACKAGE}@${VERSION} already exists"
             else
-              pnpm --filter "$PACKAGE" exec npm publish --access public --provenance
+              (cd "$PACKAGE_DIR" && npm publish --ignore-scripts --access public --provenance)
             fi
           }
           publish_if_missing @thingd/sdk
