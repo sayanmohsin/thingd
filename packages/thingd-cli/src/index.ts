@@ -1,6 +1,13 @@
 #!/usr/bin/env node
 
-import { realpathSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+  writeFileSync,
+} from "node:fs";
 import { resolve } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { pathToFileURL } from "node:url";
@@ -12,6 +19,7 @@ import {
   type MemoryObject,
   type MemorySearchOptions,
   NativeThingStore,
+  parseSchema,
   type QueueClaimOptions,
   type QueueJobOptions,
   type QueueNackOptions,
@@ -141,6 +149,11 @@ Usage:
   thingd links neighbors <reference> [--direction Outgoing|Incoming|Both] [--type <linkType>] [--limit <n>]
   thingd links count
   thingd schema [--collection <name>]
+  thingd schema check [file]
+  thingd migrate create <name> [--schema <file>]
+  thingd migrate plan [file]
+  thingd migrate apply [file]
+  thingd migrate status
   thingd nlq <question> [--collection <name>]
   thingd aggregate <function> <collection> [--field <name>] [--group-by <name>] [--filter <json>]
   thingd timeseries <function> <collection> <bucket> [--field <name>] [--filter <json>] [--from <iso>] [--to <iso>]
@@ -371,6 +384,11 @@ async function runCommand(context: CliContext): Promise<void> {
 
   if (command === "schema") {
     await runSchema(context);
+    return;
+  }
+
+  if (command === "migrate") {
+    await runMigrate(context);
     return;
   }
 
@@ -1215,11 +1233,242 @@ async function runLinks(context: CliContext): Promise<void> {
 }
 
 async function runSchema(context: CliContext): Promise<void> {
+  const action = context.parsed.tokens[1];
+  if (action === "check") {
+    const file = resolve(context.parsed.tokens[2] ?? "schema.thingd");
+    const source = readFileSync(file, "utf8");
+    const result = await parseSchema(source);
+    writeJson(context.stdout, { file, ...result }, context.pretty);
+    return;
+  }
   const collection = stringFlag(context.parsed, "collection");
   await withDb(context, async (db) => {
     const schemas = await db.schema(collection ?? undefined);
     writeJson(context.stdout, schemas, context.pretty);
   });
+}
+
+type ExplicitSchema = {
+  collections: Array<{
+    name: string;
+    fields: Array<{
+      name: string;
+      field_type?: { kind?: string };
+      annotations?: Array<{ name: string }>;
+    }>;
+  }>;
+  links: Array<{ name: string }>;
+};
+
+type MigrationChange = {
+  kind:
+    | "collection_added"
+    | "collection_missing"
+    | "field_added"
+    | "field_missing"
+    | "field_type_changed";
+  collection: string;
+  field?: string;
+  from?: string;
+  to?: string;
+  destructive: boolean;
+};
+
+async function runMigrate(context: CliContext): Promise<void> {
+  const action = context.parsed.tokens[1] ?? "status";
+  const migrationDirectory = resolve("thingd", "migrations");
+
+  if (action === "status") {
+    const files = existsSync(migrationDirectory)
+      ? readdirSync(migrationDirectory, { withFileTypes: true })
+          .filter((entry) => entry.isFile() && entry.name.endsWith(".thingd"))
+          .map((entry) => entry.name)
+          .sort()
+      : [];
+    await withDb(context, async (db) => {
+      const applied = await db.listMigrations();
+      writeJson(
+        context.stdout,
+        { directory: migrationDirectory, migrations: files, applied },
+        context.pretty
+      );
+    });
+    return;
+  }
+
+  if (action === "create") {
+    const name = requiredToken(context.parsed, 2, "migration name");
+    const sourceFile = resolve(stringFlag(context.parsed, "schema") ?? "schema.thingd");
+    const source = readFileSync(sourceFile, "utf8");
+    await parseSchema(source);
+    mkdirSync(migrationDirectory, { recursive: true });
+    const existing = readdirSync(migrationDirectory)
+      .filter((file) => /^\d{4}_.+\.thingd$/.test(file))
+      .sort();
+    const sequence = String(
+      existing.reduce((max, file) => Math.max(max, Number(file.slice(0, 4))), 0) + 1
+    ).padStart(4, "0");
+    const safeName = name
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_|_$/g, "");
+    if (!safeName) {
+      throw new Error("migration name must contain letters or numbers");
+    }
+    const destination = resolve(migrationDirectory, `${sequence}_${safeName}.thingd`);
+    writeFileSync(destination, source, "utf8");
+    writeJson(context.stdout, { created: destination, source: sourceFile }, context.pretty);
+    return;
+  }
+
+  if (action === "plan") {
+    const sourceFile = resolve(context.parsed.tokens[2] ?? "schema.thingd");
+    const source = readFileSync(sourceFile, "utf8");
+    const parsed = (await parseSchema(source)) as { schema: ExplicitSchema; hash: string };
+    const changes: MigrationChange[] = [];
+    await withDb(context, async (db) => {
+      const current = await db.schema();
+      const currentByName = new Map(current.map((collection) => [collection.name, collection]));
+      const declaredNames = new Set(parsed.schema.collections.map((collection) => collection.name));
+      for (const collection of parsed.schema.collections) {
+        const existing = currentByName.get(collection.name);
+        if (!existing) {
+          changes.push({
+            kind: "collection_added",
+            collection: collection.name,
+            destructive: false,
+          });
+          continue;
+        }
+        const fields = new Set(existing.fields.map((field) => field.name));
+        for (const field of collection.fields) {
+          if (!fields.has(field.name)) {
+            changes.push({
+              kind: "field_added",
+              collection: collection.name,
+              field: field.name,
+              destructive: false,
+            });
+          } else {
+            const currentField = existing.fields.find((candidate) => candidate.name === field.name);
+            const from = currentField?.type?.toLowerCase();
+            const to = field.field_type?.kind?.toLowerCase();
+            if (from && to && from !== to) {
+              changes.push({
+                kind: "field_type_changed",
+                collection: collection.name,
+                field: field.name,
+                from,
+                to,
+                destructive: true,
+              });
+            }
+          }
+        }
+        const declaredFields = new Set(collection.fields.map((field) => field.name));
+        for (const field of existing.fields) {
+          if (!declaredFields.has(field.name)) {
+            changes.push({
+              kind: "field_missing",
+              collection: collection.name,
+              field: field.name,
+              destructive: true,
+            });
+          }
+        }
+      }
+      for (const collection of current) {
+        if (!declaredNames.has(collection.name)) {
+          changes.push({
+            kind: "collection_missing",
+            collection: collection.name,
+            destructive: true,
+          });
+        }
+      }
+    });
+    writeJson(
+      context.stdout,
+      {
+        file: sourceFile,
+        hash: parsed.hash,
+        changes,
+        destructive: changes.some((change) => change.destructive),
+      },
+      context.pretty
+    );
+    return;
+  }
+
+  if (action === "apply") {
+    const sourceFile = resolve(context.parsed.tokens[2] ?? "schema.thingd");
+    const source = readFileSync(sourceFile, "utf8");
+    const parsed = (await parseSchema(source)) as { schema: ExplicitSchema; hash: string };
+    const migrationId = sourceFile.split("/").pop() ?? sourceFile;
+    await withDb(context, async (db) => {
+      const applied = await db.listMigrations();
+      if (applied.some((migration) => migration.id === migrationId)) {
+        writeJson(context.stdout, { alreadyApplied: true, migrationId }, context.pretty);
+        return;
+      }
+      const current = await db.schema();
+      if (hasDestructiveSchemaChanges(parsed.schema, current)) {
+        throw new Error(
+          "Destructive schema changes are not supported by migrate apply yet; review migrate plan and keep the migration unapplied"
+        );
+      }
+      const indexes: string[] = [];
+      for (const collection of parsed.schema.collections) {
+        for (const field of collection.fields) {
+          if (
+            field.annotations?.some((annotation) => ["index", "unique"].includes(annotation.name))
+          ) {
+            await db.createIndex(collection.name, field.name);
+            indexes.push(`${collection.name}.${field.name}`);
+          }
+        }
+      }
+      const appliedAt = new Date().toISOString();
+      await db.putSchemaDocument({
+        schemaJson: JSON.stringify(parsed.schema),
+        hash: parsed.hash,
+        updatedAt: appliedAt,
+      });
+      await db.recordMigration({ id: migrationId, hash: parsed.hash, appliedAt });
+      writeJson(
+        context.stdout,
+        { applied: migrationId, hash: parsed.hash, indexes, destructiveChangesApplied: false },
+        context.pretty
+      );
+    });
+    return;
+  }
+
+  throw new Error(`Unknown migrate action: ${action}. Use create, plan, or status.`);
+}
+
+function hasDestructiveSchemaChanges(
+  declared: ExplicitSchema,
+  current: Array<{ name: string; fields: Array<{ name: string; type: string }> }>
+): boolean {
+  const currentByName = new Map(current.map((collection) => [collection.name, collection]));
+  const declaredNames = new Set(declared.collections.map((collection) => collection.name));
+  for (const collection of declared.collections) {
+    const existing = currentByName.get(collection.name);
+    if (!existing) {
+      continue;
+    }
+    const declaredFields = new Map(
+      collection.fields.map((field) => [field.name, field.field_type?.kind?.toLowerCase()])
+    );
+    for (const field of existing.fields) {
+      const desired = declaredFields.get(field.name);
+      if (!desired || (desired !== field.type.toLowerCase() && field.type !== "unknown")) {
+        return true;
+      }
+    }
+  }
+  return current.some((collection) => !declaredNames.has(collection.name));
 }
 
 async function runNlq(context: CliContext): Promise<void> {

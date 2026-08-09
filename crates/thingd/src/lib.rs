@@ -80,16 +80,17 @@ pub use in_memory::MemoryEngine;
 pub use model::{
     AggregateFunction, AggregateGroupResult, AggregateOptions, AggregateResult, CollectionSchema,
     DEFAULT_QUEUE_LEASE_MS, FieldSchema, Link, LinkDirection, LinkQueryOptions, ListEventsOptions,
-    ListObjectsOptions, MemoryEvent, MemoryObject, ObjectKey, PutObjectOptions, QueueClaimOptions,
-    QueueJob, QueueJobStatus, QueueNackOptions, SchemaOptions, SearchHit, SearchOptions, SortBy,
-    SortDirection, TimeBucket, TimeSeriesBucket, TimeSeriesOptions, TimeSeriesResult,
-    VectorSearchHit, VectorSearchOptions,
+    ListObjectsOptions, MemoryEvent, MemoryObject, MigrationRecord, ObjectKey, PutObjectOptions,
+    QueueClaimOptions, QueueJob, QueueJobStatus, QueueNackOptions, SchemaOptions, SearchHit,
+    SearchOptions, SortBy, SortDirection, StoredSchema, TimeBucket, TimeSeriesBucket,
+    TimeSeriesOptions, TimeSeriesResult, VectorSearchHit, VectorSearchOptions,
 };
 #[cfg(feature = "persistent")]
 #[cfg_attr(docsrs, doc(cfg(feature = "persistent")))]
 pub use persistent::{PersistentEngine, PersistentOpenOptions};
 pub use store::{
-    AggregateStore, EventLog, LinkStore, ObjectStore, QueueStore, Searcher, ThingStore, VectorStore,
+    AggregateStore, EventLog, LinkStore, ObjectStore, QueueStore, SchemaStore, Searcher,
+    ThingStore, VectorStore,
 };
 
 /// Shared contract tests for all engine backends.

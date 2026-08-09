@@ -1,13 +1,13 @@
 ---
 layout: home
 title: thingd — Open-Source Rust Data Engine for AI Agents
-description: thingd is an open-source Rust data engine for AI agents. Object-shaped storage, durable queues, event streams, full-text search, vector search, graph links, and 46 Node MCP tools — all in one binary. Built by Sayan Mohsin.
+description: thingd is an open-source Rust data engine for AI agents. Object-shaped storage, durable queues, event streams, full-text search, vector search, graph links, and 48 Node MCP tools — all in one binary. Built by Sayan Mohsin.
 # MCP tool count: update docs/.vitepress/config.ts (mcpToolCount) and packages/thingd/src/constants.ts
 
 hero:
   name: thingd
   text: Open-source Rust data engine for AI agents
-  tagline: Object-shaped storage, durable queues, event streams, full-text search, vector search, graph links, and 46 Node MCP-native tools — all in one static binary. No stitching together separate infrastructure.
+  tagline: Object-shaped storage, durable queues, event streams, full-text search, vector search, graph links, and 48 Node MCP-native tools — all in one static binary. No stitching together separate infrastructure.
   # MCP tool count: update docs/.vitepress/config.ts (mcpToolCount) and packages/thingd/src/constants.ts
   actions:
     - theme: brand
@@ -38,7 +38,7 @@ features:
     details: Semantic search via persisted vectors and cosine similarity. HNSW/ANN and hybrid ranking are future scale work.
   - icon: 🤖
     title: MCP-native
-    details: 46 Node MCP tools. The Rust sidecar exposes 36 engine tools; scheduler tools are SDK-level.
+    details: 48 Node MCP tools. The Rust sidecar exposes 38 engine tools; scheduler tools are SDK-level.
     # MCP tool count: update docs/.vitepress/config.ts (mcpToolCount) and packages/thingd/src/constants.ts
   - icon: ⚡
     title: Multi-mode

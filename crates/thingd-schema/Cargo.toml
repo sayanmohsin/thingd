@@ -1,0 +1,21 @@
+[package]
+name = "thingd-schema"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Parser and canonical schema model for thingd schema files."
+readme = "README.md"
+keywords = ["thingd", "schema", "migrations", "parser"]
+categories = ["database-implementations", "parser-implementations"]
+
+[dependencies]
+pest = "2.8"
+pest_derive = "2.8"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+sha2 = "0.10"
+
+[lints]
+workspace = true

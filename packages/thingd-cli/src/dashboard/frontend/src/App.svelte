@@ -58,6 +58,10 @@
   let nlqApiKey = localStorage.getItem('thingd_nlq_api_key') || '';
   let nlqShowSettings = false;
 
+  // Schema inspector
+  let databaseSchema = [];
+  let schemaLoading = false;
+
   // Recently changed items (for highlight animation)
   let recentlyChanged = new Set();
   function markChanged(id) {
@@ -241,8 +245,21 @@
       fetchStreams();
     } else if (tab === 'queues') {
       fetchQueues();
+    } else if (tab === 'schema') {
+      fetchDatabaseSchema();
     } else if (tab === 'replication') {
       fetchReplicationStatus();
+    }
+  }
+
+  async function fetchDatabaseSchema() {
+    schemaLoading = true;
+    try {
+      databaseSchema = await request('/api/schema');
+    } catch (err) {
+      showToast(`Schema fetch failed: ${errorMessage(err)}`, 'error');
+    } finally {
+      schemaLoading = false;
     }
   }
 
@@ -845,6 +862,10 @@
         <svg class="nav-icon" viewBox="0 0 24 24"><path d="M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0-2-.9-2-2V4c0-1.1-.9-2-2-2zm0 14H8V4h12v12z"/></svg>
         Collections & Objects
       </button>
+      <button class="nav-item {currentTab === 'schema' ? 'active' : ''}" on:click={() => selectTab('schema')}>
+        <svg class="nav-icon" viewBox="0 0 24 24"><path d="M4 3h16v2H4V3zm0 8h16v2H4v-2zm0 8h16v2H4v-2z"/></svg>
+        Schema Inspector
+      </button>
       <button class="nav-item {currentTab === 'events' ? 'active' : ''}" on:click={() => selectTab('events')}>
         <svg class="nav-icon" viewBox="0 0 24 24"><path d="M13 3c-4.97 0-9 4.03-9 9H1l3.89 3.89.07.14L9 12H6c0-3.87 3.13-7 7-7s7 3.13 7 7-3.13 7-7 7c-1.93 0-3.68-.79-4.94-2.06l-1.42 1.42C8.27 19.99 10.51 21 13 21c4.97 0 9-4.03 9-9s-4.03-9-9-9zm-1 5v5l4.28 2.54.72-1.21-3.5-2.08V8H12z"/></svg>
         Event Log Stream
@@ -890,6 +911,7 @@
         <h1>
           {#if currentTab === 'metrics'}Dashboard Status{/if}
           {#if currentTab === 'collections'}Collections & Objects{/if}
+          {#if currentTab === 'schema'}Schema Inspector{/if}
           {#if currentTab === 'events'}Event Log Stream{/if}
           {#if currentTab === 'queues'}Queues & Background Jobs{/if}
           {#if currentTab === 'search'}Stemming FTS5 Tester{/if}
@@ -1098,6 +1120,46 @@
                   </table>
                 </div>
               </div>
+            </div>
+          </div>
+        </div>
+      {/if}
+
+      <!-- Schema Inspector Tab -->
+      {#if currentTab === 'schema'}
+        <div class="tab-panel active">
+          <div class="card glass fill-height flex-column">
+            <div class="card-header flex-header">
+              <div>
+                <h2>Runtime Schema</h2>
+                <p class="text-muted" style="margin: 6px 0 0 0;">Inferred fields from stored objects. Use an optional schema.thingd file for an explicit contract.</p>
+              </div>
+              <button class="btn btn-primary" on:click={fetchDatabaseSchema}>Refresh</button>
+            </div>
+            <div class="card-body flex-column scroll-y">
+              {#if schemaLoading}
+                <div class="empty-state">Loading schema...</div>
+              {:else if databaseSchema.length === 0}
+                <div class="empty-state">No inferred schema yet. Add objects or run <span class="code-cell">thingd schema check schema.thingd</span>.</div>
+              {:else}
+                {#each databaseSchema as col}
+                  <div class="card glass" style="margin-bottom: 12px;">
+                    <div class="card-header"><h3>{col.name}</h3></div>
+                    <div class="card-body">
+                      <div class="scroll-table-wrapper">
+                        <table class="data-table">
+                          <thead><tr><th>Field</th><th>Inferred type</th><th>Nullable</th></tr></thead>
+                          <tbody>
+                            {#each col.fields as field}
+                              <tr><td class="code-cell">{field.name}</td><td>{field.type}</td><td>{field.nullable ? 'yes' : 'no'}</td></tr>
+                            {/each}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </div>
+                {/each}
+              {/if}
             </div>
           </div>
         </div>

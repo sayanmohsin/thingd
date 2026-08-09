@@ -1,8 +1,8 @@
 # MCP Tools Reference
 
-The Node SDK/stdio MCP server exposes 46 SDK tools, including 10 SDK-level scheduler tools. The Rust sidecar exposes 36 engine tools; scheduler tools are not part of the sidecar surface.
+The Node SDK/stdio MCP server exposes 48 SDK tools, including 10 SDK-level scheduler tools. The Rust sidecar exposes 38 engine tools; scheduler tools are not part of the sidecar surface.
 
-**Tool count:** 46 Node SDK tools (34 read-only, 12 write — 3 of which are destructive); the Rust sidecar exposes 36 core tools.
+**Tool count:** 48 Node SDK tools (36 read-only, 12 write — 3 of which are destructive); the Rust sidecar exposes 38 core tools.
 
 ## Encrypted storage and MCP
 
@@ -560,6 +560,23 @@ Reflect the schema of one or all collections. Returns inferred field names, type
 ```
 
 **Returns:** `CollectionSchema | CollectionSchema[]`
+
+### `thing_schema_validate`
+
+Parse and validate `schema.thingd` source without changing stored data.
+
+```json
+{ "source": "version 1\ncollection users {\n  id: string @id\n}\n" }
+```
+
+**Returns:** `{ schema, hash }`, where `hash` is the stable SHA-256 hash of
+the canonical schema JSON.
+
+### `thing_migrations`
+
+List durable schema migration records and their applied hashes.
+
+**Returns:** `MigrationRecord[]`.
 
 ---
 

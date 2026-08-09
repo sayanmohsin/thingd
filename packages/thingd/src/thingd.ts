@@ -1,6 +1,7 @@
 import { HttpThingStore } from "./client/http-thing-store.js";
 import { Scheduler } from "./scheduler.js";
 import { InMemoryThingStore } from "./stores/in-memory-thing-store.js";
+import type { MigrationRecord, SchemaDocument, StoredSchema } from "./stores/native-thing-store.js";
 import { NativeThingStore } from "./stores/native-thing-store.js";
 import type {
   AggregateOptions,
@@ -280,6 +281,61 @@ export class ThingD implements LocalThingDConnection {
       this.store.schema?.(collection, options) ??
       Promise.reject(new Error("schema not supported by this driver"))
     );
+  }
+
+  /** Validate a schema document through the active native or HTTP driver. */
+  async validateSchema(source: string): Promise<SchemaDocument> {
+    const store = this.store as ThingStore & {
+      validateSchema?: (value: string) => Promise<SchemaDocument>;
+    };
+    return (
+      store.validateSchema?.(source) ??
+      Promise.reject(new Error("Schema validation is not supported by this driver"))
+    );
+  }
+
+  /** Read persisted schema metadata from a driver that supports it. */
+  async getSchemaDocument(): Promise<StoredSchema | null> {
+    const store = this.store as ThingStore & {
+      getSchemaDocument?: () => Promise<StoredSchema | null>;
+    };
+    return (
+      store.getSchemaDocument?.() ??
+      Promise.reject(new Error("Schema metadata is not supported by this driver"))
+    );
+  }
+
+  /** Persist canonical schema metadata in a driver that supports it. */
+  async putSchemaDocument(schema: StoredSchema): Promise<void> {
+    const store = this.store as ThingStore & {
+      putSchemaDocument?: (value: StoredSchema) => Promise<void>;
+    };
+    if (!store.putSchemaDocument) {
+      throw new Error("Schema metadata is not supported by this driver");
+    }
+    await store.putSchemaDocument(schema);
+  }
+
+  /** List durable migration records from a driver that supports them. */
+  async listMigrations(): Promise<MigrationRecord[]> {
+    const store = this.store as ThingStore & {
+      listMigrations?: () => Promise<MigrationRecord[]>;
+    };
+    return (
+      store.listMigrations?.() ??
+      Promise.reject(new Error("Migration metadata is not supported by this driver"))
+    );
+  }
+
+  /** Record an applied migration in a driver that supports it. */
+  async recordMigration(migration: MigrationRecord): Promise<void> {
+    const store = this.store as ThingStore & {
+      recordMigration?: (value: MigrationRecord) => Promise<void>;
+    };
+    if (!store.recordMigration) {
+      throw new Error("Migration metadata is not supported by this driver");
+    }
+    await store.recordMigration(migration);
   }
 
   readonly nlq = {

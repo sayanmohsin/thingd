@@ -53,6 +53,14 @@ try {
 
 ## Error Codes
 
+### Schema validation errors
+
+`thingd schema check` reports parser and validation failures before a schema is
+used by other tooling. Typical causes include malformed declarations,
+duplicate collection or field names, zero-dimension vectors, and links that
+reference unknown collections. The command exits non-zero and does not modify
+the database.
+
 ### `bad_request`
 
 **HTTP 400** — Invalid input or missing required field.

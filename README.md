@@ -34,8 +34,9 @@ See the [full feature status and roadmap](https://github.com/sayanmohsin/thingd-
 - **Browser/Edge client** (`@thingd/client`) — zero-dependency REST client for browsers, Cloudflare Workers, AWS Lambda, Bun, Deno
 - **App backend client** (`createThingdAppClient`) — project-user auth and named actions for hosted mobile/web apps
 - **CLI** (`@thingd/cli`) — TUI dashboard, 30+ subcommands (search, objects, events, queues, export/import/snapshot/backup, doctor, bench, db maintenance). Support for importing from Postgres/MySQL via sidecar REST.
+- **Optional schema files** — custom `schema.thingd` syntax, Rust parsing, validation, canonical JSON, and stable schema hashes via `thingd schema check`.
 - **Provider-neutral replication** — synchronize one explicit Thingd source to one replica, including objects, deletes, tombstones, events, cursors, snapshots, provenance, and quarantined conflicts.
-- **MCP server** — 46 SDK tools, stdio + Streamable HTTP, audit events, collection allowlists, and read-only mode; the Rust sidecar exposes 36 core tools (scheduler tools are SDK-only)
+- **MCP server** — 48 SDK tools, stdio + Streamable HTTP, audit events, collection allowlists, and read-only mode; the Rust sidecar exposes 38 core tools (scheduler tools are SDK-only)
 - **Docker** — multi-stage image, compose + K8s for leader/follower cluster
 - **CI/tooling** — semantic-release, biome, lefthook, doc tests, cargo audit, cargo deny, CodeQL
 
@@ -445,7 +446,7 @@ const hits = await db.search("customers who upgraded after a failed deployment",
 
 ## MCP-native access
 
-thingd ships with 46 SDK MCP tools (search,
+thingd ships with 48 SDK MCP tools (search,
 objects, events, queues, links, aggregate, schema, NLQ, vector). Every primitive is accessible through stdio
 or Streamable HTTP — see the [MCP tools reference](docs/api-spec/mcp-tools.md)
 for all tools with schemas and examples.

@@ -1,0 +1,28 @@
+WHITESPACE = _{ " " | "\t" | COMMENT }
+COMMENT = _{ "//" ~ (!NEWLINE ~ ANY)* }
+NEWLINE = _{ "\r\n" | "\n" }
+
+file = { SOI ~ version_decl ~ project_decl? ~ item* ~ EOI }
+version_decl = { "version" ~ integer ~ NEWLINE* }
+project_decl = { "project" ~ string ~ NEWLINE* }
+item = _{ collection | link | NEWLINE }
+
+collection = { "collection" ~ ident ~ "{" ~ NEWLINE* ~ field* ~ "}" ~ NEWLINE* }
+field = { ident ~ ":" ~ field_type ~ optional? ~ annotation* ~ default_value? ~ NEWLINE* }
+field_type = _{ vector_type | enum_type | array_type | ident }
+vector_type = { "vector" ~ "(" ~ integer ~ ")" }
+enum_type = { string ~ ("|" ~ string)+ }
+array_type = { ident ~ "[" ~ "]" }
+optional = { "?" }
+annotation = { "@" ~ ident ~ annotation_args? }
+annotation_args = { "(" ~ (string | integer | ident) ~ ("," ~ (string | integer | ident))* ~ ")" }
+default_value = { "=" ~ (string | integer | boolean | ident) }
+
+link = { "link" ~ ident ~ "{" ~ NEWLINE* ~ link_property* ~ "}" ~ NEWLINE* }
+link_property = { link_key ~ (string | ident) ~ NEWLINE* }
+link_key = { "from" | "to" | "type" | "cardinality" }
+
+ident = @{ (ASCII_ALPHANUMERIC | "_" | "-")+ }
+integer = @{ ASCII_DIGIT+ }
+boolean = @{ "true" | "false" }
+string = @{ "\"" ~ ("\\" ~ ANY | !"\"" ~ ANY)* ~ "\"" }

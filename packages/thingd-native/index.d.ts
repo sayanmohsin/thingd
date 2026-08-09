@@ -8,6 +8,11 @@ export class NativeThingStore {
     allowPlaintextOutput?: boolean
   ): void;
 
+  getSchemaDocumentJson(): string | null;
+  putSchemaDocumentJson(schemaJson: string, hash: string, updatedAt: string): void;
+  listMigrationsJson(): string;
+  recordMigrationJson(id: string, hash: string, appliedAt: string): void;
+
   putObjectJson(collection: string, id: string, body: string): string;
   getObjectJson(collection: string, id: string): string | null;
   getObjectsBatchJson(collection: string, ids: string[]): string;
@@ -78,3 +83,5 @@ export class NativeThingStore {
     filterJson?: string
   ): string;
 }
+
+export function parseSchema(source: string): string;

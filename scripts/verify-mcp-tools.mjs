@@ -18,11 +18,11 @@ const schedulerTools = new Set([...nodeTools].filter((name) => name.startsWith("
 const nodeOnly = [...nodeTools].filter((name) => !rustTools.has(name)).sort();
 const rustOnly = [...rustTools].filter((name) => !nodeTools.has(name)).sort();
 
-if (nodeTools.size !== 46) {
-  throw new Error(`Node SDK MCP tool count changed: expected 46, got ${nodeTools.size}`);
+if (nodeTools.size !== 48) {
+  throw new Error(`Node SDK MCP tool count changed: expected 48, got ${nodeTools.size}`);
 }
-if (rustTools.size !== 36) {
-  throw new Error(`Rust sidecar MCP tool count changed: expected 36, got ${rustTools.size}`);
+if (rustTools.size !== 38) {
+  throw new Error(`Rust sidecar MCP tool count changed: expected 38, got ${rustTools.size}`);
 }
 if (schedulerTools.size !== 10 || nodeOnly.join("\n") !== [...schedulerTools].sort().join("\n")) {
   throw new Error("Expected the ten scheduler tools to be the only Node-only MCP tools");

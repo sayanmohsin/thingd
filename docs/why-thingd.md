@@ -73,7 +73,7 @@ const neighbors = await db.links.neighbors("doc-1", "outgoing");
 
 ### MCP — tool access for AI agents
 
-The Node SDK exposes 46 MCP tools; the Rust sidecar exposes 36 engine tools.
+The Node SDK exposes 48 MCP tools; the Rust sidecar exposes 38 engine tools.
 so AI agents can search, read, write, and manage data without custom
 integrations. MCP is one access layer — not the product.
 

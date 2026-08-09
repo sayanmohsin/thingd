@@ -72,6 +72,35 @@ thingd links neighbors <reference> [--direction Outgoing|Incoming|Both] [--type 
 thingd links count
 ```
 
+### Schema files
+
+```txt
+thingd schema [--collection <name>]       inspect inferred runtime schema
+thingd schema check [file]                parse and validate schema.thingd
+```
+
+`schema check` uses the Rust parser and returns the canonical schema plus a
+stable SHA-256 hash. The file defaults to `schema.thingd` in the current
+directory. Schema files are optional; this command does not change runtime
+object validation or apply migrations.
+
+### Migrations
+
+```txt
+thingd migrate create <name> [--schema <file>]
+thingd migrate plan [file]
+thingd migrate apply [file]
+thingd migrate status
+```
+
+`migrate create` copies a validated schema into
+`thingd/migrations/NNNN_<name>.thingd`. `migrate plan` compares the explicit
+schema with inferred runtime collections and fields, marks destructive changes,
+and performs no writes. `migrate apply` persists the canonical schema hash and
+migration record in the database and creates indexes for `@index` and `@unique`
+fields. It does not delete or rewrite existing objects. Rollback and destructive
+schema changes remain disabled.
+
 ### Export / Import
 
 ```txt

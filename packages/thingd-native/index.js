@@ -27,5 +27,5 @@ function resolveBinding() {
 
 const { binding, path } = resolveBinding();
 
-export const { NativeThingStore } = binding;
+export const { NativeThingStore, parseSchema } = binding;
 export const loadedPath = path;

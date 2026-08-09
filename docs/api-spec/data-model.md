@@ -2,6 +2,20 @@
 
 thingd stores four core entity types: objects, events, queue jobs, and links. All timestamps are ISO 8601 strings. IDs are strings (UUIDs or custom).
 
+## Optional schema documents
+
+Applications may add a version-controlled `schema.thingd` file describing
+collections, fields, annotations, and graph links. This document is a tooling
+contract, not a requirement for storing objects: runtime objects remain JSON
+and existing schemaless applications continue to work. The native Rust parser
+normalizes a valid document to canonical JSON and computes a stable schema hash.
+See the [schema files guide](/schema) and `thingd schema check`.
+
+Persistent engines also keep the last applied canonical schema and durable
+migration records in dedicated `schemas` and `migrations` keyspaces. These
+records describe migration history; they do not turn runtime JSON objects into
+rigid tables.
+
 ## Persistence and encryption
 
 The logical data model is identical for memory, unencrypted native, and

@@ -1007,6 +1007,42 @@ fn handle_thing_schema(
     )
 }
 
+fn handle_thing_schema_validate(
+    _state: &AppState,
+    _tool_name: &str,
+    args: &Value,
+    _db_path: &str,
+) -> Result<Value, AppError> {
+    let source = args.get("source").and_then(Value::as_str).unwrap_or("");
+    if source.trim().is_empty() {
+        return Err(AppError::bad_request("Missing schema source"));
+    }
+    let schema =
+        thingd_schema::parse(source).map_err(|error| AppError::bad_request(error.to_string()))?;
+    let hash = schema
+        .hash()
+        .map_err(|error| AppError::internal(error.to_string()))?;
+    Ok(
+        json!({ "content": [{ "type": "text", "text": serde_json::to_string(&json!({ "schema": schema, "hash": hash })).unwrap_or_default() }] }),
+    )
+}
+
+fn handle_thing_migrations(
+    state: &AppState,
+    _tool_name: &str,
+    _args: &Value,
+    db_path: &str,
+) -> Result<Value, AppError> {
+    let e = state.pool.get_reader(db_path);
+    let g = e.lock();
+    let migrations = g
+        .list_migrations()
+        .map_err(|error| AppError::internal(error.to_string()))?;
+    Ok(
+        json!({ "content": [{ "type": "text", "text": serde_json::to_string(&migrations).unwrap_or_default() }] }),
+    )
+}
+
 fn handle_thing_nlq(
     _state: &AppState,
     _tool_name: &str,
@@ -1530,6 +1566,26 @@ static ALL_TOOLS: LazyLock<Vec<ToolEntry>> = LazyLock::new(|| {
             destructive: false,
             needs_collection: false,
         },
+        ToolEntry {
+            name: "thing_schema_validate",
+            description: "Parse and validate schema.thingd source without changing stored data. Returns canonical schema JSON and a stable SHA-256 hash.",
+            properties: json!({ "source": str_prop("schema.thingd source") }),
+            required: &["source"],
+            handler: handle_thing_schema_validate,
+            is_write: false,
+            destructive: false,
+            needs_collection: false,
+        },
+        ToolEntry {
+            name: "thing_migrations",
+            description: "List durable schema migration records and their applied hashes.",
+            properties: json!({}),
+            required: &[],
+            handler: handle_thing_migrations,
+            is_write: false,
+            destructive: false,
+            needs_collection: false,
+        },
         // NLQ tool (1)
         ToolEntry {
             name: "thing_nlq",
@@ -1747,8 +1803,8 @@ mod tests {
         let tools = result["result"]["tools"].as_array().unwrap();
         assert_eq!(
             tools.len(),
-            36,
-            "expected 36 MCP tools, got {}",
+            38,
+            "expected 38 MCP tools, got {}",
             tools.len()
         );
         let names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();

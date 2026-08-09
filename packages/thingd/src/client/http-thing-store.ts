@@ -1,4 +1,9 @@
 import type {
+  MigrationRecord,
+  SchemaDocument,
+  StoredSchema,
+} from "../stores/native-thing-store.js";
+import type {
   AggregateOptions,
   AggregateResult,
   CollectionSchema,
@@ -386,6 +391,18 @@ export class HttpThingStore implements ThingStore {
       return this.request("GET", `/collections/${encodeURIComponent(collection)}/schema`);
     }
     return this.request("GET", "/collections/schema");
+  }
+
+  async validateSchema(source: string): Promise<SchemaDocument> {
+    return this.request("POST", "/schema/validate", { source });
+  }
+
+  async getSchemaDocument(): Promise<StoredSchema | null> {
+    return this.request("GET", "/schema/current");
+  }
+
+  async listMigrations(): Promise<MigrationRecord[]> {
+    return this.request("GET", "/migrations");
   }
 
   async nlqQuery(question: string, options?: NlqOptions): Promise<NlqResult> {

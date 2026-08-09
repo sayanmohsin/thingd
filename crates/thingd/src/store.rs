@@ -2,7 +2,8 @@
 
 use crate::model::{
     AggregateOptions, AggregateResult, CollectionSchema, ListEventsOptions, ListObjectsOptions,
-    PutObjectOptions, SchemaOptions, TimeSeriesOptions, TimeSeriesResult,
+    MigrationRecord, PutObjectOptions, SchemaOptions, StoredSchema, TimeSeriesOptions,
+    TimeSeriesResult,
 };
 use crate::{
     MemoryEvent, MemoryObject, QueueClaimOptions, QueueJob, QueueNackOptions, ThingdError,
@@ -645,11 +646,56 @@ pub trait VectorStore {
 
 /// Full storage interface expected from thingd engine adapters.
 pub trait ThingStore:
-    EventLog + ObjectStore + QueueStore + Searcher + LinkStore + AggregateStore + VectorStore
+    EventLog
+    + ObjectStore
+    + QueueStore
+    + Searcher
+    + LinkStore
+    + AggregateStore
+    + VectorStore
+    + SchemaStore
 {
 }
 
 impl<T> ThingStore for T where
-    T: EventLog + ObjectStore + QueueStore + Searcher + LinkStore + AggregateStore + VectorStore
+    T: EventLog
+        + ObjectStore
+        + QueueStore
+        + Searcher
+        + LinkStore
+        + AggregateStore
+        + VectorStore
+        + SchemaStore
 {
+}
+
+/// Durable schema and migration metadata operations.
+pub trait SchemaStore {
+    /// Read the last applied canonical schema, if any.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when metadata cannot be read.
+    fn get_schema_document(&self) -> ThingdResult<Option<StoredSchema>>;
+
+    /// Store the canonical schema metadata.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when metadata cannot be written.
+    fn put_schema_document(&mut self, schema: StoredSchema) -> ThingdResult<()>;
+
+    /// List applied migrations in deterministic order.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when migration metadata cannot be read.
+    fn list_migrations(&self) -> ThingdResult<Vec<MigrationRecord>>;
+
+    /// Record an applied migration.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when migration metadata cannot be written.
+    fn record_migration(&mut self, migration: MigrationRecord) -> ThingdResult<()>;
 }

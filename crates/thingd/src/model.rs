@@ -642,6 +642,30 @@ pub struct SchemaOptions {
     pub sample_size: Option<usize>,
 }
 
+/// Persisted canonical schema metadata.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StoredSchema {
+    /// Canonical schema JSON.
+    pub schema_json: String,
+    /// Stable schema hash.
+    pub hash: String,
+    /// Last update timestamp.
+    pub updated_at: String,
+}
+
+/// A durable record of an applied schema migration.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MigrationRecord {
+    /// Migration identifier, normally the numbered filename.
+    pub id: String,
+    /// Schema hash applied by this migration.
+    pub hash: String,
+    /// Application timestamp.
+    pub applied_at: String,
+}
+
 impl Default for SchemaOptions {
     fn default() -> Self {
         Self {

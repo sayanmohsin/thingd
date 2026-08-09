@@ -16,9 +16,9 @@ use crate::encryption::{EncryptionConfig, StorageCodec, StorageCrypto, make_code
 use crate::error::ThingdResult;
 use crate::model::{
     AggregateFunction, AggregateGroupResult, AggregateOptions, AggregateResult, LinkDirection,
-    LinkQueryOptions, ListEventsOptions, ListObjectsOptions, PutObjectOptions, SchemaOptions,
-    SearchOptions, SortDirection, TimeBucket, TimeSeriesBucket, TimeSeriesOptions,
-    TimeSeriesResult,
+    LinkQueryOptions, ListEventsOptions, ListObjectsOptions, MigrationRecord, PutObjectOptions,
+    SchemaOptions, SearchOptions, SortDirection, StoredSchema, TimeBucket, TimeSeriesBucket,
+    TimeSeriesOptions, TimeSeriesResult,
 };
 use crate::store::{AggregateStore, EventLog, LinkStore, ObjectStore, QueueStore, Searcher};
 use crate::{
@@ -46,6 +46,8 @@ pub struct PersistentEngine {
     links_by_id: Keyspace,
     links_from: Keyspace,
     links_to: Keyspace,
+    schemas: Keyspace,
+    migrations: Keyspace,
     next_link_id: AtomicU64,
     event_seq_counters: HashMap<String, u64>,
     event_idempotency_keys: HashMap<(String, String), u64>,
@@ -104,6 +106,8 @@ impl PersistentEngine {
         let links_by_id = db.keyspace("links_by_id", KeyspaceCreateOptions::default)?;
         let links_from = db.keyspace("links_from", KeyspaceCreateOptions::default)?;
         let links_to = db.keyspace("links_to", KeyspaceCreateOptions::default)?;
+        let schemas = db.keyspace("schemas", KeyspaceCreateOptions::default)?;
+        let migrations = db.keyspace("migrations", KeyspaceCreateOptions::default)?;
 
         #[cfg(feature = "vectors")]
         let vectors = db.keyspace("vectors", KeyspaceCreateOptions::default)?;
@@ -159,6 +163,8 @@ impl PersistentEngine {
             links_by_id,
             links_from,
             links_to,
+            schemas,
+            migrations,
             next_link_id: AtomicU64::new(next_link_id + 1),
             event_seq_counters,
             event_idempotency_keys,
@@ -506,6 +512,14 @@ impl PersistentEngine {
         self.codec
             .encode_scoped_prefix("links_to", to_ref.as_bytes())
     }
+
+    fn make_schema_key(&self) -> Vec<u8> {
+        self.codec.encode_key("schemas.current", b"current")
+    }
+
+    fn make_migration_key(&self, id: &str) -> Vec<u8> {
+        self.codec.encode_key("migrations.id", id.as_bytes())
+    }
 }
 
 fn guard_data(kv: fjall::Guard) -> ThingdResult<(Vec<u8>, Vec<u8>)> {
@@ -513,6 +527,39 @@ fn guard_data(kv: fjall::Guard) -> ThingdResult<(Vec<u8>, Vec<u8>)> {
     let key = kv.0.to_vec();
     let val = kv.1.to_vec();
     Ok((key, val))
+}
+
+impl crate::SchemaStore for PersistentEngine {
+    fn get_schema_document(&self) -> ThingdResult<Option<StoredSchema>> {
+        let key = self.make_schema_key();
+        value_to_vec(self.schemas.get(&key)?)
+            .map(|value| self.deserialize(&value))
+            .transpose()
+    }
+
+    fn put_schema_document(&mut self, schema: StoredSchema) -> ThingdResult<()> {
+        let key = self.make_schema_key();
+        let value = self.serialize(&schema)?;
+        self.schemas.insert(key, value)?;
+        Ok(())
+    }
+
+    fn list_migrations(&self) -> ThingdResult<Vec<MigrationRecord>> {
+        let mut migrations = Vec::new();
+        for entry in self.migrations.iter() {
+            let (_, value) = guard_data(entry)?;
+            migrations.push(self.deserialize(&value)?);
+        }
+        migrations.sort_by(|left: &MigrationRecord, right| left.id.cmp(&right.id));
+        Ok(migrations)
+    }
+
+    fn record_migration(&mut self, migration: MigrationRecord) -> ThingdResult<()> {
+        let key = self.make_migration_key(&migration.id);
+        let value = self.serialize(&migration)?;
+        self.migrations.insert(key, value)?;
+        Ok(())
+    }
 }
 
 // ── ObjectStore ──────────────────────────────────────────────────────────────
@@ -3717,6 +3764,12 @@ mod tests {
     fn contract_vector_lifecycle() {
         let (mut engine, _dir) = setup_persistent();
         crate::contract_tests::test_contract_vector_lifecycle(&mut engine);
+    }
+
+    #[test]
+    fn contract_schema_store() {
+        let (mut engine, _dir) = setup_persistent();
+        crate::contract_tests::test_contract_schema_store(&mut engine);
     }
 
     #[test]

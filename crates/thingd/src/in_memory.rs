@@ -6,10 +6,10 @@ use crate::model::{ListEventsOptions, ListObjectsOptions};
 use crate::{
     AggregateFunction, AggregateGroupResult, AggregateOptions, AggregateResult, CollectionSchema,
     EventLog, FieldSchema, Link, LinkDirection, LinkQueryOptions, LinkStore, MemoryEvent,
-    MemoryObject, ObjectKey, ObjectStore, QueueClaimOptions, QueueJob, QueueJobStatus,
-    QueueNackOptions, QueueStore, SchemaOptions, ThingdError, ThingdResult, TimeSeriesBucket,
-    TimeSeriesOptions, TimeSeriesResult, VectorSearchHit, VectorSearchOptions, now_iso_string,
-    u64_to_i64, unix_timestamp_millis,
+    MemoryObject, MigrationRecord, ObjectKey, ObjectStore, QueueClaimOptions, QueueJob,
+    QueueJobStatus, QueueNackOptions, QueueStore, SchemaOptions, StoredSchema, ThingdError,
+    ThingdResult, TimeSeriesBucket, TimeSeriesOptions, TimeSeriesResult, VectorSearchHit,
+    VectorSearchOptions, now_iso_string, u64_to_i64, unix_timestamp_millis,
 };
 
 /// In-memory engine used to prove the storage boundary.
@@ -37,12 +37,34 @@ pub struct MemoryEngine {
     next_link_id: u64,
     event_idempotency_keys: HashMap<(String, String), u64>,
     vectors: HashMap<(String, String), Vec<f32>>,
+    schema: Option<StoredSchema>,
+    migrations: BTreeMap<String, MigrationRecord>,
 }
 
 impl MemoryEngine {
     /// Create a new empty in-memory engine.
     pub fn new() -> Self {
         Self::default()
+    }
+}
+
+impl crate::SchemaStore for MemoryEngine {
+    fn get_schema_document(&self) -> ThingdResult<Option<StoredSchema>> {
+        Ok(self.schema.clone())
+    }
+
+    fn put_schema_document(&mut self, schema: StoredSchema) -> ThingdResult<()> {
+        self.schema = Some(schema);
+        Ok(())
+    }
+
+    fn list_migrations(&self) -> ThingdResult<Vec<MigrationRecord>> {
+        Ok(self.migrations.values().cloned().collect())
+    }
+
+    fn record_migration(&mut self, migration: MigrationRecord) -> ThingdResult<()> {
+        self.migrations.insert(migration.id.clone(), migration);
+        Ok(())
     }
 }
 
@@ -2028,6 +2050,12 @@ mod tests {
     fn contract_vector_lifecycle() {
         let mut engine = MemoryEngine::new();
         crate::contract_tests::test_contract_vector_lifecycle(&mut engine);
+    }
+
+    #[test]
+    fn contract_schema_store() {
+        let mut engine = MemoryEngine::new();
+        crate::contract_tests::test_contract_schema_store(&mut engine);
     }
 
     #[test]

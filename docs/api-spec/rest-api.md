@@ -57,6 +57,40 @@ curl http://localhost:8757/v1/health
 
 > **Note:** Use `GET /v1/counts/objects`, `GET /v1/counts/events`, and `GET /v1/counts/links` for aggregate counts.
 
+## Schema validation
+
+### `POST /v1/schema/validate`
+
+Parse and validate an optional `schema.thingd` source document. This endpoint
+does not modify stored data or apply migrations.
+
+```bash
+curl -X POST http://localhost:8757/v1/schema/validate \
+  -H 'content-type: application/json' \
+  -d '{"source":"version 1\ncollection users {\n  id: string @id\n}\n"}'
+```
+
+The response contains the parsed canonical schema and a stable SHA-256 hash:
+
+```json
+{
+  "data": {
+    "schema": { "version": 1, "collections": [], "links": [] },
+    "hash": "sha256:..."
+  }
+}
+```
+
+### `GET /v1/schema/current`
+
+Return the last applied canonical schema metadata, or `null` when no migration
+has been applied.
+
+### `GET /v1/migrations`
+
+Return durable migration records in application order. Records include the
+migration identifier, schema hash, and application timestamp.
+
 ---
 
 ## Counts

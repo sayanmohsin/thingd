@@ -32,7 +32,12 @@ export { Scheduler } from "./scheduler.js";
 export type { CloudThingStoreOptions } from "./stores/cloud-thing-store.js";
 export { CloudThingStore } from "./stores/cloud-thing-store.js";
 export { InMemoryThingStore } from "./stores/in-memory-thing-store.js";
-export { NativeThingStore } from "./stores/native-thing-store.js";
+export type {
+  MigrationRecord,
+  SchemaDocument,
+  StoredSchema,
+} from "./stores/native-thing-store.js";
+export { NativeThingStore, parseSchema } from "./stores/native-thing-store.js";
 export type {
   ThingDDriver,
   ThingDEncryptionOptions,

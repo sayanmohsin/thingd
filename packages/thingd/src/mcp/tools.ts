@@ -1015,6 +1015,41 @@ export function registerThingdTools(
   );
 
   server.registerTool(
+    "thing_schema_validate",
+    {
+      title: "Validate Schema File",
+      description:
+        "Parse and validate schema.thingd source without changing stored data. Returns canonical schema JSON and a stable SHA-256 hash.",
+      inputSchema: {
+        source: z.string().min(1),
+      },
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async ({ source }) => jsonResult(await db.validateSchema(source))
+  );
+
+  server.registerTool(
+    "thing_migrations",
+    {
+      title: "List Migrations",
+      description: "List durable schema migration records and their applied hashes.",
+      inputSchema: {},
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async () => jsonResult(await db.listMigrations())
+  );
+
+  server.registerTool(
     "thing_nlq",
     {
       title: "Natural Language Query",
