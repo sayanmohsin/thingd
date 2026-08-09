@@ -13,6 +13,13 @@
 - server: harden security boundaries (0961ffe)
 - complete public SDK type exports (8a8889a)
 
+## [0.77.2](https://github.com/sayanmohsin/thingd/compare/thingd-v0.77.1...thingd-v0.77.2) (2026-08-09)
+
+
+### Bug Fixes
+
+* avoid registry resolution during publish ([#124](https://github.com/sayanmohsin/thingd/issues/124)) ([f676907](https://github.com/sayanmohsin/thingd/commit/f676907327df2a236dca493362800c7ddc187b15))
+
 ## [0.77.1](https://github.com/sayanmohsin/thingd/compare/thingd-v0.77.0...thingd-v0.77.1) (2026-08-09)
 
 
