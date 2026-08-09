@@ -139,6 +139,147 @@ fn emit_audit_event(
     }
 }
 
+fn mcp_replication_collection_allowed(state: &AppState, collection: &str) -> bool {
+    !collection.starts_with("__thingd")
+        && (state.sync_config.collections.is_empty()
+            || state
+                .sync_config
+                .collections
+                .iter()
+                .any(|allowed| allowed == collection))
+}
+
+fn emit_mcp_replication_change(
+    state: &AppState,
+    db_path: &str,
+    tool_name: &str,
+    args: &Value,
+) -> Result<(), AppError> {
+    let (operation, collection, id, payload) = match tool_name {
+        "thing_put" => {
+            let collection = arg_str(args, "collection");
+            if !mcp_replication_collection_allowed(state, &collection) {
+                return Ok(());
+            }
+            let object = args.get("object").cloned().unwrap_or(json!({}));
+            let id = object
+                .get("id")
+                .and_then(Value::as_str)
+                .unwrap_or("new")
+                .to_string();
+            (
+                "object.upsert",
+                Some(collection),
+                Some(id),
+                json!({ "body": object }),
+            )
+        },
+        "thing_delete" => {
+            let collection = arg_str(args, "collection");
+            if !mcp_replication_collection_allowed(state, &collection) {
+                return Ok(());
+            }
+            (
+                "object.delete",
+                Some(collection),
+                Some(arg_str(args, "id")),
+                Value::Null,
+            )
+        },
+        "thing_objects_put_batch" => {
+            let collection = arg_str(args, "collection");
+            if !mcp_replication_collection_allowed(state, &collection) {
+                return Ok(());
+            }
+            let objects = args.get("objects").cloned().unwrap_or(json!([]));
+            let e = state.pool.get_writer(db_path);
+            let mut g = e.lock();
+            if let Some(objects) = objects.as_array() {
+                for object in objects {
+                    let id = object.get("id").and_then(Value::as_str).unwrap_or("new");
+                    append_mcp_replication_event(
+                        &mut **g,
+                        &state.sync_config.source_id,
+                        "object.upsert",
+                        Some(&collection),
+                        Some(id),
+                        json!({ "body": object }),
+                    )?;
+                }
+            }
+            return Ok(());
+        },
+        "thing_objects_delete_batch" => {
+            let collection = arg_str(args, "collection");
+            if !mcp_replication_collection_allowed(state, &collection) {
+                return Ok(());
+            }
+            let e = state.pool.get_writer(db_path);
+            let mut g = e.lock();
+            if let Some(ids) = args.get("ids").and_then(Value::as_array) {
+                for id in ids.iter().filter_map(Value::as_str) {
+                    append_mcp_replication_event(
+                        &mut **g,
+                        &state.sync_config.source_id,
+                        "object.delete",
+                        Some(&collection),
+                        Some(id),
+                        Value::Null,
+                    )?;
+                }
+            }
+            return Ok(());
+        },
+        "thing_events_append" => {
+            let stream = arg_str(args, "stream");
+            if stream.starts_with("__thingd") {
+                return Ok(());
+            }
+            let event = args.get("event").cloned().unwrap_or(json!({}));
+            let event_type = event.get("type").and_then(Value::as_str).unwrap_or("event");
+            (
+                "event.append",
+                None,
+                None,
+                json!({ "stream": stream, "type": event_type, "body": event }),
+            )
+        },
+        _ => return Ok(()),
+    };
+    let e = state.pool.get_writer(db_path);
+    let mut g = e.lock();
+    append_mcp_replication_event(
+        &mut **g,
+        &state.sync_config.source_id,
+        operation,
+        collection.as_deref(),
+        id.as_deref(),
+        payload,
+    )
+}
+
+fn append_mcp_replication_event(
+    engine: &mut dyn thingd::ThingStore,
+    source_id: &str,
+    operation: &str,
+    collection: Option<&str>,
+    id: Option<&str>,
+    payload: Value,
+) -> Result<(), AppError> {
+    let body = json!({
+        "sourceId": source_id,
+        "operation": operation,
+        "collection": collection,
+        "id": id,
+        "payload": payload,
+    });
+    let mut event =
+        thingd::MemoryEvent::new("__thingd:system:replication", operation, body.to_string());
+    event.idempotency_key = uuid::Uuid::new_v4().to_string();
+    engine.append_event(event)?;
+    Ok(())
+}
+
 // ─── Object tools ────────────────────────────────────────────────
 
 fn handle_thing_search(
@@ -1482,6 +1623,13 @@ pub async fn handle_mcp_request(
             if tool.is_write && state.mcp_config.read_only {
                 return Ok(mcp_error(id, -32603, "Server is in read-only mode"));
             }
+            if tool.is_write && state.sync_config.role == crate::config::SyncRole::Replica {
+                return Ok(mcp_error(
+                    id,
+                    -32603,
+                    "This Thingd instance is configured as a replication target",
+                ));
+            }
 
             // Collection allowlist check
             if tool.needs_collection
@@ -1501,7 +1649,15 @@ pub async fn handle_mcp_request(
 
             let result = (tool.handler)(&state, tool_name, &arguments, &db_path);
             match result {
-                Ok(content) => Ok(mcp_success(id, content)),
+                Ok(content) => {
+                    if tool.is_write
+                        && let Err(error) =
+                            emit_mcp_replication_change(&state, &db_path, tool_name, &arguments)
+                    {
+                        tracing::warn!("Failed to append MCP replication change: {error:?}");
+                    }
+                    Ok(mcp_success(id, content))
+                },
                 Err(e) => Ok(mcp_error(id, -32603, &sanitize_detail(&e))),
             }
         },
@@ -1542,6 +1698,7 @@ mod tests {
             allow_unauthenticated: config.auth.allow_unauthenticated,
             cluster_config: config.cluster,
             nlq_config: config.nlq,
+            sync_config: config.sync,
             hardening_config: config.hardening,
         })
     }
@@ -1666,6 +1823,29 @@ mod tests {
             json!({ "jsonrpc": "2.0", "method": "tools/call", "params": { "name": "thing_get", "arguments": { "collection": "test", "id": "mcp1" } }, "id": 2 }),
         ).await;
         assert_ne!(result["result"]["isError"], true);
+    }
+
+    #[tokio::test]
+    async fn test_mcp_write_emits_replication_change() {
+        let state = test_state();
+        call_mcp_with(
+            &state,
+            json!({ "jsonrpc": "2.0", "method": "tools/call", "params": { "name": "thing_put", "arguments": { "collection": "replicated", "object": { "id": "mcp-repl", "value": 1 } } }, "id": 1 }),
+        )
+        .await;
+
+        let engine = state.pool.get_reader("");
+        let guard = engine.lock();
+        let events = guard
+            .list_events(
+                Some("__thingd:system:replication"),
+                thingd::ListEventsOptions::default(),
+            )
+            .unwrap();
+        assert_eq!(events.len(), 1);
+        let change: Value = serde_json::from_str(&events[0].body).unwrap();
+        assert_eq!(change["operation"], "object.upsert");
+        assert_eq!(change["collection"], "replicated");
     }
 
     #[tokio::test]

@@ -39,6 +39,11 @@ all five primitives behind a single composable trait interface.
 | `persistent` | Yes | Enables the durable persistent engine |
 | `connectors` | No | Enables CSV/JSON file connectors for data import |
 
+Persistent storage can be opened with an explicit `EncryptionConfig` through
+`PersistentEngine::open_with_options`. The engine uses authenticated
+encryption, validates keys at startup, and fails closed when the key is missing
+or wrong. Key retrieval remains the caller's responsibility.
+
 ## Quick Start
 
 ### In-memory engine (zero setup)

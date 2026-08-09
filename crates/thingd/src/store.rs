@@ -75,6 +75,22 @@ pub trait ObjectStore {
         self.put_object(object)
     }
 
+    /// Apply an object received from a replication source while preserving the
+    /// source metadata carried by the object. Normal application writes should
+    /// continue to use `put_object` so the local store owns versioning.
+    ///
+    /// # Errors
+    ///
+    /// Returns a storage error or a conflict when the target version does not
+    /// match the supplied optimistic-locking expectation.
+    fn put_object_with_source_metadata(
+        &mut self,
+        object: MemoryObject,
+        options: PutObjectOptions,
+    ) -> ThingdResult<MemoryObject> {
+        self.put_object_with_options(object, options)
+    }
+
     /// Read an object by collection and id.
     ///
     /// # Errors

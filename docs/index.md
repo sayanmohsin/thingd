@@ -32,7 +32,7 @@ features:
     details: Append-only timelines with auto-incrementing sequences. Built for audit and replication.
   - icon: 🔍
     title: Full-text Search
-    details: Tantivy (pure Rust BM25) with metadata filters, stemming, and recency-weighted ranking.
+    details: Tantivy (pure Rust) full-text indexing with metadata filters and stemming; ranking hardening is ongoing.
   - icon: 🧠
     title: Vector Search
     details: Semantic search via persisted vectors and cosine similarity. HNSW/ANN and hybrid ranking are future scale work.
@@ -43,6 +43,9 @@ features:
   - icon: ⚡
     title: Multi-mode
     details: Embedded, sidecar, or cluster. In-memory cache or persistent local engine. Same API everywhere.
+  - icon: 🔁
+    title: Provider-neutral replication
+    details: Synchronize an explicit Thingd source to a protected replica with cursors, tombstones, snapshots, provenance, and conflict quarantine.
   - icon: 🌐
     title: WASM-ready
     details: Compiles to wasm32 for browser agents and edge workers. Same API, in-memory backend.

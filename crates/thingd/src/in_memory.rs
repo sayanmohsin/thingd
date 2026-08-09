@@ -89,6 +89,36 @@ impl ObjectStore for MemoryEngine {
         self.put_object(object)
     }
 
+    fn put_object_with_source_metadata(
+        &mut self,
+        object: MemoryObject,
+        options: crate::PutObjectOptions,
+    ) -> ThingdResult<MemoryObject> {
+        if let Some(expected) = options.expected_version {
+            let current = self.objects.get(&object.key).map(|o| o.version);
+            if current != Some(expected) {
+                return Err(ThingdError::Conflict(format!(
+                    "Version mismatch for {}/{}: expected {expected}, got {:?}",
+                    object.key.collection, object.key.id, current,
+                )));
+            }
+        }
+        let key = object.key.clone();
+        let stored = self.put_object(object.clone())?;
+        let mut replicated = stored;
+        if object.version > 0 {
+            replicated.version = object.version;
+        }
+        if !object.created_at.is_empty() {
+            replicated.created_at = object.created_at;
+        }
+        if !object.updated_at.is_empty() {
+            replicated.updated_at = object.updated_at;
+        }
+        self.objects.insert(key, replicated.clone());
+        Ok(replicated)
+    }
+
     fn get_object(&self, collection: &str, id: &str) -> ThingdResult<Option<MemoryObject>> {
         Ok(self.objects.get(&ObjectKey::new(collection, id)).cloned())
     }

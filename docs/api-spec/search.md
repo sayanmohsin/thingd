@@ -76,7 +76,10 @@ This means you don't need to match exact conjugations.
 
 ## Scoring
 
-Results are ranked by BM25 relevance score (lower = more relevant). The score is included in each search result:
+The persistent Tantivy path is the source of full-text matching and stemming.
+BM25 score propagation and filtered-result ordering are still being hardened;
+the current persistent result envelope may expose a placeholder score until
+that work is complete. The intended result shape is:
 
 ```json
 {
@@ -101,7 +104,9 @@ The `filter` parameter matches against top-level fields in the object body:
 }
 ```
 
-This uses JSON equality matching (not FTS5), applied as a post-filter after full-text search.
+This uses JSON equality matching (not FTS5). The persistent implementation is
+being hardened to apply this filter before satisfying the requested result
+limit.
 
 ### REST filter (query parameter filters)
 
@@ -166,7 +171,7 @@ Each search result is either an object or an event:
 ## Performance
 
 - Tantivy is used for indexing and querying (pure Rust BM25)
-- BM25 scoring is computed at query time
+- BM25 scoring and score propagation are a Phase 23 hardening item
 - Stemming is done at index time (not query time)
 - In-memory mode uses simple substring matching (no Tantivy)
 - Performance is comparable to dedicated search engines for < 1M documents

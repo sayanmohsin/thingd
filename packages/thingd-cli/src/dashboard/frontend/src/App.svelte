@@ -12,6 +12,7 @@
   let dbSize = 'N/A';
   let metrics = { objects: 0, events: 0, activeJobs: 0, deadJobs: 0 };
   let dbHealth = { integrityOk: false, integrityMessage: 'Not checked', walMode: '-', walFrames: 0, backupPath: '', backupSize: 0 };
+  let replication = { configured: false, config: null, sourceId: '-', latestCursor: 0, protectedCloudTarget: false };
   let serverVersion = '';
   let diagnosticLogs = [
     { time: new Date().toLocaleTimeString(), text: 'Svelte Dashboard loaded successfully.', type: 'muted' },
@@ -178,6 +179,7 @@
       dbSize = res.metrics.dbSize || 'N/A';
       metrics = res.metrics;
       serverVersion = res.version || '';
+      fetchReplicationStatus();
       authGateActive = false;
     } catch (err) {
       if (err.message !== 'Unauthorized') {
@@ -187,6 +189,14 @@
         dbSize = 'N/A';
         logDiagnostic(`Status synchronization failed: ${err.message}`, 'danger');
       }
+    }
+  }
+
+  async function fetchReplicationStatus() {
+    try {
+      replication = await request('/api/replication/status');
+    } catch (err) {
+      logDiagnostic(`Replication status unavailable: ${errorMessage(err)}`, 'warning');
     }
   }
 
@@ -216,6 +226,7 @@
   // General Sync
   function syncAll() {
     fetchStatus();
+    fetchReplicationStatus();
     if (currentTab === 'collections') fetchCollections();
     if (currentTab === 'events') fetchStreams();
     if (currentTab === 'queues') fetchQueues();
@@ -230,6 +241,8 @@
       fetchStreams();
     } else if (tab === 'queues') {
       fetchQueues();
+    } else if (tab === 'replication') {
+      fetchReplicationStatus();
     }
   }
 
@@ -852,6 +865,10 @@
         <svg class="nav-icon" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
         Database Health
       </button>
+      <button class="nav-item {currentTab === 'replication' ? 'active' : ''}" on:click={() => selectTab('replication')}>
+        <svg class="nav-icon" viewBox="0 0 24 24"><path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46A7.93 7.93 0 0 0 20 12c0-4.42-3.58-8-8-8zm-6 8c0-1.01.25-1.97.7-2.8L5.24 7.74A7.93 7.93 0 0 0 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3c-3.31 0-6-2.69-6-6z"/></svg>
+        Replication & Authority
+      </button>
     </nav>
 
     <div class="sidebar-footer" style="display: flex; flex-direction: column; gap: 10px;">
@@ -878,6 +895,7 @@
           {#if currentTab === 'search'}Stemming FTS5 Tester{/if}
           {#if currentTab === 'nlq'}NLQ Query{/if}
           {#if currentTab === 'health'}Database Health{/if}
+          {#if currentTab === 'replication'}Replication & Authority{/if}
         </h1>
       </div>
       <div class="topbar-right">
@@ -1603,6 +1621,42 @@
                   </button>
                 </div>
               </div>
+            </div>
+          </div>
+        </div>
+      {/if}
+
+      {#if currentTab === 'replication'}
+        <div class="tab-panel active">
+          <div class="card glass fill-height flex-column">
+            <div class="card-header">
+              <h2>Replication & Authority</h2>
+              <button class="btn btn-sm btn-secondary" on:click={fetchReplicationStatus}>Refresh</button>
+            </div>
+            <div class="card-body scroll-y">
+              <div class="metrics-grid">
+                <div class="metric-card glass">
+                  <div class="metric-value">{replication.configured ? 'Configured' : 'Not configured'}</div>
+                  <div class="metric-label">Sync relationship</div>
+                </div>
+                <div class="metric-card glass">
+                  <div class="metric-value">{replication.sourceId || '-'}</div>
+                  <div class="metric-label">Source ID</div>
+                </div>
+                <div class="metric-card glass">
+                  <div class="metric-value">{replication.latestCursor}</div>
+                  <div class="metric-label">Latest local cursor</div>
+                </div>
+                <div class="metric-card glass">
+                  <div class="metric-value">{replication.protectedCloudTarget ? 'Protected' : 'Explicit policy'}</div>
+                  <div class="metric-label">Cloud target policy</div>
+                </div>
+              </div>
+              {#if replication.config}
+                <pre class="code-block" style="margin-top: 18px;">{JSON.stringify(replication.config, null, 2)}</pre>
+              {:else}
+                <p class="text-muted">Configure a source or replica with <code>thingd sync configure</code>.</p>
+              {/if}
             </div>
           </div>
         </div>

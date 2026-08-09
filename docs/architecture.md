@@ -113,6 +113,19 @@ Future: an IndexedDB persist adapter for browser WASM, enabling cross-session du
 
 [thingd Cloud](https://thingd.cloud) is the managed hosted version of thingd. Same engine, same API — zero infrastructure to manage. Create projects, issue API keys, and connect agents to hosted thingd instances through an HTTPS MCP endpoint with audit logging, scoped access control, and tenant isolation.
 
+### Replication boundary
+
+Thingd-to-Thingd replication is provider-neutral: one instance is explicitly
+configured as the authoritative source and another as the replica. The source
+and target may both be local, self-hosted, or hosted. The protocol carries
+objects, deletes, application events, source metadata, cursors, and idempotency
+keys; stale cursors recover through snapshots. Replicas reject direct writes,
+and divergent target state is quarantined rather than overwritten.
+
+`thingd.cloud` is the protected/default hosted provider. Cloud-specific tenant,
+instance-selection, policy, and audit checks belong to thingd-cloud; the open
+source engine only implements the provider-neutral replication contract.
+
 ## MCP server
 
 The Node SDK MCP server ships **46 tools** across objects, events, queues, search, graph links, aggregation, schema, NLQ, vectors, and scheduling. The Rust sidecar ships 36 engine tools; every sidecar tool goes through the same `ThingStore` trait. Native persistence options, including encryption, are resolved before either MCP runtime starts.

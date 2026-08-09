@@ -103,6 +103,21 @@ curl http://localhost:8757/v1/counts/links
 { "data": { "count": 3 } }
 ```
 
+## Replication
+
+Thingd instances can synchronize one authoritative source to one replica using
+the provider-neutral replication endpoints. See [Replication](replication.md)
+for the change envelope and cursor rules.
+
+| Method | Endpoint | Purpose |
+|---|---|---|
+| `GET` | `/v1/replication/events?after=<cursor>&limit=<n>` | Read source changes |
+| `POST` | `/v1/replication/apply` | Apply a batch on a replica |
+| `GET` | `/v1/replication/status` | Read source/replica status |
+| `GET` | `/v1/replication/conflicts` | Inspect quarantined conflicts |
+| `GET` | `/v1/replication/snapshot` | Create a bootstrap snapshot |
+| `POST` | `/v1/replication/snapshot` | Apply a bootstrap snapshot on a replica |
+
 ---
 
 ## Metadata
@@ -422,7 +437,9 @@ curl -X POST http://localhost:8757/v1/search \
 }
 ```
 
-Results are sorted by relevance score (descending). Each result is either an object or an event.
+Results are intended to be sorted by descending relevance score. Persistent
+Tantivy score propagation and filter-before-limit correctness remain under
+Phase 23 hardening.
 
 ---
 

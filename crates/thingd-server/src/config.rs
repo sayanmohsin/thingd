@@ -21,6 +21,65 @@ pub struct Config {
     pub hardening: HardeningConfig,
     #[serde(default)]
     pub nlq: NlqConfig,
+    #[serde(default)]
+    pub sync: SyncConfig,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SyncConfig {
+    /// Stable identifier for this Thingd instance's replication source.
+    #[serde(default = "default_sync_source_id")]
+    pub source_id: String,
+    /// Whether this instance accepts normal writes or is a replica.
+    #[serde(default)]
+    pub role: SyncRole,
+    /// Optional collection allowlist for replication changes.
+    #[serde(default)]
+    pub collections: Vec<String>,
+    /// Deployment/provider label used for safe operator decisions. This has
+    /// no effect on the provider-neutral protocol.
+    #[serde(default = "default_sync_provider")]
+    pub provider: String,
+    /// Optional cloud project identity used to prevent cross-project routing.
+    #[serde(default)]
+    pub project_id: String,
+    /// Optional cloud instance identity used to prevent default-instance fallbacks.
+    #[serde(default)]
+    pub instance_slug: String,
+    /// Explicit opt-in for writes into a protected cloud target.
+    #[serde(default)]
+    pub allow_cloud_target: bool,
+}
+
+impl Default for SyncConfig {
+    fn default() -> Self {
+        Self {
+            source_id: default_sync_source_id(),
+            role: SyncRole::Source,
+            collections: Vec::new(),
+            provider: default_sync_provider(),
+            project_id: String::new(),
+            instance_slug: String::new(),
+            allow_cloud_target: false,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum SyncRole {
+    #[default]
+    Source,
+    Replica,
+}
+
+fn default_sync_source_id() -> String {
+    std::env::var("THINGD_SYNC_SOURCE_ID").unwrap_or_else(|_| "thingd-default".to_string())
+}
+
+fn default_sync_provider() -> String {
+    std::env::var("THINGD_SYNC_PROVIDER").unwrap_or_else(|_| "self-hosted".to_string())
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -38,6 +97,7 @@ pub struct ServerConfig {
     pub production_mode: bool,
     #[serde(default = "default_max_connections")]
     pub max_connections: u32,
+    /// Optional 64-character hexadecimal persistent encryption key.
     #[serde(default)]
     pub encryption_key: Option<String>,
 }
@@ -412,6 +472,24 @@ impl Config {
         }
         if let Ok(v) = std::env::var("THINGD_ENCRYPTION_KEY") {
             self.server.encryption_key = Some(v);
+        }
+        if let Ok(v) = std::env::var("THINGD_SYNC_SOURCE_ID") {
+            self.sync.source_id = v;
+        }
+        if let Ok(v) = std::env::var("THINGD_SYNC_ROLE") {
+            self.sync.role = if v == "replica" {
+                SyncRole::Replica
+            } else {
+                SyncRole::Source
+            };
+        }
+        if let Ok(v) = std::env::var("THINGD_SYNC_COLLECTIONS") {
+            self.sync.collections = v
+                .split(',')
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(String::from)
+                .collect();
         }
         if let Ok(v) = std::env::var("THINGD_AUTH_TOKEN") {
             self.auth.token = v;

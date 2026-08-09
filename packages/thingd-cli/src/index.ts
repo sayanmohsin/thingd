@@ -156,6 +156,9 @@ Usage:
   thingd snapshot restore --in <path>
   thingd backup --out <path>
   thingd backup --in <path>
+  thingd sync configure --local-url <url> --remote-url <url> --role <source|replica> [--provider <self-hosted|thingd.cloud>] [--project-id <id>] [--instance-slug <slug>] [--allow-cloud-target --confirm-target]
+  thingd sync status
+  thingd sync push|pull|bootstrap|pause|resume|reset [--replace]
   thingd cloud login [--code <code> --token <token>]
   thingd cloud logout
   thingd cloud status
@@ -190,6 +193,9 @@ const BOOLEAN_FLAGS = new Set([
   "antigravity",
   "smoke",
   "events",
+  "allow-cloud-target",
+  "confirm-target",
+  "replace",
 ]);
 
 export async function runCli(
@@ -324,6 +330,12 @@ async function runCommand(context: CliContext): Promise<void> {
   if (command === "cloud") {
     const { runCloud } = await import("./commands/cloud.js");
     await runCloud(context);
+    return;
+  }
+
+  if (command === "sync") {
+    const { runSyncCommand } = await import("./commands/sync.js");
+    await runSyncCommand(context);
     return;
   }
 
