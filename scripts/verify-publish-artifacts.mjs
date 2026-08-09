@@ -10,7 +10,7 @@ const requiredNativePrebuilds = Number.parseInt(process.env.REQUIRED_NATIVE_PREB
 const expectedVersion = process.env.RELEASE_VERSION ?? JSON.parse(fs.readFileSync(join(rootDir, "package.json"), "utf8")).version;
 
 function pack(packageDir) {
-  const result = spawn.sync("pnpm", ["pack", "--json"], {
+  const result = spawn.sync("npm", ["pack", "--json", "--ignore-scripts"], {
     cwd: join(rootDir, packageDir),
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
