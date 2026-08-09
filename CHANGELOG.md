@@ -13,6 +13,14 @@
 - server: harden security boundaries (0961ffe)
 - complete public SDK type exports (8a8889a)
 
+## [0.77.0](https://github.com/sayanmohsin/thingd/compare/thingd-v0.76.0...thingd-v0.77.0) (2026-08-09)
+
+
+### Features
+
+* add optional .thingd schemas and migrations ([#120](https://github.com/sayanmohsin/thingd/issues/120)) ([41b044f](https://github.com/sayanmohsin/thingd/commit/41b044f60115186f36e952c37b08422d0e7c7bb6))
+* harden provider-neutral replication and persistent encryption ([#118](https://github.com/sayanmohsin/thingd/issues/118)) ([f5c41c1](https://github.com/sayanmohsin/thingd/commit/f5c41c1eabf32a140bd67b51aa4cbb9f22235a48))
+
 ## [0.76.0](https://github.com/sayanmohsin/thingd/compare/thingd-v0.75.0...thingd-v0.76.0) (2026-08-07)
 
 
