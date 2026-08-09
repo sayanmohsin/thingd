@@ -24,6 +24,10 @@ THINGD_DRIVER=native
 `THINGD_DRIVER` can be `memory` or `native`. Use `native` for the Rust-backed
 persistent store after the native package has been built into the runtime image.
 
+`THINGD_ENCRYPTION_KEY` is an optional 64-character hexadecimal AES-256-GCM key
+for the native driver and sidecar persistent engine. Inject it through a
+runtime secret manager; it is never written to the data directory.
+
 ## HTTP
 
 ```txt
@@ -178,8 +182,11 @@ THINGD_SYNC_COLLECTIONS=users,posts
 ```
 
 The replication API is available at `/v1/replication/events`,
-`/v1/replication/apply`, and `/v1/replication/status`. `thingd.cloud` is one
-compatible provider; these endpoints also work between self-hosted instances.
+`/v1/replication/apply`, `/v1/replication/status`,
+`/v1/replication/conflicts`, and `/v1/replication/snapshot`. The source exposes
+the feed and snapshots; only an explicitly configured replica accepts apply
+requests. `thingd.cloud` is a protected compatible provider, and the same
+provider-neutral endpoints work between self-hosted instances.
 
 ## Runtime Endpoints
 

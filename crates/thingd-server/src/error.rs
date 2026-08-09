@@ -129,6 +129,13 @@ impl From<thingd::ThingdError> for AppError {
                     AppError::internal(msg)
                 }
             },
+            thingd::ThingdError::Encryption(msg) => {
+                if is_production_mode() {
+                    AppError::internal("persistent encryption could not be opened")
+                } else {
+                    AppError::internal(msg)
+                }
+            },
         }
     }
 }

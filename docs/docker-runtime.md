@@ -157,6 +157,12 @@ Supported cluster modes:
   - **Write Forwarding**: Automatically forwards all incoming MCP write requests to the active Leader. If primary leader is unreachable and `THINGD_CLUSTER_LEADER_FALLBACK_URL` is set, the follower tries the fallback URL.
   - **Pull Replication**: In follower mode, replication applies change events to the follower's local persistent runtime. Active replication behavior and status are exposed through the cluster endpoints.
 
+This cluster leader/follower mode is separate from provider-neutral
+Thingd-to-Thingd sync. The latter uses `/v1/replication/events`,
+`/v1/replication/apply`, `/v1/replication/status`, `/v1/replication/conflicts`,
+and `/v1/replication/snapshot`, with explicit source/replica configuration and
+cloud-target protection.
+
 Replication lag and diagnostics are monitored dynamically via `/cluster/status`, which reports active peer sequence indexes and computed lag (events difference between leader and follower) for Kubernetes liveness/readiness probes.
 
 ## Smoke Test

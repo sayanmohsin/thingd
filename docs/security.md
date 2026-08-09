@@ -70,6 +70,23 @@ auth:
 
 thingd-server does not serve HTTPS directly. The recommended deployment pattern uses a reverse proxy:
 
+## Persistent encryption
+
+The Rust persistent engine supports opt-in authenticated encryption for stored
+record values using AES-256-GCM. Supply a 64-character hexadecimal key through
+`THINGD_ENCRYPTION_KEY` for the sidecar/native entry points, or pass `StorageKey`
+to `PersistentEngine::open_with_key` in Rust.
+
+Encrypted databases fail closed when the key is missing, wrong, or
+incompatible. Supplying a key never silently migrates an existing plaintext
+database; use an explicit export/import migration. Rotation and backup
+re-encryption are explicit operational procedures.
+
+Encrypted mode protects persisted record payloads, events, queues, links, and
+vectors. It does not persist a plaintext Tantivy index; search uses the
+authenticated-value fallback. Structural key names and filesystem metadata may
+still reveal limited identifiers. TLS remains a separate transport concern.
+
 **Option 1: nginx (recommended)**
 
 ```nginx
@@ -181,7 +198,7 @@ The CI pipeline runs the following security checks on every push and PR:
 - [ ] Enable production mode: `server.production_mode: true`
 - [ ] Set `hardening.max_payload_bytes` to an appropriate limit for your use case
 - [ ] Configure connector roots and host allowlists before enabling imports
-- [ ] Use filesystem-level encryption for the SQLite database directory
+- [ ] Use persistent engine encryption or filesystem-level encryption for the Thingd data directory
 - [ ] Regularly run `thingd db integrity` to check for corruption
 - [ ] Schedule regular backups with `thingd backup --out <path>`
 

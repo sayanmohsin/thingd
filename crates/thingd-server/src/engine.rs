@@ -3,7 +3,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use parking_lot::{Mutex, RwLock};
-use thingd::{MemoryEngine, PersistentEngine, ThingStore};
+use thingd::{MemoryEngine, PersistentEngine, StorageKey, ThingStore};
 
 pub type SharedEngine = Arc<Mutex<Box<dyn ThingStore + Send>>>;
 
@@ -20,9 +20,20 @@ pub fn create_engine(
         std::fs::create_dir_all(parent)?;
     }
 
-    match PersistentEngine::open(db_path) {
-        Ok(engine) => Ok(Box::new(engine)),
-        Err(e) => Err(Box::new(e)),
+    let key = match std::env::var("THINGD_ENCRYPTION_KEY") {
+        Ok(value) => Some(StorageKey::from_hex(&value)?),
+        Err(std::env::VarError::NotPresent) => None,
+        Err(error) => return Err(Box::new(error)),
+    };
+    match key {
+        Some(key) => match PersistentEngine::open_with_key(db_path, key) {
+            Ok(engine) => Ok(Box::new(engine)),
+            Err(e) => Err(Box::new(e)),
+        },
+        None => match PersistentEngine::open(db_path) {
+            Ok(engine) => Ok(Box::new(engine)),
+            Err(e) => Err(Box::new(e)),
+        },
     }
 }
 

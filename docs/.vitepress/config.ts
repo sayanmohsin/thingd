@@ -95,6 +95,7 @@ export default defineConfig({
           { text: "REST API", link: "/api-spec/rest-api" },
           { text: "Data Model", link: "/api-spec/data-model" },
           { text: "MCP Tools", link: "/api-spec/mcp-tools" },
+          { text: "Replication", link: "/api-spec/replication" },
           { text: "Search", link: "/api-spec/search" },
           { text: "Errors", link: "/api-spec/errors" },
         ],

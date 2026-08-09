@@ -71,13 +71,25 @@ pub struct NativeThingStore {
 impl NativeThingStore {
     #[napi(factory)]
     pub fn open(path: String) -> Result<Self> {
+        let key = match std::env::var("THINGD_ENCRYPTION_KEY") {
+            Ok(value) => Some(
+                thingd::StorageKey::from_hex(&value)
+                    .map_err(|e| Error::from_reason(e.to_string()))?,
+            ),
+            Err(std::env::VarError::NotPresent) => None,
+            Err(error) => return Err(Error::from_reason(error.to_string())),
+        };
+        let open = |path: &std::path::Path| match key.clone() {
+            Some(key) => PersistentEngine::open_with_key(path, key),
+            None => PersistentEngine::open(path),
+        };
         let store = if path == ":memory:" || path.is_empty() {
             let tmp = std::env::temp_dir().join(format!("thingd-native-{}", std::process::id()));
             let unique = tmp.join(uuid::Uuid::new_v4().to_string());
             std::fs::create_dir_all(&unique).map_err(|e| Error::from_reason(format!("{e}")))?;
-            PersistentEngine::open(&unique).map_err(|e| Error::from_reason(format!("{e}")))?
+            open(&unique).map_err(|e| Error::from_reason(format!("{e}")))?
         } else {
-            PersistentEngine::open(path).map_err(napi_error)?
+            open(std::path::Path::new(&path)).map_err(napi_error)?
         };
 
         Ok(Self {

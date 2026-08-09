@@ -1,7 +1,8 @@
 # Operations
 
 > The SQLite backup procedure below is retained for the deprecated SQLite
-> adapter. Current persistent runtimes should use filesystem-level directory backups
+> adapter. Current persistent runtimes should use directory backups, and encrypted
+> runtimes must protect the encryption key separately from the backup.
 > or the Cloud runtime backup procedure.
 
 Backup, recovery, database health, and maintenance procedures for thingd.
@@ -62,6 +63,20 @@ thingd snapshot restore --in /path/to/snapshot.json
 
 > **Warning:** The restore is not atomic. If it fails mid-way, data may be partially restored.
 > Create a backup first: `thingd backup --out pre-restore.db`
+
+### Thingd-to-Thingd bootstrap recovery
+
+For a configured replica whose source cursor is stale, use the provider-neutral
+sync bootstrap flow:
+
+```bash
+thingd sync status
+thingd sync bootstrap
+```
+
+Use `thingd sync bootstrap --replace` only for an explicitly confirmed target
+rebuild. Normal replication resumes from the last committed cursor. Conflicts
+are quarantined for inspection instead of silently overwriting target data.
 
 ## Export / Import
 

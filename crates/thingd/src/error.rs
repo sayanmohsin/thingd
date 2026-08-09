@@ -19,6 +19,8 @@ pub enum ThingdError {
     Protected(String),
     /// The storage adapter failed.
     Storage(String),
+    /// Persistent encryption configuration or authentication failed.
+    Encryption(String),
 }
 
 impl Display for ThingdError {
@@ -29,6 +31,7 @@ impl Display for ThingdError {
             Self::Conflict(message) => write!(formatter, "conflict: {message}"),
             Self::Protected(message) => write!(formatter, "protected: {message}"),
             Self::Storage(message) => write!(formatter, "storage error: {message}"),
+            Self::Encryption(message) => write!(formatter, "encryption error: {message}"),
         }
     }
 }

@@ -25,11 +25,12 @@ See the [full feature status and roadmap](https://github.com/sayanmohsin/thingd-
 
 ### Shipped
 
-- **Rust engine** (`thingd` — crates.io) — memory + persistent adapters, Tantivy FTS, cosine vector search, queue lifecycle, graph links, aggregate analytics, NLQ
+- **Rust engine** (`thingd` — crates.io) — memory + persistent adapters, opt-in authenticated persistent encryption, Tantivy FTS, cosine vector search, queue lifecycle, graph links, aggregate analytics, NLQ
 - **Node.js SDK** (`@thingd/sdk`) — three drivers: memory (default in-memory TS store), native (napi-rs Rust persistent engine), cloud (remote HTTP REST)
 - **Browser/Edge client** (`@thingd/client`) — zero-dependency REST client for browsers, Cloudflare Workers, AWS Lambda, Bun, Deno
 - **App backend client** (`createThingdAppClient`) — project-user auth and named actions for hosted mobile/web apps
 - **CLI** (`@thingd/cli`) — TUI dashboard, 30+ subcommands (search, objects, events, queues, export/import/snapshot/backup, doctor, bench, db maintenance). Support for importing from Postgres/MySQL via sidecar REST.
+- **Provider-neutral replication** — synchronize one explicit Thingd source to one replica, including objects, deletes, tombstones, events, cursors, snapshots, provenance, and quarantined conflicts.
 - **MCP server** — 46 SDK tools, stdio + Streamable HTTP, audit events, collection allowlists, and read-only mode; the Rust sidecar exposes 36 core tools (scheduler tools are SDK-only)
 - **Docker** — multi-stage image, compose + K8s for leader/follower cluster
 - **CI/tooling** — semantic-release, biome, lefthook, doc tests, cargo audit, cargo deny, CodeQL
@@ -107,6 +108,11 @@ The goal is a practical local-first engine for small and medium apps, devtools, 
 thingd. Create projects, issue API keys, and connect agents to hosted thingd
 instances through an HTTPS MCP endpoint with audit logging, scoped access
 control, and tenant isolation. Same engine, zero infrastructure to run.
+
+Cloud is the protected/default hosted provider, not an engine dependency. For
+replication, configure source and replica roles explicitly; local-to-cloud
+writes require an explicitly selected instance, an allowed Cloud policy, and
+operator confirmation. See the [replication guide](./docs/api-spec/replication.md).
 
 ## Core primitives
 

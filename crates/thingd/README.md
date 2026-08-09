@@ -32,6 +32,10 @@ all five primitives behind a single composable trait interface.
 | `persistent` | Yes | Enables the durable persistent engine |
 | `connectors` | No | Enables CSV/JSON file connectors for data import |
 
+Persistent storage can be opened with an explicit `StorageKey` through
+`PersistentEngine::open_with_key`. This encrypts stored record values with
+authenticated AES-256-GCM and fails closed if the key is missing or wrong.
+
 ## Quick Start
 
 ### In-memory engine (zero setup)

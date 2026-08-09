@@ -2744,6 +2744,7 @@ dependencies = [
  "chrono",
  "csv",
  "fjall",
+ "ring",
  "serde",
  "serde_json",
  "sqlx",
