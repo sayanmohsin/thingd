@@ -261,8 +261,19 @@ jobs:
         run: |
           SMOKE_DIR=$(mktemp -d)
           trap 'rm -rf "$SMOKE_DIR"' EXIT
+          for attempt in $(seq 1 18); do
+            if npm view "@thingd/cli@$VERSION" version --registry=https://registry.npmjs.org 2>/dev/null | grep -qx "$VERSION"; then
+              break
+            fi
+            if [ "$attempt" -eq 18 ]; then
+              echo "@thingd/cli@$VERSION was not visible on npm after 3 minutes" >&2
+              exit 1
+            fi
+            echo "Waiting for @thingd/cli@$VERSION to propagate on npm (attempt $attempt/18)"
+            sleep 10
+          done
           npm init -y --prefix "$SMOKE_DIR" >/dev/null
-          npm install --prefix "$SMOKE_DIR" --no-audit --no-fund "@thingd/cli@$VERSION"
+          npm install --prefix "$SMOKE_DIR" --prefer-online --no-audit --no-fund "@thingd/cli@$VERSION"
           (cd "$SMOKE_DIR" && node --input-type=module -e "await import('@thingd/cli')")
 
   docker:
