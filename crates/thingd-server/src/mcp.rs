@@ -869,10 +869,35 @@ fn handle_thing_create_index(
     let field = args["field"]
         .as_str()
         .ok_or_else(|| AppError::bad_request("field is required"))?;
+    let unique = args["unique"].as_bool().unwrap_or(false);
     let e = state.pool.get_writer(db_path);
     let mut g = e.lock();
-    g.create_index(collection, field)?;
+    g.create_index_definition(thingd::IndexDefinition {
+        collection: collection.to_string(),
+        field: field.to_string(),
+        unique,
+    })?;
     Ok(json!({ "content": [{ "type": "text", "text": "{\"created\":true}" }] }))
+}
+
+fn handle_thing_delete_index(
+    state: &AppState,
+    _tool_name: &str,
+    args: &Value,
+    db_path: &str,
+) -> Result<Value, AppError> {
+    let collection = args["collection"]
+        .as_str()
+        .ok_or_else(|| AppError::bad_request("collection is required"))?;
+    let field = args["field"]
+        .as_str()
+        .ok_or_else(|| AppError::bad_request("field is required"))?;
+    let e = state.pool.get_writer(db_path);
+    let mut g = e.lock();
+    let deleted = g.delete_index(collection, field)?;
+    Ok(
+        json!({ "content": [{ "type": "text", "text": serde_json::json!({ "deleted": deleted }).to_string() }] }),
+    )
 }
 
 fn handle_thing_list_indexes(
@@ -1004,6 +1029,42 @@ fn handle_thing_schema(
         .map_err(|e| AppError::internal(e.to_string()))?;
     Ok(
         json!({ "content": [{ "type": "text", "text": serde_json::to_string(&schemas).unwrap_or_default() }] }),
+    )
+}
+
+fn handle_thing_schema_validate(
+    _state: &AppState,
+    _tool_name: &str,
+    args: &Value,
+    _db_path: &str,
+) -> Result<Value, AppError> {
+    let source = args.get("source").and_then(Value::as_str).unwrap_or("");
+    if source.trim().is_empty() {
+        return Err(AppError::bad_request("Missing schema source"));
+    }
+    let schema =
+        thingd_schema::parse(source).map_err(|error| AppError::bad_request(error.to_string()))?;
+    let hash = schema
+        .hash()
+        .map_err(|error| AppError::internal(error.to_string()))?;
+    Ok(
+        json!({ "content": [{ "type": "text", "text": serde_json::to_string(&json!({ "schema": schema, "hash": hash })).unwrap_or_default() }] }),
+    )
+}
+
+fn handle_thing_migrations(
+    state: &AppState,
+    _tool_name: &str,
+    _args: &Value,
+    db_path: &str,
+) -> Result<Value, AppError> {
+    let e = state.pool.get_reader(db_path);
+    let g = e.lock();
+    let migrations = g
+        .list_migrations()
+        .map_err(|error| AppError::internal(error.to_string()))?;
+    Ok(
+        json!({ "content": [{ "type": "text", "text": serde_json::to_string(&migrations).unwrap_or_default() }] }),
     )
 }
 
@@ -1459,6 +1520,16 @@ static ALL_TOOLS: LazyLock<Vec<ToolEntry>> = LazyLock::new(|| {
             needs_collection: true,
         },
         ToolEntry {
+            name: "thing_delete_index",
+            description: "Delete a custom functional index",
+            properties: json!({ "collection": str_prop("Collection name"), "field": str_prop("JSON body field name") }),
+            required: &["collection", "field"],
+            handler: handle_thing_delete_index,
+            is_write: true,
+            destructive: true,
+            needs_collection: true,
+        },
+        ToolEntry {
             name: "thing_list_indexes",
             description: "List all custom functional indexes",
             properties: json!({}),
@@ -1526,6 +1597,26 @@ static ALL_TOOLS: LazyLock<Vec<ToolEntry>> = LazyLock::new(|| {
             properties: json!({ "collection": str_prop("Optional collection name (omit for all)") }),
             required: &[],
             handler: handle_thing_schema,
+            is_write: false,
+            destructive: false,
+            needs_collection: false,
+        },
+        ToolEntry {
+            name: "thing_schema_validate",
+            description: "Parse and validate schema.thingd source without changing stored data. Returns canonical schema JSON and a stable SHA-256 hash.",
+            properties: json!({ "source": str_prop("schema.thingd source") }),
+            required: &["source"],
+            handler: handle_thing_schema_validate,
+            is_write: false,
+            destructive: false,
+            needs_collection: false,
+        },
+        ToolEntry {
+            name: "thing_migrations",
+            description: "List durable schema migration records and their applied hashes.",
+            properties: json!({}),
+            required: &[],
+            handler: handle_thing_migrations,
             is_write: false,
             destructive: false,
             needs_collection: false,
@@ -1747,8 +1838,8 @@ mod tests {
         let tools = result["result"]["tools"].as_array().unwrap();
         assert_eq!(
             tools.len(),
-            36,
-            "expected 36 MCP tools, got {}",
+            39,
+            "expected 39 MCP tools, got {}",
             tools.len()
         );
         let names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
@@ -1778,6 +1869,7 @@ mod tests {
             "thing_list_streams",
             "thing_list_queues",
             "thing_create_index",
+            "thing_delete_index",
             "thing_list_indexes",
             "thing_link_create",
             "thing_link_get",

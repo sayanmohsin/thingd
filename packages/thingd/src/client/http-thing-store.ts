@@ -1,4 +1,9 @@
 import type {
+  MigrationRecord,
+  SchemaDocument,
+  StoredSchema,
+} from "../stores/native-thing-store.js";
+import type {
   AggregateOptions,
   AggregateResult,
   CollectionSchema,
@@ -336,7 +341,19 @@ export class HttpThingStore implements ThingStore {
   }
 
   async createIndex(collection: string, field: string): Promise<void> {
-    await this.request("POST", "/indexes", { collection, field });
+    await this.request("POST", "/indexes", { collection, field, unique: false });
+  }
+
+  async createUniqueIndex(collection: string, field: string): Promise<void> {
+    await this.request("POST", "/indexes", { collection, field, unique: true });
+  }
+
+  async deleteIndex(collection: string, field: string): Promise<boolean> {
+    const result = await this.request<{ deleted: boolean }>("DELETE", "/indexes", {
+      collection,
+      field,
+    });
+    return result.deleted;
   }
 
   async listIndexes(): Promise<Array<[string, string]>> {
@@ -386,6 +403,18 @@ export class HttpThingStore implements ThingStore {
       return this.request("GET", `/collections/${encodeURIComponent(collection)}/schema`);
     }
     return this.request("GET", "/collections/schema");
+  }
+
+  async validateSchema(source: string): Promise<SchemaDocument> {
+    return this.request("POST", "/schema/validate", { source });
+  }
+
+  async getSchemaDocument(): Promise<StoredSchema | null> {
+    return this.request("GET", "/schema/current");
+  }
+
+  async listMigrations(): Promise<MigrationRecord[]> {
+    return this.request("GET", "/migrations");
   }
 
   async nlqQuery(question: string, options?: NlqOptions): Promise<NlqResult> {

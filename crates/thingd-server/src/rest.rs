@@ -375,11 +375,35 @@ pub async fn create_index(
     let field = body["field"]
         .as_str()
         .ok_or_else(|| AppError::bad_request("field is required"))?;
+    let unique = body["unique"].as_bool().unwrap_or(false);
     let e = get_engine(&state, &headers)?;
     let mut g = e.lock();
-    g.create_index(collection, field)
-        .map_err(|e| AppError::internal(e.to_string()))?;
+    g.create_index_definition(thingd::IndexDefinition {
+        collection: collection.to_string(),
+        field: field.to_string(),
+        unique,
+    })
+    .map_err(|e| AppError::internal(e.to_string()))?;
     ok(json!({ "created": true }))
+}
+
+pub async fn delete_index(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, AppError> {
+    let collection = body["collection"]
+        .as_str()
+        .ok_or_else(|| AppError::bad_request("collection is required"))?;
+    let field = body["field"]
+        .as_str()
+        .ok_or_else(|| AppError::bad_request("field is required"))?;
+    let e = get_engine(&state, &headers)?;
+    let mut g = e.lock();
+    let deleted = g
+        .delete_index(collection, field)
+        .map_err(|e| AppError::internal(e.to_string()))?;
+    ok(json!({ "deleted": deleted }))
 }
 
 // ─── Objects ────────────────────────────────────────────────────
@@ -1981,6 +2005,45 @@ pub async fn get_schema(
     }
 }
 
+/// Parse and validate a schema source document without changing the engine.
+pub async fn validate_schema(Json(body): Json<Value>) -> Result<Json<Value>, AppError> {
+    let source = body
+        .get("source")
+        .and_then(Value::as_str)
+        .ok_or_else(|| AppError::bad_request("Missing source"))?;
+    if source.trim().is_empty() {
+        return Err(AppError::bad_request("Schema source must not be empty"));
+    }
+    let schema =
+        thingd_schema::parse(source).map_err(|error| AppError::bad_request(error.to_string()))?;
+    let hash = schema
+        .hash()
+        .map_err(|error| AppError::internal(error.to_string()))?;
+    ok(json!({ "schema": schema, "hash": hash }))
+}
+
+/// Return the last applied canonical schema document.
+pub async fn current_schema(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+) -> Result<Json<Value>, AppError> {
+    let e = get_engine(&state, &headers)?;
+    let g = e.lock();
+    ok(g.get_schema_document()
+        .map_err(|error| AppError::internal(error.to_string()))?)
+}
+
+/// Return durable migration records in application order.
+pub async fn list_migrations(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+) -> Result<Json<Value>, AppError> {
+    let e = get_engine(&state, &headers)?;
+    let g = e.lock();
+    ok(g.list_migrations()
+        .map_err(|error| AppError::internal(error.to_string()))?)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2032,6 +2095,30 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn schema_validation_returns_canonical_hash() {
+        let response = validate_schema(Json(json!({
+            "source": "version 1\ncollection users {\n id: string @id\n}\n"
+        })))
+        .await
+        .expect("schema should validate");
+        assert!(
+            response.0["data"]["hash"]
+                .as_str()
+                .unwrap_or_default()
+                .starts_with("sha256:")
+        );
+        assert_eq!(response.0["data"]["schema"]["version"], 1);
+    }
+
+    #[tokio::test]
+    async fn schema_validation_rejects_empty_source() {
+        let error = validate_schema(Json(json!({ "source": "  " })))
+            .await
+            .expect_err("empty schema should fail");
+        assert!(error.detail.contains("must not be empty"));
     }
 
     #[tokio::test]

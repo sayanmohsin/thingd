@@ -635,6 +635,7 @@ export function registerThingdTools(
       inputSchema: {
         collection: z.string().describe("Collection name"),
         field: z.string().describe("JSON body field name to index"),
+        unique: z.boolean().optional().describe("Reject duplicate non-null values"),
       },
       annotations: {
         readOnlyHint: false,
@@ -643,10 +644,34 @@ export function registerThingdTools(
         openWorldHint: false,
       },
     },
-    async ({ collection, field }) => {
-      await db.createIndex(collection, field);
+    async ({ collection, field, unique }) => {
+      if (unique) {
+        await db.createUniqueIndex(collection, field);
+      } else {
+        await db.createIndex(collection, field);
+      }
       return jsonResult({ created: true });
     }
+  );
+
+  server.registerTool(
+    "thing_delete_index",
+    {
+      title: "Delete Index",
+      description: "Delete a custom functional index.",
+      inputSchema: {
+        collection: z.string().describe("Collection name"),
+        field: z.string().describe("JSON body field name"),
+      },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async ({ collection, field }) =>
+      jsonResult({ deleted: await db.deleteIndex(collection, field) })
   );
 
   server.registerTool(
@@ -1012,6 +1037,41 @@ export function registerThingdTools(
       }
       return jsonResult(await db.schema(collection));
     }
+  );
+
+  server.registerTool(
+    "thing_schema_validate",
+    {
+      title: "Validate Schema File",
+      description:
+        "Parse and validate schema.thingd source without changing stored data. Returns canonical schema JSON and a stable SHA-256 hash.",
+      inputSchema: {
+        source: z.string().min(1),
+      },
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async ({ source }) => jsonResult(await db.validateSchema(source))
+  );
+
+  server.registerTool(
+    "thing_migrations",
+    {
+      title: "List Migrations",
+      description: "List durable schema migration records and their applied hashes.",
+      inputSchema: {},
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async () => jsonResult(await db.listMigrations())
   );
 
   server.registerTool(

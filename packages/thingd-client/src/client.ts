@@ -436,6 +436,25 @@ export class ThingdClient {
     return this.request("GET", "/collections/schema");
   }
 
+  /** Parse and validate a schema source without modifying the database. */
+  async validateSchema(source: string): Promise<{ schema: unknown; hash: string }> {
+    return this.request("POST", "/schema/validate", { source });
+  }
+
+  /** Read the last applied canonical schema metadata. */
+  async getSchemaDocument(): Promise<{
+    schemaJson: string;
+    hash: string;
+    updatedAt: string;
+  } | null> {
+    return this.request("GET", "/schema/current");
+  }
+
+  /** Read durable migration records. */
+  async listMigrations(): Promise<Array<{ id: string; hash: string; appliedAt: string }>> {
+    return this.request("GET", "/migrations");
+  }
+
   // ── NLQ ──────────────────────────────────────────────
 
   async nlqQuery(question: string, options?: NlqOptions): Promise<NlqResult> {

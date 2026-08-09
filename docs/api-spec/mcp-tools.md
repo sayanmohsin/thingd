@@ -1,8 +1,8 @@
 # MCP Tools Reference
 
-The Node SDK/stdio MCP server exposes 46 SDK tools, including 10 SDK-level scheduler tools. The Rust sidecar exposes 36 engine tools; scheduler tools are not part of the sidecar surface.
+The Node SDK/stdio MCP server exposes 49 SDK tools, including 10 SDK-level scheduler tools. The Rust sidecar exposes 39 engine tools; scheduler tools are not part of the sidecar surface.
 
-**Tool count:** 46 Node SDK tools (34 read-only, 12 write — 3 of which are destructive); the Rust sidecar exposes 36 core tools.
+**Tool count:** 49 Node SDK tools (36 read-only, 13 write — 4 of which are destructive); the Rust sidecar exposes 39 core tools.
 
 ## Encrypted storage and MCP
 
@@ -405,7 +405,26 @@ List all queue names.
 
 ### `thing_create_index`
 
-Create a functional index on a JSON body field for a collection. Subsequent `thing_objects_list` calls with filter on this field will use the index for O(log n) lookups instead of full table scans. Idempotent — recreating an existing index is a no-op.
+Create a functional index definition on a JSON body field for a collection.
+Set `unique` to `true` to reject duplicate non-null values on future writes and
+to validate existing data during creation. Recreating an existing index is a
+no-op.
+
+```json
+{
+  "collection": "users",
+  "field": "email",
+  "unique": true
+}
+```
+
+**Returns:** `{ "created": true }`
+
+---
+
+### `thing_delete_index`
+
+Delete a functional index definition without deleting object data.
 
 ```json
 {
@@ -414,7 +433,7 @@ Create a functional index on a JSON body field for a collection. Subsequent `thi
 }
 ```
 
-**Returns:** `{ "created": true }`
+**Returns:** `{ "deleted": true }`
 
 ---
 
@@ -560,6 +579,23 @@ Reflect the schema of one or all collections. Returns inferred field names, type
 ```
 
 **Returns:** `CollectionSchema | CollectionSchema[]`
+
+### `thing_schema_validate`
+
+Parse and validate `schema.thingd` source without changing stored data.
+
+```json
+{ "source": "version 1\ncollection users {\n  id: string @id\n}\n" }
+```
+
+**Returns:** `{ schema, hash }`, where `hash` is the stable SHA-256 hash of
+the canonical schema JSON.
+
+### `thing_migrations`
+
+List durable schema migration records and their applied hashes.
+
+**Returns:** `MigrationRecord[]`.
 
 ---
 

@@ -7,12 +7,14 @@ use napi_derive::napi;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use thingd::{
-    AggregateFunction, AggregateOptions, AggregateStore, EncryptionConfig, EventLog, Link,
-    LinkDirection, LinkQueryOptions, LinkStore, ListEventsOptions, ListObjectsOptions, MemoryEvent,
-    MemoryObject, ObjectStore, PersistentEngine, PersistentOpenOptions, PutObjectOptions,
-    QueueClaimOptions, QueueJob, QueueJobStatus, QueueNackOptions, QueueStore, SchemaOptions,
-    SearchOptions, Searcher, TimeSeriesOptions, VectorSearchOptions, VectorStore,
+    AggregateFunction, AggregateOptions, AggregateStore, EncryptionConfig, EventLog,
+    IndexDefinition, Link, LinkDirection, LinkQueryOptions, LinkStore, ListEventsOptions,
+    ListObjectsOptions, MemoryEvent, MemoryObject, MigrationRecord, ObjectStore, PersistentEngine,
+    PersistentOpenOptions, PutObjectOptions, QueueClaimOptions, QueueJob, QueueJobStatus,
+    QueueNackOptions, QueueStore, SchemaOptions, SchemaStore, SearchOptions, Searcher,
+    StoredSchema, TimeSeriesOptions, VectorSearchOptions, VectorStore,
 };
+use thingd_schema::parse as parse_schema_source;
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -65,6 +67,18 @@ impl<'a> DerefMut for EngineGuard<'a> {
 #[derive(Clone)]
 pub struct NativeThingStore {
     store: Arc<Mutex<Option<PersistentEngine>>>,
+}
+
+/// Parse a `schema.thingd` source document and return its canonical JSON.
+#[napi]
+pub fn parse_schema(source: String) -> Result<String> {
+    let schema =
+        parse_schema_source(&source).map_err(|error| Error::from_reason(error.to_string()))?;
+    let hash = schema
+        .hash()
+        .map_err(|error| Error::from_reason(error.to_string()))?;
+    serde_json::to_string(&serde_json::json!({ "schema": schema, "hash": hash }))
+        .map_err(|error| Error::from_reason(error.to_string()))
 }
 
 #[napi]
@@ -165,6 +179,24 @@ impl NativeThingStore {
     pub fn create_index_json(&self, collection: String, field: String) -> Result<()> {
         let mut store = self.lock_store()?;
         store.create_index(&collection, &field).map_err(napi_error)
+    }
+
+    #[napi(js_name = "createUniqueIndexJson")]
+    pub fn create_unique_index_json(&self, collection: String, field: String) -> Result<()> {
+        let mut store = self.lock_store()?;
+        store
+            .create_index_definition(IndexDefinition {
+                collection,
+                field,
+                unique: true,
+            })
+            .map_err(napi_error)
+    }
+
+    #[napi(js_name = "deleteIndexJson")]
+    pub fn delete_index_json(&self, collection: String, field: String) -> Result<bool> {
+        let mut store = self.lock_store()?;
+        store.delete_index(&collection, &field).map_err(napi_error)
     }
 
     #[napi(js_name = "listIndexesJson")]
@@ -678,6 +710,55 @@ impl NativeThingStore {
             .schema(collection.as_deref(), &options)
             .map_err(napi_error)?;
         to_json(&schemas)
+    }
+
+    #[napi(js_name = "getSchemaDocumentJson")]
+    pub fn get_schema_document_json(&self) -> Result<Option<String>> {
+        let store = self.lock_store()?;
+        store
+            .get_schema_document()
+            .map_err(napi_error)
+            .and_then(|schema| schema.map(|value| to_json(&value)).transpose())
+    }
+
+    #[napi(js_name = "putSchemaDocumentJson")]
+    pub fn put_schema_document_json(
+        &self,
+        schema_json: String,
+        hash: String,
+        updated_at: String,
+    ) -> Result<()> {
+        let mut store = self.lock_store()?;
+        store
+            .put_schema_document(StoredSchema {
+                schema_json,
+                hash,
+                updated_at,
+            })
+            .map_err(napi_error)
+    }
+
+    #[napi(js_name = "listMigrationsJson")]
+    pub fn list_migrations_json(&self) -> Result<String> {
+        let store = self.lock_store()?;
+        to_json(&store.list_migrations().map_err(napi_error)?)
+    }
+
+    #[napi(js_name = "recordMigrationJson")]
+    pub fn record_migration_json(
+        &self,
+        id: String,
+        hash: String,
+        applied_at: String,
+    ) -> Result<()> {
+        let mut store = self.lock_store()?;
+        store
+            .record_migration(MigrationRecord {
+                id,
+                hash,
+                applied_at,
+            })
+            .map_err(napi_error)
     }
 
     #[napi]

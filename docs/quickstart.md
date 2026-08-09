@@ -106,9 +106,21 @@ thingd dashboard
 
 Opens a dark-mode browser dashboard at `http://localhost:8758`. Browse collections, event streams, search queries, and queue jobs interactively.
 
+### Optional schema files
+
+For an explicit, version-controlled data contract, add a `schema.thingd` file
+and validate it before committing:
+
+```bash
+thingd schema check schema.thingd
+```
+
+Schema files are optional; the normal object API remains schemaless. See the
+[schema files guide](/schema) for syntax and the current validation boundary.
+
 ## 4. Connect your editor (MCP)
 
-thingd ships with 46 Node MCP tools. The Rust sidecar exposes 36 engine tools; connect your editor to search, read, write, and queue data directly from your agent.
+thingd ships with 49 Node MCP tools. The Rust sidecar exposes 39 engine tools; connect your editor to search, read, write, and queue data directly from your agent.
 
 If the native database is encrypted, configure `THINGD_ENCRYPTION_KEY` in the
 host process before starting MCP. The editor's MCP configuration and tool calls
@@ -178,7 +190,7 @@ Expected output:
 ✔ MCP server: reachable
 ```
 
-Once connected to the Node MCP server, your agent can call all 46 tools — search, objects, events, queues, links, aggregate, schema, NLQ, vector, scheduler, and discovery.
+Once connected to the Node MCP server, your agent can call all 49 tools — search, objects, events, queues, links, aggregate, schema, NLQ, vector, indexing, scheduler, and discovery.
 
 **Example: agent searches before writing**
 

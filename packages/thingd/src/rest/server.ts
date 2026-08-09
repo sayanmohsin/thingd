@@ -108,6 +108,38 @@ export async function handleRestRequest(
       return;
     }
 
+    // POST /v1/schema/validate — parse schema source without changing storage
+    if (pathname === "/v1/schema/validate" && method === "POST") {
+      const body = JSON.parse(await readBody(req)) as { source?: unknown };
+      const source = typeof body.source === "string" ? body.source : "";
+      if (!source.trim()) {
+        sendError(res, 400, "bad_request", "Schema source must not be empty");
+        return;
+      }
+      try {
+        const { parseSchema } = await import("../stores/native-thing-store.js");
+        sendData(res, await parseSchema(source));
+      } catch (error) {
+        sendError(
+          res,
+          400,
+          "schema_validation_error",
+          error instanceof Error ? error.message : String(error)
+        );
+      }
+      return;
+    }
+
+    if (pathname === "/v1/schema/current" && method === "GET") {
+      sendData(res, await db.getSchemaDocument());
+      return;
+    }
+
+    if (pathname === "/v1/migrations" && method === "GET") {
+      sendData(res, await db.listMigrations());
+      return;
+    }
+
     // GET /v1/collections/:name/schema — single schema
     const schemaMatch = matchRoute(pathname, "/v1/collections/:name/schema");
     if (schemaMatch?.name && method === "GET") {
@@ -140,9 +172,22 @@ export async function handleRestRequest(
       return;
     }
     if (pathname === "/v1/indexes" && method === "POST") {
-      const body = JSON.parse(await readBody(req));
-      await db.createIndex(body.collection, body.field);
+      const body = JSON.parse(await readBody(req)) as {
+        collection: string;
+        field: string;
+        unique?: boolean;
+      };
+      if (body.unique) {
+        await db.createUniqueIndex(body.collection, body.field);
+      } else {
+        await db.createIndex(body.collection, body.field);
+      }
       sendData(res, { created: true });
+      return;
+    }
+    if (pathname === "/v1/indexes" && method === "DELETE") {
+      const body = JSON.parse(await readBody(req)) as { collection: string; field: string };
+      sendData(res, { deleted: await db.deleteIndex(body.collection, body.field) });
       return;
     }
 

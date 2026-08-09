@@ -46,6 +46,9 @@ pub fn build_router(state: Arc<AppState>, config: &Config) -> Router {
         .route("/v1/collections", get(rest::list_collections))
         .route("/v1/collections/schema", get(rest::list_schemas))
         .route("/v1/collections/{name}/schema", get(rest::get_schema))
+        .route("/v1/schema/validate", post(rest::validate_schema))
+        .route("/v1/schema/current", get(rest::current_schema))
+        .route("/v1/migrations", get(rest::list_migrations))
         .route("/v1/streams", get(rest::list_streams))
         .route("/v1/queues", get(rest::list_queues))
         // Objects
@@ -75,7 +78,12 @@ pub fn build_router(state: Arc<AppState>, config: &Config) -> Router {
         .route("/v1/queues/{queue}/jobs", get(rest::list_jobs))
         .route("/v1/queues/{queue}/dead", get(rest::list_dead_jobs))
         // Indexes
-        .route("/v1/indexes", get(rest::list_indexes).post(rest::create_index))
+        .route(
+            "/v1/indexes",
+            get(rest::list_indexes)
+                .post(rest::create_index)
+                .delete(rest::delete_index),
+        )
         // Links
         .route("/v1/links", post(rest::create_link).get(rest::get_links))
         .route("/v1/links/{id}", get(rest::get_link_by_id).delete(rest::delete_link))

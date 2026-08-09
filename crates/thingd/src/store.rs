@@ -1,8 +1,9 @@
 //! Storage traits implemented by thingd storage adapters.
 
 use crate::model::{
-    AggregateOptions, AggregateResult, CollectionSchema, ListEventsOptions, ListObjectsOptions,
-    PutObjectOptions, SchemaOptions, TimeSeriesOptions, TimeSeriesResult,
+    AggregateOptions, AggregateResult, CollectionSchema, IndexDefinition, ListEventsOptions,
+    ListObjectsOptions, MigrationRecord, PutObjectOptions, SchemaOptions, StoredSchema,
+    TimeSeriesOptions, TimeSeriesResult,
 };
 use crate::{
     MemoryEvent, MemoryObject, QueueClaimOptions, QueueJob, QueueNackOptions, ThingdError,
@@ -217,6 +218,52 @@ pub trait ObjectStore {
     /// Returns an error when the backing store cannot list indexes.
     fn list_indexes(&self) -> ThingdResult<Vec<(String, String)>> {
         Ok(vec![])
+    }
+
+    /// Create or replace a functional index definition.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the definition is invalid or existing data
+    /// violates a unique definition.
+    fn create_index_definition(&mut self, index: IndexDefinition) -> ThingdResult<()> {
+        if index.collection.is_empty() || index.field.is_empty() {
+            return Err(ThingdError::InvalidInput(
+                "index collection and field are required".to_string(),
+            ));
+        }
+        if index.unique {
+            return Err(ThingdError::InvalidInput(
+                "unique indexes are not supported by this adapter".to_string(),
+            ));
+        }
+        self.create_index(&index.collection, &index.field)
+    }
+
+    /// Remove a functional index definition.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the backing store cannot remove the definition.
+    fn delete_index(&mut self, _collection: &str, _field: &str) -> ThingdResult<bool> {
+        Ok(false)
+    }
+
+    /// List index definitions, including uniqueness semantics.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the backing store cannot list definitions.
+    fn list_index_definitions(&self) -> ThingdResult<Vec<IndexDefinition>> {
+        Ok(self
+            .list_indexes()?
+            .into_iter()
+            .map(|(collection, field)| IndexDefinition {
+                collection,
+                field,
+                unique: false,
+            })
+            .collect())
     }
 
     /// Reflect the schema of all or one collection by sampling stored objects.
@@ -645,11 +692,56 @@ pub trait VectorStore {
 
 /// Full storage interface expected from thingd engine adapters.
 pub trait ThingStore:
-    EventLog + ObjectStore + QueueStore + Searcher + LinkStore + AggregateStore + VectorStore
+    EventLog
+    + ObjectStore
+    + QueueStore
+    + Searcher
+    + LinkStore
+    + AggregateStore
+    + VectorStore
+    + SchemaStore
 {
 }
 
 impl<T> ThingStore for T where
-    T: EventLog + ObjectStore + QueueStore + Searcher + LinkStore + AggregateStore + VectorStore
+    T: EventLog
+        + ObjectStore
+        + QueueStore
+        + Searcher
+        + LinkStore
+        + AggregateStore
+        + VectorStore
+        + SchemaStore
 {
+}
+
+/// Durable schema and migration metadata operations.
+pub trait SchemaStore {
+    /// Read the last applied canonical schema, if any.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when metadata cannot be read.
+    fn get_schema_document(&self) -> ThingdResult<Option<StoredSchema>>;
+
+    /// Store the canonical schema metadata.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when metadata cannot be written.
+    fn put_schema_document(&mut self, schema: StoredSchema) -> ThingdResult<()>;
+
+    /// List applied migrations in deterministic order.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when migration metadata cannot be read.
+    fn list_migrations(&self) -> ThingdResult<Vec<MigrationRecord>>;
+
+    /// Record an applied migration.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when migration metadata cannot be written.
+    fn record_migration(&mut self, migration: MigrationRecord) -> ThingdResult<()>;
 }

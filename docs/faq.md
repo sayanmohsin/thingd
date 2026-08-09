@@ -176,7 +176,7 @@ CLI commands: `thingd queues dead <queue>` lists dead jobs. To replay, delete an
 
 ### What MCP tools are exposed?
 
-The Node MCP server exposes 46 tools; the Rust sidecar exposes 36 engine tools. See the [API spec — MCP tools reference](api-spec/mcp-tools.md) for the full list with schemas.
+The Node MCP server exposes 49 tools; the Rust sidecar exposes 39 engine tools. See the [API spec — MCP tools reference](api-spec/mcp-tools.md) for the full list with schemas.
 
 ### Can agents bypass allowlists accidentally?
 

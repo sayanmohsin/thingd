@@ -9,9 +9,9 @@ knowing SQL or internal storage details.
 
 ## Current Status
 
-**46 SDK MCP tools** are exposed via stdio and Streamable HTTP. The Rust sidecar exposes 36 core tools.
+**49 SDK MCP tools** are exposed via stdio and Streamable HTTP. The Rust sidecar exposes 39 core tools.
 
-The separate Rust sidecar MCP registry exposes 36 engine tools. The 10 scheduler
+The separate Rust sidecar MCP registry exposes 39 engine tools. The 10 scheduler
 tools are implemented by the Node SDK runtime and are intentionally not part of
 the Rust sidecar surface yet.
 

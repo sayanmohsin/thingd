@@ -6,9 +6,11 @@
 
 use crate::store::*;
 use crate::{
-    MemoryEvent, MemoryObject, QueueClaimOptions, QueueJob, QueueJobStatus, QueueNackOptions,
-    SearchOptions, VectorSearchHit, VectorSearchOptions,
+    IndexDefinition, MemoryEvent, MemoryObject, MigrationRecord, QueueClaimOptions, QueueJob,
+    QueueJobStatus, QueueNackOptions, SearchOptions, StoredSchema,
 };
+#[cfg(feature = "vectors")]
+use crate::{VectorSearchHit, VectorSearchOptions};
 
 /// Verify object CRUD lifecycle: create, read, update, delete.
 pub fn test_contract_object_lifecycle(engine: &mut impl ThingStore) {
@@ -59,6 +61,60 @@ pub fn test_contract_vector_lifecycle(engine: &mut impl ThingStore) {
             "vector must be removed when object updated without vector"
         );
     }
+}
+
+/// Verify schema metadata and migration records survive the storage adapter.
+pub fn test_contract_schema_store(engine: &mut impl ThingStore) {
+    assert!(engine.get_schema_document().unwrap().is_none());
+    engine
+        .put_schema_document(StoredSchema {
+            schema_json: "{\"version\":1}".to_string(),
+            hash: "sha256:test".to_string(),
+            updated_at: "2026-01-01T00:00:00Z".to_string(),
+        })
+        .unwrap();
+    assert_eq!(
+        engine.get_schema_document().unwrap().unwrap().hash,
+        "sha256:test"
+    );
+    engine
+        .record_migration(MigrationRecord {
+            id: "0001_initial.thingd".to_string(),
+            hash: "sha256:test".to_string(),
+            applied_at: "2026-01-01T00:00:00Z".to_string(),
+        })
+        .unwrap();
+    assert_eq!(engine.list_migrations().unwrap().len(), 1);
+}
+
+/// Verify functional index definitions and unique-value enforcement.
+pub fn test_contract_indexes(engine: &mut impl ThingStore) {
+    engine
+        .create_index_definition(IndexDefinition {
+            collection: "users".to_string(),
+            field: "email".to_string(),
+            unique: true,
+        })
+        .unwrap();
+    engine
+        .put_object(MemoryObject::new(
+            "users",
+            "alice",
+            r#"{"email":"alice@example.com"}"#,
+        ))
+        .unwrap();
+    let duplicate = engine.put_object(MemoryObject::new(
+        "users",
+        "other",
+        r#"{"email":"alice@example.com"}"#,
+    ));
+    assert!(matches!(duplicate, Err(crate::ThingdError::Conflict(_))));
+    assert_eq!(
+        engine.list_indexes().unwrap(),
+        vec![("users".into(), "email".into())]
+    );
+    assert!(engine.delete_index("users", "email").unwrap());
+    assert!(engine.list_indexes().unwrap().is_empty());
 }
 
 /// Verify event append with idempotency and sequence ordering.

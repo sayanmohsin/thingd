@@ -77,7 +77,7 @@ packages/
 pnpm build                    # build all packages (TypeScript + Rust native)
 pnpm check                    # biome lint
 pnpm check:write              # biome auto-fix
-pnpm test:node                # 91 Node SDK tests
+pnpm test:node                # 92 Node SDK tests
 pnpm test:cli                 # 44 CLI tests
 pnpm test:rust                # cargo test --workspace --all-features (226 tests — 43 persistent unit tests*)
 pnpm test:local               # check → build → node+cli+package tests

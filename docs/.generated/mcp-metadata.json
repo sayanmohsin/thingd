@@ -1,7 +1,7 @@
 {
   "generatedFrom": ["packages/thingd/src/mcp/tools.ts", "crates/thingd-server/src/mcp.rs"],
-  "sdkToolCount": 46,
-  "sidecarToolCount": 36,
+  "sdkToolCount": 49,
+  "sidecarToolCount": 39,
   "schedulerToolCount": 10,
   "sdkTools": [
     "thing_aggregate",
@@ -12,6 +12,7 @@
     "thing_count_objects_in_collection",
     "thing_create_index",
     "thing_delete",
+    "thing_delete_index",
     "thing_events_append",
     "thing_events_list",
     "thing_get",
@@ -24,6 +25,7 @@
     "thing_list_indexes",
     "thing_list_queues",
     "thing_list_streams",
+    "thing_migrations",
     "thing_nlq",
     "thing_objects_delete_batch",
     "thing_objects_get_batch",
@@ -47,6 +49,7 @@
     "thing_scheduler_schedule_once",
     "thing_scheduler_stats",
     "thing_schema",
+    "thing_schema_validate",
     "thing_search",
     "thing_timeseries",
     "thing_vector_search"
@@ -60,6 +63,7 @@
     "thing_count_objects_in_collection",
     "thing_create_index",
     "thing_delete",
+    "thing_delete_index",
     "thing_events_append",
     "thing_events_list",
     "thing_get",
@@ -72,6 +76,7 @@
     "thing_list_indexes",
     "thing_list_queues",
     "thing_list_streams",
+    "thing_migrations",
     "thing_nlq",
     "thing_objects_delete_batch",
     "thing_objects_get_batch",
@@ -85,6 +90,7 @@
     "thing_queue_nack",
     "thing_queue_push",
     "thing_schema",
+    "thing_schema_validate",
     "thing_search",
     "thing_timeseries",
     "thing_vector_search"

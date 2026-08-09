@@ -99,7 +99,13 @@ type NativeThingStoreBinding = {
     filterJson?: string
   ): string;
   schemaJson(collection?: string, sampleSize?: number): string;
+  getSchemaDocumentJson(): string | null;
+  putSchemaDocumentJson(schemaJson: string, hash: string, updatedAt: string): void;
+  listMigrationsJson(): string;
+  recordMigrationJson(id: string, hash: string, appliedAt: string): void;
   createIndexJson(collection: string, field: string): void;
+  createUniqueIndexJson(collection: string, field: string): void;
+  deleteIndexJson(collection: string, field: string): boolean;
   listIndexesJson(): string;
   vectorSearchJson(
     collection: string,
@@ -115,6 +121,7 @@ type NativeThingStoreConstructor = {
 
 type NativeThingStoreModule = {
   NativeThingStore: NativeThingStoreConstructor;
+  parseSchema(source: string): string;
   reencrypt(
     sourcePath: string,
     destinationPath: string,
@@ -123,6 +130,26 @@ type NativeThingStoreModule = {
     allowPlaintextOutput?: boolean
   ): void;
   loadedPath?: string;
+};
+
+/** Result returned after parsing and hashing a schema document. */
+export type SchemaDocument = {
+  schema: unknown;
+  hash: string;
+};
+
+/** Persisted canonical schema metadata. */
+export type StoredSchema = {
+  schemaJson: string;
+  hash: string;
+  updatedAt: string;
+};
+
+/** Durable record of an applied migration. */
+export type MigrationRecord = {
+  id: string;
+  hash: string;
+  appliedAt: string;
 };
 
 type NativeObjectRecord = {
@@ -211,6 +238,11 @@ const DEFAULT_LEASE_MS = 30_000;
 const NATIVE_PACKAGE_NAME = "@thingd/native";
 
 export class NativeThingStore implements ThingStore {
+  static async parseSchema(source: string): Promise<SchemaDocument> {
+    const native = await loadNativeModule();
+    return parseJson<SchemaDocument>(native.parseSchema(source));
+  }
+
   static async open(path: string, encryptionKey?: string): Promise<NativeThingStore> {
     const native = await loadNativeModule();
     return new NativeThingStore(native.NativeThingStore.open(path, encryptionKey));
@@ -566,6 +598,14 @@ export class NativeThingStore implements ThingStore {
     this.binding.createIndexJson(collection, field);
   }
 
+  async createUniqueIndex(collection: string, field: string): Promise<void> {
+    this.binding.createUniqueIndexJson(collection, field);
+  }
+
+  async deleteIndex(collection: string, field: string): Promise<boolean> {
+    return this.binding.deleteIndexJson(collection, field);
+  }
+
   async listIndexes(): Promise<Array<[string, string]>> {
     return parseJson<Array<[string, string]>>(this.binding.listIndexesJson());
   }
@@ -602,6 +642,32 @@ export class NativeThingStore implements ThingStore {
     const sampleSize = options?.sampleSize ?? 50;
     return parseJson<CollectionSchema[]>(this.binding.schemaJson(collection, sampleSize));
   }
+
+  async validateSchema(source: string): Promise<SchemaDocument> {
+    return NativeThingStore.parseSchema(source);
+  }
+
+  async getSchemaDocument(): Promise<StoredSchema | null> {
+    const value = this.binding.getSchemaDocumentJson();
+    return value ? parseJson<StoredSchema>(value) : null;
+  }
+
+  async putSchemaDocument(schema: StoredSchema): Promise<void> {
+    this.binding.putSchemaDocumentJson(schema.schemaJson, schema.hash, schema.updatedAt);
+  }
+
+  async listMigrations(): Promise<MigrationRecord[]> {
+    return parseJson<MigrationRecord[]>(this.binding.listMigrationsJson());
+  }
+
+  async recordMigration(migration: MigrationRecord): Promise<void> {
+    this.binding.recordMigrationJson(migration.id, migration.hash, migration.appliedAt);
+  }
+}
+
+/** Parse a `schema.thingd` source document with the native Rust parser. */
+export async function parseSchema(source: string): Promise<SchemaDocument> {
+  return NativeThingStore.parseSchema(source);
 }
 
 async function loadNativeModule(): Promise<NativeThingStoreModule> {
@@ -612,6 +678,7 @@ async function loadNativeModule(): Promise<NativeThingStoreModule> {
       const binding = require(customPath);
       return {
         NativeThingStore: binding.NativeThingStore,
+        parseSchema: binding.parseSchema,
         reencrypt: binding.reencrypt,
         loadedPath: customPath,
       };
@@ -627,6 +694,7 @@ async function loadNativeModule(): Promise<NativeThingStoreModule> {
     const mod = (await import(NATIVE_PACKAGE_NAME)) as NativeThingStoreModule;
     return {
       NativeThingStore: mod.NativeThingStore,
+      parseSchema: mod.parseSchema,
       reencrypt: mod.reencrypt,
       loadedPath: mod.loadedPath,
     };
@@ -668,6 +736,7 @@ async function loadNativeModule(): Promise<NativeThingStoreModule> {
             if (binding?.NativeThingStore) {
               return {
                 NativeThingStore: binding.NativeThingStore,
+                parseSchema: binding.parseSchema,
                 reencrypt: binding.reencrypt,
                 loadedPath: candidate,
               };

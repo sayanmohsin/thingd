@@ -348,6 +348,14 @@ export class CloudThingStore implements ThingStore {
     await this.callTool("thing_create_index", { collection, field });
   }
 
+  async createUniqueIndex(collection: string, field: string): Promise<void> {
+    await this.callTool("thing_create_index", { collection, field, unique: true });
+  }
+
+  async deleteIndex(collection: string, field: string): Promise<boolean> {
+    return this.callTool("thing_delete_index", { collection, field });
+  }
+
   async listIndexes(): Promise<Array<[string, string]>> {
     return this.callTool("thing_list_indexes", {});
   }
