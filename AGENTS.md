@@ -1,104 +1,64 @@
-# Agent Notes
+# Agent instructions for public thingd
 
-## Product
+thingd is the public, open-source Rust data engine, Node.js SDK, browser/edge
+client, sidecar MCP/REST server, CLI, native binding, and self-hosting docs.
+thingd Cloud is a separate private repository built on the released public API.
 
-**thingd** is a fast object-first data engine for applications and AI agents.
-It provides object storage, durable queues, event streams, full-text search,
-graph links, and 46 Node MCP tools — all in one binary. Runs embedded (Rust/Node),
-as a sidecar MCP server, in Docker, or in Kubernetes.
+## Repository boundary
 
-**thingd Cloud** (at [thingd.cloud](https://thingd.cloud), private repo
-`sayanmohsin/thingd-cloud`) is the managed hosted version — same engine, zero
-infrastructure. See `AGENTS.md` in that repo for cloud-specific docs.
+- Put engine, SDK, CLI, MCP, REST, API-specification, self-hosting, and public
+  contributor changes in this repository.
+- Put auth, billing, tenants, hosted provisioning, Cloud operations, internal
+  product planning, engine roadmap, private audits, and cross-repository
+  handoff documents in `thingd-cloud`.
+- A feature spanning both repositories gets its public contract here and its
+  hosted integration in `thingd-cloud`.
+- Never add private planning, customer data, credentials, or Cloud-only
+  operational details to this public repository.
 
-## Repo boundaries
+## Source of truth
 
-thingd (this repo, public): Rust engine + Node.js SDK + CLI + Rust sidecar + public docs.
-thingd-cloud (private): hosted SaaS (auth, billing, tenants, MCP gateway, planning docs).
+- Public API contracts: `docs/api-spec/`.
+- Public contributor and integration guidance: `docs/agent-implementation-guide.md`.
+- Public runtime behavior: source, tests, and user-facing docs in this repo.
+- Private engine planning and cross-repository handoff: `thingd-cloud/docs/thingd/`.
 
-| Change goes in | Repo |
-|----------------|------|
-| New engine feature, SDK method, MCP tool, REST endpoint, API spec, public docs | thingd |
-| Auth, billing, tenants, rate limiting, roadmap/phase tracking, planning docs | thingd-cloud |
-| Feature spanning both | API surface in thingd, integration in thingd-cloud |
+## Implementation rules
 
-Never duplicate planning status between repos. Never commit secrets to either.
+For a public feature, update every affected layer: Rust engine, native binding,
+sidecar REST/MCP, Node SDK, browser client, CLI, tests, and public docs. Keep
+MCP independent from REST and keep Cloud concerns out of the engine crate.
 
-> **Warning:** `docs/sidecar-cluster.md` in this repo duplicates content in
-> `thingd-cloud/docs/thingd/sidecar-cluster.md`. The thingd-cloud version is the
-> authoritative planning doc — remove the public copy once it's confirmed clean.
+Required workflow:
 
-## Architecture
-
-```
-crates/
-  thingd/            ← Rust engine (zero HTTP/MCP knowledge)
-  thingd-server/     ← Rust sidecar binary (axum: MCP + REST + cluster, Docker ~15MB)
-packages/
-  thingd/            ← @thingd/sdk (Node.js SDK: MCP + REST + three stores)
-  thingd-client/     ← @thingd/client (zero-dep REST client for browsers/edge)
-  thingd-cli/        ← @thingd/cli (CLI + TUI + transports)
-  thingd-native/     ← @thingd/native (napi-rs binding to thingd crate)
-```
-
-## Spec-first development
-
-`docs/api-spec/` is the single source of truth. Every feature starts there before any code.
-
-**Required order:** data-model.md → rest-api.md → mcp-tools.md → errors.md → search.md
-
-**Implement in every layer** (never ship one layer only):
-
-| Layer | Location |
-|-------|----------|
-| Engine (Rust) | `crates/thingd/src/` (store.rs, model.rs, in_memory.rs, persistent.rs) |
-| Native binding (Rust napi) | `packages/thingd-native/native/src/lib.rs` |
-| Sidecar REST (Rust axum) | `crates/thingd-server/src/rest.rs` |
-| Sidecar MCP (Rust) | `crates/thingd-server/src/mcp.rs` |
-| Node.js SDK (TypeScript) | `packages/thingd/src/thingd.ts` |
-| Browser/Edge client | `packages/thingd-client/src/client.ts` |
-| Node.js REST | `packages/thingd/src/rest/server.ts` |
-| Node.js MCP | `packages/thingd/src/mcp/tools.ts` |
-| Node.js stores | `packages/thingd/src/stores/*.ts` |
-| CLI | `packages/thingd-cli/src/index.ts` |
-| Tests | `packages/thingd/test/`, `packages/thingd-cli/test/`, `crates/thingd/` |
-
-**MCP surfaces** — the Node.js SDK MCP (`packages/thingd/src/mcp/tools.ts`) exposes 46 tools, including 10 SDK-level scheduler tools. The Rust sidecar (`crates/thingd-server/src/mcp.rs`) exposes 36 engine tools; scheduler tools remain Node SDK-only.
-
-**Sidecar cluster** returns real config (mode, peers, discovery). Real cluster forwarding/leader election logic is in `packages/thingd-cli/src/mcp/cluster.ts`.
-
-**Scheduler** — SDK-level module (`packages/thingd/src/scheduler.ts`). Uses existing ObjectStore + QueueStore primitives. No engine changes. Ships in SDK + MCP tools only.
-
-**MCP layer is independent** — no imports from REST. The stdio MCP server (`thingd mcp`) runs standalone without the REST layer.
+1. Inspect `git status` and preserve unrelated changes.
+2. Read the applicable API spec and trace existing behavior before editing.
+3. Update contracts, implementation, adapters, tests, and docs together.
+4. Run focused checks, then the proportionate repository checks.
+5. Review the diff and public-document boundary before handoff.
 
 ## Commands
 
 ```bash
-pnpm build                    # build all packages (TypeScript + Rust native)
-pnpm check                    # biome lint
-pnpm check:write              # biome auto-fix
-pnpm test:node                # 92 Node SDK tests
-pnpm test:cli                 # 44 CLI tests
-pnpm test:rust                # cargo test --workspace --all-features (226 tests — 43 persistent unit tests*)
-pnpm test:local               # check → build → node+cli+package tests
-pnpm bench:rust               # full Rust benchmark (in-memory + persistent)
-pnpm bench:rust:smoke         # quick Rust benchmark (100 iters)
+pnpm check
+pnpm build
+pnpm test:node
+pnpm test:cli
+pnpm test:rust
+cargo fmt --all --check
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 ```
 
-## Pre-push hook (lefthook, runs in parallel)
+Use `pnpm check:docs` for documentation and public-boundary validation.
 
-1. `pnpm check` (biome)
-2. `pnpm build` (recursive — TypeScript + Rust native)
-3. `pnpm test:node` (Node SDK unit tests — ~2s)
-4. `cargo fmt --all --check`
-5. `cargo clippy --workspace --all-targets --all-features -- -D warnings`
-6. `cargo deny check`
+## External actions
 
-All six must pass before push completes. Heavy tests (`pnpm test:rust`, `pnpm test:cli`) run in CI only.
-If clippy or fmt fails, fix and amend. Never use `--no-verify` to bypass pre-push hooks.
+Do not commit, push, open GitHub issues, deploy, or contact external systems
+unless the user explicitly requests it. Record an engine friction point in the
+private Cloud handoff/audit log when working from Cloud, then ask before filing
+an external issue.
 
-## Key conventions
+## Documentation boundary
 
 - **TypeScript**: ESM only (`"type": "module"`), no CJS (biome `noCommonJs: error`)
 - **Formatting**: double quotes, semicolons always, trailing commas es5, line width 100
@@ -171,13 +131,6 @@ Checklist of files to audit:
 - `docs/agent-setup.md` — cloud MCP setup path
 - `docs/quickstart.md` — cloud setup path
 
-### Cross-repo sync checklist
-
-After completing thingd work, always check thingd-cloud planning docs:
-- `thingd-cloud/docs/thingd/roadmap.md` — phase completion status, deliverables checkboxes
-- `thingd-cloud/docs/thingd/sidecar-cluster.md` — phase checkboxes, route lists, feature status
-- `thingd-cloud/docs/thingd/handoff.md` — update recommended next phase if changed
-
 ### Version specifier propagation
 
 When `[workspace.package].version` bumps in `Cargo.toml`, path deps with exact version specs must follow:
@@ -224,3 +177,7 @@ cargo publish -p thingd --features persistent,search
 - `/skill upgrade-deps-and-benchmark` — audit all deps, bump to latest, run benchmarks
 
 > Audit-after-change is not a skill — use the checklist under "Doc audit after every change" above.
+Public docs may explain Cloud as a product and document public Cloud endpoints,
+but must not expose private roadmap status, internal audits, customer/tenant
+operations, or private implementation plans. Run the boundary checker before
+handoff. Do not add a second private planning copy here.

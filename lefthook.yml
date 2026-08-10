@@ -1,15 +1,5 @@
 pre-push:
-  parallel: true
+  parallel: false
   commands:
-    lint:
-      run: pnpm check
-    build:
-      run: pnpm build
-    test-node:
-      run: pnpm test:node
-    rust-fmt:
-      run: cargo fmt --all --check
-    rust-clippy:
-      run: cargo clippy --workspace --all-targets --all-features -- -D warnings
-    rust-deny:
-      run: cargo deny check
+    verify-pr:
+      run: pnpm verify:pr
