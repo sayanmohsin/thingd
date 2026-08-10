@@ -1,5 +1,5 @@
 pre-push:
   parallel: false
   commands:
-    verify-pr:
-      run: pnpm verify:pr
+    verify-local:
+      run: pnpm verify:local

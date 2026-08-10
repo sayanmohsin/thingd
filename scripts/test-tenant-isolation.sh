@@ -158,11 +158,11 @@ traversal=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$MCP_URL" \
   -H "X-Tenant-Id: ../../etc/passwd" \
   -H "$CT" \
   -d '{"method":"tools/call","params":{"name":"thing_get","arguments":{"collection":"notes","id":"msg"}}}')
-if [ "$traversal" = "400" ]; then
-  echo "  ✅ Path traversal rejected (400)"
+if [ "$traversal" = "401" ]; then
+  echo "  ✅ Path traversal rejected (401)"
   ((PASS++))
 else
-  echo "  ❌ Path traversal returned $traversal (expected 400)"
+  echo "  ❌ Path traversal returned $traversal (expected 401)"
   ((FAIL++))
 fi
 

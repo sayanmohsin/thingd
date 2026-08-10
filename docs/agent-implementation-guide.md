@@ -302,11 +302,16 @@ For agent value and patterns, read [why-agents.md](./why-agents.md) and
 
 ## Required Checks
 
-Before handing work back:
+For the normal local feedback loop:
 
 ```bash
-pnpm test:local
-pnpm test:cli
+pnpm verify:local
+```
+
+Before handing work back or opening a PR:
+
+```bash
+pnpm verify:pr
 ```
 
 If Rust is installed:
@@ -320,7 +325,9 @@ pnpm test:rust
 
 Rust checks run with all features enabled so the persistent adapter is covered in CI.
 
-`pnpm test:local` does not run Rust checks because some local environments may not have `cargo` installed.
+`pnpm verify:local` intentionally omits Rust compilation and test suites so the
+pre-push loop remains fast. `pnpm verify:pr` is the complete local equivalent
+of the required PR validation.
 
 For storage benchmark work:
 

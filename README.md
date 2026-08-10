@@ -668,14 +668,19 @@ Documentation: see [docs/](./docs/) for quickstart, MCP server reference, API sp
 Useful commands:
 
 ```bash
+pnpm verify:local
 pnpm check
 pnpm check:write
 pnpm test:local
 pnpm test:cli
+pnpm verify:pr
 pnpm rust:fmt:check
 pnpm rust:clippy
 pnpm test
 ```
+
+`pnpm verify:local` is the fast pre-push gate. `pnpm verify:pr` runs the
+complete Rust, SDK, package, CLI, and documentation validation used for a PR.
 
 Rust checks run all crate features, including the persistent adapter:
 
@@ -698,7 +703,7 @@ native prebuild workflow, and troubleshooting.
 Before enabling publish, run:
 
 ```bash
-pnpm test:local
+pnpm verify:pr
 pnpm test:publish-manifests
 ```
 
