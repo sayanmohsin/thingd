@@ -38,7 +38,8 @@
     "examples": "pnpm --filter \"thingd-node-basic-example\" start && pnpm --filter \"thingd-node-stream-example\" start && pnpm --filter \"thingd-node-queue-example\" start",
     "examples:load": "pnpm --filter \"thingd-node-load-example\" start",
     "test:package": "pnpm --filter @thingd/sdk build && node scripts/verify-package.mjs",
-    "test:rust": "cargo test --workspace --all-targets --all-features"
+    "test:rust": "cargo test --workspace --all-targets --all-features",
+    "verify:pr": "pnpm check:cargo-versions && pnpm check && pnpm check:docs && pnpm rust:fmt:check && pnpm rust:clippy && pnpm test:rust && cargo test --doc --workspace --all-features && pnpm build && pnpm test:node && pnpm test:package"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.7",
