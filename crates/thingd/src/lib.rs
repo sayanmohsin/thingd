@@ -64,6 +64,7 @@ mod in_memory;
 mod model;
 #[cfg(feature = "persistent")]
 mod persistent;
+pub mod replication;
 mod store;
 
 #[cfg(feature = "connectors")]
@@ -88,6 +89,12 @@ pub use model::{
 #[cfg(feature = "persistent")]
 #[cfg_attr(docsrs, doc(cfg(feature = "persistent")))]
 pub use persistent::{PersistentEngine, PersistentOpenOptions};
+pub use replication::{
+    REPLICATION_PROVENANCE_COLLECTION, REPLICATION_QUARANTINE_COLLECTION,
+    REPLICATION_STATE_COLLECTION, REPLICATION_STREAM, REPLICATION_TOMBSTONE_COLLECTION,
+    ReplicationApplyResult, ReplicationChange, ReplicationConfig, ReplicationPage, ReplicationRole,
+    ReplicationService, ReplicationSnapshot, ReplicationStatus,
+};
 pub use store::{
     AggregateStore, EventLog, LinkStore, ObjectStore, QueueStore, SchemaStore, Searcher,
     ThingStore, VectorStore,
