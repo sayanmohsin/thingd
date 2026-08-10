@@ -56,7 +56,7 @@ jobs:
           token: ${{ steps.app-token.outputs.token }}
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
-      - name: Update Cargo.lock on release PR
+      - name: Synchronize local Cargo dependency versions on release PR
         if: ${{ steps.release.outputs.pr-number != '' }}
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
@@ -69,7 +69,7 @@ jobs:
           git checkout "$BRANCH"
           node scripts/sync-cargo-local-dependency-versions.mjs
           cargo update -w
-          git add Cargo.lock crates/thingd-server/Cargo.toml packages/thingd-native/Cargo.toml
+          git add Cargo.lock crates packages
           if ! git diff --cached --quiet; then
             git commit -m "chore: sync release dependency versions"
             git push origin "$BRANCH"

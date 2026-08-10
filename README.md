@@ -25,7 +25,7 @@ require the key on reopen and filesystem backups remain encrypted.
 SDK, CLI, and MCP server are functional and tested, but the project is not
 production-ready yet.
 
-See the [full feature status and roadmap](https://github.com/sayanmohsin/thingd-cloud/blob/main/docs/features.md) for a consolidated view of both the engine and thingd Cloud.
+See the [public documentation index](https://github.com/sayanmohsin/thingd/blob/main/docs/index.md) for released engine capabilities. Cloud-only planning is maintained privately.
 
 ### Shipped
 

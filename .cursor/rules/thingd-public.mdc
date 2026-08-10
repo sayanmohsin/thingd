@@ -1,0 +1,15 @@
+---
+description: Public thingd repository boundary and validation
+alwaysApply: true
+---
+
+Read `AGENTS.md` and `docs/agent-implementation-guide.md` before work.
+
+- Keep engine, SDK, CLI, MCP/REST, API specs, self-hosting, and public docs in
+  this repository.
+- Keep Cloud auth, billing, tenancy, hosted operations, private planning, and
+  internal audits out of this repository.
+- Preserve unrelated dirty changes.
+- Do not commit, push, deploy, file issues, or contact external systems without
+  explicit user authorization.
+- Run `pnpm check:docs` before handoff for documentation changes.

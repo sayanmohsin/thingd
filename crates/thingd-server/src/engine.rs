@@ -238,9 +238,11 @@ mod tests {
 
     #[tokio::test]
     async fn concurrent_readers_share_writer() {
-        let dir = std::env::temp_dir().join("thingd-test-concurrent-readers");
-        let _ = std::fs::remove_dir_all(&dir);
-        let _ = std::fs::create_dir_all(&dir);
+        let dir = std::env::temp_dir().join(format!(
+            "thingd-test-concurrent-readers-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
         let db_path = dir.join("test.db").to_str().unwrap().to_string();
         let pool = Arc::new(EnginePool::new(db_path.clone()));
 

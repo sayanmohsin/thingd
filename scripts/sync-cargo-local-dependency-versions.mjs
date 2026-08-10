@@ -1,32 +1,64 @@
-import fs from "node:fs";
+import { readFile, readdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-const root = process.cwd();
 const checkOnly = process.argv.includes("--check");
-const workspace = fs.readFileSync(path.join(root, "Cargo.toml"), "utf8");
-const version = workspace.match(/^version = "(\d+\.\d+)\.\d+"/m)?.[1];
-if (!version) {
-  throw new Error("Could not determine the Cargo workspace major/minor version");
+const root = process.cwd();
+const workspaceCargo = await readFile(path.join(root, "Cargo.toml"), "utf8");
+const workspaceVersion = workspaceCargo.match(/^version\s*=\s*"(\d+\.\d+\.\d+)"/m)?.[1];
+if (!workspaceVersion) {
+  throw new Error("Could not determine workspace package version from Cargo.toml");
+}
+const dependencyVersion = workspaceVersion.split(".").slice(0, 2).join(".");
+
+async function cargoManifests(directory) {
+  const entries = await readdir(path.join(root, directory), { withFileTypes: true });
+  const manifests = [];
+  for (const entry of entries) {
+    const entryPath = path.join(directory, entry.name);
+    if (entry.isDirectory()) {
+      manifests.push(...(await cargoManifests(entryPath)));
+    } else if (entry.isFile() && entry.name === "Cargo.toml") {
+      manifests.push(entryPath);
+    }
+  }
+  return manifests;
 }
 
-const files = ["crates/thingd-server/Cargo.toml", "packages/thingd-native/Cargo.toml"];
+const manifests = [
+  ...(await cargoManifests("crates")),
+  ...(await cargoManifests("packages")),
+];
 const stale = [];
-for (const file of files) {
-  const absolute = path.join(root, file);
-  const source = fs.readFileSync(absolute, "utf8");
+
+for (const manifest of manifests) {
+  const absolutePath = path.join(root, manifest);
+  const source = await readFile(absolutePath, "utf8");
   const updated = source.replace(
-    /(path\s*=\s*"[^"]+"\s*,\s*version\s*=\s*")[^"]+("[^\n]*)/g,
-    `$1${version}$2`,
-  );
-  if (source !== updated) {
-    stale.push(file);
-    if (!checkOnly) {
-      fs.writeFileSync(absolute, updated);
+    /^(\s*[^#\n]+\{[^\n]*\bpath\s*=\s*"[^"]+"[^\n]*\bversion\s*=\s*")(\d+\.\d+)("[^\n]*\}\s*(?:#.*)?)$/gm,
+    (line, prefix, version, suffix) => {
+      if (version === dependencyVersion) {
+        return line;
+      }
+      stale.push(`${manifest}: ${version} -> ${dependencyVersion}`);
+      return `${prefix}${dependencyVersion}${suffix}`;
     }
+  );
+  if (!checkOnly && updated !== source) {
+    await writeFile(absolutePath, updated);
   }
 }
 
-if (checkOnly && stale.length > 0) {
-  throw new Error(`Stale local Cargo dependency versions: ${stale.join(", ")}`);
+if (stale.length && checkOnly) {
+  console.error(
+    `Local Cargo dependency versions do not match workspace ${workspaceVersion}:\n${stale
+      .map((entry) => `- ${entry}`)
+      .join("\n")}`
+  );
+  process.exit(1);
 }
-console.log(checkOnly ? `Cargo dependency versions match ${version}` : `Synchronized Cargo dependencies to ${version}`);
+
+console.log(
+  checkOnly
+    ? `Local Cargo dependency versions match workspace ${workspaceVersion}.`
+    : `Synchronized local Cargo dependency versions to ${dependencyVersion}.`
+);
