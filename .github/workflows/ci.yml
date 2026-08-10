@@ -71,9 +71,9 @@ jobs:
           cargo build -p thingd-server
           bash scripts/test-tenant-isolation.sh ./target/debug/thingd-server
 
-  # ── Node unit tests (linux) — no `needs: [rust]` ─────
-  node-unit:
-    name: Node unit tests (linux)
+  # ── Node tests (linux) — no `needs: [rust]` ──────────
+  node:
+    name: Node SDK, package, CLI, and native tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -89,9 +89,10 @@ jobs:
           key: native-${{ hashFiles('**/Cargo.lock') }}
           save-if: ${{ runner.os == 'Linux' }}
       - run: pnpm install --frozen-lockfile
-      - run: pnpm --filter @thingd/sdk --filter @thingd/cli --filter @thingd/native build
-      - run: pnpm test:node
-      - run: pnpm test:package
+      - run: pnpm build:node
+      - run: pnpm test:node:built
+      - run: pnpm test:package:built
+      - run: pnpm test:cli:built
       - name: Verify native filter
         run: |
           node << 'EOF'
@@ -108,31 +109,10 @@ jobs:
           try { require('node:fs').rmSync(path, { recursive: true, force: true }); } catch {}
           })()
 
-  # ── CLI + integration tests (only after unit passes) ──
-  node-cli:
-    name: CLI + integration tests
-    needs: [node-unit]
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-      - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v6
-        with:
-          node-version: 24
-          cache: pnpm
-          cache-dependency-path: pnpm-lock.yaml
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-        with:
-          key: native-${{ hashFiles('**/Cargo.lock') }}
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm --filter @thingd/sdk --filter @thingd/cli --filter @thingd/native build
-      - run: pnpm test:cli
-
   # ── Cross-platform (push to main only) ───────────────
   platform-test:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [lint, rust, node-unit]
+    needs: [lint, rust, node]
     strategy:
       fail-fast: true
       matrix:
