@@ -13,6 +13,13 @@
 - server: harden security boundaries (0961ffe)
 - complete public SDK type exports (8a8889a)
 
+## [0.79.0](https://github.com/sayanmohsin/thingd/compare/thingd-v0.78.0...thingd-v0.79.0) (2026-08-10)
+
+
+### Features
+
+* add schema metadata writes and native replication ([#133](https://github.com/sayanmohsin/thingd/issues/133)) ([0bd6d1c](https://github.com/sayanmohsin/thingd/commit/0bd6d1ce5ffe6f796278e538ca800f91fad7b125))
+
 ## [0.78.0](https://github.com/sayanmohsin/thingd/compare/thingd-v0.77.3...thingd-v0.78.0) (2026-08-10)
 
 
