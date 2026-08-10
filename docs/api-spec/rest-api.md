@@ -86,10 +86,21 @@ The response contains the parsed canonical schema and a stable SHA-256 hash:
 Return the last applied canonical schema metadata, or `null` when no migration
 has been applied.
 
+### `PUT /v1/schema/current`
+
+Persist canonical schema metadata after an explicitly approved migration. The
+request body is `{ "schemaJson": "...", "hash": "sha256:...", "updatedAt": "..." }`.
+This endpoint does not create indexes or record a migration by itself.
+
 ### `GET /v1/migrations`
 
 Return durable migration records in application order. Records include the
 migration identifier, schema hash, and application timestamp.
+
+### `POST /v1/migrations`
+
+Record an explicitly approved migration. The request body is
+`{ "id": "...", "hash": "sha256:...", "appliedAt": "..." }`.
 
 ---
 
