@@ -57,11 +57,16 @@ jobs:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
       - name: Synchronize local Cargo dependency versions on release PR
-        if: ${{ steps.release.outputs.pr-number != '' }}
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
-          PR_NUMBER="${{ steps.release.outputs.pr-number }}"
+          PR_NUMBER=$(gh api "repos/$GITHUB_REPOSITORY/pulls?state=open&base=main&per_page=100" \
+            --jq '.[] | select(.head.ref | startswith("release-please--branches--main--components--")) | .number' \
+            | head -n 1)
+          if [[ -z "$PR_NUMBER" ]]; then
+            echo "No open Release Please PR found; nothing to synchronize."
+            exit 0
+          fi
           BRANCH=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" --jq '.head.ref')
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
