@@ -14,6 +14,16 @@ the apply request succeeds.
 Supported operations are `object.upsert`, `object.delete`, and `event.append`.
 Internal `__thingd` collections and queue operations are not synchronized.
 
+## Embedded native callers
+
+Embedded Rust applications use the public `thingd::ReplicationService` with a
+`MemoryEngine`, `PersistentEngine`, or another `ThingStore`. Its `events`,
+`snapshot`, `apply`, `apply_snapshot`, `status`, and `conflicts` methods use
+the same durable stream, cursor, allowlist, provenance, tombstone, and
+quarantine semantics as the HTTP endpoints. Native applications should call
+the typed `record_object_upsert`, `record_object_delete`, and
+`record_event_append` methods immediately after successful source mutations.
+
 ## Apply changes
 
 `POST /v1/replication/apply` accepts a change batch on an instance configured as

@@ -12,10 +12,6 @@ use crate::error::AppError;
 use crate::server::AppState;
 
 const REPLICATION_STREAM: &str = "__thingd:system:replication";
-const REPLICATION_STATE_COLLECTION: &str = "__thingd:sync_state";
-const REPLICATION_TOMBSTONE_COLLECTION: &str = "__thingd:sync_tombstones";
-const REPLICATION_PROVENANCE_COLLECTION: &str = "__thingd:sync_provenance";
-const REPLICATION_QUARANTINE_COLLECTION: &str = "__thingd:sync_conflicts";
 
 fn replication_collection_allowed(state: &AppState, collection: &str) -> bool {
     !collection.starts_with("__thingd")
@@ -71,87 +67,6 @@ fn ensure_replication_target_allowed(
     Ok(())
 }
 
-fn replication_metadata_id(source_id: &str, collection: &str, id: &str) -> String {
-    format!("{source_id}:{collection}:{id}")
-}
-
-#[allow(clippy::too_many_arguments)]
-fn write_replication_metadata(
-    engine: &mut dyn ThingStore,
-    source_id: &str,
-    cursor: u64,
-    collection: &str,
-    id: &str,
-    version: u64,
-    created_at: &str,
-    updated_at: &str,
-) -> Result<(), AppError> {
-    engine
-        .put_object(MemoryObject::new(
-            REPLICATION_PROVENANCE_COLLECTION,
-            replication_metadata_id(source_id, collection, id),
-            json!({
-                "sourceId": source_id,
-                "cursor": cursor,
-                "collection": collection,
-                "id": id,
-                "sourceVersion": version,
-                "createdAt": created_at,
-                "updatedAt": updated_at,
-                "deleted": false,
-            })
-            .to_string(),
-        ))
-        .map(|_| ())
-        .map_err(|e| AppError::internal(format!("Failed to persist replication provenance: {e}")))
-}
-
-fn write_replication_tombstone(
-    engine: &mut dyn ThingStore,
-    source_id: &str,
-    cursor: u64,
-    collection: &str,
-    id: &str,
-) -> Result<(), AppError> {
-    engine
-        .put_object(MemoryObject::new(
-            REPLICATION_TOMBSTONE_COLLECTION,
-            replication_metadata_id(source_id, collection, id),
-            json!({
-                "sourceId": source_id,
-                "cursor": cursor,
-                "collection": collection,
-                "id": id,
-                "deleted": true,
-            })
-            .to_string(),
-        ))
-        .map(|_| ())
-        .map_err(|e| AppError::internal(format!("Failed to persist replication tombstone: {e}")))
-}
-
-fn write_replication_conflict(
-    engine: &mut dyn ThingStore,
-    source_id: &str,
-    cursor: u64,
-    conflict: &Value,
-) -> Result<(), AppError> {
-    engine
-        .put_object(MemoryObject::new(
-            REPLICATION_QUARANTINE_COLLECTION,
-            format!("{source_id}:{cursor}"),
-            json!({
-                "sourceId": source_id,
-                "cursor": cursor,
-                "status": "quarantined",
-                "conflict": conflict,
-            })
-            .to_string(),
-        ))
-        .map(|_| ())
-        .map_err(|e| AppError::internal(format!("Failed to persist replication conflict: {e}")))
-}
-
 fn append_replication_change(
     engine: &mut dyn ThingStore,
     source_id: &str,
@@ -167,43 +82,9 @@ fn append_replication_change(
         "id": id,
         "payload": payload,
     });
-    let mut event = MemoryEvent::new(REPLICATION_STREAM, operation, change.to_string());
-    event.idempotency_key = uuid::Uuid::new_v4().to_string();
-    engine
-        .append_event(event)
-        .map(|_| ())
+    ReplicationService::new(engine, ReplicationConfig::source(source_id.to_string()))
+        .record_change(&change)
         .map_err(|e| AppError::internal(format!("Failed to append replication change: {e}")))
-}
-
-fn read_applied_cursor(engine: &dyn ThingStore, source_id: &str) -> Result<u64, AppError> {
-    let id = format!("source:{source_id}");
-    let state = engine
-        .get_object(REPLICATION_STATE_COLLECTION, &id)
-        .map_err(|e| AppError::internal(e.to_string()))?;
-    Ok(state
-        .and_then(|object| serde_json::from_str::<Value>(&object.body).ok())
-        .and_then(|body| body.get("lastAppliedCursor").and_then(Value::as_u64))
-        .unwrap_or(0))
-}
-
-fn write_applied_cursor(
-    engine: &mut dyn ThingStore,
-    source_id: &str,
-    cursor: u64,
-) -> Result<(), AppError> {
-    let id = format!("source:{source_id}");
-    engine
-        .put_object(MemoryObject::new(
-            REPLICATION_STATE_COLLECTION,
-            id,
-            json!({
-                "sourceId": source_id,
-                "lastAppliedCursor": cursor,
-            })
-            .to_string(),
-        ))
-        .map(|_| ())
-        .map_err(|e| AppError::internal(format!("Failed to persist replication cursor: {e}")))
 }
 
 fn get_engine<'a>(
@@ -782,58 +663,19 @@ pub async fn replication_events(
         .unwrap_or(500)
         .clamp(1, 1000);
     let e = get_engine(&state, &headers)?;
-    let g = e.lock();
-    if after > 0 {
-        let first = g
-            .list_events(
-                Some(REPLICATION_STREAM),
-                ListEventsOptions {
-                    limit: Some(1),
-                    ..Default::default()
-                },
-            )
-            .map_err(|error| AppError::internal(error.to_string()))?;
-        if let Some(first) = first.first()
-            && first.sequence > after.saturating_add(1)
-        {
-            return Err(AppError::conflict(
-                "Replication cursor is no longer available; bootstrap the target from a snapshot",
-            ));
-        }
-    }
-    let events = g
-        .list_events(
-            Some(REPLICATION_STREAM),
-            ListEventsOptions {
-                from_sequence: Some(after),
-                limit: Some(limit),
-                ..Default::default()
-            },
-        )
-        .map_err(|e| AppError::internal(e.to_string()))?;
-    let source_id = state.sync_config.source_id.clone();
-    let changes: Vec<Value> = events
-        .iter()
-        .filter_map(|event| {
-            serde_json::from_str::<Value>(&event.body)
-                .ok()
-                .map(|change| {
-                    json!({
-                        "sourceId": source_id,
-                        "cursor": event.sequence,
-                        "idempotencyKey": format!("{}:{}", source_id, event.sequence),
-                        "change": change,
-                    })
-                })
-        })
-        .collect();
-    let next = events.last().map(|event| event.sequence).unwrap_or(after);
-    ok(json!({
-        "sourceId": state.sync_config.source_id,
-        "after": after,
-        "next": next,
-        "changes": changes,
-    }))
+    let mut g = e.lock();
+    let config = ReplicationConfig {
+        source_id: state.sync_config.source_id.clone(),
+        role: ReplicationRole::Source,
+        collections: state.sync_config.collections.clone(),
+    };
+    let page = ReplicationService::new(&mut **g, config)
+        .events(after, limit)
+        .map_err(|error| match error {
+            ThingdError::Conflict(message) => AppError::conflict(message),
+            error => AppError::internal(error.to_string()),
+        })?;
+    ok(page)
 }
 
 pub async fn replication_apply(
@@ -849,207 +691,31 @@ pub async fn replication_apply(
     ensure_replication_target_allowed(&state, &headers)?;
     let changes = body
         .get("changes")
-        .and_then(Value::as_array)
+        .cloned()
         .ok_or_else(|| AppError::bad_request("Missing changes array"))?;
+    let changes: Vec<ReplicationChange> = serde_json::from_value(changes)
+        .map_err(|error| AppError::bad_request(format!("Invalid changes array: {error}")))?;
     let e = get_engine(&state, &headers)?;
     let mut g = e.lock();
-    let mut source_id: Option<String> = None;
-    let mut applied_cursor = 0_u64;
-    let mut checkpoint = 0_u64;
-    let mut applied = 0_u64;
-    let mut skipped = 0_u64;
-    let mut conflicts: Vec<Value> = Vec::new();
-    for item in changes {
-        if let Some(item_source_id) = item.get("sourceId").and_then(Value::as_str) {
-            if let Some(existing_source_id) = source_id.as_deref()
-                && existing_source_id != item_source_id
-            {
-                return Err(AppError::bad_request(
-                    "A replication batch cannot contain multiple source IDs",
-                ));
-            }
-            if source_id.is_none() {
-                source_id = Some(item_source_id.to_string());
-                checkpoint = read_applied_cursor(&**g, item_source_id)?;
-            }
-        }
-        let cursor = item.get("cursor").and_then(Value::as_u64).unwrap_or(0);
-        if cursor > 0 && cursor <= checkpoint {
-            skipped += 1;
-            continue;
-        }
-        let change = item.get("change").unwrap_or(item);
-        let operation = change
-            .get("operation")
-            .and_then(Value::as_str)
-            .ok_or_else(|| AppError::bad_request("Replication change is missing operation"))?;
-        let collection = change.get("collection").and_then(Value::as_str);
-        if let Some(collection) = collection
-            && !replication_collection_allowed(&state, collection)
-        {
-            skipped += 1;
-            applied_cursor = applied_cursor.max(cursor);
-            continue;
-        }
-        match operation {
-            "object.upsert" => {
-                let collection =
-                    collection.ok_or_else(|| AppError::bad_request("Missing collection"))?;
-                let id = change
-                    .get("id")
-                    .and_then(Value::as_str)
-                    .ok_or_else(|| AppError::bad_request("Missing object id"))?;
-                let payload = change.get("payload").cloned().unwrap_or(Value::Null);
-                let source_version = payload.get("version").and_then(Value::as_u64).unwrap_or(0);
-                let source_created_at = payload
-                    .get("createdAt")
-                    .and_then(Value::as_str)
-                    .unwrap_or_default();
-                let source_updated_at = payload
-                    .get("updatedAt")
-                    .and_then(Value::as_str)
-                    .unwrap_or_default();
-                let existing = g
-                    .get_object(collection, id)
-                    .map_err(|e| AppError::internal(e.to_string()))?;
-                let metadata_id = replication_metadata_id(
-                    source_id.as_deref().unwrap_or_default(),
-                    collection,
-                    id,
-                );
-                let provenance = g
-                    .get_object(REPLICATION_PROVENANCE_COLLECTION, &metadata_id)
-                    .map_err(|e| AppError::internal(e.to_string()))?
-                    .and_then(|object| serde_json::from_str::<Value>(&object.body).ok());
-                if let Some(existing) = existing.as_ref()
-                    && provenance.is_none()
-                {
-                    let conflict = json!({
-                        "operation": operation,
-                        "collection": collection,
-                        "id": id,
-                        "reason": "target_object_has_no_replication_provenance",
-                        "targetVersion": existing.version,
-                        "sourceVersion": source_version,
-                    });
-                    write_replication_conflict(
-                        &mut **g,
-                        source_id.as_deref().unwrap_or_default(),
-                        cursor,
-                        &conflict,
-                    )?;
-                    conflicts.push(conflict);
-                    break;
-                }
-                let expected_version = existing.as_ref().map(|object| object.version);
-                let mut replicated = MemoryObject::new(
-                    collection,
-                    id,
-                    payload
-                        .get("body")
-                        .cloned()
-                        .unwrap_or(Value::Null)
-                        .to_string(),
-                );
-                replicated.version = source_version;
-                replicated.created_at = source_created_at.to_string();
-                replicated.updated_at = source_updated_at.to_string();
-                g.put_object_with_source_metadata(
-                    replicated,
-                    PutObjectOptions {
-                        expected_version,
-                        ..Default::default()
-                    },
-                )
-                .map_err(|e| {
-                    AppError::conflict(format!("Replication conflict for {collection}/{id}: {e}"))
-                })?;
-                write_replication_metadata(
-                    &mut **g,
-                    source_id.as_deref().unwrap_or_default(),
-                    cursor,
-                    collection,
-                    id,
-                    source_version,
-                    source_created_at,
-                    source_updated_at,
-                )?;
-                applied += 1;
-            },
-            "object.delete" => {
-                let collection =
-                    collection.ok_or_else(|| AppError::bad_request("Missing collection"))?;
-                let id = change
-                    .get("id")
-                    .and_then(Value::as_str)
-                    .ok_or_else(|| AppError::bad_request("Missing object id"))?;
-                g.delete_object(collection, id)
-                    .map_err(|e| AppError::internal(e.to_string()))?;
-                write_replication_tombstone(
-                    &mut **g,
-                    source_id.as_deref().unwrap_or_default(),
-                    cursor,
-                    collection,
-                    id,
-                )?;
-                applied += 1;
-            },
-            "event.append" => {
-                let payload = change
-                    .get("payload")
-                    .ok_or_else(|| AppError::bad_request("Missing event payload"))?;
-                let stream = payload
-                    .get("stream")
-                    .and_then(Value::as_str)
-                    .ok_or_else(|| AppError::bad_request("Missing event stream"))?;
-                let event_type = payload
-                    .get("type")
-                    .and_then(Value::as_str)
-                    .ok_or_else(|| AppError::bad_request("Missing event type"))?;
-                let mut event = MemoryEvent::new(
-                    stream,
-                    event_type,
-                    payload
-                        .get("body")
-                        .cloned()
-                        .unwrap_or(Value::Null)
-                        .to_string(),
-                );
-                event.idempotency_key = item
-                    .get("idempotencyKey")
-                    .and_then(Value::as_str)
-                    .unwrap_or_default()
-                    .to_string();
-                g.append_event(event)
-                    .map_err(|e| AppError::internal(e.to_string()))?;
-                applied += 1;
-            },
-            _ => {
-                return Err(AppError::bad_request(format!(
-                    "Unknown replication operation: {operation}"
-                )));
-            },
-        }
-        if conflicts.is_empty() {
-            applied_cursor = applied_cursor.max(cursor);
-        }
-    }
-    if let Some(source_id) = source_id
-        && applied_cursor > checkpoint
-    {
-        write_applied_cursor(&mut **g, &source_id, applied_cursor)?;
-    }
-    if let Some(conflict) = conflicts.first() {
-        return Err(AppError::conflict(format!(
-            "Replication conflict quarantined: {}",
-            conflict
-        )));
-    }
+    let result = ReplicationService::new(
+        &mut **g,
+        ReplicationConfig {
+            source_id: state.sync_config.source_id.clone(),
+            role: ReplicationRole::Replica,
+            collections: state.sync_config.collections.clone(),
+        },
+    )
+    .apply(&changes)
+    .map_err(|error| match error {
+        ThingdError::Conflict(message) => AppError::conflict(message),
+        ThingdError::InvalidInput(message) => AppError::bad_request(message),
+        error => AppError::internal(error.to_string()),
+    })?;
     ok(json!({
-        "applied": applied,
-        "skipped": skipped,
-        "conflicts": conflicts,
-        "lastAppliedCursor": applied_cursor.max(checkpoint),
+        "applied": result.applied,
+        "skipped": result.skipped,
+        "conflicts": result.conflicts,
+        "lastAppliedCursor": result.last_applied_cursor,
     }))
 }
 
@@ -1058,36 +724,34 @@ pub async fn replication_status(
     headers: HeaderMap,
     Query(params): Query<Value>,
 ) -> Result<Json<Value>, AppError> {
-    let e = get_engine(&state, &headers)?;
-    let g = e.lock();
-    let changes = g
-        .list_events(Some(REPLICATION_STREAM), ListEventsOptions::default())
-        .map_err(|e| AppError::internal(e.to_string()))?;
     let requested_source_id = params
         .get("sourceId")
         .and_then(Value::as_str)
-        .unwrap_or(&state.sync_config.source_id);
-    let last_applied_cursor = read_applied_cursor(&**g, requested_source_id)?;
-    let quarantine_collections = vec![REPLICATION_QUARANTINE_COLLECTION.to_string()];
-    let conflicts = g
-        .list_objects(
-            Some(&quarantine_collections),
-            &ListObjectsOptions {
-                limit: Some(10_000),
-                ..Default::default()
-            },
-        )
-        .map_err(|e| AppError::internal(e.to_string()))?;
+        .unwrap_or(&state.sync_config.source_id)
+        .to_string();
+    let e = get_engine(&state, &headers)?;
+    let mut g = e.lock();
+    let config = ReplicationConfig {
+        source_id: requested_source_id,
+        role: match state.sync_config.role {
+            crate::config::SyncRole::Source => ReplicationRole::Source,
+            crate::config::SyncRole::Replica => ReplicationRole::Replica,
+        },
+        collections: state.sync_config.collections.clone(),
+    };
+    let status = ReplicationService::new(&mut **g, config)
+        .status()
+        .map_err(|error| AppError::internal(error.to_string()))?;
     ok(json!({
-        "sourceId": state.sync_config.source_id,
+        "sourceId": status.source_id,
         "provider": state.sync_config.provider,
         "projectId": state.sync_config.project_id,
         "instanceSlug": state.sync_config.instance_slug,
-        "role": match state.sync_config.role { crate::config::SyncRole::Source => "source", crate::config::SyncRole::Replica => "replica" },
-        "latestCursor": changes.last().map(|event| event.sequence).unwrap_or(0),
-        "changeCount": changes.len(),
-        "lastAppliedCursor": last_applied_cursor,
-        "quarantinedConflicts": conflicts.len(),
+        "role": match status.role { ReplicationRole::Source => "source", ReplicationRole::Replica => "replica" },
+        "latestCursor": status.latest_cursor,
+        "changeCount": status.change_count,
+        "lastAppliedCursor": status.last_applied_cursor,
+        "quarantinedConflicts": status.quarantined_conflicts,
     }))
 }
 
@@ -1098,17 +762,13 @@ pub async fn replication_conflicts(
     headers: HeaderMap,
 ) -> Result<Json<Value>, AppError> {
     let e = get_engine(&state, &headers)?;
-    let g = e.lock();
-    let quarantine_collections = vec![REPLICATION_QUARANTINE_COLLECTION.to_string()];
-    let conflicts = g
-        .list_objects(
-            Some(&quarantine_collections),
-            &ListObjectsOptions {
-                limit: Some(10_000),
-                ..Default::default()
-            },
-        )
-        .map_err(|e| AppError::internal(e.to_string()))?;
+    let mut g = e.lock();
+    let conflicts = ReplicationService::new(
+        &mut **g,
+        ReplicationConfig::replica(state.sync_config.source_id.clone()),
+    )
+    .conflicts()
+    .map_err(|e| AppError::internal(e.to_string()))?;
     ok(json!({
         "sourceId": state.sync_config.source_id,
         "conflicts": conflicts,
@@ -1122,18 +782,18 @@ pub async fn replication_snapshot(
     headers: HeaderMap,
 ) -> Result<Json<Value>, AppError> {
     let e = get_engine(&state, &headers)?;
-    let g = e.lock();
-    let objects = g
-        .list_objects(
-            None,
-            &ListObjectsOptions {
-                limit: Some(100_000),
-                ..Default::default()
-            },
-        )
-        .map_err(|e| AppError::internal(e.to_string()))?
+    let mut g = e.lock();
+    let config = ReplicationConfig {
+        source_id: state.sync_config.source_id.clone(),
+        role: ReplicationRole::Source,
+        collections: state.sync_config.collections.clone(),
+    };
+    let snapshot = ReplicationService::new(&mut **g, config)
+        .snapshot()
+        .map_err(|e| AppError::internal(e.to_string()))?;
+    let objects = snapshot
+        .objects
         .into_iter()
-        .filter(|object| replication_collection_allowed(&state, &object.key.collection))
         .map(|object| {
             json!({
                 "id": object.key.id,
@@ -1145,32 +805,11 @@ pub async fn replication_snapshot(
             })
         })
         .collect::<Vec<_>>();
-    let events = g
-        .list_events(
-            None,
-            ListEventsOptions {
-                limit: Some(100_000),
-                ..Default::default()
-            },
-        )
-        .map_err(|e| AppError::internal(e.to_string()))?
-        .into_iter()
-        .filter(|event| !event.stream.starts_with("__thingd"))
-        .collect::<Vec<_>>();
-    let replication_events = g
-        .list_events(
-            Some(REPLICATION_STREAM),
-            ListEventsOptions {
-                limit: Some(100_000),
-                ..Default::default()
-            },
-        )
-        .map_err(|e| AppError::internal(e.to_string()))?;
     ok(json!({
-        "sourceId": state.sync_config.source_id,
-        "cursor": replication_events.last().map(|event| event.sequence).unwrap_or(0),
+        "sourceId": snapshot.source_id,
+        "cursor": snapshot.cursor,
         "objects": objects,
-        "events": events,
+        "events": snapshot.events,
     }))
 }
 
@@ -1206,24 +845,7 @@ pub async fn replication_snapshot_apply(
         .unwrap_or(false);
     let e = get_engine(&state, &headers)?;
     let mut g = e.lock();
-    if replace {
-        let existing = g
-            .list_objects(
-                None,
-                &ListObjectsOptions {
-                    limit: Some(100_000),
-                    ..Default::default()
-                },
-            )
-            .map_err(|e| AppError::internal(e.to_string()))?;
-        for object in existing {
-            if replication_collection_allowed(&state, &object.key.collection) {
-                g.delete_object(&object.key.collection, &object.key.id)
-                    .map_err(|e| AppError::internal(e.to_string()))?;
-            }
-        }
-    }
-    let mut applied = 0_u64;
+    let mut snapshot_objects = Vec::with_capacity(objects.len());
     for value in objects {
         let object: MemoryObject = if value.get("key").is_some() {
             serde_json::from_value(value.clone())
@@ -1262,40 +884,44 @@ pub async fn replication_snapshot_apply(
         if !replication_collection_allowed(&state, &object.key.collection) {
             continue;
         }
-        let expected_version = if replace {
-            None
-        } else {
-            g.get_object(&object.key.collection, &object.key.id)
-                .map_err(|e| AppError::internal(e.to_string()))?
-                .map(|existing| existing.version)
-        };
-        g.put_object_with_source_metadata(
-            object,
-            PutObjectOptions {
-                expected_version,
-                ..Default::default()
-            },
-        )
-        .map_err(|e| AppError::conflict(format!("Snapshot conflict: {e}")))?;
-        applied += 1;
+        snapshot_objects.push(object);
     }
-    let mut events_applied = 0_u64;
+    let mut snapshot_events = Vec::with_capacity(events.len());
     for value in events {
         let event: MemoryEvent = serde_json::from_value(value)
             .map_err(|e| AppError::bad_request(format!("Invalid snapshot event: {e}")))?;
         if event.stream.starts_with("__thingd") {
             continue;
         }
-        g.append_event(event)
-            .map_err(|e| AppError::conflict(format!("Snapshot event conflict: {e}")))?;
-        events_applied += 1;
+        snapshot_events.push(event);
     }
-    write_applied_cursor(&mut **g, source_id, cursor)?;
+    let events_applied = snapshot_events.len() as u64;
+    let result = ReplicationService::new(
+        &mut **g,
+        ReplicationConfig {
+            source_id: source_id.to_string(),
+            role: ReplicationRole::Replica,
+            collections: state.sync_config.collections.clone(),
+        },
+    )
+    .apply_snapshot(
+        &ReplicationSnapshot {
+            source_id: source_id.to_string(),
+            cursor,
+            objects: snapshot_objects,
+            events: snapshot_events,
+        },
+        replace,
+    )
+    .map_err(|error| match error {
+        ThingdError::Conflict(message) => AppError::conflict(message),
+        error => AppError::internal(error.to_string()),
+    })?;
     ok(json!({
         "sourceId": source_id,
-        "applied": applied,
+        "applied": result.applied,
         "eventsApplied": events_applied,
-        "lastAppliedCursor": cursor,
+        "lastAppliedCursor": result.last_applied_cursor,
         "verified": true,
     }))
 }
