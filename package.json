@@ -1,6 +1,6 @@
 {
   "name": "thingd-repo",
-  "version": "0.76.0",
+  "version": "0.77.3",
   "private": true,
   "author": "Sayan Mohsin",
   "license": "Apache-2.0",
@@ -20,8 +20,6 @@
     "format": "biome format --write .",
     "format:check": "biome format .",
     "lint": "biome lint .",
-    "release": "node scripts/semantic-release-plan.mjs",
-    "release:dry-run": "node scripts/semantic-release-plan.mjs",
     "rust:check": "cargo check --workspace --all-targets --all-features",
     "rust:clippy": "cargo clippy --workspace --all-targets --all-features -- -D warnings",
     "rust:fmt": "cargo fmt --all",
@@ -36,6 +34,7 @@
     "test:tenant": "cargo build -p thingd-server && bash scripts/test-tenant-isolation.sh ./target/debug/thingd-server",
     "test:node": "pnpm --filter @thingd/sdk test",
     "verify:publish": "node scripts/verify-publish-artifacts.mjs",
+    "test:publish-manifests": "node --test scripts/publish-manifest.test.mjs",
     "examples": "pnpm --filter \"thingd-node-basic-example\" start && pnpm --filter \"thingd-node-stream-example\" start && pnpm --filter \"thingd-node-queue-example\" start",
     "examples:load": "pnpm --filter \"thingd-node-load-example\" start",
     "test:package": "pnpm --filter @thingd/sdk build && node scripts/verify-package.mjs",
@@ -44,19 +43,10 @@
   "devDependencies": {
     "@biomejs/biome": "2.5.7",
     "@modelcontextprotocol/sdk": "^1.30.0",
-    "@semantic-release/changelog": "^7.0.0",
-    "@semantic-release/commit-analyzer": "13.0.1",
-    "@semantic-release/exec": "^7.1.0",
-    "@semantic-release/git": "^11.0.1",
-    "@semantic-release/github": "12.0.9",
-    "@semantic-release/npm": "^13.1.0",
-    "@semantic-release/release-notes-generator": "14.1.1",
     "@thingd/native": "file:packages/thingd-native",
     "@types/node": "26.1.2",
-    "conventional-changelog-conventionalcommits": "10.2.1",
     "cross-spawn": "^7.0.6",
     "lefthook": "^2.1.10",
-    "semantic-release": "25.0.9",
     "typescript": "7.0.2"
   }
 }

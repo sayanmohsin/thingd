@@ -47,6 +47,7 @@ jobs:
       - run: pnpm check
       - run: pnpm check:docs
       - run: pnpm check:cargo-versions
+      - run: pnpm test:publish-manifests
       - run: pnpm docs:metadata
       - run: git diff --exit-code -- docs/.generated/mcp-metadata.json
 

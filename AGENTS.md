@@ -105,7 +105,7 @@ If clippy or fmt fails, fix and amend. Never use `--no-verify` to bypass pre-pus
 - **Braces**: all if/for/while must use `{}` (even single-body lines, biome `useBlockStatements: error`)
 - **Imports**: no unused imports (error)
 - **Rust**: edition 2024, `cargo fmt` must pass
-- **Commits**: conventionalcommits (`fix:`, `feat:`, `refactor:`, `BREAKING CHANGE:`) for semantic-release
+- **Commits**: conventionalcommits (`fix:`, `feat:`, `refactor:`, `BREAKING CHANGE:`) for Release Please
 
 ## Branch workflow
 
@@ -207,7 +207,7 @@ Search with `rg 'version = "0\.xx"' crates/ packages/` after every version bump.
 
 ## Publishing
 
-Releases via `semantic-release` on main. All three npm packages (`@thingd/sdk`, `@thingd/cli`, `@thingd/native`) and the Rust crate (`thingd`) publish in lockstep. Version tag format: `v${version}`. A regular `development` → `main` merge batches the conventional commits accumulated since the previous tag into one release.
+Releases via Release Please on main. All four npm packages (`@thingd/sdk`, `@thingd/cli`, `@thingd/native`, and `@thingd/client`) and the Rust crate (`thingd`) publish in lockstep. Version tag format: `thingd-v${version}`. Release Please opens a release PR; merging it triggers the publication workflow.
 
 > **Save GitHub Actions credits:** Release only through the `development` → `main` merge. Each push to `main` with releasable commits (`feat:`, `fix:`) triggers a release workflow. Squash feature branches into `development`, batch related work, and use a regular merge into `main` so one release covers the full batch.
 

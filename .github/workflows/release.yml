@@ -213,6 +213,10 @@ jobs:
           registry-url: https://registry.npmjs.org
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - name: Prepare publish manifests
+        env:
+          VERSION: ${{ needs.release-please.outputs.version }}
+        run: node scripts/prepare-publish-manifests.mjs "$VERSION"
       - uses: actions/download-artifact@v8
         with:
           path: prebuild-artifacts
@@ -224,8 +228,9 @@ jobs:
       - name: Validate package artifacts
         env:
           REQUIRED_NATIVE_PREBUILDS: "5"
+          RELEASE_VERSION: ${{ needs.release-please.outputs.version }}
         run: |
-          pnpm --filter @thingd/sdk build
+          pnpm --filter @thingd/sdk --filter @thingd/cli --filter @thingd/client build
           pnpm verify:publish
       - name: Publish packages if missing
         env:
@@ -233,16 +238,43 @@ jobs:
         run: |
           publish_if_missing() {
             PACKAGE="$1"
+            case "$PACKAGE" in
+              @thingd/sdk) PACKAGE_DIR="packages/thingd" ;;
+              @thingd/native) PACKAGE_DIR="packages/thingd-native" ;;
+              @thingd/cli) PACKAGE_DIR="packages/thingd-cli" ;;
+              @thingd/client) PACKAGE_DIR="packages/thingd-client" ;;
+              *) echo "Unknown package: $PACKAGE" >&2; return 1 ;;
+            esac
             if npm view "${PACKAGE}@${VERSION}" version >/dev/null 2>&1; then
               echo "${PACKAGE}@${VERSION} already exists"
             else
-              pnpm --filter "$PACKAGE" exec npm publish --access public --provenance
+              (cd "$PACKAGE_DIR" && npm publish --ignore-scripts --access public --provenance)
             fi
           }
           publish_if_missing @thingd/sdk
-          publish_if_missing @thingd/cli
           publish_if_missing @thingd/native
+          publish_if_missing @thingd/cli
           publish_if_missing @thingd/client
+      - name: Verify published CLI installation
+        env:
+          VERSION: ${{ needs.release-please.outputs.version }}
+        run: |
+          SMOKE_DIR=$(mktemp -d)
+          trap 'rm -rf "$SMOKE_DIR"' EXIT
+          for attempt in $(seq 1 18); do
+            if npm view "@thingd/cli@$VERSION" version --registry=https://registry.npmjs.org 2>/dev/null | grep -qx "$VERSION"; then
+              break
+            fi
+            if [ "$attempt" -eq 18 ]; then
+              echo "@thingd/cli@$VERSION was not visible on npm after 3 minutes" >&2
+              exit 1
+            fi
+            echo "Waiting for @thingd/cli@$VERSION to propagate on npm (attempt $attempt/18)"
+            sleep 10
+          done
+          npm init -y --prefix "$SMOKE_DIR" >/dev/null
+          npm install --prefix "$SMOKE_DIR" --prefer-online --no-audit --no-fund "@thingd/cli@$VERSION"
+          (cd "$SMOKE_DIR" && node --input-type=module -e "await import('@thingd/cli')")
 
   docker:
     name: Publish Docker image

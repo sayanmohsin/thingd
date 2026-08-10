@@ -13,6 +13,35 @@
 - server: harden security boundaries (0961ffe)
 - complete public SDK type exports (8a8889a)
 
+## [0.77.3](https://github.com/sayanmohsin/thingd/compare/thingd-v0.77.2...thingd-v0.77.3) (2026-08-09)
+
+
+### Bug Fixes
+
+* wait for npm publication propagation ([#126](https://github.com/sayanmohsin/thingd/issues/126)) ([7fc23a5](https://github.com/sayanmohsin/thingd/commit/7fc23a5df29ac733284b4ca1576e9b01e5b6ba31))
+
+## [0.77.2](https://github.com/sayanmohsin/thingd/compare/thingd-v0.77.1...thingd-v0.77.2) (2026-08-09)
+
+
+### Bug Fixes
+
+* avoid registry resolution during publish ([#124](https://github.com/sayanmohsin/thingd/issues/124)) ([f676907](https://github.com/sayanmohsin/thingd/commit/f676907327df2a236dca493362800c7ddc187b15))
+
+## [0.77.1](https://github.com/sayanmohsin/thingd/compare/thingd-v0.77.0...thingd-v0.77.1) (2026-08-09)
+
+
+### Bug Fixes
+
+* harden release publish metadata ([#122](https://github.com/sayanmohsin/thingd/issues/122)) ([8e70269](https://github.com/sayanmohsin/thingd/commit/8e7026994ef615570bb45d0d15bc48bfd9c8493d))
+
+## [0.77.0](https://github.com/sayanmohsin/thingd/compare/thingd-v0.76.0...thingd-v0.77.0) (2026-08-09)
+
+
+### Features
+
+* add optional .thingd schemas and migrations ([#120](https://github.com/sayanmohsin/thingd/issues/120)) ([41b044f](https://github.com/sayanmohsin/thingd/commit/41b044f60115186f36e952c37b08422d0e7c7bb6))
+* harden provider-neutral replication and persistent encryption ([#118](https://github.com/sayanmohsin/thingd/issues/118)) ([f5c41c1](https://github.com/sayanmohsin/thingd/commit/f5c41c1eabf32a140bd67b51aa4cbb9f22235a48))
+
 ## [0.76.0](https://github.com/sayanmohsin/thingd/compare/thingd-v0.75.0...thingd-v0.76.0) (2026-08-07)
 
 

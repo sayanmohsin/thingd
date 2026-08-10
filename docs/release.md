@@ -1,6 +1,8 @@
 # Release Process
 
-`thingd` uses semantic-release to calculate, version, tag, and publish four npm packages (`@thingd/sdk`, `@thingd/cli`, `@thingd/native`, and `@thingd/client`) plus the Rust crate.
+`thingd` uses Release Please to calculate versions and create release PRs. Merging
+the release PR tags and publishes four npm packages (`@thingd/sdk`, `@thingd/cli`,
+`@thingd/native`, and `@thingd/client`) plus the Rust crate.
 
 The hosted app-backend client is released as part of the public client package.
 Deploy its compatible Cloud API only after the public contract release and the
@@ -27,24 +29,22 @@ feat(storage)!: replace the storage adapter interface
 Use the following branch flow for open-source development:
 
 ```txt
-feature/* → squash merge → main → semantic-release → publish
+feature/* → squash merge → main → Release Please PR → merge → publish
 ```
 
 Feature branches should be squash-merged into `main` using a conventional
-commit title such as `feat:` or `fix:`. After a releasable change lands on
-`main`, semantic-release calculates the next SemVer, updates the synchronized
-npm/Cargo/version files, commits the release with `[skip ci]`, creates the
-`vX.Y.Z` tag, and publishes the release. There is no intermediate release PR.
+commit title such as `feat:` or `fix:`. Release Please groups releasable changes
+and opens a release PR with synchronized npm, Cargo, and changelog versions.
+After that PR merges, the workflow creates the `thingd-vX.Y.Z` tag and publishes
+the release.
 
 ## GitHub Actions
 
 CI runs on pull requests targeting `main` and pushes to `main`.
 
-The release workflow runs on pushes to `main`. A semantic-release dry run first
-determines whether the commit range requires a release. Native artifacts and
-publishing are skipped when no release is needed. A manual `workflow_dispatch`
-with `publish_version` retries publication for an existing tagged version without
-calculating a new version.
+The release workflow runs on pushes to `main`. Release Please creates or updates
+the release PR; native artifacts and publishing run only after a release is
+created or a manual retry is requested with `publish_version`.
 
 It validates the same checks, then publishes to npm when the `NPM_TOKEN` repository secret exists.
 
@@ -62,10 +62,10 @@ pnpm test:package
 
 This command builds `@thingd/sdk`, packs it into a package tarball, installs that tarball into a temporary app, and imports the installed package.
 
-You can also verify the release plan without publishing:
+Run the publish metadata regression tests without publishing:
 
 ```bash
-pnpm release:dry-run
+pnpm test:publish-manifests
 ```
 
 ## Required Secrets
@@ -83,7 +83,7 @@ The npm package is configured with npm provenance enabled through `publishConfig
 
 ## crates.io Publishing
 
-On every release, the workflow publishes `thingd` to [crates.io](https://crates.io/crates/thingd). The Rust crate version is kept in sync with the npm packages via `semantic-release`.
+On every release, the workflow publishes `thingd` to [crates.io](https://crates.io/crates/thingd). The Rust crate version is kept in sync with the npm packages by Release Please.
 
 ```toml
 [dependencies]
@@ -108,7 +108,15 @@ docker pull sayanmohsin/thingd
 The Docker image includes the native persistent driver pre-built for supported Linux targets.
 See [docker-context/Dockerfile](../docker-context/Dockerfile) and [deploy/docker-compose.yml](../deploy/docker-compose.yml) for the runtime shape.
 
-The workspace uses `workspace:^` dependency specs during development so pnpm links the local SDK and native packages. The semantic-release prepare hook converts those internal ranges to `^${nextRelease.version}` before npm publishes and records the publishable ranges in the release commit.
+The workspace uses `workspace:^` dependency specs during development so pnpm links
+the local SDK and native packages. These specs must never reach npm. The release
+workflow runs `scripts/prepare-publish-manifests.mjs` on its ephemeral checkout,
+converts internal ranges to `^${VERSION}`, validates all four packed manifests,
+and installs the packed CLI in a clean temporary application before publishing.
+
+After publishing, the workflow installs `@thingd/cli@VERSION` from the public npm
+registry as a second smoke test. This catches registry metadata problems that a
+local tarball test cannot detect.
 
 The release workflow pins Node.js 24. Each release automatically publishes all
 four npm packages, updates `CHANGELOG.md` from conventional commits, creates a
@@ -127,9 +135,9 @@ feat: initial thingd release
 ```
 
 3. Open GitHub -> Actions -> Release -> Run workflow -> branch `main`.
-4. The workflow runs the semantic-release dry run, builds native artifacts, validates package tarballs, publishes all packages, creates the Git tag, and creates the GitHub release.
+4. The workflow builds native artifacts, prepares publish manifests, validates package tarballs, installs the packed CLI, publishes packages in dependency order, and verifies the CLI from npm.
 
-If semantic-release says there is no release, the commits on `main` did not include a releasable conventional commit. Add a `feat:`, `fix:`, `perf:`, or breaking-change commit and run the workflow again.
+If Release Please does not create a release PR, the commits on `main` did not include a releasable conventional commit. Add a `feat:`, `fix:`, `perf:`, or breaking-change commit and push again.
 
 After the first publish, configure npm Trusted Publishing for tokenless releases:
 
@@ -154,9 +162,22 @@ Protect `main` in GitHub:
 - allow repository administrators to bypass protection while the project is small
 - require outside contributors to use forks and pull requests
 
-The release workflow commits the semantic-release version commit directly to
-`main`. Configure branch protection to allow only the release workflow to bypass
-the protected-branch requirement for that commit and tag.
+The release workflow merges through the Release Please PR and creates the tag and
+GitHub release. Configure branch protection to require the release PR checks and
+allow the workflow to publish tags and releases.
+
+## Recovering from a bad npm publication
+
+npm versions are immutable. If a package is published with invalid metadata, do
+not try to overwrite that version. Create a patch release, validate it through the
+full workflow, and deprecate the broken version:
+
+```bash
+npm deprecate @thingd/cli@0.77.0 "Install @thingd/cli@0.77.1; this version contains invalid workspace dependency metadata."
+```
+
+Then verify a clean application can run `npm install @thingd/cli@0.77.1` and
+import the package successfully.
 
 ---
 
