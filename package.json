@@ -50,7 +50,7 @@
     "@biomejs/biome": "2.5.7",
     "@modelcontextprotocol/sdk": "^1.30.0",
     "@thingd/native": "file:packages/thingd-native",
-    "@types/node": "26.1.2",
+    "@types/node": "26.2.0",
     "cross-spawn": "^7.0.6",
     "lefthook": "^2.1.10",
     "typescript": "7.0.2"
