@@ -4,6 +4,13 @@ thingd's current native persistent backend stores a database as a directory.
 The procedures below distinguish opaque filesystem backups from logical exports;
 deprecated SQLite compatibility commands are retained only for older installs.
 
+Each current native directory contains a Thingd-owned `.thingd-storage.json`
+manifest. It records the storage contract and required keyspaces. Directories
+created by older releases are structurally checked on first open and receive a
+manifest after a successful open; unsupported manifests fail closed. Always
+copy the complete directory, including `lock`, and stop the writer or run a
+durability checkpoint before copying.
+
 Backup, recovery, database health, and maintenance procedures for thingd.
 
 ## Encrypted persistent storage
@@ -158,6 +165,69 @@ Flushes pending native persistent writes through the engine's durability
 boundary before an operator copies the database directory. It does not rotate
 an encryption key or decrypt a backup. In-memory databases have no filesystem
 durability boundary.
+
+### Standalone compatibility check
+
+The standalone server can validate an existing directory without binding an
+HTTP port:
+
+```bash
+thingd-server --check /data/thingd.db
+```
+
+The check verifies the native manifest, lock file, keyspace directory, and
+whether an existing Tantivy index has the current schema. An incompatible
+Tantivy index is rebuildable derived state; an incompatible primary storage
+manifest or missing lock file is an error and must be repaired or restored from
+backup.
+
+### Low-memory search mode
+
+For embedded deployments that do not need full-text search, set:
+
+```bash
+THINGD_SEARCH_MODE=disabled
+```
+
+This avoids opening or rebuilding the Tantivy directory. Search uses the
+engine's slower fallback scan, so callers must use small limits and filters.
+For a persistent existing index without automatic repair, use
+`THINGD_SEARCH_MODE=persistent-no-rebuild`; a missing or incompatible index is
+then treated as unavailable rather than rebuilt during startup.
+Standalone HTTP mode is preferred on hosts with less than 2 GB RAM because it
+keeps the database process separate from application and catalog memory.
+
+## Diagnostics and retention
+
+Use the additive diagnostics endpoint to inspect bounded record counts without
+loading records into the response:
+
+```bash
+curl http://127.0.0.1:8757/v1/diagnostics
+```
+
+Retention is never automatic. Preview eligible old events and completed or
+dead queue jobs first:
+
+```bash
+curl -X POST http://127.0.0.1:8757/admin/retention \
+  -H 'content-type: application/json' \
+  -d '{"beforeUnixMs":1700000000000,"dryRun":true}'
+```
+
+Deletion requires `dryRun:false` and an explicit `confirm:true`. Protected
+Thingd streams are skipped. Replication records additionally require
+`includeReplication:true` and are pruned only through the minimum active
+replica checkpoint; with no checkpoint they are reported as skipped.
+`compact:true` requests a separate major storage compaction after successful
+deletion; compaction is not run during startup.
+
+Keep object, event, and queue payloads small. Store large blobs outside Thingd,
+avoid duplicating catalog/provider data, keep only queryable fields, and remove
+indexes that are not used by filters. Apply bounded `limit` values to list and
+search calls. For deployments below 2 GB RAM, standalone HTTP mode with
+disabled or no-rebuild search is preferred over embedding Thingd beside a
+catalog enrichment process.
 
 ## Schema and format migrations
 

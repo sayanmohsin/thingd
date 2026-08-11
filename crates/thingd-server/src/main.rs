@@ -10,6 +10,7 @@ mod rest;
 mod server;
 
 use std::net::SocketAddr;
+use std::path::PathBuf;
 use std::sync::Arc;
 use tracing_subscriber::EnvFilter;
 
@@ -27,6 +28,19 @@ async fn shutdown_signal() {
     }
 }
 
+fn check_path_from_args() -> Option<PathBuf> {
+    let mut args = std::env::args().skip(1);
+    while let Some(arg) = args.next() {
+        if arg == "--check" {
+            return args.next().map(PathBuf::from);
+        }
+        if let Some(path) = arg.strip_prefix("--check=") {
+            return Some(PathBuf::from(path));
+        }
+    }
+    None
+}
+
 #[cfg(not(unix))]
 async fn shutdown_signal() {
     tokio::signal::ctrl_c().await.ok();
@@ -40,6 +54,30 @@ async fn main() {
             EnvFilter::from_default_env().add_directive("thingd_server=info".parse().unwrap()),
         )
         .init();
+
+    if std::env::args().any(|arg| arg == "--check" || arg.starts_with("--check=")) {
+        let Some(path) = check_path_from_args() else {
+            eprintln!("Usage: thingd-server --check <database-path>");
+            std::process::exit(2);
+        };
+        match thingd::PersistentEngine::validate_path(&path) {
+            Ok(report) => {
+                println!(
+                    "OK: format={} legacy_manifest={} lock_present={} keyspaces_present={} search_index_compatible={:?}",
+                    report.format_version,
+                    report.legacy_manifest,
+                    report.lock_present,
+                    report.keyspaces_present,
+                    report.search_index_compatible,
+                );
+            },
+            Err(error) => {
+                eprintln!("ERROR: {error}");
+                std::process::exit(1);
+            },
+        }
+        return;
+    }
 
     let config = config::Config::load(std::env::var("THINGD_CONFIG").ok().as_deref())
         .unwrap_or_else(|e| {
@@ -67,9 +105,16 @@ async fn main() {
     }
 
     let pool = Arc::new(
-        engine::EnginePool::new_with_encryption_key(
+        engine::EnginePool::new_with_encryption_key_and_search_mode(
             config.server.database.clone(),
             config.server.encryption_key.as_deref(),
+            match config.server.search_mode {
+                config::SearchModeConfig::Persistent => thingd::PersistentSearchMode::Persistent,
+                config::SearchModeConfig::PersistentNoRebuild => {
+                    thingd::PersistentSearchMode::PersistentNoRebuild
+                },
+                config::SearchModeConfig::Disabled => thingd::PersistentSearchMode::Disabled,
+            },
         )
         .unwrap_or_else(|e| {
             eprintln!("Encryption configuration error: {e}");

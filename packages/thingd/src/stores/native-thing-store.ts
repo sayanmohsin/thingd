@@ -77,7 +77,12 @@ type NativeThingStoreBinding = {
   deleteLink(id: string): boolean;
   getLinkJson(id: string): string | null;
   getNeighborsJson(reference: string, direction: string, linkType?: string, limit?: number): string;
-  searchJson(query: string, collectionsJson?: string, limit?: number, filterJson?: string): string;
+  searchJson(
+    query: string,
+    collectionsJson?: string,
+    limit?: number,
+    filterJson?: string
+  ): Promise<string>;
   putObjectsBatchJson(objectsJson: string): string;
   appendEventsBatchJson(eventsJson: string): string;
   pushJobsBatchJson(jobsJson: string): string;
@@ -446,7 +451,7 @@ export class NativeThingStore implements ThingStore {
     const filterJson = serializeFilter(options.filter);
 
     const hits = parseJson<NativeSearchHit[]>(
-      this.binding.searchJson(query, collectionsJson, options.limit, filterJson)
+      await this.binding.searchJson(query, collectionsJson, options.limit, filterJson)
     );
 
     return hits.map((hit) => {

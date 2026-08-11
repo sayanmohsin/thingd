@@ -27,6 +27,10 @@ pub enum ThingdError {
     EncryptionAuthentication(String),
     /// The encrypted storage format is not supported.
     UnsupportedEncryptionVersion(String),
+    /// The native storage format is not supported or is incomplete.
+    UnsupportedStorageFormat(String),
+    /// The native storage directory failed a read-only validation check.
+    StorageValidation(String),
     /// An explicit encryption migration failed.
     EncryptionMigration(String),
 }
@@ -50,6 +54,12 @@ impl Display for ThingdError {
             },
             Self::UnsupportedEncryptionVersion(message) => {
                 write!(formatter, "unsupported encryption version: {message}")
+            },
+            Self::UnsupportedStorageFormat(message) => {
+                write!(formatter, "unsupported storage format: {message}")
+            },
+            Self::StorageValidation(message) => {
+                write!(formatter, "storage validation failed: {message}")
             },
             Self::EncryptionMigration(message) => {
                 write!(formatter, "encryption migration failed: {message}")

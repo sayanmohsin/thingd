@@ -10,6 +10,62 @@ use crate::{
     ThingdResult, VectorSearchHit, VectorSearchOptions,
 };
 
+/// Read-only storage counts used by diagnostics and operator tooling.
+#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StorageDiagnostics {
+    /// Number of stored objects.
+    pub objects: u64,
+    /// Number of stored events.
+    pub events: u64,
+    /// Number of stored links.
+    pub links: u64,
+    /// Number of queues.
+    pub queues: u64,
+    /// Number of active queue jobs.
+    pub active_jobs: u64,
+    /// Number of dead-letter jobs.
+    pub dead_jobs: u64,
+}
+
+/// Explicit retention request. No records are deleted when `dry_run` is true.
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RetentionOptions {
+    /// Delete eligible records older than this Unix timestamp in milliseconds.
+    pub before_unix_ms: i64,
+    /// Report eligible records without modifying the store.
+    #[serde(default)]
+    pub dry_run: bool,
+    /// Run a major storage compaction after deletion.
+    #[serde(default)]
+    pub compact: bool,
+    /// Permit pruning the protected replication change stream up to the safe
+    /// checkpoint shared by active replicas.
+    #[serde(default)]
+    pub include_replication: bool,
+}
+
+/// Result of an explicit retention operation.
+#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RetentionReport {
+    /// Events eligible for or removed by retention.
+    pub events: u64,
+    /// Completed queue jobs eligible for or removed by retention.
+    pub completed_jobs: u64,
+    /// Dead-letter jobs eligible for or removed by retention.
+    pub dead_jobs: u64,
+    /// Replication events skipped because no safe checkpoint was available.
+    pub skipped_replication_events: u64,
+    /// Minimum active replica checkpoint used for safe pruning, if available.
+    pub safe_replication_cursor: Option<u64>,
+    /// Whether compaction was requested and completed.
+    pub compacted: bool,
+    /// Whether this was a dry run.
+    pub dry_run: bool,
+}
+
 /// Object storage operations.
 ///
 /// # Examples
@@ -173,6 +229,19 @@ pub trait ObjectStore {
     ///
     /// Returns an error when the backing store cannot count objects.
     fn count_objects(&self) -> ThingdResult<u64>;
+
+    /// Apply explicit retention. Adapters that cannot safely compact return an
+    /// unsupported-operation error rather than deleting records by default.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when retention is unsupported or the backing store
+    /// cannot read or delete records.
+    fn retain(&mut self, _options: RetentionOptions) -> ThingdResult<RetentionReport> {
+        Err(ThingdError::Storage(
+            "retention is not supported by this adapter".to_string(),
+        ))
+    }
 
     /// Count objects in a specific collection.
     ///
@@ -701,6 +770,22 @@ pub trait ThingStore:
     + VectorStore
     + SchemaStore
 {
+    /// Return bounded storage diagnostics. Adapters may add backend-specific
+    /// details through their own APIs without changing this stable summary.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the backing store cannot read its counts.
+    fn storage_diagnostics(&self) -> ThingdResult<StorageDiagnostics> {
+        Ok(StorageDiagnostics {
+            objects: self.count_objects()?,
+            events: self.count_events()?,
+            links: self.count_links()?,
+            queues: self.list_queues()?.len() as u64,
+            active_jobs: self.count_active_jobs()?,
+            dead_jobs: self.count_dead_jobs()?,
+        })
+    }
 }
 
 impl<T> ThingStore for T where

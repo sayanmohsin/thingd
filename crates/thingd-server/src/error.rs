@@ -24,6 +24,15 @@ pub struct AppError {
 }
 
 impl AppError {
+    pub fn overloaded(detail: impl Into<String>) -> Self {
+        Self {
+            status: StatusCode::SERVICE_UNAVAILABLE,
+            title: "Service Unavailable",
+            detail: detail.into(),
+            error_type: "worker_saturated",
+        }
+    }
+
     pub fn bad_request(detail: impl Into<String>) -> Self {
         Self {
             status: StatusCode::BAD_REQUEST,
@@ -136,6 +145,14 @@ impl From<thingd::ThingdError> for AppError {
             | thingd::ThingdError::EncryptionMigration(msg) => {
                 if is_production_mode() {
                     AppError::internal("encrypted storage unavailable".to_string())
+                } else {
+                    AppError::internal(msg)
+                }
+            },
+            thingd::ThingdError::UnsupportedStorageFormat(msg)
+            | thingd::ThingdError::StorageValidation(msg) => {
+                if is_production_mode() {
+                    AppError::internal("storage format unavailable".to_string())
                 } else {
                     AppError::internal(msg)
                 }

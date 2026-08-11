@@ -100,6 +100,20 @@ pub struct ServerConfig {
     /// Optional 64-character hexadecimal persistent encryption key.
     #[serde(default)]
     pub encryption_key: Option<String>,
+    /// Search index mode. `disabled` avoids Tantivy memory usage in embedded deployments.
+    #[serde(default)]
+    pub search_mode: SearchModeConfig,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub enum SearchModeConfig {
+    #[default]
+    #[serde(rename = "persistent")]
+    Persistent,
+    #[serde(rename = "persistent-no-rebuild")]
+    PersistentNoRebuild,
+    #[serde(rename = "disabled")]
+    Disabled,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -283,6 +297,7 @@ impl Default for ServerConfig {
             max_connections: default_max_connections(),
             production_mode: false,
             encryption_key: None,
+            search_mode: SearchModeConfig::Persistent,
         }
     }
 }
@@ -472,6 +487,13 @@ impl Config {
         }
         if let Ok(v) = std::env::var("THINGD_ENCRYPTION_KEY") {
             self.server.encryption_key = Some(v);
+        }
+        if let Ok(v) = std::env::var("THINGD_SEARCH_MODE") {
+            self.server.search_mode = match v.as_str() {
+                "disabled" => SearchModeConfig::Disabled,
+                "persistent-no-rebuild" => SearchModeConfig::PersistentNoRebuild,
+                _ => SearchModeConfig::Persistent,
+            };
         }
         if let Ok(v) = std::env::var("THINGD_SYNC_SOURCE_ID") {
             self.sync.source_id = v;

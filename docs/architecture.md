@@ -48,6 +48,11 @@ The persistent engine stores objects, events, queues, links, search data, and ve
 under one configured storage directory. The layout is an implementation detail and
 may change between engine versions:
 
+The directory also contains `.thingd-storage.json`, a Thingd-owned compatibility
+manifest. The underlying storage engine's internal `version` file is not a
+Thingd API contract. Operators should use `thingd-server --check <path>` before
+restoring or moving a directory between embedded and standalone deployments.
+
 | Area | Key format | Value | Operations |
 |----------|-----------|-------|------------|
 | `objects` | `{collection}\0{id}` | serialized `MemoryObject` | prefix scan by collection, point get/put/delete |

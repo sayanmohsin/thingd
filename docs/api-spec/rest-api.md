@@ -57,6 +57,20 @@ curl http://localhost:8757/v1/health
 
 > **Note:** Use `GET /v1/counts/objects`, `GET /v1/counts/events`, and `GET /v1/counts/links` for aggregate counts.
 
+### `GET /v1/diagnostics`
+
+Returns bounded storage counts for objects, events, links, queues, active jobs,
+and dead-letter jobs without returning stored records.
+
+### `POST /admin/retention`
+
+Previews or explicitly removes events older than `beforeUnixMs` and completed
+or dead queue jobs. Use `dryRun: true` to preview. Deletion requires both
+`dryRun: false` and `confirm: true`. Protected streams are never removed.
+Replication-stream pruning additionally requires `includeReplication: true` and
+an active checkpoint; otherwise those records are reported as skipped.
+`compact: true` requests post-deletion storage compaction.
+
 ## Schema validation
 
 ### `POST /v1/schema/validate`
