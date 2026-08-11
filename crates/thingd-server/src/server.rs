@@ -37,6 +37,7 @@ pub fn build_router(state: Arc<AppState>, config: &Config) -> Router {
     let mut router = Router::new()
         .route("/healthz", get(rest::health))
         .route("/metrics", get(rest::metrics))
+        .route("/v1/diagnostics", get(rest::diagnostics))
         .route("/v1/health", get(rest::health))
         .route("/v1/counts/objects", get(rest::count_objects))
         .route("/v1/counts/objects/{collection}", get(rest::count_objects_in_collection))
@@ -105,6 +106,7 @@ pub fn build_router(state: Arc<AppState>, config: &Config) -> Router {
         .route("/v1/nlq", post(rest::nlq_query))
         // Admin
         .route("/admin/clear-default-db", post(rest::clear_default_db))
+        .route("/admin/retention", post(rest::retention))
         // Cluster
         .route("/cluster/status", get(crate::cluster::cluster_status))
         .route("/cluster/peers", get(crate::cluster::cluster_peers))

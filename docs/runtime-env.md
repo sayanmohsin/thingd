@@ -20,6 +20,9 @@ used automatically.
 THINGD_PATH=/data/thingd.db
 THINGD_DRIVER=native
 THINGD_ENCRYPTION_KEY=<64 hexadecimal characters>
+THINGD_SEARCH_MODE=persistent
+THINGD_NATIVE_MAX_PAYLOAD_BYTES=<optional bytes>
+THINGD_NATIVE_MAX_BATCH_ITEMS=<optional count>
 ```
 
 `THINGD_DRIVER` can be `memory` or `native`. Use `native` for the Rust-backed
@@ -30,6 +33,18 @@ storage. It must represent exactly 32 bytes as 64 hexadecimal characters. Do
 not put it in source control, container image layers, MCP configuration, URLs,
 or request payloads. Memory and cloud drivers reject this local option rather
 than ignoring it. Changing the value does not rotate an existing database.
+
+`THINGD_SEARCH_MODE=disabled` avoids opening or rebuilding Tantivy for an
+embedded deployment that does not require full-text search. It uses the slower
+fallback scan instead. `persistent-no-rebuild` opens only an already compatible
+index and avoids startup repair. For hosts with less than 2 GB RAM, prefer a
+separate standalone thingd-server over HTTP.
+
+`THINGD_NATIVE_MAX_PAYLOAD_BYTES` optionally bounds JSON batch payloads passed
+through the embedded native binding. It is unset by default for compatibility;
+low-memory deployments should set an explicit limit appropriate for their
+workload. `THINGD_NATIVE_MAX_BATCH_ITEMS` applies the same opt-in protection to
+the number of objects, events, or queue jobs in a native batch.
 
 ## HTTP
 

@@ -8,19 +8,28 @@
 
 use std::collections::HashMap;
 use std::path::Path;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{
+    Mutex,
+    atomic::{AtomicU64, Ordering},
+};
 
 use fjall::{Database, Keyspace, KeyspaceCreateOptions, PersistMode};
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 use crate::encryption::{EncryptionConfig, StorageCodec, StorageCrypto, make_codec};
 use crate::error::ThingdResult;
 use crate::model::{
     AggregateFunction, AggregateGroupResult, AggregateOptions, AggregateResult, IndexDefinition,
     LinkDirection, LinkQueryOptions, ListEventsOptions, ListObjectsOptions, MigrationRecord,
-    PutObjectOptions, SchemaOptions, SearchOptions, SortDirection, StoredSchema, TimeBucket,
-    TimeSeriesBucket, TimeSeriesOptions, TimeSeriesResult,
+    ObjectKey, PutObjectOptions, SchemaOptions, SearchOptions, SortDirection, StoredSchema,
+    TimeBucket, TimeSeriesBucket, TimeSeriesOptions, TimeSeriesResult,
 };
-use crate::store::{AggregateStore, EventLog, LinkStore, ObjectStore, QueueStore, Searcher};
+use crate::replication::{REPLICATION_STATE_COLLECTION, REPLICATION_STREAM};
+use crate::store::{
+    AggregateStore, EventLog, LinkStore, ObjectStore, QueueStore, RetentionOptions,
+    RetentionReport, Searcher,
+};
 use crate::{
     CollectionSchema, FieldSchema, Link, MemoryEvent, MemoryObject, QueueClaimOptions, QueueJob,
     QueueJobStatus, QueueNackOptions, SearchHit, ThingdError, VectorSearchHit, VectorSearchOptions,
@@ -41,6 +50,7 @@ pub struct PersistentEngine {
     db: Database,
     objects: Keyspace,
     events: Keyspace,
+    event_meta: Keyspace,
     queue_jobs: Keyspace,
     ready_jobs: Keyspace,
     links_by_id: Keyspace,
@@ -52,21 +62,255 @@ pub struct PersistentEngine {
     next_link_id: AtomicU64,
     event_seq_counters: HashMap<String, u64>,
     event_idempotency_keys: HashMap<(String, String), u64>,
+    unique_index_values: HashMap<(String, String, String), ObjectKey>,
+    unique_index_cache_complete: bool,
     #[cfg(feature = "search")]
     search_index: Option<tantivy::Index>,
+    #[cfg(feature = "search")]
+    search_writer: Option<Mutex<tantivy::IndexWriter<tantivy::TantivyDocument>>>,
+    #[cfg(feature = "search")]
+    search_reader: Option<Mutex<tantivy::IndexReader>>,
     #[cfg(feature = "vectors")]
     vectors: Keyspace,
     codec: Box<dyn StorageCodec>,
 }
 
+const STORAGE_FORMAT_VERSION: u32 = 1;
+const STORAGE_CONTRACT: &str = "fjall-tantivy-v1";
+const STORAGE_MANIFEST_FILE: &str = ".thingd-storage.json";
+const STORAGE_LOCK_FILE: &str = "lock";
+const STORAGE_KEYSPACES_DIR: &str = "keyspaces";
+// Tantivy requires at least 15 MB per writer thread; this is lower than the
+// previous 50 MB budget while remaining valid for the current Tantivy release.
+const SEARCH_WRITER_MEMORY_BYTES: usize = 15_000_000;
+type UniqueIndexCache = HashMap<(String, String, String), ObjectKey>;
+
+const REQUIRED_KEYSPACES: &[&str] = &[
+    "objects",
+    "events",
+    "queue_jobs",
+    "ready_jobs",
+    "links_by_id",
+    "links_from",
+    "links_to",
+    "schemas",
+    "migrations",
+    "indexes",
+];
+
+#[cfg(feature = "vectors")]
+const REQUIRED_VECTOR_KEYSPACE: &str = "vectors";
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct StorageManifest {
+    format_version: u32,
+    contract: String,
+    keyspaces: Vec<String>,
+    search_schema_version: u32,
+}
+
+#[derive(Debug, Default, Serialize, Deserialize)]
+struct EventMetadata {
+    stream: String,
+    max_sequence: u64,
+    idempotency_keys: HashMap<String, u64>,
+}
+
+/// Search index behavior for a persistent engine.
+#[derive(Debug, Clone, Copy, Default, Eq, PartialEq)]
+pub enum PersistentSearchMode {
+    /// Open the persistent Tantivy index and rebuild it when necessary.
+    #[default]
+    Persistent,
+    /// Open a compatible Tantivy index but do not create or rebuild one.
+    PersistentNoRebuild,
+    /// Do not open or rebuild Tantivy. Search uses the bounded fallback scan.
+    Disabled,
+}
+
+/// Result of validating a native storage directory without opening Fjall.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StorageValidationReport {
+    /// Current Thingd storage format version.
+    pub format_version: u32,
+    /// Whether the directory predates the Thingd manifest and can be upgraded on open.
+    pub legacy_manifest: bool,
+    /// Whether the expected lock file is present.
+    pub lock_present: bool,
+    /// Whether the expected keyspace directory is present.
+    pub keyspaces_present: bool,
+    /// Whether the existing Tantivy schema is compatible, when an index exists.
+    pub search_index_compatible: Option<bool>,
+}
+
+fn manifest_keyspaces() -> Vec<String> {
+    #[cfg(feature = "vectors")]
+    let extra = std::iter::once(REQUIRED_VECTOR_KEYSPACE);
+    #[cfg(not(feature = "vectors"))]
+    let extra = std::iter::empty();
+
+    REQUIRED_KEYSPACES
+        .iter()
+        .copied()
+        .chain(extra)
+        .map(str::to_string)
+        .collect()
+}
+
+fn search_index_compatible(path: &Path) -> Option<bool> {
+    let search_dir = path.join("search");
+    if !search_dir.exists() {
+        return None;
+    }
+    #[cfg(feature = "search")]
+    {
+        let Ok(index) = tantivy::Index::open_in_dir(search_dir) else {
+            return Some(false);
+        };
+        let schema = index.schema();
+        Some(
+            ["doc_key", "collection", "id", "body", "kind"]
+                .iter()
+                .all(|field| schema.get_field(field).is_ok()),
+        )
+    }
+    #[cfg(not(feature = "search"))]
+    {
+        Some(false)
+    }
+}
+
+fn validate_existing_directory(path: &Path) -> ThingdResult<Option<StorageValidationReport>> {
+    if !path.exists() {
+        return Ok(None);
+    }
+    if !path.is_dir() {
+        return Err(ThingdError::StorageValidation(format!(
+            "database path is not a directory: {}",
+            path.display()
+        )));
+    }
+
+    let has_entries = std::fs::read_dir(path)
+        .map_err(|error| ThingdError::StorageValidation(error.to_string()))?
+        .next()
+        .transpose()
+        .map_err(|error| ThingdError::StorageValidation(error.to_string()))?
+        .is_some();
+    if !has_entries {
+        return Ok(None);
+    }
+
+    let lock_present = path.join(STORAGE_LOCK_FILE).is_file();
+    if !lock_present {
+        return Err(ThingdError::StorageValidation(format!(
+            "missing required lock file: {}",
+            path.join(STORAGE_LOCK_FILE).display()
+        )));
+    }
+
+    let keyspaces_present = path.join(STORAGE_KEYSPACES_DIR).is_dir();
+    if !keyspaces_present {
+        return Err(ThingdError::UnsupportedStorageFormat(format!(
+            "missing keyspaces directory: {}",
+            path.join(STORAGE_KEYSPACES_DIR).display()
+        )));
+    }
+
+    let manifest_path = path.join(STORAGE_MANIFEST_FILE);
+    if manifest_path.exists() {
+        let bytes = std::fs::read(&manifest_path)
+            .map_err(|error| ThingdError::StorageValidation(error.to_string()))?;
+        let manifest: StorageManifest = serde_json::from_slice(&bytes).map_err(|error| {
+            ThingdError::UnsupportedStorageFormat(format!(
+                "invalid {}: {error}",
+                manifest_path.display()
+            ))
+        })?;
+        if manifest.format_version != STORAGE_FORMAT_VERSION {
+            return Err(ThingdError::UnsupportedStorageFormat(format!(
+                "expected format version {}, found {}",
+                STORAGE_FORMAT_VERSION, manifest.format_version
+            )));
+        }
+        if manifest.contract != STORAGE_CONTRACT {
+            return Err(ThingdError::UnsupportedStorageFormat(format!(
+                "expected contract {STORAGE_CONTRACT}, found {}",
+                manifest.contract
+            )));
+        }
+        for required in manifest_keyspaces() {
+            if !manifest.keyspaces.iter().any(|found| found == &required) {
+                return Err(ThingdError::UnsupportedStorageFormat(format!(
+                    "manifest does not declare keyspace {required}"
+                )));
+            }
+        }
+        return Ok(Some(StorageValidationReport {
+            format_version: manifest.format_version,
+            legacy_manifest: false,
+            lock_present,
+            keyspaces_present,
+            search_index_compatible: search_index_compatible(path),
+        }));
+    }
+
+    // Stores created before the manifest was introduced are accepted after the
+    // structural checks above and receive a manifest during the normal open.
+    Ok(Some(StorageValidationReport {
+        format_version: STORAGE_FORMAT_VERSION,
+        legacy_manifest: true,
+        lock_present,
+        keyspaces_present,
+        search_index_compatible: search_index_compatible(path),
+    }))
+}
+
+fn write_or_validate_manifest(
+    path: &Path,
+    existing: Option<&StorageValidationReport>,
+) -> ThingdResult<()> {
+    let manifest_path = path.join(STORAGE_MANIFEST_FILE);
+    if manifest_path.exists() {
+        return Ok(());
+    }
+    if let Some(report) = existing
+        && !report.legacy_manifest
+    {
+        return Ok(());
+    }
+    let manifest = StorageManifest {
+        format_version: STORAGE_FORMAT_VERSION,
+        contract: STORAGE_CONTRACT.to_string(),
+        keyspaces: manifest_keyspaces(),
+        search_schema_version: 1,
+    };
+    let bytes = serde_json::to_vec_pretty(&manifest)
+        .map_err(|error| ThingdError::StorageValidation(error.to_string()))?;
+    std::fs::write(manifest_path, bytes)
+        .map_err(|error| ThingdError::StorageValidation(error.to_string()))
+}
+
 /// Options used when opening a persistent database.
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct PersistentOpenOptions {
     /// Optional authenticated-encryption configuration.
     pub encryption: Option<EncryptionConfig>,
     /// Permit an explicit encrypted-to-plaintext migration when used by
     /// `PersistentEngine::reencrypt_to`. Ignored during normal open.
     pub allow_plaintext_output: bool,
+    /// Controls whether the persistent Tantivy index is opened.
+    pub search_mode: PersistentSearchMode,
+}
+
+impl Default for PersistentOpenOptions {
+    fn default() -> Self {
+        Self {
+            encryption: None,
+            allow_plaintext_output: false,
+            search_mode: PersistentSearchMode::Persistent,
+        }
+    }
 }
 
 #[cfg(feature = "vectors")]
@@ -95,6 +339,7 @@ impl PersistentEngine {
         options: PersistentOpenOptions,
     ) -> ThingdResult<Self> {
         let path = path.as_ref();
+        let existing = validate_existing_directory(path)?;
         let crypto = StorageCrypto::open(path, options.encryption.as_ref())?;
         let codec = make_codec(crypto);
         let encrypted = codec.encrypted();
@@ -102,6 +347,7 @@ impl PersistentEngine {
 
         let objects = db.keyspace("objects", KeyspaceCreateOptions::default)?;
         let events = db.keyspace("events", KeyspaceCreateOptions::default)?;
+        let event_meta = db.keyspace("event_meta", KeyspaceCreateOptions::default)?;
         let queue_jobs = db.keyspace("queue_jobs", KeyspaceCreateOptions::default)?;
         let ready_jobs = db.keyspace("ready_jobs", KeyspaceCreateOptions::default)?;
         let links_by_id = db.keyspace("links_by_id", KeyspaceCreateOptions::default)?;
@@ -113,6 +359,8 @@ impl PersistentEngine {
 
         #[cfg(feature = "vectors")]
         let vectors = db.keyspace("vectors", KeyspaceCreateOptions::default)?;
+
+        write_or_validate_manifest(path, existing.as_ref())?;
 
         let mut next_link_id = 0u64;
         for kv in links_by_id.iter() {
@@ -129,37 +377,83 @@ impl PersistentEngine {
             }
         }
 
-        // Reconstruct event sequence counters and idempotency keys from durable data.
-        // This ensures sequences continue monotonic and idempotency dedup survives reopen.
         let mut event_seq_counters: HashMap<String, u64> = HashMap::new();
         let mut event_idempotency_keys: HashMap<(String, String), u64> = HashMap::new();
-        for kv in events.iter() {
+        let mut metadata_loaded = false;
+        for kv in event_meta.iter() {
             let (_, value) = guard_data(kv)?;
-            let decoded = codec.decode_value("record", &value)?;
-            let event: MemoryEvent = serde_json::from_slice(&decoded)
+            let decoded = codec.decode_value("event_metadata", &value)?;
+            let metadata: EventMetadata = serde_json::from_slice(&decoded)
                 .map_err(|e| ThingdError::Storage(e.to_string()))?;
-            let stream = event.stream.clone();
-            let seq = event.sequence;
-            event_seq_counters
-                .entry(stream.clone())
-                .and_modify(|max| *max = (*max).max(seq))
-                .or_insert(seq);
-            if !event.idempotency_key.is_empty() {
-                event_idempotency_keys.insert((stream, event.idempotency_key), seq);
+            metadata_loaded = true;
+            let stream = metadata.stream.clone();
+            event_seq_counters.insert(stream.clone(), metadata.max_sequence);
+            for (idempotency_key, sequence) in metadata.idempotency_keys {
+                event_idempotency_keys.insert((stream.clone(), idempotency_key), sequence);
             }
         }
 
+        // Legacy stores do not have event metadata yet. Scan them once and persist
+        // the derived counters so later opens do not repeat the full reconstruction.
+        if !metadata_loaded {
+            for kv in events.iter() {
+                let (_, value) = guard_data(kv)?;
+                let decoded = codec.decode_value("record", &value)?;
+                let event: MemoryEvent = serde_json::from_slice(&decoded)
+                    .map_err(|e| ThingdError::Storage(e.to_string()))?;
+                let stream = event.stream.clone();
+                let seq = event.sequence;
+                event_seq_counters
+                    .entry(stream.clone())
+                    .and_modify(|max| *max = (*max).max(seq))
+                    .or_insert(seq);
+                if !event.idempotency_key.is_empty() {
+                    event_idempotency_keys.insert((stream, event.idempotency_key), seq);
+                }
+            }
+        }
+
+        let (unique_index_values, unique_index_cache_complete) =
+            Self::build_unique_index_cache(&objects, &indexes, codec.as_ref())?;
+
         #[cfg(feature = "search")]
-        let (search_index, rebuild_search_index) = if encrypted {
-            (Self::create_search_index(true), true)
-        } else {
-            Self::init_search_index(path)?
+        let (search_index, rebuild_search_index) = match options.search_mode {
+            PersistentSearchMode::Disabled => (None, false),
+            PersistentSearchMode::Persistent if encrypted => {
+                (Self::create_search_index(true), true)
+            },
+            PersistentSearchMode::PersistentNoRebuild if encrypted => (None, false),
+            PersistentSearchMode::Persistent => Self::init_search_index(path, true)?,
+            PersistentSearchMode::PersistentNoRebuild => Self::init_search_index(path, false)?,
         };
+
+        #[cfg(feature = "search")]
+        let search_writer = search_index
+            .as_ref()
+            .map(|index| {
+                index
+                    .writer(SEARCH_WRITER_MEMORY_BYTES)
+                    .map(Mutex::new)
+                    .map_err(|error| ThingdError::Storage(format!("create search writer: {error}")))
+            })
+            .transpose()?;
+
+        #[cfg(feature = "search")]
+        let search_reader = search_index
+            .as_ref()
+            .map(|index| {
+                index
+                    .reader()
+                    .map(Mutex::new)
+                    .map_err(|error| ThingdError::Storage(format!("create search reader: {error}")))
+            })
+            .transpose()?;
 
         let engine = Self {
             db,
             objects,
             events,
+            event_meta,
             queue_jobs,
             ready_jobs,
             links_by_id,
@@ -171,28 +465,46 @@ impl PersistentEngine {
             next_link_id: AtomicU64::new(next_link_id + 1),
             event_seq_counters,
             event_idempotency_keys,
+            unique_index_values,
+            unique_index_cache_complete,
             #[cfg(feature = "search")]
             search_index,
+            #[cfg(feature = "search")]
+            search_writer,
+            #[cfg(feature = "search")]
+            search_reader,
             #[cfg(feature = "vectors")]
             vectors,
             codec,
         };
+
+        if !metadata_loaded {
+            engine.persist_all_event_metadata()?;
+        }
 
         #[cfg(feature = "search")]
         if rebuild_search_index {
             for entry in engine.objects.iter() {
                 let (_, value) = guard_data(entry)?;
                 let object: MemoryObject = engine.deserialize(&value)?;
-                engine.index_object_for_search(&object);
+                engine.index_object_for_search_with_commit(&object, false);
             }
             for entry in engine.events.iter() {
                 let (_, value) = guard_data(entry)?;
                 let event: MemoryEvent = engine.deserialize(&value)?;
-                engine.index_event_for_search(&event);
+                engine.index_event_for_search_with_commit(&event, false);
             }
+            engine.commit_search_index();
         }
 
         Ok(engine)
+    }
+
+    /// Validate a native storage directory without opening Fjall or mutating files.
+    pub fn validate_path(path: impl AsRef<Path>) -> ThingdResult<StorageValidationReport> {
+        validate_existing_directory(path.as_ref())?.ok_or_else(|| {
+            ThingdError::StorageValidation("database directory does not exist yet".to_string())
+        })
     }
 
     /// Re-encrypt a database into a new destination without modifying the source.
@@ -384,10 +696,11 @@ impl PersistentEngine {
     }
 
     #[cfg(feature = "search")]
-    fn init_search_index(path: &Path) -> ThingdResult<(Option<tantivy::Index>, bool)> {
+    fn init_search_index(
+        path: &Path,
+        rebuild_incompatible: bool,
+    ) -> ThingdResult<(Option<tantivy::Index>, bool)> {
         let search_dir = path.join("search");
-        std::fs::create_dir_all(&search_dir)
-            .map_err(|e| ThingdError::Storage(format!("create search directory: {e}")))?;
 
         // A Tantivy index is derived state. If an older SDK wrote an
         // incompatible schema (for example without `doc_key`), discard only
@@ -397,6 +710,10 @@ impl PersistentEngine {
             && Self::search_schema_is_compatible(&index.schema())
         {
             return Ok((Some(index), false));
+        }
+
+        if !rebuild_incompatible {
+            return Ok((None, false));
         }
 
         if search_dir.exists() {
@@ -428,6 +745,38 @@ impl PersistentEngine {
     fn deserialize<T: for<'a> serde::Deserialize<'a>>(&self, bytes: &[u8]) -> ThingdResult<T> {
         let data = self.codec.decode_value("record", bytes)?;
         serde_json::from_slice(&data).map_err(|e| ThingdError::Storage(e.to_string()))
+    }
+
+    fn persist_event_metadata(&self, stream: &str) -> ThingdResult<()> {
+        let max_sequence = self.event_seq_counters.get(stream).copied().unwrap_or(0);
+        let idempotency_keys = self
+            .event_idempotency_keys
+            .iter()
+            .filter_map(|((stored_stream, key), sequence)| {
+                (stored_stream == stream).then_some((key.clone(), *sequence))
+            })
+            .collect();
+        let metadata = EventMetadata {
+            stream: stream.to_string(),
+            max_sequence,
+            idempotency_keys,
+        };
+        let raw = serde_json::to_vec(&metadata)
+            .map_err(|error| ThingdError::Storage(error.to_string()))?;
+        let encoded = self.codec.encode_value("event_metadata", &raw)?;
+        let key = self
+            .codec
+            .encode_key("event_metadata.stream", stream.as_bytes());
+        self.event_meta.insert(&key, &encoded)?;
+        Ok(())
+    }
+
+    fn persist_all_event_metadata(&self) -> ThingdResult<()> {
+        let streams: Vec<String> = self.event_seq_counters.keys().cloned().collect();
+        for stream in streams {
+            self.persist_event_metadata(&stream)?;
+        }
+        Ok(())
     }
 
     fn make_object_key(&self, collection: &str, id: &str) -> Vec<u8> {
@@ -558,32 +907,178 @@ impl PersistentEngine {
         self.codec.encode_key("indexes.definition", &value)
     }
 
-    fn validate_unique_indexes(&self, object: &MemoryObject) -> ThingdResult<()> {
-        for index in self
+    fn unique_cache_key(
+        collection: &str,
+        field: &str,
+        value: &serde_json::Value,
+    ) -> ThingdResult<(String, String, String)> {
+        let value = serde_json::to_string(value)
+            .map_err(|error| ThingdError::Storage(error.to_string()))?;
+        Ok((collection.to_string(), field.to_string(), value))
+    }
+
+    fn build_unique_index_cache(
+        objects: &Keyspace,
+        indexes: &Keyspace,
+        codec: &dyn StorageCodec,
+    ) -> ThingdResult<(UniqueIndexCache, bool)> {
+        let mut unique_indexes = Vec::new();
+        for entry in indexes.iter() {
+            let (_, value) = guard_data(entry)?;
+            let decoded = codec.decode_value("record", &value)?;
+            let index: IndexDefinition = serde_json::from_slice(&decoded)
+                .map_err(|error| ThingdError::Storage(error.to_string()))?;
+            if index.unique {
+                unique_indexes.push(index);
+            }
+        }
+        if unique_indexes.is_empty() {
+            return Ok((HashMap::new(), true));
+        }
+
+        let mut cache = HashMap::new();
+        let mut complete = true;
+        for entry in objects.iter() {
+            let (_, value) = guard_data(entry)?;
+            let decoded = codec.decode_value("record", &value)?;
+            let object: MemoryObject = serde_json::from_slice(&decoded)
+                .map_err(|error| ThingdError::Storage(error.to_string()))?;
+            let Ok(body) = serde_json::from_str::<serde_json::Value>(&object.body) else {
+                complete = false;
+                continue;
+            };
+            for index in unique_indexes
+                .iter()
+                .filter(|index| index.collection == object.key.collection)
+            {
+                let Some(value) = body.get(&index.field).filter(|value| !value.is_null()) else {
+                    continue;
+                };
+                let key = Self::unique_cache_key(&index.collection, &index.field, value)?;
+                if cache.insert(key, object.key.clone()).is_some() {
+                    complete = false;
+                }
+            }
+        }
+        Ok((cache, complete))
+    }
+
+    fn refresh_unique_index_cache(&mut self) -> ThingdResult<()> {
+        let (cache, complete) =
+            Self::build_unique_index_cache(&self.objects, &self.indexes, self.codec.as_ref())?;
+        self.unique_index_values = cache;
+        self.unique_index_cache_complete = complete;
+        Ok(())
+    }
+
+    fn update_unique_index_cache_for_object(
+        &mut self,
+        object: &MemoryObject,
+        previous: Option<&MemoryObject>,
+    ) -> ThingdResult<()> {
+        if !self.unique_index_cache_complete {
+            return Ok(());
+        }
+        let indexes: Vec<IndexDefinition> = self
             .list_index_definitions()?
             .into_iter()
             .filter(|index| index.unique && index.collection == object.key.collection)
-        {
-            let body =
-                serde_json::from_str::<serde_json::Value>(&object.body).map_err(|error| {
-                    ThingdError::InvalidInput(format!("invalid object JSON: {error}"))
-                })?;
+            .collect();
+        for index in indexes {
+            if let Some(previous) = previous
+                && let Ok(body) = serde_json::from_str::<serde_json::Value>(&previous.body)
+                && let Some(value) = body.get(&index.field).filter(|value| !value.is_null())
+            {
+                let key = Self::unique_cache_key(&index.collection, &index.field, value)?;
+                self.unique_index_values.remove(&key);
+            }
+            if let Ok(body) = serde_json::from_str::<serde_json::Value>(&object.body)
+                && let Some(value) = body.get(&index.field).filter(|value| !value.is_null())
+            {
+                let key = Self::unique_cache_key(&index.collection, &index.field, value)?;
+                self.unique_index_values.insert(key, object.key.clone());
+            }
+        }
+        Ok(())
+    }
+
+    fn remove_unique_index_cache_for_object(&mut self, object: &MemoryObject) -> ThingdResult<()> {
+        if !self.unique_index_cache_complete {
+            return Ok(());
+        }
+        let indexes: Vec<IndexDefinition> = self
+            .list_index_definitions()?
+            .into_iter()
+            .filter(|index| index.unique && index.collection == object.key.collection)
+            .collect();
+        if let Ok(body) = serde_json::from_str::<serde_json::Value>(&object.body) {
+            for index in indexes {
+                if let Some(value) = body.get(&index.field).filter(|value| !value.is_null()) {
+                    let key = Self::unique_cache_key(&index.collection, &index.field, value)?;
+                    self.unique_index_values.remove(&key);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn validate_unique_indexes(&self, object: &MemoryObject) -> ThingdResult<()> {
+        let indexes: Vec<IndexDefinition> = self
+            .list_index_definitions()?
+            .into_iter()
+            .filter(|index| index.unique && index.collection == object.key.collection)
+            .collect();
+        if indexes.is_empty() {
+            return Ok(());
+        }
+
+        let body = serde_json::from_str::<serde_json::Value>(&object.body)
+            .map_err(|error| ThingdError::InvalidInput(format!("invalid object JSON: {error}")))?;
+        let existing_bodies = if self.unique_index_cache_complete {
+            None
+        } else {
+            let objects = self.list_objects(
+                Some(std::slice::from_ref(&object.key.collection)),
+                &ListObjectsOptions::default(),
+            )?;
+            Some(
+                objects
+                    .into_iter()
+                    .filter_map(|existing| {
+                        serde_json::from_str::<serde_json::Value>(&existing.body)
+                            .ok()
+                            .map(|existing_body| (existing.key, existing_body))
+                    })
+                    .collect::<Vec<_>>(),
+            )
+        };
+
+        for index in indexes {
             let Some(value) = body.get(&index.field) else {
                 continue;
             };
             if value.is_null() {
                 continue;
             }
-            let objects = self.list_objects(
-                Some(std::slice::from_ref(&object.key.collection)),
-                &ListObjectsOptions::default(),
-            )?;
-            if objects.iter().any(|existing| {
-                existing.key != object.key
-                    && serde_json::from_str::<serde_json::Value>(&existing.body)
-                        .ok()
-                        .and_then(|body| body.get(&index.field).cloned())
-                        .is_some_and(|existing_value| existing_value == *value)
+            if self.unique_index_cache_complete {
+                let key = Self::unique_cache_key(&index.collection, &index.field, value)?;
+                if let Some(existing_key) = self.unique_index_values.get(&key)
+                    && existing_key != &object.key
+                {
+                    return Err(ThingdError::Conflict(format!(
+                        "unique index {}.{} rejects duplicate value",
+                        index.collection, index.field
+                    )));
+                }
+                continue;
+            }
+            if existing_bodies.as_ref().is_some_and(|existing_bodies| {
+                existing_bodies.iter().any(|(existing_key, existing_body)| {
+                    existing_key != &object.key
+                        && existing_body
+                            .get(&index.field)
+                            .is_some_and(|existing_value| existing_value == value)
+                })
             }) {
                 return Err(ThingdError::Conflict(format!(
                     "unique index {}.{} rejects duplicate value",
@@ -600,6 +1095,11 @@ fn guard_data(kv: fjall::Guard) -> ThingdResult<(Vec<u8>, Vec<u8>)> {
     let key = kv.0.to_vec();
     let val = kv.1.to_vec();
     Ok((key, val))
+}
+
+fn timestamp_before(value: &str, cutoff_ms: i64) -> bool {
+    chrono::DateTime::parse_from_rfc3339(value)
+        .is_ok_and(|timestamp| timestamp.timestamp_millis() < cutoff_ms)
 }
 
 impl crate::SchemaStore for PersistentEngine {
@@ -635,20 +1135,43 @@ impl crate::SchemaStore for PersistentEngine {
     }
 }
 
+impl PersistentEngine {
+    fn safe_replication_cursor(&self) -> ThingdResult<Option<u64>> {
+        let mut minimum: Option<u64> = None;
+        for entry in self.objects.iter() {
+            let (_, value) = guard_data(entry)?;
+            let object: MemoryObject = self.deserialize(&value)?;
+            if object.key.collection != REPLICATION_STATE_COLLECTION {
+                continue;
+            }
+            let Some(cursor) = serde_json::from_str::<serde_json::Value>(&object.body)
+                .ok()
+                .and_then(|body| body.get("lastAppliedCursor").and_then(Value::as_u64))
+            else {
+                continue;
+            };
+            minimum = Some(minimum.map_or(cursor, |current| current.min(cursor)));
+        }
+        Ok(minimum)
+    }
+}
+
 // ── ObjectStore ──────────────────────────────────────────────────────────────
 
 impl ObjectStore for PersistentEngine {
     fn put_object(&mut self, mut object: MemoryObject) -> ThingdResult<MemoryObject> {
         self.validate_unique_indexes(&object)?;
         let key = self.make_object_key(&object.key.collection, &object.key.id);
+        let previous = value_to_vec(self.objects.get(&key)?)
+            .map(|data| self.deserialize::<MemoryObject>(&data))
+            .transpose()?;
 
         if object.created_at.is_empty() {
             object.created_at = now_iso_string();
         }
         object.updated_at = now_iso_string();
 
-        if let Some(existing) = value_to_vec(self.objects.get(&key)?) {
-            let existing_obj: MemoryObject = self.deserialize(&existing)?;
+        if let Some(existing_obj) = previous.as_ref() {
             object.version = existing_obj.version + 1;
             object.created_at.clone_from(&existing_obj.created_at);
         } else {
@@ -680,6 +1203,8 @@ impl ObjectStore for PersistentEngine {
 
         #[cfg(feature = "search")]
         self.index_object_for_search(&object);
+
+        self.update_unique_index_cache_for_object(&object, previous.as_ref())?;
 
         Ok(object)
     }
@@ -714,6 +1239,111 @@ impl ObjectStore for PersistentEngine {
         self.put_object(object)
     }
 
+    fn retain(&mut self, options: RetentionOptions) -> ThingdResult<RetentionReport> {
+        let safe_replication_cursor = if options.include_replication {
+            self.safe_replication_cursor()?
+        } else {
+            None
+        };
+        let mut report = RetentionReport {
+            dry_run: options.dry_run,
+            safe_replication_cursor,
+            ..RetentionReport::default()
+        };
+        let mut event_deletions = Vec::new();
+        for entry in self.events.iter() {
+            let (key, value) = guard_data(entry)?;
+            let event: MemoryEvent = self.deserialize(&value)?;
+            let old = timestamp_before(&event.created_at, options.before_unix_ms);
+            let eligible = if event.stream == REPLICATION_STREAM {
+                if old
+                    && options.include_replication
+                    && safe_replication_cursor.is_some_and(|cursor| event.sequence <= cursor)
+                {
+                    true
+                } else if old {
+                    report.skipped_replication_events += 1;
+                    false
+                } else {
+                    false
+                }
+            } else {
+                !self.is_protected_stream(&event.stream) && old
+            };
+            if eligible {
+                report.events += 1;
+                event_deletions.push((key, event));
+            }
+        }
+
+        let mut job_deletions = Vec::new();
+        for entry in self.queue_jobs.iter() {
+            let (key, value) = guard_data(entry)?;
+            let job: QueueJob = self.deserialize(&value)?;
+            let eligible = match job.status {
+                QueueJobStatus::Completed => job
+                    .completed_at_ms
+                    .is_some_and(|timestamp| timestamp < options.before_unix_ms),
+                QueueJobStatus::Dead => job
+                    .dead_at_ms
+                    .is_some_and(|timestamp| timestamp < options.before_unix_ms),
+                _ => false,
+            };
+            if eligible {
+                match job.status {
+                    QueueJobStatus::Completed => report.completed_jobs += 1,
+                    QueueJobStatus::Dead => report.dead_jobs += 1,
+                    _ => unreachable!(),
+                }
+                job_deletions.push((key, job));
+            }
+        }
+
+        if options.dry_run {
+            return Ok(report);
+        }
+
+        let mut batch = self.db.batch();
+        for (key, _) in &event_deletions {
+            batch.remove(&self.events, key.clone());
+        }
+        for (key, _) in &job_deletions {
+            batch.remove(&self.queue_jobs, key.clone());
+        }
+        if !event_deletions.is_empty() || !job_deletions.is_empty() {
+            batch
+                .commit()
+                .map_err(|error| ThingdError::Storage(error.to_string()))?;
+        }
+
+        let mut affected_streams = std::collections::HashSet::new();
+        #[cfg(feature = "search")]
+        let mut search_deletions = Vec::new();
+        for (_, event) in &event_deletions {
+            affected_streams.insert(event.stream.clone());
+            self.event_idempotency_keys.retain(|(stream, _), sequence| {
+                stream != &event.stream || *sequence != event.sequence
+            });
+            #[cfg(feature = "search")]
+            search_deletions.push((event.stream.clone(), event.sequence));
+        }
+        #[cfg(feature = "search")]
+        self.delete_events_from_search_index(&search_deletions);
+        for stream in affected_streams {
+            self.persist_event_metadata(&stream)?;
+        }
+        if options.compact && (!event_deletions.is_empty() || !job_deletions.is_empty()) {
+            self.events
+                .major_compact()
+                .map_err(|error| ThingdError::Storage(error.to_string()))?;
+            self.queue_jobs
+                .major_compact()
+                .map_err(|error| ThingdError::Storage(error.to_string()))?;
+            report.compacted = true;
+        }
+        Ok(report)
+    }
+
     fn get_object(&self, collection: &str, id: &str) -> ThingdResult<Option<MemoryObject>> {
         let key = self.make_object_key(collection, id);
         match value_to_vec(self.objects.get(&key)?) {
@@ -737,6 +1367,58 @@ impl ObjectStore for PersistentEngine {
         collections: Option<&[String]>,
         options: &ListObjectsOptions,
     ) -> ThingdResult<Vec<MemoryObject>> {
+        // Avoid materializing the whole collection when the caller requests
+        // the natural key order. Sorting still requires the full candidate set.
+        if options.sort_by.is_none() {
+            let offset = options.offset.unwrap_or(0);
+            let limit = options.limit.unwrap_or(u64::MAX);
+            let mut skipped = 0u64;
+            let mut results = Vec::new();
+
+            if let Some(collections) = collections
+                && collections.len() == 1
+            {
+                let prefix = self.make_object_prefix(&collections[0]);
+                for kv in self.objects.prefix(&prefix) {
+                    let (_, value) = guard_data(kv)?;
+                    let object: MemoryObject = self.deserialize(&value)?;
+                    if !matches_object_filters(&object, &options.filter) {
+                        continue;
+                    }
+                    if skipped < offset {
+                        skipped += 1;
+                        continue;
+                    }
+                    results.push(object);
+                    if results.len() as u64 >= limit {
+                        break;
+                    }
+                }
+            } else {
+                for kv in self.objects.iter() {
+                    let (_, value) = guard_data(kv)?;
+                    let object: MemoryObject = self.deserialize(&value)?;
+                    if let Some(collections) = collections
+                        && !collections.contains(&object.key.collection)
+                    {
+                        continue;
+                    }
+                    if !matches_object_filters(&object, &options.filter) {
+                        continue;
+                    }
+                    if skipped < offset {
+                        skipped += 1;
+                        continue;
+                    }
+                    results.push(object);
+                    if results.len() as u64 >= limit {
+                        break;
+                    }
+                }
+            }
+            return Ok(results);
+        }
+
         let prefix = if let Some(collections) = collections
             && collections.len() == 1
         {
@@ -768,61 +1450,7 @@ impl ObjectStore for PersistentEngine {
         }
 
         if !options.filter.is_empty() {
-            objects.retain(|object| {
-                let Ok(body) = serde_json::from_str::<serde_json::Value>(&object.body) else {
-                    return false;
-                };
-                options.filter.iter().all(|(key, expected)| {
-                    let field_val = body.get(key.as_str());
-                    match expected {
-                        serde_json::Value::Object(ops)
-                            if ops.keys().any(|k| {
-                                matches!(
-                                    k.as_str(),
-                                    "$gt" | "$gte" | "$lt" | "$lte" | "$ne" | "$in" | "$like"
-                                )
-                            }) =>
-                        {
-                            let Some(fv) = field_val else {
-                                return false;
-                            };
-                            ops.iter().all(|(op, operand)| match op.as_str() {
-                                "$gt" => value_compare(fv, operand) == std::cmp::Ordering::Greater,
-                                "$gte" => matches!(
-                                    value_compare(fv, operand),
-                                    std::cmp::Ordering::Greater | std::cmp::Ordering::Equal
-                                ),
-                                "$lt" => value_compare(fv, operand) == std::cmp::Ordering::Less,
-                                "$lte" => matches!(
-                                    value_compare(fv, operand),
-                                    std::cmp::Ordering::Less | std::cmp::Ordering::Equal
-                                ),
-                                "$ne" => value_compare(fv, operand) != std::cmp::Ordering::Equal,
-                                "$in" => {
-                                    if let serde_json::Value::Array(items) = operand {
-                                        items.iter().any(|item| fv == item)
-                                    } else {
-                                        false
-                                    }
-                                },
-                                "$like" => {
-                                    if let (
-                                        serde_json::Value::String(s),
-                                        serde_json::Value::String(pat),
-                                    ) = (fv, operand)
-                                    {
-                                        like_match(s, pat)
-                                    } else {
-                                        false
-                                    }
-                                },
-                                _ => true,
-                            })
-                        },
-                        _ => field_val.is_some_and(|v| v == expected),
-                    }
-                })
-            });
+            objects.retain(|object| matches_object_filters(object, &options.filter));
         }
 
         if let Some(ref sort_by) = options.sort_by {
@@ -870,7 +1498,10 @@ impl ObjectStore for PersistentEngine {
 
     fn delete_object(&mut self, collection: &str, id: &str) -> ThingdResult<bool> {
         let key = self.make_object_key(collection, id);
-        let existed = self.objects.get(&key)?.is_some();
+        let existing = value_to_vec(self.objects.get(&key)?)
+            .map(|data| self.deserialize::<MemoryObject>(&data))
+            .transpose()?;
+        let existed = existing.is_some();
 
         // Atomic batch: object + vector removal
         let mut batch = self.db.batch();
@@ -886,16 +1517,23 @@ impl ObjectStore for PersistentEngine {
 
         #[cfg(feature = "search")]
         self.delete_object_from_search_index(collection, id);
+        if let Some(existing) = existing.as_ref() {
+            self.remove_unique_index_cache_for_object(existing)?;
+        }
         Ok(existed)
     }
 
     fn delete_objects_batch(&mut self, keys: &[(String, String)]) -> ThingdResult<u64> {
         let mut count = 0u64;
         let mut batch = self.db.batch();
+        let mut deleted = Vec::new();
 
         for (collection, id) in keys {
             let key = self.make_object_key(collection, id);
             if self.objects.get(&key)?.is_some() {
+                if let Some(data) = value_to_vec(self.objects.get(&key)?) {
+                    deleted.push(self.deserialize::<MemoryObject>(&data)?);
+                }
                 batch.remove(&self.objects, key);
                 count += 1;
             }
@@ -915,6 +1553,9 @@ impl ObjectStore for PersistentEngine {
         #[cfg(feature = "search")]
         for (collection, id) in keys {
             self.delete_object_from_search_index(collection, id);
+        }
+        for object in &deleted {
+            self.remove_unique_index_cache_for_object(object)?;
         }
 
         Ok(count)
@@ -991,6 +1632,7 @@ impl ObjectStore for PersistentEngine {
             self.make_index_key(&index.collection, &index.field),
             self.serialize(&index)?,
         )?;
+        self.refresh_unique_index_cache()?;
         Ok(())
     }
 
@@ -1007,6 +1649,7 @@ impl ObjectStore for PersistentEngine {
         let existed = self.indexes.get(&key)?.is_some();
         if existed {
             self.indexes.remove(key)?;
+            self.refresh_unique_index_cache()?;
         }
         Ok(existed)
     }
@@ -1141,6 +1784,8 @@ impl EventLog for PersistentEngine {
             );
         }
 
+        self.persist_event_metadata(&event.stream)?;
+
         Ok(event)
     }
 
@@ -1229,10 +1874,17 @@ impl EventLog for PersistentEngine {
 
         if let Some(key) = last_key {
             self.events.remove(&key)?;
+            if let Some(ref ev) = last_event {
+                self.event_idempotency_keys
+                    .retain(|(stored_stream, _), sequence| {
+                        stored_stream != stream || *sequence != ev.sequence
+                    });
+            }
             #[cfg(feature = "search")]
             if let Some(ref ev) = last_event {
                 self.delete_event_from_search_index(&ev.stream, ev.sequence);
             }
+            self.persist_event_metadata(stream)?;
             Ok(last_event)
         } else {
             Ok(None)
@@ -1264,6 +1916,10 @@ impl EventLog for PersistentEngine {
 
         self.event_seq_counters.remove(stream);
         self.event_idempotency_keys.retain(|(s, _), _| s != stream);
+        let key = self
+            .codec
+            .encode_key("event_metadata.stream", stream.as_bytes());
+        self.event_meta.remove(&key)?;
 
         Ok(count)
     }
@@ -1529,8 +2185,8 @@ impl Searcher for PersistentEngine {
     fn search(&self, query: &str, options: SearchOptions) -> ThingdResult<Vec<SearchHit>> {
         // Try Tantivy search first
         #[cfg(feature = "search")]
-        if let Some(ref index) = self.search_index {
-            return self.search_tantivy(index, query, options);
+        if let (Some(index), Some(reader)) = (&self.search_index, &self.search_reader) {
+            return self.search_tantivy(index, reader, query, options);
         }
 
         // Fallback: naive substring search (same as MemoryEngine)
@@ -1541,6 +2197,11 @@ impl Searcher for PersistentEngine {
 impl PersistentEngine {
     #[cfg(feature = "search")]
     fn index_object_for_search(&self, object: &MemoryObject) {
+        self.index_object_for_search_with_commit(object, true);
+    }
+
+    #[cfg(feature = "search")]
+    fn index_object_for_search_with_commit(&self, object: &MemoryObject, commit: bool) {
         let Some(ref index) = self.search_index else {
             return;
         };
@@ -1551,9 +2212,11 @@ impl PersistentEngine {
         let id_field = schema.get_field("id").unwrap();
         let kind_field = schema.get_field("kind").unwrap();
 
-        let mut writer = match index.writer(50_000_000) {
-            Ok(w) => w,
-            Err(_) => return,
+        let Some(ref writer) = self.search_writer else {
+            return;
+        };
+        let Ok(mut writer) = writer.lock() else {
+            return;
         };
 
         let doc_key = format!("{}/{}", object.key.collection, object.key.id);
@@ -1569,11 +2232,20 @@ impl PersistentEngine {
         doc.add_text(kind_field, "object");
 
         let _ = writer.add_document(doc);
-        let _ = writer.commit();
+        if commit {
+            let _ = writer.commit();
+            drop(writer);
+            self.reload_search_reader();
+        }
     }
 
     #[cfg(feature = "search")]
     fn index_event_for_search(&self, event: &MemoryEvent) {
+        self.index_event_for_search_with_commit(event, true);
+    }
+
+    #[cfg(feature = "search")]
+    fn index_event_for_search_with_commit(&self, event: &MemoryEvent, commit: bool) {
         let Some(ref index) = self.search_index else {
             return;
         };
@@ -1584,9 +2256,11 @@ impl PersistentEngine {
         let id_field = schema.get_field("id").unwrap();
         let kind_field = schema.get_field("kind").unwrap();
 
-        let mut writer = match index.writer(50_000_000) {
-            Ok(w) => w,
-            Err(_) => return,
+        let Some(ref writer) = self.search_writer else {
+            return;
+        };
+        let Ok(mut writer) = writer.lock() else {
+            return;
         };
 
         let mut doc = tantivy::TantivyDocument::new();
@@ -1598,7 +2272,33 @@ impl PersistentEngine {
         doc.add_text(kind_field, "event");
 
         let _ = writer.add_document(doc);
+        if commit {
+            let _ = writer.commit();
+            drop(writer);
+            self.reload_search_reader();
+        }
+    }
+
+    #[cfg(feature = "search")]
+    fn commit_search_index(&self) {
+        let Some(ref writer) = self.search_writer else {
+            return;
+        };
+        let Ok(mut writer) = writer.lock() else {
+            return;
+        };
         let _ = writer.commit();
+        drop(writer);
+        self.reload_search_reader();
+    }
+
+    #[cfg(feature = "search")]
+    fn reload_search_reader(&self) {
+        if let Some(ref reader) = self.search_reader
+            && let Ok(reader) = reader.lock()
+        {
+            let _ = reader.reload();
+        }
     }
 
     #[cfg(feature = "search")]
@@ -1609,16 +2309,45 @@ impl PersistentEngine {
         let schema = index.schema();
         let doc_key_field = schema.get_field("doc_key").unwrap();
 
-        let mut writer: tantivy::IndexWriter<tantivy::TantivyDocument> =
-            match index.writer(50_000_000) {
-                Ok(w) => w,
-                Err(_) => return,
-            };
+        let Some(ref writer) = self.search_writer else {
+            return;
+        };
+        let Ok(mut writer) = writer.lock() else {
+            return;
+        };
 
         let doc_key = format!("event:{stream}/{sequence}");
         let term = tantivy::Term::from_field_text(doc_key_field, &doc_key);
         let _ = writer.delete_term(term);
         let _ = writer.commit();
+        drop(writer);
+        self.reload_search_reader();
+    }
+
+    #[cfg(feature = "search")]
+    fn delete_events_from_search_index(&self, events: &[(String, u64)]) {
+        if events.is_empty() {
+            return;
+        }
+        let Some(ref index) = self.search_index else {
+            return;
+        };
+        let schema = index.schema();
+        let doc_key_field = schema.get_field("doc_key").unwrap();
+        let Some(ref writer) = self.search_writer else {
+            return;
+        };
+        let Ok(mut writer) = writer.lock() else {
+            return;
+        };
+        for (stream, sequence) in events {
+            let doc_key = format!("event:{stream}/{sequence}");
+            let term = tantivy::Term::from_field_text(doc_key_field, &doc_key);
+            let _ = writer.delete_term(term);
+        }
+        let _ = writer.commit();
+        drop(writer);
+        self.reload_search_reader();
     }
 
     #[cfg(feature = "search")]
@@ -1629,32 +2358,36 @@ impl PersistentEngine {
         let schema = index.schema();
         let doc_key_field = schema.get_field("doc_key").unwrap();
 
-        let mut writer: tantivy::IndexWriter<tantivy::TantivyDocument> =
-            match index.writer(50_000_000) {
-                Ok(w) => w,
-                Err(_) => return,
-            };
+        let Some(ref writer) = self.search_writer else {
+            return;
+        };
+        let Ok(mut writer) = writer.lock() else {
+            return;
+        };
 
         let doc_key = format!("{collection}/{id}");
         let term = tantivy::Term::from_field_text(doc_key_field, &doc_key);
         let _ = writer.delete_term(term);
         let _ = writer.commit();
+        drop(writer);
+        self.reload_search_reader();
     }
 
     #[cfg(feature = "search")]
     fn search_tantivy(
         &self,
         index: &tantivy::Index,
+        reader: &Mutex<tantivy::IndexReader>,
         query: &str,
         options: SearchOptions,
     ) -> ThingdResult<Vec<SearchHit>> {
-        use tantivy::collector::DocSetCollector;
+        use tantivy::collector::TopDocs;
         use tantivy::query::QueryParser;
         use tantivy::schema::Value;
 
-        let reader = index
-            .reader()
-            .map_err(|e| ThingdError::Storage(e.to_string()))?;
+        let reader = reader
+            .lock()
+            .map_err(|_| ThingdError::Storage("search reader lock poisoned".to_string()))?;
         let searcher = reader.searcher();
         let schema = index.schema();
 
@@ -1670,16 +2403,16 @@ impl PersistentEngine {
             .parse_query(query)
             .map_err(|e| ThingdError::InvalidInput(e.to_string()))?;
 
+        let limit = options.limit.unwrap_or(10).min(1000);
         let doc_ids = searcher
-            .search(&tantivy_query, &DocSetCollector)
+            .search(&tantivy_query, &TopDocs::with_limit(limit).order_by_score())
             .map_err(|e| ThingdError::Storage(e.to_string()))?;
 
-        let limit = options.limit.unwrap_or(10);
         let mut hits = Vec::new();
 
-        for doc_address in doc_ids.iter().take(limit) {
+        for (score, doc_address) in doc_ids {
             let doc = searcher
-                .doc::<tantivy::TantivyDocument>(*doc_address)
+                .doc::<tantivy::TantivyDocument>(doc_address)
                 .map_err(|e| ThingdError::Storage(e.to_string()))?;
 
             let collection = doc
@@ -1732,7 +2465,7 @@ impl PersistentEngine {
                     collection: col,
                     id: doc_id,
                     text: doc_body.clone(),
-                    score: 1.0,
+                    score: score.into(),
                     body: doc_body,
                     version: Some(obj.version),
                     created_at: obj.created_at,
@@ -1753,7 +2486,7 @@ impl PersistentEngine {
                     collection: collection.clone(),
                     id: seq.to_string(),
                     text: body.clone(),
-                    score: 1.0,
+                    score: score.into(),
                     body: body.clone(),
                     version: None,
                     created_at: event.created_at,
@@ -1763,6 +2496,7 @@ impl PersistentEngine {
             }
         }
 
+        drop(reader);
         Ok(hits)
     }
 
@@ -2302,6 +3036,57 @@ fn matches_filter_memory(body_str: &str, filter: &serde_json::Value) -> bool {
     }
 }
 
+fn matches_object_filters(object: &MemoryObject, filters: &[(String, serde_json::Value)]) -> bool {
+    if filters.is_empty() {
+        return true;
+    }
+    let Ok(body) = serde_json::from_str::<serde_json::Value>(&object.body) else {
+        return false;
+    };
+    filters.iter().all(|(key, expected)| {
+        let field_val = body.get(key.as_str());
+        match expected {
+            serde_json::Value::Object(ops)
+                if ops.keys().any(|k| {
+                    matches!(
+                        k.as_str(),
+                        "$gt" | "$gte" | "$lt" | "$lte" | "$ne" | "$in" | "$like"
+                    )
+                }) =>
+            {
+                let Some(fv) = field_val else {
+                    return false;
+                };
+                ops.iter().all(|(op, operand)| match op.as_str() {
+                    "$gt" => value_compare(fv, operand) == std::cmp::Ordering::Greater,
+                    "$gte" => matches!(
+                        value_compare(fv, operand),
+                        std::cmp::Ordering::Greater | std::cmp::Ordering::Equal
+                    ),
+                    "$lt" => value_compare(fv, operand) == std::cmp::Ordering::Less,
+                    "$lte" => matches!(
+                        value_compare(fv, operand),
+                        std::cmp::Ordering::Less | std::cmp::Ordering::Equal
+                    ),
+                    "$ne" => value_compare(fv, operand) != std::cmp::Ordering::Equal,
+                    "$in" => operand
+                        .as_array()
+                        .is_some_and(|items| items.iter().any(|item| fv == item)),
+                    "$like" => {
+                        if let (Some(s), Some(pattern)) = (fv.as_str(), operand.as_str()) {
+                            like_match(s, pattern)
+                        } else {
+                            false
+                        }
+                    },
+                    _ => true,
+                })
+            },
+            _ => field_val.is_some_and(|value| value == expected),
+        }
+    })
+}
+
 fn extract_field_str(body_str: &str, field: &str) -> String {
     if let Ok(body) = serde_json::from_str::<serde_json::Value>(body_str)
         && let Some(val) = body.get(field)
@@ -2399,6 +3184,157 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let engine = PersistentEngine::open(dir.path()).unwrap();
         (engine, dir)
+    }
+
+    #[test]
+    fn persistent_open_writes_and_validates_storage_manifest() {
+        let dir = tempfile::tempdir().unwrap();
+        let _engine = PersistentEngine::open(dir.path()).unwrap();
+        let report = PersistentEngine::validate_path(dir.path()).unwrap();
+        assert_eq!(report.format_version, STORAGE_FORMAT_VERSION);
+        assert!(!report.legacy_manifest);
+        assert!(report.lock_present);
+        assert!(report.keyspaces_present);
+        assert!(dir.path().join(STORAGE_MANIFEST_FILE).is_file());
+    }
+
+    #[test]
+    fn persistent_retention_is_dry_run_by_default_and_preserves_protected_events() {
+        let (mut engine, _dir) = setup();
+        let mut old = MemoryEvent::new("old", "test", "{}");
+        old.created_at = "2020-01-01T00:00:00Z".to_string();
+        engine.append_event(old).unwrap();
+        let mut protected = MemoryEvent::new("__thingd:system", "test", "{}");
+        protected.created_at = "2020-01-01T00:00:00Z".to_string();
+        engine.append_event(protected).unwrap();
+        let mut replication = MemoryEvent::new(REPLICATION_STREAM, "object.upsert", "{}");
+        replication.created_at = "2020-01-01T00:00:00Z".to_string();
+        engine.append_event(replication).unwrap();
+
+        let preview = engine
+            .retain(RetentionOptions {
+                before_unix_ms: 1_700_000_000_000,
+                dry_run: true,
+                compact: false,
+                include_replication: false,
+            })
+            .unwrap();
+        assert_eq!(preview.events, 1);
+        assert_eq!(preview.skipped_replication_events, 1);
+        assert_eq!(preview.safe_replication_cursor, None);
+        assert_eq!(engine.count_events().unwrap(), 3);
+
+        engine
+            .put_object(MemoryObject::new(
+                REPLICATION_STATE_COLLECTION,
+                "source:replica-a",
+                r#"{"sourceId":"replica-a","lastAppliedCursor":1}"#,
+            ))
+            .unwrap();
+        let checkpointed = engine
+            .retain(RetentionOptions {
+                before_unix_ms: 1_700_000_000_000,
+                dry_run: true,
+                compact: false,
+                include_replication: true,
+            })
+            .unwrap();
+        assert_eq!(checkpointed.events, 2);
+        assert_eq!(checkpointed.safe_replication_cursor, Some(1));
+
+        let deleted = engine
+            .retain(RetentionOptions {
+                before_unix_ms: 1_700_000_000_000,
+                dry_run: false,
+                compact: true,
+                include_replication: false,
+            })
+            .unwrap();
+        assert_eq!(deleted.events, 1);
+        assert!(deleted.compacted);
+        assert_eq!(engine.count_events().unwrap(), 2);
+        assert_eq!(
+            engine
+                .list_events(Some("__thingd:system"), ListEventsOptions::default())
+                .unwrap()
+                .len(),
+            1
+        );
+    }
+
+    #[test]
+    fn validation_rejects_existing_directory_without_lock() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(dir.path().join(STORAGE_KEYSPACES_DIR)).unwrap();
+        std::fs::write(dir.path().join("0.jnl"), []).unwrap();
+        let result = PersistentEngine::validate_path(dir.path());
+        assert!(matches!(
+            result,
+            Err(ThingdError::StorageValidation(message)) if message.contains("lock")
+        ));
+    }
+
+    #[test]
+    fn validation_rejects_unsupported_manifest() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(dir.path().join(STORAGE_KEYSPACES_DIR)).unwrap();
+        std::fs::write(dir.path().join(STORAGE_LOCK_FILE), []).unwrap();
+        std::fs::write(
+            dir.path().join(STORAGE_MANIFEST_FILE),
+            r#"{"format_version":99,"contract":"future","keyspaces":[],"search_schema_version":1}"#,
+        )
+        .unwrap();
+        let result = PersistentEngine::validate_path(dir.path());
+        assert!(matches!(
+            result,
+            Err(ThingdError::UnsupportedStorageFormat(message)) if message.contains("format version")
+        ));
+    }
+
+    #[cfg(feature = "search")]
+    #[test]
+    fn disabled_search_mode_does_not_create_search_directory() {
+        let dir = tempfile::tempdir().unwrap();
+        let options = PersistentOpenOptions {
+            search_mode: PersistentSearchMode::Disabled,
+            ..PersistentOpenOptions::default()
+        };
+        let mut engine = PersistentEngine::open_with_options(dir.path(), options).unwrap();
+        engine
+            .put_object(MemoryObject::new("notes", "one", r#"{"text":"hello"}"#))
+            .unwrap();
+        assert!(!dir.path().join("search").exists());
+        assert_eq!(
+            engine
+                .search("hello", SearchOptions::default())
+                .unwrap()
+                .len(),
+            1
+        );
+    }
+
+    #[cfg(feature = "search")]
+    #[test]
+    fn no_rebuild_search_mode_uses_fallback_without_an_index() {
+        let dir = tempfile::tempdir().unwrap();
+        let options = PersistentOpenOptions {
+            search_mode: PersistentSearchMode::PersistentNoRebuild,
+            ..PersistentOpenOptions::default()
+        };
+        let mut engine = PersistentEngine::open_with_options(dir.path(), options.clone()).unwrap();
+        engine
+            .put_object(MemoryObject::new("notes", "one", r#"{"text":"hello"}"#))
+            .unwrap();
+        drop(engine);
+        let reopened = PersistentEngine::open_with_options(dir.path(), options).unwrap();
+        assert!(!dir.path().join("search").exists());
+        assert_eq!(
+            reopened
+                .search("hello", SearchOptions::default())
+                .unwrap()
+                .len(),
+            1
+        );
     }
 
     #[test]

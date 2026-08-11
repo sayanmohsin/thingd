@@ -47,6 +47,7 @@ memory database. Encrypted directory backups require the same key to restore.
 | `THINGD_PATH` | `/data/thingd.db` | Path to the persistent database directory |
 | `THINGD_DRIVER` | `native` | Storage driver (`native` or `memory`) |
 | `THINGD_ENCRYPTION_KEY` | — | Optional 64-character hexadecimal key for native persistent storage |
+| `THINGD_SEARCH_MODE` | `persistent` | `persistent`, `persistent-no-rebuild`, or `disabled` |
 | `THINGD_HOST` | `0.0.0.0` | Bind address |
 | `THINGD_PORT` | `8757` | HTTP server port |
 | `THINGD_AUTH_TOKEN` | — | Bearer token for `/mcp` endpoint. Required for non-loopback binding |

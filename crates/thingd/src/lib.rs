@@ -88,7 +88,9 @@ pub use model::{
 };
 #[cfg(feature = "persistent")]
 #[cfg_attr(docsrs, doc(cfg(feature = "persistent")))]
-pub use persistent::{PersistentEngine, PersistentOpenOptions};
+pub use persistent::{
+    PersistentEngine, PersistentOpenOptions, PersistentSearchMode, StorageValidationReport,
+};
 pub use replication::{
     REPLICATION_PROVENANCE_COLLECTION, REPLICATION_QUARANTINE_COLLECTION,
     REPLICATION_STATE_COLLECTION, REPLICATION_STREAM, REPLICATION_TOMBSTONE_COLLECTION,
@@ -96,8 +98,8 @@ pub use replication::{
     ReplicationService, ReplicationSnapshot, ReplicationStatus,
 };
 pub use store::{
-    AggregateStore, EventLog, LinkStore, ObjectStore, QueueStore, SchemaStore, Searcher,
-    ThingStore, VectorStore,
+    AggregateStore, EventLog, LinkStore, ObjectStore, QueueStore, RetentionOptions,
+    RetentionReport, SchemaStore, Searcher, StorageDiagnostics, ThingStore, VectorStore,
 };
 
 /// Shared contract tests for all engine backends.

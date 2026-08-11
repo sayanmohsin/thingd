@@ -44,7 +44,12 @@ export class NativeThingStore {
   putObjectsBatchJson(objectsJson: string): string;
   appendEventsBatchJson(eventsJson: string): string;
   pushJobsBatchJson(jobsJson: string): string;
-  searchJson(query: string, collectionsJson?: string, limit?: number, filterJson?: string): string;
+  searchJson(
+    query: string,
+    collectionsJson?: string,
+    limit?: number,
+    filterJson?: string
+  ): Promise<string>;
   deleteObjectsBatchJson(keysJson: string): number;
   createLinkJson(
     fromRef: string,

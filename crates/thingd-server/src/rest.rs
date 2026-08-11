@@ -5,13 +5,42 @@ use axum::{
     response::IntoResponse,
 };
 use serde_json::{Value, json};
-use std::sync::Arc;
+use std::sync::{
+    Arc, OnceLock,
+    atomic::{AtomicU64, Ordering},
+};
 use thingd::*;
+use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
 use crate::error::AppError;
 use crate::server::AppState;
 
 const REPLICATION_STREAM: &str = "__thingd:system:replication";
+const MAX_BATCH_ITEMS: usize = 1_000;
+const MAX_BLOCKING_WORKERS: usize = 8;
+static BLOCKING_GATE: OnceLock<Arc<Semaphore>> = OnceLock::new();
+static BLOCKING_ACTIVE: AtomicU64 = AtomicU64::new(0);
+static BLOCKING_REJECTED: AtomicU64 = AtomicU64::new(0);
+
+fn blocking_permit() -> Result<OwnedSemaphorePermit, AppError> {
+    BLOCKING_GATE
+        .get_or_init(|| Arc::new(Semaphore::new(MAX_BLOCKING_WORKERS)))
+        .clone()
+        .try_acquire_owned()
+        .inspect(|_| {
+            BLOCKING_ACTIVE.fetch_add(1, Ordering::Relaxed);
+        })
+        .map_err(|_| {
+            BLOCKING_REJECTED.fetch_add(1, Ordering::Relaxed);
+            AppError::overloaded(format!(
+                "blocking worker limit reached ({MAX_BLOCKING_WORKERS}); retry shortly"
+            ))
+        })
+}
+
+fn finish_blocking() {
+    BLOCKING_ACTIVE.fetch_sub(1, Ordering::Relaxed);
+}
 
 fn replication_collection_allowed(state: &AppState, collection: &str) -> bool {
     !collection.starts_with("__thingd")
@@ -106,6 +135,61 @@ pub async fn health() -> Json<Value> {
     Json(json!({ "data": { "status": "ok" } }))
 }
 
+pub async fn diagnostics(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+) -> Result<Json<Value>, AppError> {
+    let e = get_engine(&state, &headers)?;
+    let permit = blocking_permit()?;
+    let diagnostics = tokio::task::spawn_blocking(move || {
+        let _permit = permit;
+        let g = e.lock();
+        let result = g
+            .storage_diagnostics()
+            .map_err(|error| AppError::internal(error.to_string()));
+        finish_blocking();
+        result
+    })
+    .await
+    .map_err(|error| AppError::internal(format!("diagnostics worker failed: {error}")))??;
+    ok(json!({
+        "storage": diagnostics,
+        "blockingWorkers": {
+            "active": BLOCKING_ACTIVE.load(Ordering::Relaxed),
+            "rejected": BLOCKING_REJECTED.load(Ordering::Relaxed),
+            "capacity": MAX_BLOCKING_WORKERS,
+        }
+    }))
+}
+
+pub async fn retention(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, AppError> {
+    let options: RetentionOptions = serde_json::from_value(body.clone())
+        .map_err(|error| AppError::bad_request(format!("invalid retention options: {error}")))?;
+    if !options.dry_run && body.get("confirm").and_then(Value::as_bool) != Some(true) {
+        return Err(AppError::bad_request(
+            "retention deletion requires confirm=true; use dryRun=true to preview",
+        ));
+    }
+    let e = get_engine(&state, &headers)?;
+    let permit = blocking_permit()?;
+    let report = tokio::task::spawn_blocking(move || {
+        let _permit = permit;
+        let mut g = e.lock();
+        let result = g
+            .retain(options)
+            .map_err(|error| AppError::internal(error.to_string()));
+        finish_blocking();
+        result
+    })
+    .await
+    .map_err(|error| AppError::internal(format!("retention worker failed: {error}")))??;
+    ok(report)
+}
+
 pub async fn clear_default_db(State(state): State<Arc<AppState>>) -> Result<Json<Value>, AppError> {
     state
         .pool
@@ -150,13 +234,21 @@ pub async fn metrics(
          thingd_active_jobs_total {active_jobs}\n\
          # HELP thingd_dead_jobs_total Total dead-letter queue jobs.\n\
          # TYPE thingd_dead_jobs_total gauge\n\
-         thingd_dead_jobs_total {dead_jobs}\n",
+         thingd_dead_jobs_total {dead_jobs}\n\
+         # HELP thingd_blocking_workers_active Active bounded blocking workers.\n\
+         # TYPE thingd_blocking_workers_active gauge\n\
+         thingd_blocking_workers_active {blocking_active}\n\
+         # HELP thingd_blocking_workers_rejected_total Requests rejected because blocking workers were saturated.\n\
+         # TYPE thingd_blocking_workers_rejected_total counter\n\
+         thingd_blocking_workers_rejected_total {blocking_rejected}\n",
         objects = objects,
         events = events,
         links = links,
         queue_count = queue_count,
         active_jobs = active_jobs,
         dead_jobs = dead_jobs,
+        blocking_active = BLOCKING_ACTIVE.load(Ordering::Relaxed),
+        blocking_rejected = BLOCKING_REJECTED.load(Ordering::Relaxed),
     );
 
     ([(header::CONTENT_TYPE, "text/plain; charset=utf-8")], body).into_response()
@@ -296,7 +388,8 @@ pub async fn list_objects(
 ) -> Result<Json<Value>, AppError> {
     let collection = params["collection"]
         .as_str()
-        .ok_or_else(|| AppError::bad_request("Missing collection"))?;
+        .ok_or_else(|| AppError::bad_request("Missing collection"))?
+        .to_string();
     let mut filter = Vec::new();
     if let Some(obj) = params.as_object() {
         for (k, v) in obj {
@@ -324,10 +417,19 @@ pub async fn list_objects(
     };
 
     let e = get_engine(&state, &headers)?;
-    let g = e.lock();
-    let objects = g
-        .list_objects(Some(&[collection.to_string()]), &opts)
-        .map_err(|e| AppError::internal(e.to_string()))?;
+    let permit = blocking_permit()?;
+    let objects = tokio::task::spawn_blocking(move || {
+        let _permit = permit;
+        let g = e.lock();
+        let collections = vec![collection];
+        let result = g
+            .list_objects(Some(&collections), &opts)
+            .map_err(|error| AppError::internal(error.to_string()));
+        finish_blocking();
+        result
+    })
+    .await
+    .map_err(|error| AppError::internal(format!("list operation failed: {error}")))??;
     let items: Vec<Value> = objects.iter().map(|obj| {
         let body: Value = serde_json::from_str(&obj.body).unwrap_or(Value::Null);
         json!({ "id": obj.key.id, "collection": obj.key.collection, "body": body, "version": obj.version, "createdAt": obj.created_at, "updatedAt": obj.updated_at })
@@ -446,6 +548,12 @@ pub async fn put_batch(
         .as_str()
         .ok_or_else(|| AppError::bad_request("Missing collection"))?;
     let items = body.as_array().cloned().unwrap_or_default();
+    if items.len() > MAX_BATCH_ITEMS {
+        return Err(AppError::bad_request(format!(
+            "object batch contains {} items; maximum is {MAX_BATCH_ITEMS}",
+            items.len()
+        )));
+    }
     let objects: Vec<MemoryObject> = items
         .iter()
         .enumerate()
@@ -508,6 +616,12 @@ pub async fn get_batch(
             })
         })
         .unwrap_or_default();
+    if ids.len() > MAX_BATCH_ITEMS {
+        return Err(AppError::bad_request(format!(
+            "object batch contains {} ids; maximum is {MAX_BATCH_ITEMS}",
+            ids.len()
+        )));
+    }
     let e = get_engine(&state, &headers)?;
     let g = e.lock();
     let results = g
@@ -558,6 +672,12 @@ pub async fn delete_batch(
             })
         })
         .unwrap_or_default();
+    if ids.len() > MAX_BATCH_ITEMS {
+        return Err(AppError::bad_request(format!(
+            "object batch contains {} ids; maximum is {MAX_BATCH_ITEMS}",
+            ids.len()
+        )));
+    }
     let keys: Vec<(String, String)> = ids
         .into_iter()
         .map(|id| (collection.to_string(), id))
@@ -1402,7 +1522,7 @@ pub async fn search(
     headers: HeaderMap,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, AppError> {
-    let query = body["query"].as_str().unwrap_or("");
+    let query = body["query"].as_str().unwrap_or("").to_string();
     if query.is_empty() {
         return ok(Vec::<Value>::new());
     }
@@ -1419,9 +1539,19 @@ pub async fn search(
         filter: body.get("filter").cloned(),
     };
     let e = get_engine(&state, &headers)?;
-    let g = e.lock();
-    ok(g.search(query, opts)
-        .map_err(|e| AppError::internal(e.to_string()))?)
+    let permit = blocking_permit()?;
+    let hits = tokio::task::spawn_blocking(move || {
+        let _permit = permit;
+        let g = e.lock();
+        let result = g
+            .search(&query, opts)
+            .map_err(|error| AppError::internal(error.to_string()));
+        finish_blocking();
+        result
+    })
+    .await
+    .map_err(|error| AppError::internal(format!("search operation failed: {error}")))??;
+    ok(hits)
 }
 // ─── Vector Search ─────────────────────────────────────────────
 

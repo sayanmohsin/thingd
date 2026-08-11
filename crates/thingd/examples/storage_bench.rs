@@ -45,14 +45,19 @@ fn main() -> Result<(), Box<dyn Error>> {
     bench_concurrent("in-memory", || Ok(MemoryEngine::new()), iterations)?;
 
     let dir = tempfile::tempdir()?;
-    let persistent_engine = PersistentEngine::open(dir.path())?;
+    let persistent_options = benchmark_persistent_options();
+    let persistent_engine =
+        PersistentEngine::open_with_options(dir.path(), persistent_options.clone())?;
+    let lifecycle_dir = tempfile::tempdir()?;
+    time_persistent_lifecycle(lifecycle_dir.path())?;
     bench_store("persistent", persistent_engine, iterations)?;
 
     let conc_dir = tempfile::tempdir()?;
     bench_concurrent(
         "persistent",
         || {
-            let engine = PersistentEngine::open(conc_dir.path())?;
+            let engine =
+                PersistentEngine::open_with_options(conc_dir.path(), persistent_options.clone())?;
             Ok(engine)
         },
         iterations,
@@ -79,6 +84,42 @@ fn main() -> Result<(), Box<dyn Error>> {
         iterations,
     )?;
 
+    Ok(())
+}
+
+fn benchmark_persistent_options() -> PersistentOpenOptions {
+    let search_mode = match env::var("THINGD_BENCH_SEARCH_MODE").as_deref() {
+        Ok("disabled") => thingd::PersistentSearchMode::Disabled,
+        Ok("persistent-no-rebuild") => thingd::PersistentSearchMode::PersistentNoRebuild,
+        _ => thingd::PersistentSearchMode::Persistent,
+    };
+    PersistentOpenOptions {
+        search_mode,
+        ..PersistentOpenOptions::default()
+    }
+}
+
+fn time_persistent_lifecycle(path: &std::path::Path) -> Result<(), Box<dyn Error>> {
+    let mut engine = PersistentEngine::open(path)?;
+    engine.put_object(MemoryObject::new(
+        "bench_startup",
+        "first-request",
+        OBJECT_BODY_ACTIVE,
+    ))?;
+    drop(engine);
+
+    let started = Instant::now();
+    let engine = PersistentEngine::open(path)?;
+    let startup = started.elapsed();
+    let first_request = Instant::now();
+    let hits = engine.search("benchmark", SearchOptions::default())?;
+    let first_request_elapsed = first_request.elapsed();
+    println!(
+        "lifecycle | startup={:?} first_request={:?} search_hits={}",
+        startup,
+        first_request_elapsed,
+        hits.len()
+    );
     Ok(())
 }
 

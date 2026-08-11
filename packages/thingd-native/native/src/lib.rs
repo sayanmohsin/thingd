@@ -1,5 +1,6 @@
 #![allow(clippy::too_many_arguments)]
 use std::ops::{Deref, DerefMut};
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use napi::bindgen_prelude::{Error, Result};
@@ -67,6 +68,7 @@ impl<'a> DerefMut for EngineGuard<'a> {
 #[derive(Clone)]
 pub struct NativeThingStore {
     store: Arc<Mutex<Option<PersistentEngine>>>,
+    temp_path: Arc<Mutex<Option<PathBuf>>>,
 }
 
 /// Parse a `schema.thingd` source document and return its canonical JSON.
@@ -79,6 +81,32 @@ pub fn parse_schema(source: String) -> Result<String> {
         .map_err(|error| Error::from_reason(error.to_string()))?;
     serde_json::to_string(&serde_json::json!({ "schema": schema, "hash": hash }))
         .map_err(|error| Error::from_reason(error.to_string()))
+}
+
+fn enforce_native_payload_limit(payload: &str, label: &str) -> Result<()> {
+    let limit = std::env::var("THINGD_NATIVE_MAX_PAYLOAD_BYTES")
+        .ok()
+        .and_then(|value| value.parse::<usize>().ok())
+        .unwrap_or(0);
+    if limit > 0 && payload.len() > limit {
+        return Err(Error::from_reason(format!(
+            "{label} payload exceeds THINGD_NATIVE_MAX_PAYLOAD_BYTES ({limit} bytes)"
+        )));
+    }
+    Ok(())
+}
+
+fn enforce_native_batch_limit(count: usize, label: &str) -> Result<()> {
+    let limit = std::env::var("THINGD_NATIVE_MAX_BATCH_ITEMS")
+        .ok()
+        .and_then(|value| value.parse::<usize>().ok())
+        .unwrap_or(0);
+    if limit > 0 && count > limit {
+        return Err(Error::from_reason(format!(
+            "{label} contains {count} items; maximum is {limit}"
+        )));
+    }
+    Ok(())
 }
 
 #[napi]
@@ -97,18 +125,30 @@ impl NativeThingStore {
             encryption,
             ..PersistentOpenOptions::default()
         };
-        let store = if path == ":memory:" || path.is_empty() {
+        let temp_path = if path == ":memory:" || path.is_empty() {
             let tmp = std::env::temp_dir().join(format!("thingd-native-{}", std::process::id()));
             let unique = tmp.join(uuid::Uuid::new_v4().to_string());
             std::fs::create_dir_all(&unique).map_err(|e| Error::from_reason(format!("{e}")))?;
-            PersistentEngine::open_with_options(&unique, PersistentOpenOptions::default())
-                .map_err(napi_error)?
+            Some(unique)
         } else {
-            PersistentEngine::open_with_options(path, options).map_err(napi_error)?
+            None
         };
+        let store_path = temp_path
+            .as_deref()
+            .unwrap_or_else(|| std::path::Path::new(&path));
+        let store = PersistentEngine::open_with_options(
+            store_path,
+            if temp_path.is_some() {
+                PersistentOpenOptions::default()
+            } else {
+                options
+            },
+        )
+        .map_err(napi_error)?;
 
         Ok(Self {
             store: Arc::new(Mutex::new(Some(store))),
+            temp_path: Arc::new(Mutex::new(temp_path)),
         })
     }
 
@@ -120,6 +160,7 @@ impl NativeThingStore {
         body: String,
         expected_version: Option<i64>,
     ) -> Result<String> {
+        enforce_native_payload_limit(&body, "object")?;
         let mut store = self.lock_store()?;
         let mut object = MemoryObject::new(collection, id, body);
         // Extract optional vector from body JSON
@@ -235,6 +276,7 @@ impl NativeThingStore {
 
     #[napi(js_name = "appendEventJson")]
     pub fn append_event_json(&self, stream: String, body: String) -> Result<String> {
+        enforce_native_payload_limit(&body, "event")?;
         let mut store = self.lock_store()?;
         let event_type = event_type_from_body(&body);
         let idempotency_key = extract_idempotency_key(&body);
@@ -283,6 +325,7 @@ impl NativeThingStore {
         delay_ms: i64,
         priority: Option<i32>,
     ) -> Result<String> {
+        enforce_native_payload_limit(&body, "queue job")?;
         let mut job = QueueJob::new(queue, id, body, max_attempts);
         if delay_ms > 0 {
             job = job.delay_by_ms(delay_ms as u64);
@@ -400,8 +443,10 @@ impl NativeThingStore {
 
     #[napi(js_name = "putObjectsBatchJson")]
     pub fn put_objects_batch_json(&self, objects_json: String) -> Result<String> {
+        enforce_native_payload_limit(&objects_json, "object batch")?;
         let objects: Vec<BatchObjectInput> =
             serde_json::from_str(&objects_json).map_err(napi_error)?;
+        enforce_native_batch_limit(objects.len(), "object batch")?;
         let memory_objects: Vec<MemoryObject> = objects
             .into_iter()
             .map(|o| MemoryObject::new(o.collection, o.id, o.body))
@@ -417,8 +462,10 @@ impl NativeThingStore {
 
     #[napi(js_name = "appendEventsBatchJson")]
     pub fn append_events_batch_json(&self, events_json: String) -> Result<String> {
+        enforce_native_payload_limit(&events_json, "event batch")?;
         let events: Vec<BatchEventInput> =
             serde_json::from_str(&events_json).map_err(napi_error)?;
+        enforce_native_batch_limit(events.len(), "event batch")?;
         let memory_events: Vec<MemoryEvent> = events
             .into_iter()
             .map(|e| MemoryEvent::new(e.stream, e.event_type, e.body))
@@ -434,7 +481,9 @@ impl NativeThingStore {
 
     #[napi(js_name = "pushJobsBatchJson")]
     pub fn push_jobs_batch_json(&self, jobs_json: String) -> Result<String> {
+        enforce_native_payload_limit(&jobs_json, "queue batch")?;
         let jobs: Vec<BatchJobInput> = serde_json::from_str(&jobs_json).map_err(napi_error)?;
+        enforce_native_batch_limit(jobs.len(), "queue batch")?;
         let queue_jobs: Vec<QueueJob> = jobs
             .into_iter()
             .map(|j| {
@@ -459,39 +508,14 @@ impl NativeThingStore {
         collections_json: Option<String>,
         limit: Option<u32>,
         filter_json: Option<String>,
-    ) -> Result<String> {
-        let collections = parse_optional_string_array(collections_json)?;
-        let limit = limit.map(|l| l as usize);
-        let filter = filter_json
-            .map(|json| serde_json::from_str::<Value>(&json).map_err(napi_error))
-            .transpose()?;
-
-        let options = SearchOptions {
-            collections,
+    ) -> Result<AsyncTask<SearchTask>> {
+        Ok(AsyncTask::new(SearchTask {
+            store: self.store.clone(),
+            query,
+            collections_json,
             limit,
-            filter,
-        };
-
-        let store = self.lock_store()?;
-        let hits = store.search(&query, options).map_err(napi_error)?;
-
-        let records = hits
-            .into_iter()
-            .map(|hit| NativeSearchHit {
-                kind: hit.kind,
-                collection: hit.collection,
-                id: hit.id,
-                text: hit.text,
-                score: hit.score,
-                body: hit.body,
-                version: hit.version,
-                created_at: hit.created_at,
-                updated_at: hit.updated_at,
-                event_type: hit.event_type,
-            })
-            .collect::<Vec<_>>();
-
-        to_json(&records)
+            filter_json,
+        }))
     }
 
     #[napi(js_name = "vectorSearchJson")]
@@ -769,6 +793,19 @@ impl NativeThingStore {
     }
 }
 
+impl Drop for NativeThingStore {
+    fn drop(&mut self) {
+        if Arc::strong_count(&self.temp_path) != 1 {
+            return;
+        }
+        if let Ok(mut temp_path) = self.temp_path.lock()
+            && let Some(path) = temp_path.take()
+        {
+            let _ = std::fs::remove_dir_all(path);
+        }
+    }
+}
+
 fn parse_hex_key(value: &str) -> Result<Vec<u8>> {
     if value.len() != 64 {
         return Err(Error::from_reason(
@@ -815,6 +852,7 @@ pub fn reencrypt(
             .transpose()
             .map_err(napi_error)?,
         allow_plaintext_output,
+        ..PersistentOpenOptions::default()
     };
     PersistentEngine::reencrypt_to(
         source_path,
@@ -836,6 +874,62 @@ pub struct ListObjectsTask {
     offset: Option<i64>,
     sort_field: Option<String>,
     sort_direction: Option<String>,
+}
+
+pub struct SearchTask {
+    store: Arc<Mutex<Option<PersistentEngine>>>,
+    query: String,
+    collections_json: Option<String>,
+    limit: Option<u32>,
+    filter_json: Option<String>,
+}
+
+#[napi]
+impl Task for SearchTask {
+    type Output = String;
+    type JsValue = String;
+
+    fn compute(&mut self) -> Result<Self::Output> {
+        let collections = parse_optional_string_array(self.collections_json.clone())?;
+        let filter = self
+            .filter_json
+            .as_ref()
+            .map(|json| serde_json::from_str::<Value>(json).map_err(napi_error))
+            .transpose()?;
+        let options = SearchOptions {
+            collections,
+            limit: self.limit.map(|value| value as usize),
+            filter,
+        };
+        let guard = self
+            .store
+            .lock()
+            .map_err(|_| Error::from_reason("poisoned"))?;
+        let store = guard
+            .as_ref()
+            .ok_or_else(|| Error::from_reason("store is closed"))?;
+        let hits = store.search(&self.query, options).map_err(napi_error)?;
+        let records = hits
+            .into_iter()
+            .map(|hit| NativeSearchHit {
+                kind: hit.kind,
+                collection: hit.collection,
+                id: hit.id,
+                text: hit.text,
+                score: hit.score,
+                body: hit.body,
+                version: hit.version,
+                created_at: hit.created_at,
+                updated_at: hit.updated_at,
+                event_type: hit.event_type,
+            })
+            .collect::<Vec<_>>();
+        to_json(&records)
+    }
+
+    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
+        Ok(output)
+    }
 }
 
 #[napi]

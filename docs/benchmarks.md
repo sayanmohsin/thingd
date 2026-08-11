@@ -20,6 +20,23 @@ verify that the benchmark remains buildable and runnable.
 The benchmark measures object, event, queue, search, vector search, batch,
 count, delete, concurrent-read, and lock-contention operations for `in-memory`
 and `persistent`.
+
+Each persistent run also reports a reopen/startup duration and first-search
+latency. To exercise the low-memory path on Linux/macOS, run the benchmark in
+an externally constrained process and record the platform's peak RSS:
+
+```bash
+ulimit -v 1048576
+THINGD_BENCH_ITERS=100 cargo run --release -p thingd --example storage_bench --features persistent,search
+```
+
+Repeat with `ulimit -v 2097152`. The limit is an operator-controlled benchmark
+constraint rather than a production setting; a process that exceeds it must
+fail clearly, not be treated as a passing performance result.
+
+Use `THINGD_BENCH_SEARCH_MODE=disabled` to measure the low-memory fallback scan
+without opening a persistent search index. Use `persistent` for the normal
+Tantivy path and `persistent-no-rebuild` for the no-startup-rebuild path.
 It uses temporary databases and does not leave benchmark data in the repo.
 
 ## Latest smoke run

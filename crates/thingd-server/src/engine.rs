@@ -3,7 +3,10 @@ use std::path::Path;
 use std::sync::Arc;
 
 use parking_lot::{Mutex, RwLock};
-use thingd::{EncryptionConfig, MemoryEngine, PersistentEngine, PersistentOpenOptions, ThingStore};
+use thingd::{
+    EncryptionConfig, MemoryEngine, PersistentEngine, PersistentOpenOptions, PersistentSearchMode,
+    ThingStore,
+};
 
 pub type SharedEngine = Arc<Mutex<Box<dyn ThingStore + Send>>>;
 
@@ -42,10 +45,11 @@ impl EnginePool {
         }
     }
 
-    /// Construct a pool with an optional 64-character hexadecimal encryption key.
-    pub fn new_with_encryption_key(
+    /// Construct a pool with an optional encryption key and search mode.
+    pub fn new_with_encryption_key_and_search_mode(
         default_path: String,
         key: Option<&str>,
+        search_mode: PersistentSearchMode,
     ) -> Result<Self, String> {
         let encryption = key
             .map(parse_hex_key)
@@ -56,6 +60,7 @@ impl EnginePool {
         let mut pool = Self::new(default_path);
         pool.open_options = PersistentOpenOptions {
             encryption,
+            search_mode,
             ..PersistentOpenOptions::default()
         };
         // Validate and open the configured default database during startup. This
@@ -155,7 +160,7 @@ fn parse_hex_key(value: &str) -> Result<Vec<u8>, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use thingd::MemoryObject;
+    use thingd::{EventLog, ListEventsOptions, MemoryEvent, MemoryObject, ObjectStore};
 
     fn setup_pool() -> EnginePool {
         EnginePool::new(":memory:".to_string())
@@ -168,6 +173,49 @@ mod tests {
         let stored = engine.put_object(obj).unwrap();
         assert_eq!(stored.key.id, "1");
         assert_eq!(stored.key.collection, "test");
+    }
+
+    #[tokio::test]
+    async fn embedded_store_validates_and_reopens_through_server_engine() {
+        let dir = std::env::temp_dir().join(format!(
+            "thingd-server-compat-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        {
+            let mut embedded = PersistentEngine::open(&dir).unwrap();
+            embedded
+                .put_object(MemoryObject::new("compat", "object", r#"{"ok":true}"#))
+                .unwrap();
+            let mut event = MemoryEvent::new("compat", "created", r#"{"id":"object"}"#);
+            event.idempotency_key = "compat-1".to_string();
+            embedded.append_event(event).unwrap();
+        }
+
+        let validation = PersistentEngine::validate_path(&dir).unwrap();
+        assert!(validation.lock_present);
+        let standalone =
+            create_engine(dir.to_str().unwrap(), &PersistentOpenOptions::default()).unwrap();
+        assert!(standalone.get_object("compat", "object").unwrap().is_some());
+        assert_eq!(
+            standalone
+                .list_events(Some("compat"), ListEventsOptions::default())
+                .unwrap()
+                .len(),
+            1
+        );
+        assert!(
+            !standalone
+                .search("true", Default::default())
+                .unwrap()
+                .is_empty()
+        );
+        drop(standalone);
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[tokio::test]
@@ -285,9 +333,18 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         let path = dir.join("encrypted").to_string_lossy().to_string();
         let key = "11".repeat(32);
-        let pool = EnginePool::new_with_encryption_key(path.clone(), Some(&key)).unwrap();
+        let pool = EnginePool::new_with_encryption_key_and_search_mode(
+            path.clone(),
+            Some(&key),
+            PersistentSearchMode::Persistent,
+        )
+        .unwrap();
         assert!(pool.writers.read().contains_key(&path));
-        let missing = EnginePool::new_with_encryption_key(path, None);
+        let missing = EnginePool::new_with_encryption_key_and_search_mode(
+            path,
+            None,
+            PersistentSearchMode::Persistent,
+        );
         assert!(missing.is_err());
         drop(pool);
         let _ = std::fs::remove_dir_all(dir);
