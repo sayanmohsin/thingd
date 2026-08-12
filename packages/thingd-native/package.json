@@ -1,6 +1,6 @@
 {
   "name": "@thingd/native",
-  "version": "0.79.1",
+  "version": "0.80.0",
   "description": "Native Node.js binding for thingd — a fast object-first data engine for applications and AI agents.",
   "type": "module",
   "publishConfig": {
