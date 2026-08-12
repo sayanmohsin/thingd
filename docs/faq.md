@@ -269,7 +269,7 @@ Older and newer object shapes coexist in the same collection. Search indexing in
 
 ### How do backups and restores work?
 
-CLI snapshot commands: `thingd snapshot create --out backup.thingd.json` (exports all objects, events, and queue jobs as JSON lines). Restore with `thingd snapshot restore --in backup.thingd.json`. For file-level backups, stop the engine and copy the complete persistent storage directory.
+CLI snapshot commands: `thingd snapshot create --out backup.thingd.jsonl` (exports all objects, events, and queue jobs as a versioned JSONL stream). Use `--url` to export from or restore into a running standalone server. Restore with `thingd snapshot restore --in backup.thingd.jsonl`; object and idempotent event records are safe to retry. For file-level backups, stop the engine and copy the complete persistent storage directory.
 
 ### Can I run this in Kubernetes with persistence?
 

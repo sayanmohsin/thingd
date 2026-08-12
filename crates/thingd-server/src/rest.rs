@@ -1,16 +1,20 @@
 use axum::{
     Json,
+    body::Body,
     extract::{Path, Query, State},
-    http::{HeaderMap, header},
-    response::IntoResponse,
+    http::{HeaderMap, StatusCode, header},
+    response::{IntoResponse, Response},
 };
+use bytes::Bytes;
+use futures_util::StreamExt;
 use serde_json::{Value, json};
 use std::sync::{
     Arc, OnceLock,
     atomic::{AtomicU64, Ordering},
 };
 use thingd::*;
-use tokio::sync::{OwnedSemaphorePermit, Semaphore};
+use tokio::sync::{OwnedSemaphorePermit, Semaphore, mpsc};
+use tokio_stream::wrappers::ReceiverStream;
 
 use crate::error::AppError;
 use crate::server::AppState;
@@ -18,6 +22,8 @@ use crate::server::AppState;
 const REPLICATION_STREAM: &str = "__thingd:system:replication";
 const MAX_BATCH_ITEMS: usize = 1_000;
 const MAX_BLOCKING_WORKERS: usize = 8;
+const SNAPSHOT_PAGE_SIZE: u64 = 250;
+const SNAPSHOT_MAX_LINE_BYTES: usize = 16 * 1024 * 1024;
 static BLOCKING_GATE: OnceLock<Arc<Semaphore>> = OnceLock::new();
 static BLOCKING_ACTIVE: AtomicU64 = AtomicU64::new(0);
 static BLOCKING_REJECTED: AtomicU64 = AtomicU64::new(0);
@@ -554,14 +560,31 @@ pub async fn put_batch(
             items.len()
         )));
     }
+    let body_only = params
+        .get("bodyOnly")
+        .and_then(|value| {
+            value
+                .as_bool()
+                .or_else(|| value.as_str().map(|v| v == "true"))
+        })
+        .unwrap_or(false);
     let objects: Vec<MemoryObject> = items
         .iter()
         .enumerate()
         .map(|(i, v)| {
+            let stored_body = if body_only {
+                let mut value = v.clone();
+                if let Some(object) = value.as_object_mut() {
+                    object.remove("id");
+                }
+                value.to_string()
+            } else {
+                v.to_string()
+            };
             MemoryObject::new(
                 collection.to_string(),
                 v["id"].as_str().unwrap_or(&format!("b{}", i)),
-                v.to_string(),
+                stored_body,
             )
         })
         .collect();
@@ -722,7 +745,10 @@ pub async fn append_event(
         ));
     }
 
-    let event = MemoryEvent::new(&stream, et, body.to_string());
+    let mut event = MemoryEvent::new(&stream, et, body.to_string());
+    if let Some(idempotency_key) = body.get("idempotencyKey").and_then(Value::as_str) {
+        event.idempotency_key = idempotency_key.to_string();
+    }
     let e = get_engine(&state, &headers)?;
     let mut g = e.lock();
     let r = g
@@ -1044,6 +1070,246 @@ pub async fn replication_snapshot_apply(
         "lastAppliedCursor": result.last_applied_cursor,
         "verified": true,
     }))
+}
+
+// ─── Logical snapshots ────────────────────────────────────────
+
+/// Stream a complete logical snapshot as newline-delimited JSON. Each record
+/// is read in bounded pages so exporting a large store does not build one
+/// giant JSON value or hold the engine lock while the client is receiving it.
+pub async fn snapshot_export(State(state): State<Arc<AppState>>, headers: HeaderMap) -> Response {
+    let e = match get_engine(&state, &headers) {
+        Ok(engine) => engine,
+        Err(error) => return error.into_response(),
+    };
+    let (sender, receiver) = mpsc::channel::<Result<Bytes, std::convert::Infallible>>(16);
+
+    tokio::task::spawn_blocking(move || {
+        let send_record = |record: Value| -> Result<(), ()> {
+            let mut line = serde_json::to_vec(&record).map_err(|_| ())?;
+            line.push(b'\n');
+            sender.blocking_send(Ok(Bytes::from(line))).map_err(|_| ())
+        };
+
+        let result = (|| -> Result<(), String> {
+            send_record(json!({
+                "type": "thingd.snapshot",
+                "version": "2.0.0",
+                "format": "jsonl"
+            }))
+            .map_err(|_| "snapshot client disconnected".to_string())?;
+
+            let collections = e
+                .lock()
+                .list_collections()
+                .map_err(|error| error.to_string())?;
+            for collection in collections {
+                let mut offset = 0;
+                loop {
+                    let page = {
+                        let guard = e.lock();
+                        guard
+                            .list_objects(
+                                Some(std::slice::from_ref(&collection)),
+                                &ListObjectsOptions {
+                                    limit: Some(SNAPSHOT_PAGE_SIZE),
+                                    offset: Some(offset),
+                                    ..Default::default()
+                                },
+                            )
+                            .map_err(|error| error.to_string())?
+                    };
+                    let page_len = page.len() as u64;
+                    for object in page {
+                        send_record(json!({ "type": "object", "object": object }))
+                            .map_err(|_| "snapshot client disconnected".to_string())?;
+                    }
+                    if page_len < SNAPSHOT_PAGE_SIZE {
+                        break;
+                    }
+                    offset += page_len;
+                }
+            }
+
+            let mut from_sequence = 0;
+            loop {
+                let page = {
+                    let guard = e.lock();
+                    guard
+                        .list_events(
+                            None,
+                            ListEventsOptions {
+                                from_sequence: Some(from_sequence),
+                                limit: Some(SNAPSHOT_PAGE_SIZE),
+                                ..Default::default()
+                            },
+                        )
+                        .map_err(|error| error.to_string())?
+                };
+                let page_len = page.len() as u64;
+                for event in page {
+                    from_sequence = event.sequence;
+                    send_record(json!({ "type": "event", "event": event }))
+                        .map_err(|_| "snapshot client disconnected".to_string())?;
+                }
+                if page_len < SNAPSHOT_PAGE_SIZE {
+                    break;
+                }
+            }
+
+            let queues = e.lock().list_queues().map_err(|error| error.to_string())?;
+            for queue in queues {
+                let jobs = {
+                    let guard = e.lock();
+                    let mut jobs = guard.list_jobs(&queue).map_err(|error| error.to_string())?;
+                    jobs.extend(
+                        guard
+                            .list_dead_jobs(&queue)
+                            .map_err(|error| error.to_string())?,
+                    );
+                    jobs
+                };
+                for job in jobs {
+                    send_record(json!({ "type": "queue", "job": job }))
+                        .map_err(|_| "snapshot client disconnected".to_string())?;
+                }
+            }
+            Ok(())
+        })();
+
+        if let Err(error) = result {
+            let _ = send_record(json!({ "type": "error", "error": error }));
+        }
+    });
+
+    let stream = ReceiverStream::new(receiver);
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, "application/x-ndjson")
+        .body(Body::from_stream(stream))
+        .unwrap_or_else(|_| Response::new(Body::empty()))
+}
+
+/// Import a logical JSONL snapshot incrementally. Objects and events are
+/// idempotent by their stable keys; queue records are written with their full
+/// stored state so completed and dead jobs remain terminal after restore.
+pub async fn snapshot_import(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    body: Body,
+) -> Result<Json<Value>, AppError> {
+    ensure_source_writable(&state)?;
+    let e = get_engine(&state, &headers)?;
+    let mut lines = body.into_data_stream();
+    let mut buffer = Vec::new();
+    let mut header_seen = false;
+    let mut records = 0u64;
+    let mut objects = 0u64;
+    let mut events = 0u64;
+    let mut queues = 0u64;
+
+    while let Some(chunk) = lines.next().await {
+        let chunk = chunk
+            .map_err(|error| AppError::bad_request(format!("Invalid snapshot body: {error}")))?;
+        buffer.extend_from_slice(&chunk);
+        if buffer.len() > SNAPSHOT_MAX_LINE_BYTES && !buffer.contains(&b'\n') {
+            return Err(AppError::bad_request(format!(
+                "Snapshot record exceeds {SNAPSHOT_MAX_LINE_BYTES} bytes"
+            )));
+        }
+
+        while let Some(newline) = buffer.iter().position(|byte| *byte == b'\n') {
+            let line = buffer.drain(..=newline).collect::<Vec<_>>();
+            let line = &line[..line.len().saturating_sub(1)];
+            if line.iter().all(u8::is_ascii_whitespace) {
+                continue;
+            }
+            if line.len() > SNAPSHOT_MAX_LINE_BYTES {
+                return Err(AppError::bad_request(format!(
+                    "Snapshot record exceeds {SNAPSHOT_MAX_LINE_BYTES} bytes"
+                )));
+            }
+            let record: Value = serde_json::from_slice(line).map_err(|error| {
+                AppError::bad_request(format!("Invalid snapshot record {records}: {error}"))
+            })?;
+            let record_type = record["type"].as_str().unwrap_or_default().to_string();
+            if !header_seen {
+                if record_type != "thingd.snapshot" || record["version"] != "2.0.0" {
+                    return Err(AppError::bad_request("Unsupported Thingd snapshot header"));
+                }
+                header_seen = true;
+                continue;
+            }
+            if record_type == "error" {
+                return Err(AppError::bad_request(
+                    record["error"].as_str().unwrap_or("Source snapshot failed"),
+                ));
+            }
+
+            let permit = blocking_permit()?;
+            let engine = Arc::clone(&e);
+            let record_type_for_worker = record_type.clone();
+            let result = tokio::task::spawn_blocking(move || {
+                let _permit = permit;
+                let mut guard = engine.lock();
+                let result: Result<(), String> = match record_type_for_worker.as_str() {
+                    "object" => {
+                        let object: MemoryObject = serde_json::from_value(record["object"].clone())
+                            .map_err(|error| format!("invalid object: {error}"))?;
+                        guard
+                            .put_object(object)
+                            .map(|_| ())
+                            .map_err(|error| error.to_string())
+                    },
+                    "event" => {
+                        let event: MemoryEvent = serde_json::from_value(record["event"].clone())
+                            .map_err(|error| format!("invalid event: {error}"))?;
+                        guard
+                            .append_event(event)
+                            .map(|_| ())
+                            .map_err(|error| error.to_string())
+                    },
+                    "queue" => {
+                        let job: QueueJob = serde_json::from_value(record["job"].clone())
+                            .map_err(|error| format!("invalid queue job: {error}"))?;
+                        guard
+                            .push_job(job)
+                            .map(|_| ())
+                            .map_err(|error| error.to_string())
+                    },
+                    other => Err(format!("unsupported snapshot record type '{other}'")),
+                };
+                finish_blocking();
+                result
+            })
+            .await
+            .map_err(|error| {
+                AppError::internal(format!("snapshot import worker failed: {error}"))
+            })?;
+            result.map_err(|error| {
+                AppError::bad_request(format!("Snapshot record {records} failed: {error}"))
+            })?;
+            records += 1;
+            match record_type.as_str() {
+                "object" => objects += 1,
+                "event" => events += 1,
+                "queue" => queues += 1,
+                _ => {},
+            }
+        }
+    }
+
+    if !buffer.iter().all(u8::is_ascii_whitespace) {
+        return Err(AppError::bad_request(
+            "Snapshot ended with an incomplete JSONL record",
+        ));
+    }
+    if !header_seen {
+        return Err(AppError::bad_request("Snapshot is missing its header"));
+    }
+    Ok(Json(
+        json!({ "data": { "records": records, "objects": objects, "events": events, "queues": queues } }),
+    ))
 }
 
 // ─── Queues ─────────────────────────────────────────────────────
@@ -2362,6 +2628,47 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_append_event_idempotency_key_is_replayable() {
+        let (state, config) = test_state_and_config();
+        let app = crate::server::build_router(state, &config);
+        let body = r#"{"type":"imported","value":1,"idempotencyKey":"snapshot-event-1"}"#;
+
+        let first = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/events/import")
+                    .header("content-type", "application/json")
+                    .body(Body::from(body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let first_body = first.into_body().collect().await.unwrap().to_bytes();
+        let first_value: Value = serde_json::from_slice(&first_body).unwrap();
+
+        let second = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/events/import")
+                    .header("content-type", "application/json")
+                    .body(Body::from(body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let second_body = second.into_body().collect().await.unwrap().to_bytes();
+        let second_value: Value = serde_json::from_slice(&second_body).unwrap();
+
+        assert_eq!(
+            first_value["data"]["sequence"],
+            second_value["data"]["sequence"]
+        );
+    }
+
+    #[tokio::test]
     async fn test_replication_feed_and_apply() {
         let (source_state, source_config) = test_state_and_config();
         let source_app = crate::server::build_router(Arc::clone(&source_state), &source_config);
@@ -2839,6 +3146,127 @@ mod tests {
         let json: Value = serde_json::from_slice(&bytes).unwrap();
         let arr = json["data"].as_array().unwrap();
         assert_eq!(arr.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn test_batch_upsert_body_only_does_not_store_id_in_body() {
+        let (state, config) = test_state_and_config();
+        let app = crate::server::build_router(state, &config);
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("PUT")
+                    .uri("/v1/objects/batch?collection=users&bodyOnly=true")
+                    .header("content-type", "application/json")
+                    .body(Body::from(r#"[{"id":"batch-1","name":"Zoe"}]"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/v1/objects/users/batch-1")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let bytes = response.into_body().collect().await.unwrap().to_bytes();
+        let json: Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(json["data"]["id"], "batch-1");
+        assert!(json["data"]["body"]["id"].is_null());
+    }
+
+    #[tokio::test]
+    async fn test_snapshot_export_and_import_round_trip() {
+        let (source_state, source_config) = test_state_and_config();
+        let source_app = crate::server::build_router(Arc::clone(&source_state), &source_config);
+        source_app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("PUT")
+                    .uri("/v1/objects/notes/n1")
+                    .header("content-type", "application/json")
+                    .body(Body::from(r#"{"text":"hello"}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        source_app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/events/import")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        r#"{"type":"note.created","value":1,"idempotencyKey":"event-1"}"#,
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        let snapshot = source_app
+            .oneshot(
+                Request::builder()
+                    .uri("/v1/snapshot")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(snapshot.status(), StatusCode::OK);
+        assert_eq!(
+            snapshot.headers().get(header::CONTENT_TYPE).unwrap(),
+            "application/x-ndjson"
+        );
+        let snapshot_bytes = snapshot.into_body().collect().await.unwrap().to_bytes();
+        let snapshot_text = String::from_utf8(snapshot_bytes.to_vec()).unwrap();
+        assert!(
+            snapshot_text
+                .lines()
+                .any(|line| line.contains("thingd.snapshot"))
+        );
+        assert!(
+            snapshot_text
+                .lines()
+                .any(|line| line.contains("note.created"))
+        );
+
+        let (target_state, target_config) = test_state_and_config();
+        let target_app = crate::server::build_router(target_state, &target_config);
+        let response = target_app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/snapshot")
+                    .header("content-type", "application/x-ndjson")
+                    .body(Body::from(snapshot_text))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let response = target_app
+            .oneshot(
+                Request::builder()
+                    .uri("/v1/objects/notes/n1")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let bytes = response.into_body().collect().await.unwrap().to_bytes();
+        let json: Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(json["data"]["body"]["text"], "hello");
     }
 
     #[tokio::test]

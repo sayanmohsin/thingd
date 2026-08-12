@@ -113,8 +113,10 @@ thingd import <connection-string> --collection <name> [--tables <names>|--query 
 ### Snapshots
 
 ```txt
-thingd snapshot create --out snapshot.thingd.json
-thingd snapshot restore --in snapshot.thingd.json
+thingd snapshot create --out snapshot.thingd.jsonl
+thingd snapshot restore --in snapshot.thingd.jsonl
+thingd snapshot create --url http://localhost:8757 --out snapshot.thingd.jsonl
+thingd snapshot restore --url http://localhost:8757 --in snapshot.thingd.jsonl
 ```
 
 ### Thingd-to-Thingd synchronization

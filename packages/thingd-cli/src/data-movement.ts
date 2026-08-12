@@ -1,5 +1,15 @@
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { once } from "node:events";
+import {
+  createReadStream,
+  createWriteStream,
+  existsSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
 import { resolve } from "node:path";
+import { createInterface } from "node:readline";
+import { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
 import type {
   ConnectorAuth,
   ConnectorSchema,
@@ -9,7 +19,15 @@ import type {
   StoredMemoryEvent,
   StoredMemoryObject,
 } from "@thingd/sdk";
-import { type CliContext, hasFlag, requiredFlag, stringFlag, withDb, writeJson } from "./index.js";
+import {
+  type CliContext,
+  hasFlag,
+  requiredFlag,
+  resolveConnection,
+  stringFlag,
+  withDb,
+  writeJson,
+} from "./index.js";
 
 const SIDECAR_DEFAULT_URL = "http://localhost:8757";
 
@@ -424,35 +442,55 @@ async function runImportDb(
 
 export async function runSnapshot(context: CliContext): Promise<void> {
   const subCommand = context.parsed.tokens[1];
+  const connection = resolveConnection(context);
+  if (connection.cloud) {
+    await runRemoteSnapshot(context, subCommand);
+    return;
+  }
   if (subCommand === "create") {
     const outPath = requiredFlag(context.parsed, "out");
     await withDb(context, async (db) => {
-      const collectionsMap: Record<string, StoredMemoryObject[]> = {};
+      const output = createWriteStream(resolve(outPath), "utf8");
+      const writeRecord = async (record: unknown): Promise<void> => {
+        if (!output.write(`${JSON.stringify(record)}\n`)) {
+          await once(output, "drain");
+        }
+      };
+      await writeRecord({
+        type: "thingd.snapshot",
+        version: "2.0.0",
+        timestamp: new Date().toISOString(),
+        format: "jsonl",
+      });
       const cols = await db.listCollections();
       for (const col of cols) {
-        collectionsMap[col] = await db.listObjects(col);
+        const objects = await db.listObjects(col);
+        for (const object of objects) {
+          await writeRecord({ type: "object", collection: col, object });
+        }
       }
 
       const eventsList = await db.events.list();
+      for (const event of eventsList) {
+        await writeRecord({ type: "event", event });
+      }
 
-      const queuesMap: Record<string, { active: QueueJob[]; dead: QueueJob[] }> = {};
       const queues = await db.listQueues();
       for (const q of queues) {
         const queue = db.queue(q);
         const [active, dead] = await Promise.all([queue.list(), queue.dead()]);
-        queuesMap[q] = { active, dead };
+        for (const job of [...active, ...dead]) {
+          await writeRecord({ type: "queue", job });
+        }
       }
 
-      const snapshot = {
-        version: "1.0.0",
-        timestamp: new Date().toISOString(),
-        collections: collectionsMap,
-        events: eventsList,
-        queues: queuesMap,
-      };
-
-      writeFileSync(resolve(outPath), JSON.stringify(snapshot, null, 2), "utf8");
-      writeJson(context.stdout, { success: true, out: outPath }, context.pretty);
+      output.end();
+      await once(output, "close");
+      writeJson(
+        context.stdout,
+        { success: true, out: outPath, format: "thingd-snapshot-jsonl", version: "2.0.0" },
+        context.pretty
+      );
     });
   } else if (subCommand === "restore") {
     const inPath = requiredFlag(context.parsed, "in");
@@ -461,9 +499,21 @@ export async function runSnapshot(context: CliContext): Promise<void> {
       throw new Error(`Snapshot file not found: ${inPath}`);
     }
 
-    const snapshot = JSON.parse(readFileSync(resolvedPath, "utf8"));
-    if (snapshot.version !== "1.0.0") {
-      throw new Error(`Unsupported snapshot version: ${snapshot.version}`);
+    if (inPath.endsWith(".jsonl") || inPath.endsWith(".ndjson")) {
+      await restoreJsonlStream(context, inPath, resolvedPath);
+      return;
+    }
+
+    const content = readFileSync(resolvedPath, "utf8");
+    const firstLine =
+      content
+        .split("\n")
+        .find((line) => line.trim().length > 0)
+        ?.trim() ?? "";
+    const isJsonl = firstLine.includes('"type":"thingd.snapshot"');
+    const snapshot = isJsonl ? null : JSON.parse(content);
+    if (!isJsonl && snapshot?.version !== "1.0.0") {
+      throw new Error(`Unsupported snapshot version: ${snapshot?.version ?? "unknown"}`);
     }
 
     context.stderr.write(
@@ -472,6 +522,54 @@ export async function runSnapshot(context: CliContext): Promise<void> {
 
     await withDb(context, async (db) => {
       try {
+        if (isJsonl) {
+          const records = content
+            .split("\n")
+            .map((line) => line.trim())
+            .filter(Boolean)
+            .map((line) => JSON.parse(line) as Record<string, unknown>);
+          const header = records.shift();
+          if (header?.type !== "thingd.snapshot" || header.version !== "2.0.0") {
+            throw new Error(
+              `Unsupported JSONL snapshot version: ${String(header?.version ?? "unknown")}`
+            );
+          }
+
+          for (const record of records) {
+            if (record.type === "object") {
+              const object = record.object as StoredMemoryObject;
+              const cleanObject = { ...object } as Record<string, unknown>;
+              delete cleanObject.collection;
+              delete cleanObject.createdAt;
+              delete cleanObject.updatedAt;
+              delete cleanObject.version;
+              await db.put(String(record.collection), cleanObject as unknown as MemoryObject);
+            } else if (record.type === "event") {
+              const event = record.event as StoredMemoryEvent;
+              const cleanEvent = { ...event } as Record<string, unknown>;
+              delete cleanEvent.id;
+              delete cleanEvent.createdAt;
+              delete cleanEvent.stream;
+              await db.events.append(event.stream, cleanEvent as unknown as MemoryEvent);
+            } else if (record.type === "queue") {
+              const job = record.job as QueueJob;
+              await db.queue(job.queue).push(job.payload, {
+                idempotencyKey: job.id,
+                maxAttempts: job.maxAttempts,
+              });
+            } else {
+              throw new Error(`Unsupported snapshot record type: ${String(record.type)}`);
+            }
+          }
+
+          writeJson(
+            context.stdout,
+            { success: true, in: inPath, format: "thingd-snapshot-jsonl", records: records.length },
+            context.pretty
+          );
+          return;
+        }
+
         // 1. Restore Collections (clear existing first for true restore)
         if (snapshot.collections) {
           for (const [colName, objects] of Object.entries(snapshot.collections)) {
@@ -537,6 +635,120 @@ export async function runSnapshot(context: CliContext): Promise<void> {
   } else {
     throw new Error(`Unknown snapshot command: ${subCommand}. Expected 'create' or 'restore'.`);
   }
+}
+
+async function restoreJsonlStream(
+  context: CliContext,
+  inPath: string,
+  resolvedPath: string
+): Promise<void> {
+  context.stderr.write(
+    "Restoring snapshot... (consider 'thingd backup --out pre-restore.db' first)\n"
+  );
+  await withDb(context, async (db) => {
+    const input = createInterface({ input: createReadStream(resolvedPath), crlfDelay: Infinity });
+    let headerSeen = false;
+    let records = 0;
+    try {
+      for await (const line of input) {
+        if (!line.trim()) {
+          continue;
+        }
+        const record = JSON.parse(line) as Record<string, unknown>;
+        if (!headerSeen) {
+          if (record.type !== "thingd.snapshot" || record.version !== "2.0.0") {
+            throw new Error(
+              `Unsupported JSONL snapshot version: ${String(record.version ?? "unknown")}`
+            );
+          }
+          headerSeen = true;
+          continue;
+        }
+        if (record.type === "object") {
+          const object = record.object as StoredMemoryObject;
+          const cleanObject = { ...object } as Record<string, unknown>;
+          delete cleanObject.collection;
+          delete cleanObject.createdAt;
+          delete cleanObject.updatedAt;
+          delete cleanObject.version;
+          await db.put(String(record.collection), cleanObject as unknown as MemoryObject);
+        } else if (record.type === "event") {
+          const event = record.event as StoredMemoryEvent;
+          const cleanEvent = { ...event } as Record<string, unknown>;
+          delete cleanEvent.id;
+          delete cleanEvent.createdAt;
+          delete cleanEvent.stream;
+          await db.events.append(event.stream, cleanEvent as unknown as MemoryEvent);
+        } else if (record.type === "queue") {
+          const job = record.job as QueueJob;
+          await db.queue(job.queue).push(job.payload, {
+            idempotencyKey: job.id,
+            maxAttempts: job.maxAttempts,
+          });
+        } else {
+          throw new Error(`Unsupported snapshot record type: ${String(record.type)}`);
+        }
+        records += 1;
+      }
+    } finally {
+      input.close();
+    }
+    if (!headerSeen) {
+      throw new Error("Snapshot is missing its header");
+    }
+    writeJson(
+      context.stdout,
+      { success: true, in: inPath, format: "thingd-snapshot-jsonl", records },
+      context.pretty
+    );
+  });
+}
+
+async function runRemoteSnapshot(
+  context: CliContext,
+  subCommand: string | undefined
+): Promise<void> {
+  const inPath = stringFlag(context.parsed, "in");
+  const outPath = stringFlag(context.parsed, "out");
+  const base = resolveSidecarUrl(context);
+  const headers = authHeaders(context);
+
+  if (subCommand === "create") {
+    if (!outPath) {
+      throw new Error("Expected --out <path> for remote snapshot export.");
+    }
+    const response = await fetch(`${base}/v1/snapshot`, { headers });
+    if (!response.ok || !response.body) {
+      throw new Error(`Remote snapshot export failed: HTTP ${response.status}`);
+    }
+    await pipeline(Readable.fromWeb(response.body as never), createWriteStream(resolve(outPath)));
+    writeJson(
+      context.stdout,
+      { success: true, out: outPath, format: "thingd-snapshot-jsonl", remote: true },
+      context.pretty
+    );
+    return;
+  }
+
+  if (subCommand === "restore") {
+    if (!inPath) {
+      throw new Error("Expected --in <path> for remote snapshot import.");
+    }
+    const response = await fetch(`${base}/v1/snapshot`, {
+      method: "POST",
+      headers: { ...headers, "content-type": "application/x-ndjson" },
+      body: createReadStream(resolve(inPath)) as never,
+      duplex: "half",
+    } as RequestInit & { duplex: "half" });
+    const result = (await response.json()) as Record<string, unknown>;
+    if (!response.ok) {
+      throw new Error(`Remote snapshot import failed: ${JSON.stringify(result)}`);
+    }
+    writeJson(context.stdout, result, context.pretty);
+    return;
+  }
+
+  throw new Error(`Unknown snapshot command: ${subCommand}. Expected 'create' or 'restore'.`);
 }
 
 export async function runBackup(context: CliContext): Promise<void> {

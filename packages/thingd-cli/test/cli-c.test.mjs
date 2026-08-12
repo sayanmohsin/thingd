@@ -7,7 +7,7 @@ import { runCli } from "../dist/index.js";
 
 const exportObjPath = resolve("test-objects.jsonl");
 const exportEvPath = resolve("test-events.jsonl");
-const snapshotPath = resolve("test-snapshot.json");
+const snapshotPath = resolve("test-snapshot.jsonl");
 
 function makeEnv(label) {
   const dbPath = join(tmpdir(), `thingd-cli-c-${label}.db`);
@@ -129,10 +129,13 @@ test("thingd snapshot create and restore works", async () => {
   assert.equal(snapCreate.code, 0);
   assert.ok(existsSync(snapshotPath));
 
-  const snapContent = JSON.parse(readFileSync(snapshotPath, "utf8"));
-  assert.ok(snapContent.collections.users);
-  assert.equal(snapContent.collections.users[0].id, "user-1");
-  assert.ok(snapContent.events.some(e => e.stream === "system-log"));
+  const snapshotRecords = readFileSync(snapshotPath, "utf8")
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line));
+  assert.equal(snapshotRecords[0].type, "thingd.snapshot");
+  assert.ok(snapshotRecords.some((record) => record.type === "object" && record.object.id === "user-1"));
+  assert.ok(snapshotRecords.some((record) => record.type === "event" && record.event.stream === "system-log"));
 
   // 3. Mutate DB (delete user-1 and append new event)
   const del = await run(["objects", "delete", "users", "user-1"]);

@@ -176,8 +176,34 @@ for the change envelope and cursor rules.
 | `GET` | `/v1/replication/conflicts` | Inspect quarantined conflicts |
 | `GET` | `/v1/replication/snapshot` | Create a bootstrap snapshot |
 | `POST` | `/v1/replication/snapshot` | Apply a bootstrap snapshot on a replica |
+| `GET` | `/v1/snapshot` | Stream a logical JSONL snapshot |
+| `POST` | `/v1/snapshot` | Import a logical JSONL snapshot |
 
 ---
+
+## Logical snapshots
+
+`GET /v1/snapshot` returns `application/x-ndjson`. The first record is a
+`thingd.snapshot` header, followed by `object`, `event`, and `queue` records.
+The server emits records in bounded pages and does not construct one large JSON
+document in memory.
+
+```bash
+curl http://localhost:8757/v1/snapshot -o snapshot.thingd.jsonl
+curl -X POST http://localhost:8757/v1/snapshot \
+  -H "Content-Type: application/x-ndjson" \
+  --data-binary @snapshot.thingd.jsonl
+```
+
+`POST /v1/snapshot` processes one record at a time. Objects are upserted by
+collection and ID, events use their idempotency keys, and queue records retain
+their stored status, retry counters, timestamps, and stable IDs. A failed
+import may be retried safely for records already accepted.
+
+Snapshots are logical exports, not filesystem-format conversion. To move an
+embedded store to a standalone server, run the CLI snapshot create against the
+embedded path and restore it against the standalone HTTP URL. The source store
+is never modified.
 
 ## Metadata
 
@@ -409,7 +435,11 @@ Returns `deleted: true` even if the object didn't exist (idempotent).
 
 ### `PUT /v1/objects/batch` — Batch upsert
 
-**Query parameter:** `collection` (required)
+**Query parameters:**
+
+- `collection` (required)
+- `bodyOnly=true` (optional) — use the `id` only as the object key and omit it
+  from the stored body. The default is `false` for compatibility.
 
 **Body:** array of objects or `{ "objects": [...] }`
 
@@ -429,6 +459,15 @@ curl -X PUT "http://localhost:8757/v1/objects/batch?collection=users" \
     { "id": "user-011", "name": "Wang", "collection": "users", "version": 1, "..." : "..." }
   ]
 }
+```
+
+Use `bodyOnly=true` for logical imports where the public object ID must not be
+duplicated inside the object body:
+
+```bash
+curl -X PUT "http://localhost:8757/v1/objects/batch?collection=users&bodyOnly=true" \
+  -H "Content-Type: application/json" \
+  -d '[{"id":"user-010","name":"Zoe"}]'
 ```
 
 ### `DELETE /v1/objects/batch` — Batch delete

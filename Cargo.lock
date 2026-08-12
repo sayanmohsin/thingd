@@ -2920,6 +2920,8 @@ name = "thingd-server"
 version = "0.79.1"
 dependencies = [
  "axum",
+ "bytes",
+ "futures-util",
  "http-body-util",
  "jsonwebtoken",
  "parking_lot",
@@ -2930,6 +2932,7 @@ dependencies = [
  "thingd",
  "thingd-schema",
  "tokio",
+ "tokio-stream",
  "tower",
  "tower-http 0.7.0",
  "tracing",
