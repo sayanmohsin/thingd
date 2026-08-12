@@ -77,6 +77,12 @@ pub fn build_router(state: Arc<AppState>, config: &Config) -> Router {
         .route("/v1/replication/status", get(rest::replication_status))
         .route("/v1/replication/conflicts", get(rest::replication_conflicts))
         .route("/v1/replication/snapshot", get(rest::replication_snapshot).post(rest::replication_snapshot_apply))
+        .route(
+            "/v1/snapshot",
+            get(rest::snapshot_export)
+                .post(rest::snapshot_import)
+                .layer(axum::extract::DefaultBodyLimit::disable()),
+        )
         // Queues
         .route("/v1/queues/{queue}/push", post(rest::push_job))
         .route("/v1/queues/{queue}/claim", post(rest::claim_job))
