@@ -13,6 +13,13 @@
 - server: harden security boundaries (0961ffe)
 - complete public SDK type exports (8a8889a)
 
+## [0.80.0](https://github.com/sayanmohsin/thingd/compare/thingd-v0.79.1...thingd-v0.80.0) (2026-08-12)
+
+
+### Features
+
+* add logical snapshot migration tooling ([#139](https://github.com/sayanmohsin/thingd/issues/139)) ([e8d8c47](https://github.com/sayanmohsin/thingd/commit/e8d8c4747638f215df7cef9c8781a9813de9c960))
+
 ## [0.79.1](https://github.com/sayanmohsin/thingd/compare/thingd-v0.79.0...thingd-v0.79.1) (2026-08-11)
 
 

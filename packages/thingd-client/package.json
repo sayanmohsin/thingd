@@ -1,6 +1,6 @@
 {
   "name": "@thingd/client",
-  "version": "0.79.1",
+  "version": "0.80.0",
   "description": "Zero-dependency HTTP client for thingd — works in browsers, edge runtimes, Node.js, Bun, Deno",
   "type": "module",
   "license": "Apache-2.0",
