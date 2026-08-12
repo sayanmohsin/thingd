@@ -13,8 +13,8 @@ categories = ["database-implementations", "web-programming::http-server"]
 [features]
 
 [dependencies]
-thingd = { path = "../thingd", version = "0.79", features = ["persistent", "search", "vectors", "connectors"] } # x-release-please-version
-thingd-schema = { path = "../thingd-schema", version = "0.79" }
+thingd = { path = "../thingd", version = "0.80", features = ["persistent", "search", "vectors", "connectors"] } # x-release-please-version
+thingd-schema = { path = "../thingd-schema", version = "0.80" }
 axum = { version = "0.8", features = ["json", "macros"] }
 bytes = "1"
 tokio = { version = "1", features = ["full"] }
