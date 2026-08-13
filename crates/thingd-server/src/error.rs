@@ -1,7 +1,7 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use axum::Json;
-use axum::http::StatusCode;
+use axum::http::{HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use serde_json::json;
 
@@ -21,6 +21,7 @@ pub struct AppError {
     pub title: &'static str,
     pub detail: String,
     pub error_type: &'static str,
+    pub retry_after: Option<&'static str>,
 }
 
 impl AppError {
@@ -30,6 +31,7 @@ impl AppError {
             title: "Service Unavailable",
             detail: detail.into(),
             error_type: "worker_saturated",
+            retry_after: Some("1"),
         }
     }
 
@@ -39,6 +41,7 @@ impl AppError {
             title: "Bad Request",
             detail: detail.into(),
             error_type: "bad_request",
+            retry_after: None,
         }
     }
 
@@ -48,6 +51,7 @@ impl AppError {
             title: "Not Found",
             detail: detail.into(),
             error_type: "not_found",
+            retry_after: None,
         }
     }
 
@@ -57,6 +61,7 @@ impl AppError {
             title: "Unauthorized",
             detail: detail.into(),
             error_type: "unauthorized",
+            retry_after: None,
         }
     }
 
@@ -66,6 +71,7 @@ impl AppError {
             title: "Forbidden",
             detail: detail.into(),
             error_type: "forbidden",
+            retry_after: None,
         }
     }
 
@@ -75,6 +81,7 @@ impl AppError {
             title: "Conflict",
             detail: detail.into(),
             error_type: "conflict",
+            retry_after: None,
         }
     }
 
@@ -84,6 +91,7 @@ impl AppError {
             title: "Internal Server Error",
             detail: detail.into(),
             error_type: "internal_error",
+            retry_after: None,
         }
     }
 }
@@ -103,7 +111,14 @@ impl IntoResponse for AppError {
                 "detail": detail,
             }
         });
-        (self.status, Json(body)).into_response()
+        let retry_after = self.retry_after;
+        let mut response = (self.status, Json(body)).into_response();
+        if let Some(value) = retry_after {
+            response
+                .headers_mut()
+                .insert(header::RETRY_AFTER, HeaderValue::from_static(value));
+        }
+        response
     }
 }
 
@@ -129,6 +144,7 @@ impl From<thingd::ThingdError> for AppError {
                 title: "Conflict",
                 detail: msg,
                 error_type: "conflict",
+                retry_after: None,
             },
             thingd::ThingdError::Protected(msg) => AppError::bad_request(msg),
             thingd::ThingdError::Storage(msg) => {

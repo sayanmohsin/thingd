@@ -55,6 +55,20 @@ only after the engine is stopped or after `thingd db checkpoint` completes.
 JSON snapshots are logical, decrypted exports and are not equivalent to an
 opaque filesystem backup.
 
+For a local native archive, use:
+
+```bash
+thingd db backup --path /data/thingd.db --out /backups/thingd.tar
+thingd db restore --in /backups/thingd.tar --destination /data/thingd-restored.db
+```
+
+The backup command requires exclusive access while it checkpoints and closes
+the store. Restore validates archive paths and native layout before atomic
+promotion, preserves encrypted bytes, and refuses to overwrite an existing
+destination unless `--replace` is supplied. Embedded numbered-keyspace stores
+and standalone named-keyspace stores are not interchangeable; use logical
+JSONL snapshots for that migration boundary.
+
 **Options:**
 - `--out <path>` — Destination path for the filesystem backup
 - `--path <path>` — Source database path (overrides `THINGD_PATH`)
@@ -66,20 +80,14 @@ Backup created: /path/to/backup.db (1.25 MB)
 
 ### Restoring from Backup
 
-For a current native persistent database, restore the directory while the
-engine is stopped:
+For a current native persistent database, restore the validated archive while
+the engine is stopped:
 
 ```bash
-# Stop thingd-server
-cp -R /path/to/backup-directory /path/to/thingd.db
-# Start thingd-server
+thingd db restore --in /backups/thingd.tar --destination /data/thingd.db
 ```
 
-Or use the CLI with a file copy:
-
-```bash
-thingd db restore --in /path/to/backup-directory
-```
+The destination must not already exist unless `--replace` is supplied.
 
 ## Snapshots
 

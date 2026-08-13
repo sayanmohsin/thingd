@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
+use std::thread;
+use std::time::Duration;
 
 use parking_lot::{Mutex, RwLock};
 use thingd::{
@@ -9,6 +11,31 @@ use thingd::{
 };
 
 pub type SharedEngine = Arc<Mutex<Box<dyn ThingStore + Send>>>;
+
+const SEARCH_REBUILD_BATCH_SIZE: usize = 128;
+
+fn spawn_search_rebuild(engine: SharedEngine) {
+    let _ = thread::Builder::new()
+        .name("thingd-search-rebuild".to_string())
+        .spawn(move || {
+            loop {
+                let result = if let Some(mut guard) = engine.try_lock() {
+                    guard.search_rebuild_step(SEARCH_REBUILD_BATCH_SIZE)
+                } else {
+                    thread::sleep(Duration::from_millis(10));
+                    continue;
+                };
+                match result {
+                    Ok(true) => break,
+                    Ok(false) => thread::sleep(Duration::from_millis(10)),
+                    Err(error) => {
+                        tracing::error!(error = %error, "asynchronous search rebuild stopped");
+                        break;
+                    },
+                }
+            }
+        });
+}
 
 pub fn create_engine(
     db_path: &str,
@@ -70,9 +97,12 @@ impl EnginePool {
         let engine = create_engine(&default_path, &pool.open_options).map_err(|error| {
             format!("failed to open durable database at {default_path}: {error}")
         })?;
-        pool.writers
-            .write()
-            .insert(default_path, Arc::new(Mutex::new(engine)));
+        let shared = Arc::new(Mutex::new(engine));
+        let rebuild_required = shared.lock().search_rebuild_required();
+        pool.writers.write().insert(default_path, shared.clone());
+        if rebuild_required {
+            spawn_search_rebuild(shared);
+        }
         Ok(pool)
     }
 
@@ -107,6 +137,10 @@ impl EnginePool {
         };
 
         guard.insert(path.clone(), writer.clone());
+
+        if writer.lock().search_rebuild_required() {
+            spawn_search_rebuild(writer.clone());
+        }
 
         writer
     }

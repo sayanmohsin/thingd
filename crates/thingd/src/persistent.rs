@@ -7,7 +7,8 @@
 )]
 
 use std::collections::HashMap;
-use std::path::Path;
+use std::ops::Bound::{Excluded, Unbounded};
+use std::path::{Path, PathBuf};
 use std::sync::{
     Mutex,
     atomic::{AtomicU64, Ordering},
@@ -48,6 +49,7 @@ use crate::{now_iso_string, unix_timestamp_millis};
 pub struct PersistentEngine {
     #[allow(dead_code)]
     db: Database,
+    path: PathBuf,
     objects: Keyspace,
     events: Keyspace,
     event_meta: Keyspace,
@@ -70,6 +72,10 @@ pub struct PersistentEngine {
     search_writer: Option<Mutex<tantivy::IndexWriter<tantivy::TantivyDocument>>>,
     #[cfg(feature = "search")]
     search_reader: Option<Mutex<tantivy::IndexReader>>,
+    #[cfg(feature = "search")]
+    search_rebuild: Option<SearchRebuildProgress>,
+    #[cfg(feature = "search")]
+    search_rebuild_required: bool,
     #[cfg(feature = "vectors")]
     vectors: Keyspace,
     codec: Box<dyn StorageCodec>,
@@ -122,11 +128,61 @@ pub enum PersistentSearchMode {
     /// Open the persistent Tantivy index and rebuild it when necessary.
     #[default]
     Persistent,
+    /// Open the primary store immediately and rebuild a missing or incompatible
+    /// search index incrementally through the server's background maintenance loop.
+    PersistentAsync,
     /// Open a compatible Tantivy index but do not create or rebuild one.
     PersistentNoRebuild,
     /// Do not open or rebuild Tantivy. Search uses the bounded fallback scan.
     Disabled,
 }
+
+/// Current state of an asynchronous persistent search-index rebuild.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchRebuildStatus {
+    /// `rebuilding`, `ready`, or `failed`.
+    pub state: String,
+    /// Number of primary records incorporated into the rebuild.
+    pub processed: u64,
+    /// Number of primary records observed when the rebuild started.
+    pub total: u64,
+    /// Last rebuild error, when state is `failed`.
+    pub error: Option<String>,
+}
+
+#[cfg(feature = "search")]
+#[derive(Debug)]
+enum SearchRebuildPhase {
+    Objects,
+    Events,
+    Replay,
+}
+
+#[cfg(feature = "search")]
+#[derive(Debug)]
+struct SearchRebuildProgress {
+    phase: SearchRebuildPhase,
+    object_cursor: Option<Vec<u8>>,
+    event_cursor: Option<Vec<u8>>,
+    processed: u64,
+    total: u64,
+    replay: HashMap<String, SearchReplayMutation>,
+    replay_overflow: bool,
+    error: Option<String>,
+}
+
+#[cfg(feature = "search")]
+#[derive(Debug, Clone, Copy)]
+enum SearchReplayMutation {
+    UpsertObject,
+    DeleteObject,
+    UpsertEvent,
+    DeleteEvent,
+}
+
+#[cfg(feature = "search")]
+const SEARCH_REBUILD_REPLAY_LIMIT: usize = 100_000;
 
 /// Result of validating a native storage directory without opening Fjall.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -419,11 +475,18 @@ impl PersistentEngine {
         #[cfg(feature = "search")]
         let (search_index, rebuild_search_index) = match options.search_mode {
             PersistentSearchMode::Disabled => (None, false),
-            PersistentSearchMode::Persistent if encrypted => {
+            PersistentSearchMode::Persistent | PersistentSearchMode::PersistentAsync
+                if encrypted =>
+            {
                 (Self::create_search_index(true), true)
             },
             PersistentSearchMode::PersistentNoRebuild if encrypted => (None, false),
             PersistentSearchMode::Persistent => Self::init_search_index(path, true)?,
+            PersistentSearchMode::PersistentAsync => {
+                let (index, _) = Self::init_search_index(path, false)?;
+                let rebuild = index.is_none();
+                (index, rebuild)
+            },
             PersistentSearchMode::PersistentNoRebuild => Self::init_search_index(path, false)?,
         };
 
@@ -451,6 +514,7 @@ impl PersistentEngine {
 
         let engine = Self {
             db,
+            path: path.to_path_buf(),
             objects,
             events,
             event_meta,
@@ -473,6 +537,10 @@ impl PersistentEngine {
             search_writer,
             #[cfg(feature = "search")]
             search_reader,
+            #[cfg(feature = "search")]
+            search_rebuild: None,
+            #[cfg(feature = "search")]
+            search_rebuild_required: rebuild_search_index,
             #[cfg(feature = "vectors")]
             vectors,
             codec,
@@ -484,6 +552,9 @@ impl PersistentEngine {
 
         #[cfg(feature = "search")]
         if rebuild_search_index {
+            if options.search_mode == PersistentSearchMode::PersistentAsync {
+                return Ok(engine);
+            }
             for entry in engine.objects.iter() {
                 let (_, value) = guard_data(entry)?;
                 let object: MemoryObject = engine.deserialize(&value)?;
@@ -500,11 +571,199 @@ impl PersistentEngine {
         Ok(engine)
     }
 
+    /// Return whether this engine needs an asynchronous derived-index rebuild.
+    #[cfg(feature = "search")]
+    pub const fn search_rebuild_required(&self) -> bool {
+        self.search_rebuild_required
+    }
+
+    /// Return the current asynchronous search rebuild status, if one is active
+    /// or has failed.
+    #[cfg(feature = "search")]
+    pub fn search_rebuild_status(&self) -> Option<SearchRebuildStatus> {
+        let progress = self.search_rebuild.as_ref()?;
+        Some(SearchRebuildStatus {
+            state: if progress.error.is_some() {
+                "failed".to_string()
+            } else {
+                "rebuilding".to_string()
+            },
+            processed: progress.processed,
+            total: progress.total,
+            error: progress.error.clone(),
+        })
+    }
+
+    /// Process one bounded batch of an asynchronous search rebuild.
+    ///
+    /// # Errors
+    ///
+    /// Returns a storage error when the derived index cannot be created,
+    /// opened, read, or committed.
+    #[cfg(feature = "search")]
+    pub fn search_rebuild_step(&mut self, batch_size: usize) -> ThingdResult<bool> {
+        if !self.search_rebuild_required {
+            return Ok(true);
+        }
+        if let Some(progress) = self.search_rebuild.as_ref()
+            && progress.error.is_some()
+        {
+            return Ok(false);
+        }
+
+        if self.search_rebuild.is_none() {
+            if self.search_index.is_none() {
+                let (index, _) = Self::init_search_index(&self.path, true)?;
+                self.search_index = index;
+                self.search_writer = self
+                    .search_index
+                    .as_ref()
+                    .map(|index| {
+                        index
+                            .writer(SEARCH_WRITER_MEMORY_BYTES)
+                            .map(Mutex::new)
+                            .map_err(|error| {
+                                ThingdError::Storage(format!("create search writer: {error}"))
+                            })
+                    })
+                    .transpose()?;
+                self.search_reader = self
+                    .search_index
+                    .as_ref()
+                    .map(|index| {
+                        index.reader().map(Mutex::new).map_err(|error| {
+                            ThingdError::Storage(format!("create search reader: {error}"))
+                        })
+                    })
+                    .transpose()?;
+            }
+            self.search_rebuild = Some(SearchRebuildProgress {
+                phase: SearchRebuildPhase::Objects,
+                object_cursor: None,
+                event_cursor: None,
+                processed: 0,
+                total: self.objects.iter().count() as u64 + self.events.iter().count() as u64,
+                replay: HashMap::new(),
+                replay_overflow: false,
+                error: None,
+            });
+        }
+
+        let Some(mut progress) = self.search_rebuild.take() else {
+            return Err(ThingdError::Storage(
+                "search rebuild state was not initialized".to_string(),
+            ));
+        };
+        let batch_size = batch_size.max(1);
+        let result: ThingdResult<bool> = (|| {
+            match progress.phase {
+                SearchRebuildPhase::Objects => {
+                    let items = match progress.object_cursor.as_ref() {
+                        Some(cursor) => self
+                            .objects
+                            .range::<&[u8], _>((Excluded(cursor.as_slice()), Unbounded::<&[u8]>))
+                            .take(batch_size)
+                            .collect::<Vec<_>>(),
+                        None => self.objects.iter().take(batch_size).collect::<Vec<_>>(),
+                    };
+                    let mut last_key = None;
+                    for entry in items {
+                        let (key, value) = guard_data(entry)?;
+                        let object: MemoryObject = self.deserialize(&value)?;
+                        self.index_object_for_search_with_commit(&object, false);
+                        last_key = Some(key);
+                        progress.processed += 1;
+                    }
+                    progress.object_cursor = last_key;
+                    let objects_exhausted = progress.object_cursor.as_ref().is_none_or(|cursor| {
+                        self.objects
+                            .range::<&[u8], _>((Excluded(cursor.as_slice()), Unbounded::<&[u8]>))
+                            .next()
+                            .is_none()
+                    });
+                    if objects_exhausted {
+                        progress.phase = SearchRebuildPhase::Events;
+                    }
+                },
+                SearchRebuildPhase::Events => {
+                    let items = match progress.event_cursor.as_ref() {
+                        Some(cursor) => self
+                            .events
+                            .range::<&[u8], _>((Excluded(cursor.as_slice()), Unbounded::<&[u8]>))
+                            .take(batch_size)
+                            .collect::<Vec<_>>(),
+                        None => self.events.iter().take(batch_size).collect::<Vec<_>>(),
+                    };
+                    let mut last_key = None;
+                    for entry in items {
+                        let (key, value) = guard_data(entry)?;
+                        let event: MemoryEvent = self.deserialize(&value)?;
+                        self.index_event_for_search_with_commit(&event, false);
+                        last_key = Some(key);
+                        progress.processed += 1;
+                    }
+                    progress.event_cursor = last_key;
+                    let events_exhausted = progress.event_cursor.as_ref().is_none_or(|cursor| {
+                        self.events
+                            .range::<&[u8], _>((Excluded(cursor.as_slice()), Unbounded::<&[u8]>))
+                            .next()
+                            .is_none()
+                    });
+                    if events_exhausted {
+                        progress.phase = SearchRebuildPhase::Replay;
+                    }
+                },
+                SearchRebuildPhase::Replay => {
+                    if progress.replay_overflow {
+                        progress.phase = SearchRebuildPhase::Objects;
+                        progress.object_cursor = None;
+                        progress.event_cursor = None;
+                        progress.processed = 0;
+                        progress.replay.clear();
+                        progress.replay_overflow = false;
+                    } else {
+                        let replay = std::mem::take(&mut progress.replay);
+                        for (key, mutation) in replay {
+                            self.replay_search_mutation(&key, mutation)?;
+                        }
+                        self.commit_search_index();
+                        self.search_rebuild_required = false;
+                        self.search_rebuild = None;
+                        return Ok(true);
+                    }
+                },
+            }
+            self.commit_search_index();
+            Ok(false)
+        })();
+
+        match result {
+            Ok(done) => {
+                if !done {
+                    self.search_rebuild = Some(progress);
+                }
+                Ok(done)
+            },
+            Err(error) => {
+                progress.error = Some(error.to_string());
+                self.search_rebuild = Some(progress);
+                Err(error)
+            },
+        }
+    }
+
     /// Validate a native storage directory without opening Fjall or mutating files.
     pub fn validate_path(path: impl AsRef<Path>) -> ThingdResult<StorageValidationReport> {
         validate_existing_directory(path.as_ref())?.ok_or_else(|| {
             ThingdError::StorageValidation("database directory does not exist yet".to_string())
         })
+    }
+
+    /// Persist all pending Fjall journal state before an offline directory copy.
+    pub fn checkpoint(&self) -> ThingdResult<()> {
+        self.db
+            .persist(PersistMode::SyncAll)
+            .map_err(|error| ThingdError::Storage(error.to_string()))
     }
 
     /// Re-encrypt a database into a new destination without modifying the source.
@@ -1202,6 +1461,11 @@ impl ObjectStore for PersistentEngine {
             .map_err(|e| ThingdError::Storage(e.to_string()))?;
 
         #[cfg(feature = "search")]
+        self.record_search_mutation(
+            format!("object:{}/{}", object.key.collection, object.key.id),
+            SearchReplayMutation::UpsertObject,
+        );
+        #[cfg(feature = "search")]
         self.index_object_for_search(&object);
 
         self.update_unique_index_cache_for_object(&object, previous.as_ref())?;
@@ -1516,6 +1780,11 @@ impl ObjectStore for PersistentEngine {
             .map_err(|e| ThingdError::Storage(e.to_string()))?;
 
         #[cfg(feature = "search")]
+        self.record_search_mutation(
+            format!("object:{collection}/{id}"),
+            SearchReplayMutation::DeleteObject,
+        );
+        #[cfg(feature = "search")]
         self.delete_object_from_search_index(collection, id);
         if let Some(existing) = existing.as_ref() {
             self.remove_unique_index_cache_for_object(existing)?;
@@ -1552,6 +1821,10 @@ impl ObjectStore for PersistentEngine {
 
         #[cfg(feature = "search")]
         for (collection, id) in keys {
+            self.record_search_mutation(
+                format!("object:{collection}/{id}"),
+                SearchReplayMutation::DeleteObject,
+            );
             self.delete_object_from_search_index(collection, id);
         }
         for object in &deleted {
@@ -1775,6 +2048,11 @@ impl EventLog for PersistentEngine {
         self.events.insert(&ekey, &data)?;
 
         #[cfg(feature = "search")]
+        self.record_search_mutation(
+            format!("event:{}/{}", event.stream, event.sequence),
+            SearchReplayMutation::UpsertEvent,
+        );
+        #[cfg(feature = "search")]
         self.index_event_for_search(&event);
 
         if !event.idempotency_key.is_empty() {
@@ -1882,6 +2160,10 @@ impl EventLog for PersistentEngine {
             }
             #[cfg(feature = "search")]
             if let Some(ref ev) = last_event {
+                self.record_search_mutation(
+                    format!("event:{}/{}", ev.stream, ev.sequence),
+                    SearchReplayMutation::DeleteEvent,
+                );
                 self.delete_event_from_search_index(&ev.stream, ev.sequence);
             }
             self.persist_event_metadata(stream)?;
@@ -1910,6 +2192,11 @@ impl EventLog for PersistentEngine {
         let count = entries.len() as u64;
         for (key, seq) in &entries {
             self.events.remove(key)?;
+            #[cfg(feature = "search")]
+            self.record_search_mutation(
+                format!("event:{stream}/{seq}"),
+                SearchReplayMutation::DeleteEvent,
+            );
             #[cfg(feature = "search")]
             self.delete_event_from_search_index(stream, *seq);
         }
@@ -2196,6 +2483,86 @@ impl Searcher for PersistentEngine {
 
 impl PersistentEngine {
     #[cfg(feature = "search")]
+    fn record_search_mutation(&mut self, key: String, mutation: SearchReplayMutation) {
+        let Some(progress) = self.search_rebuild.as_mut() else {
+            return;
+        };
+        if progress.replay.len() >= SEARCH_REBUILD_REPLAY_LIMIT
+            && !progress.replay.contains_key(&key)
+        {
+            progress.replay_overflow = true;
+            return;
+        }
+        progress.replay.insert(key, mutation);
+    }
+
+    #[cfg(feature = "search")]
+    fn replay_search_mutation(
+        &self,
+        key: &str,
+        mutation: SearchReplayMutation,
+    ) -> ThingdResult<()> {
+        match mutation {
+            SearchReplayMutation::UpsertObject => {
+                let Some((collection, id)) = key.strip_prefix("object:").and_then(|value| {
+                    value
+                        .split_once('/')
+                        .map(|(collection, id)| (collection.to_string(), id.to_string()))
+                }) else {
+                    return Ok(());
+                };
+                let object_key = self.make_object_key(&collection, &id);
+                if let Some(value) = value_to_vec(self.objects.get(&object_key)?) {
+                    let object: MemoryObject = self.deserialize(&value)?;
+                    self.index_object_for_search_with_commit(&object, false);
+                } else {
+                    self.delete_object_from_search_index(&collection, &id);
+                }
+            },
+            SearchReplayMutation::DeleteObject => {
+                let Some((collection, id)) = key.strip_prefix("object:").and_then(|value| {
+                    value
+                        .split_once('/')
+                        .map(|(collection, id)| (collection.to_string(), id.to_string()))
+                }) else {
+                    return Ok(());
+                };
+                self.delete_object_from_search_index(&collection, &id);
+            },
+            SearchReplayMutation::UpsertEvent => {
+                let Some(value) = key.strip_prefix("event:") else {
+                    return Ok(());
+                };
+                let Some((stream, sequence)) = value.rsplit_once('/') else {
+                    return Ok(());
+                };
+                let Ok(sequence) = sequence.parse::<u64>() else {
+                    return Ok(());
+                };
+                let event_key = self.make_event_key(stream, sequence);
+                if let Some(value) = value_to_vec(self.events.get(&event_key)?) {
+                    let event: MemoryEvent = self.deserialize(&value)?;
+                    self.index_event_for_search_with_commit(&event, false);
+                } else {
+                    self.delete_event_from_search_index(stream, sequence);
+                }
+            },
+            SearchReplayMutation::DeleteEvent => {
+                let Some(value) = key.strip_prefix("event:") else {
+                    return Ok(());
+                };
+                let Some((stream, sequence)) = value.rsplit_once('/') else {
+                    return Ok(());
+                };
+                if let Ok(sequence) = sequence.parse::<u64>() {
+                    self.delete_event_from_search_index(stream, sequence);
+                }
+            },
+        }
+        Ok(())
+    }
+
+    #[cfg(feature = "search")]
     fn index_object_for_search(&self, object: &MemoryObject) {
         self.index_object_for_search_with_commit(object, true);
     }
@@ -2325,9 +2692,15 @@ impl PersistentEngine {
     }
 
     #[cfg(feature = "search")]
-    fn delete_events_from_search_index(&self, events: &[(String, u64)]) {
+    fn delete_events_from_search_index(&mut self, events: &[(String, u64)]) {
         if events.is_empty() {
             return;
+        }
+        for (stream, sequence) in events {
+            self.record_search_mutation(
+                format!("event:{stream}/{sequence}"),
+                SearchReplayMutation::DeleteEvent,
+            );
         }
         let Some(ref index) = self.search_index else {
             return;
@@ -3335,6 +3708,35 @@ mod tests {
                 .len(),
             1
         );
+    }
+
+    #[cfg(feature = "search")]
+    #[test]
+    fn async_search_rebuild_interleaves_writes_and_replays_mutations() {
+        let dir = tempfile::tempdir().unwrap();
+        {
+            let mut engine = PersistentEngine::open(dir.path()).unwrap();
+            engine
+                .put_object(MemoryObject::new("notes", "one", r#"{"text":"before"}"#))
+                .unwrap();
+        }
+        std::fs::remove_dir_all(dir.path().join("search")).unwrap();
+
+        let options = PersistentOpenOptions {
+            search_mode: PersistentSearchMode::PersistentAsync,
+            ..PersistentOpenOptions::default()
+        };
+        let mut engine = PersistentEngine::open_with_options(dir.path(), options).unwrap();
+        assert!(engine.search_rebuild_required());
+        engine.search_rebuild_step(1).unwrap();
+        engine
+            .put_object(MemoryObject::new("notes", "two", r#"{"text":"during"}"#))
+            .unwrap();
+        while !engine.search_rebuild_step(1).unwrap() {}
+
+        let hits = engine.search("during", SearchOptions::default()).unwrap();
+        assert_eq!(hits.len(), 1);
+        assert!(!engine.search_rebuild_required());
     }
 
     #[test]

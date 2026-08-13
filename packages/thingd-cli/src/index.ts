@@ -180,6 +180,8 @@ Usage:
   thingd cloud api-key create <project> <name>
   thingd db checkpoint [--path <path>]
   thingd db integrity [--path <path>]
+  thingd db backup --out <archive.tar> [--path <path>]
+  thingd db restore --in <archive.tar> --destination <path> [--replace]
   thingd db reencrypt --source <path> --destination <path> [--allow-plaintext-output]
 
 Options:
@@ -459,11 +461,21 @@ async function runCommand(context: CliContext): Promise<void> {
       await runDbIntegrity(context);
       return;
     }
+    if (sub === "backup") {
+      await runDbNativeBackup(context);
+      return;
+    }
+    if (sub === "restore") {
+      await runDbNativeRestore(context);
+      return;
+    }
     if (sub === "reencrypt") {
       await runDbReencrypt(context);
       return;
     }
-    throw new Error(`Unknown db subcommand: ${sub}. Expected: checkpoint, integrity, reencrypt`);
+    throw new Error(
+      `Unknown db subcommand: ${sub}. Expected: checkpoint, integrity, backup, restore, reencrypt`
+    );
   }
 
   throw new Error(`Unknown command: ${command}`);
@@ -588,6 +600,51 @@ async function runDbIntegrity(context: CliContext): Promise<void> {
       );
     }
   });
+}
+
+async function runDbNativeBackup(context: CliContext): Promise<void> {
+  const output = stringFlag(context.parsed, "out");
+  if (!output) {
+    throw new Error("db backup requires --out <archive.tar>");
+  }
+  const connection = resolveConnection(context);
+  if (connection.cloud || connection.driver !== "native") {
+    throw new Error(
+      "db backup requires a local native database; logical snapshots support remote stores"
+    );
+  }
+  const db = await ThingD.open({
+    path: connection.path,
+    driver: "native",
+    encryption: connection.encryptionKey ? { key: connection.encryptionKey } : undefined,
+  });
+  try {
+    db.walCheckpoint();
+  } finally {
+    await db.close();
+  }
+  const { createNativeArchive } = await import("./native-archive.js");
+  await createNativeArchive(connection.path, output);
+  writeJson(
+    context.stdout,
+    { ok: true, out: resolve(output), format: "thingd-native-tar" },
+    context.pretty
+  );
+}
+
+async function runDbNativeRestore(context: CliContext): Promise<void> {
+  const input = stringFlag(context.parsed, "in");
+  const destination = stringFlag(context.parsed, "destination");
+  if (!input || !destination) {
+    throw new Error("db restore requires --in <archive.tar> and --destination <path>");
+  }
+  const { restoreNativeArchive } = await import("./native-archive.js");
+  await restoreNativeArchive(input, destination, hasFlag(context.parsed, "replace"));
+  writeJson(
+    context.stdout,
+    { ok: true, destination: resolve(destination), format: "thingd-native-tar" },
+    context.pretty
+  );
 }
 
 async function runCompletions(context: CliContext): Promise<void> {

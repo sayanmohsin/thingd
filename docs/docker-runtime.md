@@ -67,6 +67,7 @@ THINGD_MCP_AUDIT=true
 
 ```txt
 GET  /healthz
+GET  /ready
 POST /mcp
 GET  /cluster/status
 GET  /cluster/peers
@@ -180,7 +181,8 @@ Replication lag and diagnostics are monitored dynamically via `/cluster/status`,
 pnpm smoke:docker
 ```
 
-The smoke script builds the image, starts a container, checks `/healthz`,
+The smoke script builds the image, starts a container, checks `/healthz` and
+`/ready`,
 checks `/cluster/status`, and uses an MCP client to list tools. It maps the
 container to host port `18757` by default to avoid clashing with a local dev
 runtime. Override with `THINGD_DOCKER_PORT`.

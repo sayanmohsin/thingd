@@ -30,6 +30,7 @@ import type {
 
 type NativeThingStoreBinding = {
   close(): void;
+  checkpoint?(): void;
   putObjectJson(collection: string, id: string, body: string, expectedVersion?: number): string;
   optimizeSearchIndex(): void;
   getObjectJson(collection: string, id: string): string | null;
@@ -286,6 +287,11 @@ export class NativeThingStore implements ThingStore {
 
   async close(): Promise<void> {
     this.binding.close();
+  }
+
+  walCheckpoint(): import("../types.js").WalCheckpointResult {
+    this.binding.checkpoint?.();
+    return { framesBefore: 0, framesAfter: 0 };
   }
 
   async put(

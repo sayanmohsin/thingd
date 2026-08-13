@@ -109,7 +109,9 @@ async fn main() {
             config.server.database.clone(),
             config.server.encryption_key.as_deref(),
             match config.server.search_mode {
-                config::SearchModeConfig::Persistent => thingd::PersistentSearchMode::Persistent,
+                config::SearchModeConfig::Persistent => {
+                    thingd::PersistentSearchMode::PersistentAsync
+                },
                 config::SearchModeConfig::PersistentNoRebuild => {
                     thingd::PersistentSearchMode::PersistentNoRebuild
                 },

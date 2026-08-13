@@ -269,7 +269,7 @@ Older and newer object shapes coexist in the same collection. Search indexing in
 
 ### How do backups and restores work?
 
-CLI snapshot commands: `thingd snapshot create --out backup.thingd.jsonl` (exports all objects, events, and queue jobs as a versioned JSONL stream). Use `--url` to export from or restore into a running standalone server. Restore with `thingd snapshot restore --in backup.thingd.jsonl`; object and idempotent event records are safe to retry. For file-level backups, stop the engine and copy the complete persistent storage directory.
+CLI snapshot commands: `thingd snapshot create --out backup.thingd.jsonl` (exports all objects, events, and queue jobs as a versioned JSONL stream). Use `--url` to export from or restore into a running standalone server. Restore with `thingd snapshot restore --in backup.thingd.jsonl`; object and idempotent event records are safe to retry. For opaque native backups, use `thingd db backup --out backup.tar` and restore with `thingd db restore --in backup.tar --destination <path>` while the source is not running.
 
 ### Can I run this in Kubernetes with persistence?
 
@@ -359,9 +359,10 @@ thingd backup --out /path/to/backup.db
 ```
 
 That command applies to the deprecated SQLite compatibility backend. For the
-current native backend, stop or checkpoint the engine and copy the complete
-database directory. Encrypted directory backups remain encrypted and require
-the same key to restore. See [Operations](../operations.md).
+current native backend, use `thingd db backup --out /path/to/backup.tar` and
+`thingd db restore --in /path/to/backup.tar --destination /path/to/thingd.db`.
+The native archive remains encrypted when the source is encrypted and requires
+exclusive access during checkpoint/backup. See [Operations](../operations.md).
 
 ### How do I check database integrity?
 

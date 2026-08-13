@@ -770,6 +770,27 @@ pub trait ThingStore:
     + VectorStore
     + SchemaStore
 {
+    /// Return whether the adapter has an asynchronous derived search rebuild
+    /// that should be progressed by the hosting runtime.
+    fn search_rebuild_required(&self) -> bool {
+        false
+    }
+
+    /// Process one bounded asynchronous search rebuild batch.
+    ///
+    /// # Errors
+    ///
+    /// Returns a storage error when the adapter cannot advance the rebuild.
+    fn search_rebuild_step(&mut self, _batch_size: usize) -> ThingdResult<bool> {
+        Ok(true)
+    }
+
+    /// Return backend-specific asynchronous search rebuild status, when supported.
+    #[cfg(feature = "persistent")]
+    fn search_rebuild_status(&self) -> Option<crate::SearchRebuildStatus> {
+        None
+    }
+
     /// Return bounded storage diagnostics. Adapters may add backend-specific
     /// details through their own APIs without changing this stable summary.
     ///
@@ -788,16 +809,21 @@ pub trait ThingStore:
     }
 }
 
-impl<T> ThingStore for T where
-    T: EventLog
-        + ObjectStore
-        + QueueStore
-        + Searcher
-        + LinkStore
-        + AggregateStore
-        + VectorStore
-        + SchemaStore
-{
+impl ThingStore for crate::MemoryEngine {}
+
+#[cfg(feature = "persistent")]
+impl ThingStore for crate::PersistentEngine {
+    fn search_rebuild_required(&self) -> bool {
+        self.search_rebuild_required()
+    }
+
+    fn search_rebuild_step(&mut self, batch_size: usize) -> ThingdResult<bool> {
+        self.search_rebuild_step(batch_size)
+    }
+
+    fn search_rebuild_status(&self) -> Option<crate::SearchRebuildStatus> {
+        self.search_rebuild_status()
+    }
 }
 
 /// Durable schema and migration metadata operations.
