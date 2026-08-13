@@ -145,6 +145,7 @@ const db = await ThingD.open({
 
 ```
 GET /healthz
+GET /ready
 ```
 
 ## Cluster status

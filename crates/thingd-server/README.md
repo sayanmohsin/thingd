@@ -23,6 +23,7 @@ Starts on `http://0.0.0.0:7377` by default. Point your MCP client at `http://loc
 |---|---|---|
 | **MCP** | `POST /mcp` | Model Context Protocol — 36 core tools (search, put, get, delete, events, queues, links, aggregate, timeseries, schema, NLQ, indexes) |
 | **REST** | `GET /healthz` | Health check (unauthenticated) |
+| **REST** | `GET /ready` | Readiness and search rebuild status (unauthenticated) |
 | **REST** | `GET /v1/health` | Same as `/healthz` |
 | **REST** | `GET /v1/counts/objects` | Object count |
 | **REST** | `GET /v1/counts/events` | Event count |
@@ -77,11 +78,16 @@ storage. Missing or incorrect keys fail startup; the server never falls back
 to memory for an encrypted database. Filesystem backups remain encrypted,
 while JSON exports are decrypted logical data and must be protected separately.
 
-Validate a database before starting the server:
+Validate a database before starting the server. This check is lock-free and
+does not open or mutate the database:
 
 ```bash
 thingd-server --check /data/thingd.db
 ```
+
+`GET /ready` returns `ready` once the primary store is available. During an
+asynchronous Tantivy rebuild it includes `degradedSearch: true`; search uses
+the bounded fallback scan until the derived index catches up.
 
 For hosts with less than 2 GB RAM, prefer a separate standalone server over
 HTTP rather than embedding the native store in the application process.

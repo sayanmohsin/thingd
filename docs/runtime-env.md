@@ -34,11 +34,13 @@ not put it in source control, container image layers, MCP configuration, URLs,
 or request payloads. Memory and cloud drivers reject this local option rather
 than ignoring it. Changing the value does not rotate an existing database.
 
-`THINGD_SEARCH_MODE=disabled` avoids opening or rebuilding Tantivy for an
-embedded deployment that does not require full-text search. It uses the slower
-fallback scan instead. `persistent-no-rebuild` opens only an already compatible
-index and avoids startup repair. For hosts with less than 2 GB RAM, prefer a
-separate standalone thingd-server over HTTP.
+`THINGD_SEARCH_MODE=persistent` opens the primary store immediately and
+rebuilds missing or incompatible Tantivy state asynchronously. During the
+rebuild, search uses the bounded fallback scan and `/ready` reports
+`degradedSearch: true`. `persistent-no-rebuild` opens only an already
+compatible index and permanently uses fallback search when one is unavailable.
+`disabled` avoids opening Tantivy entirely. For hosts with less than 2 GB RAM,
+prefer a separate standalone thingd-server over HTTP.
 
 `THINGD_NATIVE_MAX_PAYLOAD_BYTES` optionally bounds JSON batch payloads passed
 through the embedded native binding. It is unset by default for compatibility;

@@ -27,7 +27,7 @@ fn constant_time_eq(a: &str, b: &str) -> bool {
 
 /// Path prefixes that are exempt from authentication.
 /// Health, metrics, and cluster-status endpoints are safe to expose without auth.
-const PUBLIC_PATH_PREFIXES: &[&str] = &["/healthz", "/metrics"];
+const PUBLIC_PATH_PREFIXES: &[&str] = &["/healthz", "/ready", "/metrics"];
 
 fn skip_auth_for_path(path: &str) -> bool {
     PUBLIC_PATH_PREFIXES.iter().any(|p| path.starts_with(p))

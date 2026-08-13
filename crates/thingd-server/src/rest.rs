@@ -141,6 +141,28 @@ pub async fn health() -> Json<Value> {
     Json(json!({ "data": { "status": "ok" } }))
 }
 
+pub async fn ready(State(state): State<Arc<AppState>>, headers: HeaderMap) -> Response {
+    let Ok(engine) = get_engine(&state, &headers) else {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({
+                "data": { "status": "not_ready" }
+            })),
+        )
+            .into_response();
+    };
+    let guard = engine.lock();
+    let search = guard.search_rebuild_status();
+    Json(json!({
+        "data": {
+            "status": "ready",
+            "degradedSearch": search.is_some(),
+            "search": search,
+        }
+    }))
+    .into_response()
+}
+
 pub async fn diagnostics(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
@@ -152,6 +174,7 @@ pub async fn diagnostics(
         let g = e.lock();
         let result = g
             .storage_diagnostics()
+            .map(|diagnostics| (diagnostics, g.search_rebuild_status()))
             .map_err(|error| AppError::internal(error.to_string()));
         finish_blocking();
         result
@@ -159,7 +182,8 @@ pub async fn diagnostics(
     .await
     .map_err(|error| AppError::internal(format!("diagnostics worker failed: {error}")))??;
     ok(json!({
-        "storage": diagnostics,
+        "storage": diagnostics.0,
+        "search": diagnostics.1,
         "blockingWorkers": {
             "active": BLOCKING_ACTIVE.load(Ordering::Relaxed),
             "rejected": BLOCKING_REJECTED.load(Ordering::Relaxed),
@@ -2177,6 +2201,32 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn test_ready_reports_primary_storage_ready() {
+        let (state, config) = test_state_and_config();
+        let app = crate::server::build_router(state, &config);
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/ready")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let value: Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(value["data"]["status"], "ready");
+    }
+
+    #[test]
+    fn saturated_worker_response_includes_retry_after() {
+        let response = crate::error::AppError::overloaded("busy").into_response();
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(response.headers()[header::RETRY_AFTER], "1");
     }
 
     #[tokio::test]

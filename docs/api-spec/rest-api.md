@@ -39,6 +39,27 @@ thingd exposes a REST API on port 8757 (default) under the `/v1` prefix. All req
 
 ## Health
 
+### `GET /ready`
+
+Readiness for the primary store. This endpoint remains `ready` while an
+asynchronous Tantivy rebuild is in progress; `degradedSearch` is `true` and
+search uses the bounded fallback scan until the derived index is promoted.
+
+```json
+{
+  "data": {
+    "status": "ready",
+    "degradedSearch": true,
+    "search": {
+      "state": "rebuilding",
+      "processed": 128,
+      "total": 1000,
+      "error": null
+    }
+  }
+}
+```
+
 ### `GET /v1/health`
 
 Basic health check.
@@ -1155,6 +1176,8 @@ hardening:
 - Per-IP token bucket keyed by the TCP peer address; untrusted `X-Forwarded-For`
   headers are ignored
 - Returns `429 Too Many Requests` with `Retry-After` header when exceeded
+- Blocking-worker saturation returns `503 Service Unavailable` with error type
+  `worker_saturated` and `Retry-After: 1`.
 - Enabled by default (300 rpm per IP). Set `rate_limit_enabled: false` to disable.
 
 ### Input Validation

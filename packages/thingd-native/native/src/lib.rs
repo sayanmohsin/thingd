@@ -111,6 +111,12 @@ fn enforce_native_batch_limit(count: usize, label: &str) -> Result<()> {
 
 #[napi]
 impl NativeThingStore {
+    #[napi]
+    pub fn checkpoint(&self) -> Result<()> {
+        let store = self.lock_store()?;
+        store.checkpoint().map_err(napi_error)
+    }
+
     #[napi(factory)]
     pub fn open(path: String, encryption_key: Option<String>) -> Result<Self> {
         let encryption = encryption_key
