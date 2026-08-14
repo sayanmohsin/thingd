@@ -9,8 +9,12 @@ server:
   database: "/data/thingd.db"
   # Optional 64-character hexadecimal key; prefer THINGD_ENCRYPTION_KEY.
   encryption_key: null
-  # Use "disabled" or "persistent-no-rebuild" for low-memory deployments.
+  # Use "persistent-async" for bounded eventual search indexing, or
+  # "persistent-no-rebuild" for write-cheap fallback scanning.
   search_mode: persistent
+  search_commit_interval_ms: 250
+  search_commit_batch_size: 32
+  search_queue_max_keys: 10000
   # Thingd soft journal threshold; writes pause while recovery compacts storage.
   journal_max_bytes: 33554432
   # Conservative recovery budget for small hosts.

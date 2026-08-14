@@ -11,9 +11,11 @@ use std::collections::HashMap;
 use std::ops::Bound::{Excluded, Unbounded};
 use std::path::{Path, PathBuf};
 use std::sync::{
-    Mutex,
-    atomic::{AtomicU64, Ordering},
+    Arc, Condvar, Mutex,
+    atomic::{AtomicBool, AtomicU64, Ordering},
 };
+use std::thread;
+use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -71,9 +73,23 @@ pub struct PersistentEngine {
     #[cfg(feature = "search")]
     search_index: Option<tantivy::Index>,
     #[cfg(feature = "search")]
-    search_writer: Option<Mutex<tantivy::IndexWriter<tantivy::TantivyDocument>>>,
+    search_writer: Option<Arc<Mutex<tantivy::IndexWriter<tantivy::TantivyDocument>>>>,
     #[cfg(feature = "search")]
-    search_reader: Option<Mutex<tantivy::IndexReader>>,
+    search_reader: Option<Arc<Mutex<tantivy::IndexReader>>>,
+    #[cfg(feature = "search")]
+    search_mode: PersistentSearchMode,
+    #[cfg(feature = "search")]
+    search_queue: Option<Arc<SearchMutationQueue>>,
+    #[cfg(feature = "search")]
+    search_commit_interval_ms: u64,
+    #[cfg(feature = "search")]
+    search_commit_batch_size: usize,
+    #[cfg(feature = "search")]
+    search_queue_max_keys: usize,
+    #[cfg(feature = "search")]
+    search_worker_started: bool,
+    #[cfg(feature = "search")]
+    search_worker: Option<thread::JoinHandle<()>>,
     #[cfg(feature = "search")]
     search_rebuild: Option<SearchRebuildProgress>,
     #[cfg(feature = "search")]
@@ -91,6 +107,13 @@ pub struct PersistentEngine {
     codec: Box<dyn StorageCodec>,
 }
 
+impl Drop for PersistentEngine {
+    fn drop(&mut self) {
+        #[cfg(feature = "search")]
+        self.stop_search_worker();
+    }
+}
+
 const STORAGE_FORMAT_VERSION: u32 = 1;
 const STORAGE_CONTRACT: &str = "rocksdb-tantivy-v1";
 const STORAGE_MANIFEST_FILE: &str = ".thingd-storage.json";
@@ -101,6 +124,9 @@ const STORAGE_KEYSPACES_DIR: &str = "keyspaces";
 const SEARCH_WRITER_MEMORY_BYTES: usize = 15_000_000;
 const DEFAULT_MAX_JOURNAL_BYTES: u64 = 32 * 1024 * 1024;
 const MAX_SEARCH_REBUILD_RETRIES: u64 = 3;
+const DEFAULT_SEARCH_COMMIT_INTERVAL_MS: u64 = 250;
+const DEFAULT_SEARCH_COMMIT_BATCH_SIZE: usize = 32;
+const DEFAULT_SEARCH_QUEUE_MAX_KEYS: usize = 10_000;
 type UniqueIndexCache = HashMap<(String, String, String), ObjectKey>;
 
 const REQUIRED_KEYSPACES: &[&str] = &[
@@ -132,6 +158,186 @@ struct EventMetadata {
     stream: String,
     max_sequence: u64,
     idempotency_keys: HashMap<String, u64>,
+}
+
+#[cfg(feature = "search")]
+#[derive(Debug, Clone)]
+enum SearchIndexMutation {
+    UpsertObject(MemoryObject),
+    DeleteObject { collection: String, id: String },
+    UpsertEvent(MemoryEvent),
+    DeleteEvent { stream: String, sequence: u64 },
+}
+
+#[cfg(feature = "search")]
+#[derive(Debug, Default)]
+struct SearchQueueState {
+    pending: HashMap<String, SearchIndexMutation>,
+    in_flight: bool,
+    queued: u64,
+    coalesced: u64,
+    committed: u64,
+    last_commit_unix_ms: Option<i64>,
+    last_commit_duration_ms: Option<u64>,
+    last_error: Option<String>,
+    retry_count: u64,
+    stale: bool,
+}
+
+#[cfg(feature = "search")]
+struct SearchMutationQueue {
+    state: Mutex<SearchQueueState>,
+    wake: Condvar,
+    max_keys: usize,
+    shutdown: AtomicBool,
+}
+
+#[cfg(feature = "search")]
+impl SearchMutationQueue {
+    fn new(max_keys: usize) -> Self {
+        Self {
+            state: Mutex::new(SearchQueueState::default()),
+            wake: Condvar::new(),
+            max_keys: max_keys.max(1),
+            shutdown: AtomicBool::new(false),
+        }
+    }
+
+    fn enqueue(&self, key: String, mutation: SearchIndexMutation) -> bool {
+        let Ok(mut state) = self.state.lock() else {
+            return false;
+        };
+        state.queued = state.queued.saturating_add(1);
+        let accepted = if state.pending.contains_key(&key) {
+            state.coalesced = state.coalesced.saturating_add(1);
+            state.pending.insert(key, mutation);
+            true
+        } else if state.pending.len() >= self.max_keys {
+            // The primary write has already committed. Mark the derived index
+            // stale and rebuild it from primary storage instead of growing the
+            // queue without bound or rejecting durable data.
+            state.pending.clear();
+            state.stale = true;
+            state.last_error = Some("search mutation queue capacity reached".to_string());
+            false
+        } else {
+            state.pending.insert(key, mutation);
+            true
+        };
+        self.wake.notify_one();
+        accepted
+    }
+
+    fn take_batch(&self, batch_size: usize, interval: Duration) -> Vec<SearchIndexMutation> {
+        if self.shutdown.load(Ordering::Acquire) {
+            return Vec::new();
+        }
+        let Ok(mut state) = self.state.lock() else {
+            return Vec::new();
+        };
+        if state.stale {
+            return Vec::new();
+        }
+        while state.pending.is_empty() {
+            if self.shutdown.load(Ordering::Acquire) {
+                return Vec::new();
+            }
+            let Ok((next, _)) = self.wake.wait_timeout(state, interval) else {
+                return Vec::new();
+            };
+            state = next;
+            if self.shutdown.load(Ordering::Acquire) {
+                return Vec::new();
+            }
+            if state.stale {
+                return Vec::new();
+            }
+            if state.pending.is_empty() {
+                return Vec::new();
+            }
+        }
+        if state.pending.len() < batch_size.max(1) {
+            let Ok((next, _)) = self.wake.wait_timeout(state, interval) else {
+                return Vec::new();
+            };
+            state = next;
+        }
+        let keys = state
+            .pending
+            .keys()
+            .take(batch_size.max(1))
+            .cloned()
+            .collect::<Vec<_>>();
+        state.in_flight = !keys.is_empty();
+        keys.into_iter()
+            .filter_map(|key| state.pending.remove(&key))
+            .collect()
+    }
+
+    fn record_commit(&self, duration: Duration, count: usize) {
+        if let Ok(mut state) = self.state.lock() {
+            state.in_flight = false;
+            state.committed = state.committed.saturating_add(count as u64);
+            state.last_commit_unix_ms = Some(unix_timestamp_millis());
+            state.last_commit_duration_ms =
+                Some(u64::try_from(duration.as_millis()).unwrap_or(u64::MAX));
+            state.last_error = None;
+            state.retry_count = 0;
+        }
+    }
+
+    fn record_error(&self, error: String) {
+        if let Ok(mut state) = self.state.lock() {
+            state.in_flight = false;
+            state.last_error = Some(error);
+            state.retry_count = state.retry_count.saturating_add(1);
+            state.stale = true;
+        }
+    }
+
+    fn snapshot(&self) -> SearchQueueState {
+        self.state
+            .lock()
+            .map(|state| SearchQueueState {
+                pending: HashMap::new(),
+                in_flight: state.in_flight,
+                queued: state.queued,
+                coalesced: state.coalesced,
+                committed: state.committed,
+                last_commit_unix_ms: state.last_commit_unix_ms,
+                last_commit_duration_ms: state.last_commit_duration_ms,
+                last_error: state.last_error.clone(),
+                retry_count: state.retry_count,
+                stale: state.stale,
+            })
+            .unwrap_or_default()
+    }
+
+    fn depth(&self) -> usize {
+        self.state
+            .lock()
+            .map(|state| state.pending.len())
+            .unwrap_or_default()
+    }
+
+    fn needs_fallback(&self) -> bool {
+        self.state.lock().map_or(true, |state| {
+            state.in_flight || !state.pending.is_empty() || state.stale
+        })
+    }
+
+    fn is_stale(&self) -> bool {
+        self.state.lock().map_or(true, |state| state.stale)
+    }
+
+    fn shutdown(&self) {
+        self.shutdown.store(true, Ordering::Release);
+        self.wake.notify_all();
+    }
+
+    fn is_shutdown(&self) -> bool {
+        self.shutdown.load(Ordering::Acquire)
+    }
 }
 
 /// Search index behavior for a persistent engine.
@@ -412,6 +618,12 @@ pub struct PersistentOpenOptions {
     pub recovery_max_retries: u64,
     /// Optional resident-memory ceiling for recovery, in bytes.
     pub recovery_memory_limit_bytes: Option<u64>,
+    /// Maximum delay before the asynchronous search worker commits pending mutations.
+    pub search_commit_interval_ms: u64,
+    /// Maximum mutations included in one asynchronous search commit.
+    pub search_commit_batch_size: usize,
+    /// Maximum distinct document keys retained by the asynchronous search queue.
+    pub search_queue_max_keys: usize,
 }
 
 impl Default for PersistentOpenOptions {
@@ -425,6 +637,9 @@ impl Default for PersistentOpenOptions {
             recovery_pause_ms: 50,
             recovery_max_retries: MAX_SEARCH_REBUILD_RETRIES,
             recovery_memory_limit_bytes: None,
+            search_commit_interval_ms: DEFAULT_SEARCH_COMMIT_INTERVAL_MS,
+            search_commit_batch_size: DEFAULT_SEARCH_COMMIT_BATCH_SIZE,
+            search_queue_max_keys: DEFAULT_SEARCH_QUEUE_MAX_KEYS,
         }
     }
 }
@@ -442,6 +657,151 @@ fn value_to_vec(v: Option<Slice>) -> Option<Vec<u8>> {
 }
 
 impl PersistentEngine {
+    #[cfg(feature = "search")]
+    const fn should_run_async_search_worker(&self) -> bool {
+        self.search_index.is_some()
+            && self.search_writer.is_some()
+            && self.search_reader.is_some()
+            && !matches!(self.search_mode, PersistentSearchMode::PersistentNoRebuild)
+            && !self.search_rebuild_required
+    }
+
+    #[cfg(feature = "search")]
+    fn start_search_worker(&mut self) {
+        if self.search_worker_started || !self.should_run_async_search_worker() {
+            return;
+        }
+        let (Some(index), Some(writer), Some(reader)) = (
+            self.search_index.clone(),
+            self.search_writer.clone(),
+            self.search_reader.clone(),
+        ) else {
+            return;
+        };
+        let queue = Arc::new(SearchMutationQueue::new(self.search_queue_max_keys));
+        self.search_queue = Some(queue.clone());
+        self.search_worker_started = true;
+        let interval = Duration::from_millis(self.search_commit_interval_ms);
+        let batch_size = self.search_commit_batch_size;
+        self.search_worker = thread::Builder::new()
+            .name("thingd-search-index".to_string())
+            .spawn(move || {
+                loop {
+                    let mutations = queue.take_batch(batch_size, interval);
+                    if mutations.is_empty() {
+                        if queue.is_shutdown() {
+                            break;
+                        }
+                        thread::sleep(Duration::from_millis(50));
+                        continue;
+                    }
+                    let started = Instant::now();
+                    let result = writer
+                        .lock()
+                        .map_err(|_| {
+                            ThingdError::Storage("search writer lock poisoned".to_string())
+                        })
+                        .and_then(|mut writer| {
+                            for mutation in &mutations {
+                                Self::apply_search_mutation(&index, &writer, mutation)?;
+                            }
+                            writer
+                                .commit()
+                                .map_err(|error| ThingdError::Storage(error.to_string()))
+                        });
+                    match result {
+                        Ok(_) => {
+                            if let Ok(reader) = reader.lock() {
+                                let _ = reader.reload();
+                            }
+                            queue.record_commit(started.elapsed(), mutations.len());
+                        },
+                        Err(error) => {
+                            queue.record_error(error.to_string());
+                            thread::sleep(Duration::from_millis(100));
+                        },
+                    }
+                }
+            })
+            .ok();
+    }
+
+    #[cfg(feature = "search")]
+    fn stop_search_worker(&mut self) {
+        if let Some(queue) = self.search_queue.take() {
+            queue.shutdown();
+        }
+        if let Some(worker) = self.search_worker.take() {
+            let _ = worker.join();
+        }
+        self.search_worker_started = false;
+    }
+
+    #[cfg(feature = "search")]
+    fn apply_search_mutation(
+        index: &tantivy::Index,
+        writer: &tantivy::IndexWriter<tantivy::TantivyDocument>,
+        mutation: &SearchIndexMutation,
+    ) -> ThingdResult<()> {
+        let schema = index.schema();
+        let doc_key_field = schema
+            .get_field("doc_key")
+            .map_err(|error| ThingdError::Storage(error.to_string()))?;
+        let body_field = schema
+            .get_field("body")
+            .map_err(|error| ThingdError::Storage(error.to_string()))?;
+        let collection_field = schema
+            .get_field("collection")
+            .map_err(|error| ThingdError::Storage(error.to_string()))?;
+        let id_field = schema
+            .get_field("id")
+            .map_err(|error| ThingdError::Storage(error.to_string()))?;
+        let kind_field = schema
+            .get_field("kind")
+            .map_err(|error| ThingdError::Storage(error.to_string()))?;
+
+        let (doc_key, collection, id, body, kind) = match mutation {
+            SearchIndexMutation::UpsertObject(object) => (
+                format!("{}/{}", object.key.collection, object.key.id),
+                object.key.collection.clone(),
+                object.key.id.clone(),
+                object.body.clone(),
+                "object",
+            ),
+            SearchIndexMutation::UpsertEvent(event) => (
+                format!("event:{}/{}", event.stream, event.sequence),
+                event.stream.clone(),
+                event.sequence.to_string(),
+                event.body.clone(),
+                "event",
+            ),
+            SearchIndexMutation::DeleteObject { collection, id } => {
+                let doc_key = format!("{collection}/{id}");
+                let term = tantivy::Term::from_field_text(doc_key_field, &doc_key);
+                writer.delete_term(term);
+                return Ok(());
+            },
+            SearchIndexMutation::DeleteEvent { stream, sequence } => {
+                let doc_key = format!("event:{stream}/{sequence}");
+                let term = tantivy::Term::from_field_text(doc_key_field, &doc_key);
+                writer.delete_term(term);
+                return Ok(());
+            },
+        };
+
+        writer.delete_term(tantivy::Term::from_field_text(doc_key_field, &doc_key));
+        let mut doc = tantivy::TantivyDocument::new();
+        doc.add_text(doc_key_field, doc_key);
+        doc.add_text(collection_field, collection);
+        doc.add_text(id_field, id);
+        doc.add_text(body_field, body);
+        doc.add_text(kind_field, kind);
+        writer
+            .add_document(doc)
+            .map_err(|error| ThingdError::Storage(error.to_string()))?;
+        Ok(())
+    }
+
     /// Open or create a Persistent database at the given path.
     /// Creates all required keyspaces (partitions) on first open.
     pub fn open(path: impl AsRef<Path>) -> ThingdResult<Self> {
@@ -553,15 +913,21 @@ impl PersistentEngine {
         };
 
         #[cfg(feature = "search")]
-        let search_writer = search_index
-            .as_ref()
-            .map(|index| {
-                index
-                    .writer(SEARCH_WRITER_MEMORY_BYTES)
-                    .map(Mutex::new)
-                    .map_err(|error| ThingdError::Storage(format!("create search writer: {error}")))
-            })
-            .transpose()?;
+        let search_writer = if options.search_mode == PersistentSearchMode::PersistentNoRebuild {
+            None
+        } else {
+            search_index
+                .as_ref()
+                .map(|index| {
+                    index
+                        .writer(SEARCH_WRITER_MEMORY_BYTES)
+                        .map(|writer| Arc::new(Mutex::new(writer)))
+                        .map_err(|error| {
+                            ThingdError::Storage(format!("create search writer: {error}"))
+                        })
+                })
+                .transpose()?
+        };
 
         #[cfg(feature = "search")]
         let search_reader = search_index
@@ -569,7 +935,7 @@ impl PersistentEngine {
             .map(|index| {
                 index
                     .reader()
-                    .map(Mutex::new)
+                    .map(|reader| Arc::new(Mutex::new(reader)))
                     .map_err(|error| ThingdError::Storage(format!("create search reader: {error}")))
             })
             .transpose()?;
@@ -615,6 +981,20 @@ impl PersistentEngine {
             #[cfg(feature = "search")]
             search_reader,
             #[cfg(feature = "search")]
+            search_mode: options.search_mode,
+            #[cfg(feature = "search")]
+            search_queue: None,
+            #[cfg(feature = "search")]
+            search_commit_interval_ms: options.search_commit_interval_ms,
+            #[cfg(feature = "search")]
+            search_commit_batch_size: options.search_commit_batch_size.max(1),
+            #[cfg(feature = "search")]
+            search_queue_max_keys: options.search_queue_max_keys.max(1),
+            #[cfg(feature = "search")]
+            search_worker_started: false,
+            #[cfg(feature = "search")]
+            search_worker: None,
+            #[cfg(feature = "search")]
             search_rebuild: None,
             #[cfg(feature = "search")]
             search_rebuild_required: rebuild_search_index,
@@ -642,6 +1022,16 @@ impl PersistentEngine {
                 journal_bytes: initial_journal_bytes,
                 journal_count: initial_journal_count,
                 journal_limit_bytes: options.max_journal_bytes,
+                search_queue_depth: 0,
+                search_queue_capacity: options.search_queue_max_keys as u64,
+                search_mutations_queued: 0,
+                search_mutations_coalesced: 0,
+                search_mutations_committed: 0,
+                search_last_commit_unix_ms: None,
+                search_last_commit_duration_ms: None,
+                search_last_error: None,
+                search_retry_count: 0,
+                search_stale: false,
             },
             recovery_batch_size: options.recovery_batch_size.max(1),
             recovery_pause_ms: options.recovery_pause_ms,
@@ -652,6 +1042,11 @@ impl PersistentEngine {
             vectors,
             codec,
         };
+
+        #[cfg(feature = "search")]
+        if engine.should_run_async_search_worker() {
+            engine.start_search_worker();
+        }
 
         if !metadata_loaded {
             engine.persist_all_event_metadata()?;
@@ -680,13 +1075,20 @@ impl PersistentEngine {
             engine.maintenance.state = "idle".to_string();
         }
 
+        #[cfg(feature = "search")]
+        engine.start_search_worker();
+
         Ok(engine)
     }
 
     /// Return whether this engine needs an asynchronous derived-index rebuild.
     #[cfg(feature = "search")]
-    pub const fn search_rebuild_required(&self) -> bool {
+    pub fn search_rebuild_required(&self) -> bool {
         self.search_rebuild_required
+            || self
+                .search_queue
+                .as_ref()
+                .is_some_and(|queue| queue.is_stale())
     }
 
     /// Return the current storage maintenance state.
@@ -695,6 +1097,20 @@ impl PersistentEngine {
         status.journal_bytes = self.journal_bytes();
         status.journal_count = self.journal_count();
         status.journal_limit_bytes = self.max_journal_bytes;
+        #[cfg(feature = "search")]
+        if let Some(queue) = &self.search_queue {
+            let snapshot = queue.snapshot();
+            status.search_queue_depth = queue.depth() as u64;
+            status.search_queue_capacity = queue.max_keys as u64;
+            status.search_mutations_queued = snapshot.queued;
+            status.search_mutations_coalesced = snapshot.coalesced;
+            status.search_mutations_committed = snapshot.committed;
+            status.search_last_commit_unix_ms = snapshot.last_commit_unix_ms;
+            status.search_last_commit_duration_ms = snapshot.last_commit_duration_ms;
+            status.search_last_error = snapshot.last_error;
+            status.search_retry_count = snapshot.retry_count;
+            status.search_stale = snapshot.stale;
+        }
         #[cfg(feature = "search")]
         if let Some(progress) = &self.search_rebuild {
             status.phase = match &progress.phase {
@@ -827,6 +1243,18 @@ impl PersistentEngine {
     /// opened, read, or committed.
     #[cfg(feature = "search")]
     pub fn search_rebuild_step(&mut self, batch_size: usize) -> ThingdResult<bool> {
+        if self
+            .search_queue
+            .as_ref()
+            .is_some_and(|queue| queue.is_stale())
+            && self.search_rebuild.is_none()
+        {
+            self.search_rebuild_required = true;
+            self.stop_search_worker();
+            self.search_writer = None;
+            self.search_reader = None;
+            self.search_index = None;
+        }
         if !self.search_rebuild_required {
             return Ok(true);
         }
@@ -872,7 +1300,7 @@ impl PersistentEngine {
                     .map(|index| {
                         index
                             .writer(SEARCH_WRITER_MEMORY_BYTES)
-                            .map(Mutex::new)
+                            .map(|writer| Arc::new(Mutex::new(writer)))
                             .map_err(|error| {
                                 ThingdError::Storage(format!("create search writer: {error}"))
                             })
@@ -882,9 +1310,12 @@ impl PersistentEngine {
                     .search_index
                     .as_ref()
                     .map(|index| {
-                        index.reader().map(Mutex::new).map_err(|error| {
-                            ThingdError::Storage(format!("create search reader: {error}"))
-                        })
+                        index
+                            .reader()
+                            .map(|reader| Arc::new(Mutex::new(reader)))
+                            .map_err(|error| {
+                                ThingdError::Storage(format!("create search reader: {error}"))
+                            })
                     })
                     .transpose()?;
             }
@@ -984,6 +1415,7 @@ impl PersistentEngine {
                     self.promote_search_generation()?;
                     self.search_rebuild_required = false;
                     self.search_rebuild = None;
+                    self.start_search_worker();
                     let _ = std::fs::remove_file(self.path.join(".thingd-search-rebuild"));
                     self.maintenance.generation = self.maintenance.generation.saturating_add(1);
                     self.maintenance.state = "idle".to_string();
@@ -1020,6 +1452,7 @@ impl PersistentEngine {
         {
             return false;
         }
+        self.stop_search_worker();
         self.search_writer = None;
         self.search_reader = None;
         self.search_index = None;
@@ -1358,6 +1791,7 @@ impl PersistentEngine {
         let Some(rebuild_path) = self.search_rebuild_path.take() else {
             return Ok(());
         };
+        self.stop_search_worker();
         self.search_writer = None;
         self.search_reader = None;
         self.search_index = None;
@@ -1391,19 +1825,20 @@ impl PersistentEngine {
             .map(|index| {
                 index
                     .writer(SEARCH_WRITER_MEMORY_BYTES)
-                    .map(Mutex::new)
+                    .map(|writer| Arc::new(Mutex::new(writer)))
                     .map_err(|error| ThingdError::Storage(format!("reopen search writer: {error}")))
             })
             .transpose()?;
-        self.search_reader =
-            self.search_index
-                .as_ref()
-                .map(|index| {
-                    index.reader().map(Mutex::new).map_err(|error| {
-                        ThingdError::Storage(format!("reopen search reader: {error}"))
-                    })
-                })
-                .transpose()?;
+        self.search_reader = self
+            .search_index
+            .as_ref()
+            .map(|index| {
+                index
+                    .reader()
+                    .map(|reader| Arc::new(Mutex::new(reader)))
+                    .map_err(|error| ThingdError::Storage(format!("reopen search reader: {error}")))
+            })
+            .transpose()?;
         let _ = std::fs::remove_file(self.path.join(".thingd-search-rebuild"));
         Ok(())
     }
@@ -2204,7 +2639,7 @@ impl ObjectStore for PersistentEngine {
             SearchReplayMutation::DeleteObject,
         );
         #[cfg(feature = "search")]
-        self.delete_object_from_search_index(collection, id);
+        self.enqueue_delete_object_for_search(collection, id);
         if let Some(existing) = existing.as_ref() {
             self.remove_unique_index_cache_for_object(existing)?;
         }
@@ -2244,7 +2679,7 @@ impl ObjectStore for PersistentEngine {
                 format!("object:{collection}/{id}"),
                 SearchReplayMutation::DeleteObject,
             );
-            self.delete_object_from_search_index(collection, id);
+            self.enqueue_delete_object_for_search(collection, id);
         }
         for object in &deleted {
             self.remove_unique_index_cache_for_object(object)?;
@@ -2583,7 +3018,7 @@ impl EventLog for PersistentEngine {
                     format!("event:{}/{}", ev.stream, ev.sequence),
                     SearchReplayMutation::DeleteEvent,
                 );
-                self.delete_event_from_search_index(&ev.stream, ev.sequence);
+                self.enqueue_delete_event_for_search(&ev.stream, ev.sequence);
             }
             self.persist_event_metadata(stream)?;
             Ok(last_event)
@@ -2617,7 +3052,7 @@ impl EventLog for PersistentEngine {
                 SearchReplayMutation::DeleteEvent,
             );
             #[cfg(feature = "search")]
-            self.delete_event_from_search_index(stream, *seq);
+            self.enqueue_delete_event_for_search(stream, *seq);
         }
 
         self.event_seq_counters.remove(stream);
@@ -2890,7 +3325,14 @@ impl QueueStore for PersistentEngine {
 impl Searcher for PersistentEngine {
     fn search(&self, query: &str, options: SearchOptions) -> ThingdResult<Vec<SearchHit>> {
         #[cfg(feature = "search")]
-        if self.maintenance.state != "idle" || self.search_rebuild.is_some() {
+        if self.maintenance.state != "idle"
+            || self.search_rebuild.is_some()
+            || self.search_mode == PersistentSearchMode::PersistentNoRebuild
+            || self
+                .search_queue
+                .as_ref()
+                .is_some_and(|queue| queue.needs_fallback())
+        {
             return self.search_naive(query, options);
         }
         // Try Tantivy search first
@@ -2902,6 +3344,19 @@ impl Searcher for PersistentEngine {
         // Fallback: naive substring search (same as MemoryEngine)
         self.search_naive(query, options)
     }
+}
+
+fn normalize_search_text(text: &str) -> String {
+    text.to_lowercase()
+        .chars()
+        .map(|character| {
+            if character.is_alphanumeric() {
+                character
+            } else {
+                ' '
+            }
+        })
+        .collect()
 }
 
 impl PersistentEngine {
@@ -2987,7 +3442,15 @@ impl PersistentEngine {
 
     #[cfg(feature = "search")]
     fn index_object_for_search(&self, object: &MemoryObject) {
-        self.index_object_for_search_with_commit(object, true);
+        if self.search_mode == PersistentSearchMode::PersistentNoRebuild {
+            return;
+        }
+        if let Some(queue) = &self.search_queue {
+            queue.enqueue(
+                format!("object:{}/{}", object.key.collection, object.key.id),
+                SearchIndexMutation::UpsertObject(object.clone()),
+            );
+        }
     }
 
     #[cfg(feature = "search")]
@@ -3031,7 +3494,15 @@ impl PersistentEngine {
 
     #[cfg(feature = "search")]
     fn index_event_for_search(&self, event: &MemoryEvent) {
-        self.index_event_for_search_with_commit(event, true);
+        if self.search_mode == PersistentSearchMode::PersistentNoRebuild {
+            return;
+        }
+        if let Some(queue) = &self.search_queue {
+            queue.enqueue(
+                format!("event:{}/{}", event.stream, event.sequence),
+                SearchIndexMutation::UpsertEvent(event.clone()),
+            );
+        }
     }
 
     #[cfg(feature = "search")]
@@ -3115,6 +3586,38 @@ impl PersistentEngine {
     }
 
     #[cfg(feature = "search")]
+    fn enqueue_delete_event_for_search(&self, stream: &str, sequence: u64) {
+        if self.search_mode == PersistentSearchMode::PersistentNoRebuild {
+            return;
+        }
+        if let Some(queue) = &self.search_queue {
+            queue.enqueue(
+                format!("event:{stream}/{sequence}"),
+                SearchIndexMutation::DeleteEvent {
+                    stream: stream.to_string(),
+                    sequence,
+                },
+            );
+        }
+    }
+
+    #[cfg(feature = "search")]
+    fn enqueue_delete_object_for_search(&self, collection: &str, id: &str) {
+        if self.search_mode == PersistentSearchMode::PersistentNoRebuild {
+            return;
+        }
+        if let Some(queue) = &self.search_queue {
+            queue.enqueue(
+                format!("object:{collection}/{id}"),
+                SearchIndexMutation::DeleteObject {
+                    collection: collection.to_string(),
+                    id: id.to_string(),
+                },
+            );
+        }
+    }
+
+    #[cfg(feature = "search")]
     fn delete_events_from_search_index(&mut self, events: &[(String, u64)]) {
         if events.is_empty() {
             return;
@@ -3124,26 +3627,8 @@ impl PersistentEngine {
                 format!("event:{stream}/{sequence}"),
                 SearchReplayMutation::DeleteEvent,
             );
+            self.enqueue_delete_event_for_search(stream, *sequence);
         }
-        let Some(ref index) = self.search_index else {
-            return;
-        };
-        let schema = index.schema();
-        let doc_key_field = schema.get_field("doc_key").unwrap();
-        let Some(ref writer) = self.search_writer else {
-            return;
-        };
-        let Ok(mut writer) = writer.lock() else {
-            return;
-        };
-        for (stream, sequence) in events {
-            let doc_key = format!("event:{stream}/{sequence}");
-            let term = tantivy::Term::from_field_text(doc_key_field, &doc_key);
-            let _ = writer.delete_term(term);
-        }
-        let _ = writer.commit();
-        drop(writer);
-        self.reload_search_reader();
     }
 
     #[cfg(feature = "search")]
@@ -3173,7 +3658,7 @@ impl PersistentEngine {
     fn search_tantivy(
         &self,
         index: &tantivy::Index,
-        reader: &Mutex<tantivy::IndexReader>,
+        reader: &Arc<Mutex<tantivy::IndexReader>>,
         query: &str,
         options: SearchOptions,
     ) -> ThingdResult<Vec<SearchHit>> {
@@ -3299,12 +3784,7 @@ impl PersistentEngine {
     fn search_naive(&self, query: &str, options: SearchOptions) -> ThingdResult<Vec<SearchHit>> {
         let query_words: Vec<String> = query
             .split_whitespace()
-            .map(|w| {
-                w.to_lowercase()
-                    .chars()
-                    .filter(|c| c.is_alphanumeric())
-                    .collect()
-            })
+            .map(normalize_search_text)
             .filter(|w: &String| !w.is_empty())
             .collect();
 
@@ -3330,11 +3810,10 @@ impl PersistentEngine {
                 continue;
             }
 
-            let text_to_search = format!(
+            let text_to_search = normalize_search_text(&format!(
                 "{} {} {}",
                 object.key.collection, object.key.id, object.body
-            )
-            .to_lowercase();
+            ));
             let matches_all = query_words.iter().all(|word| text_to_search.contains(word));
 
             if matches_all {
@@ -3369,8 +3848,10 @@ impl PersistentEngine {
                 continue;
             }
 
-            let text_to_search =
-                format!("{} {} {}", event.stream, event.event_type, event.body).to_lowercase();
+            let text_to_search = normalize_search_text(&format!(
+                "{} {} {}",
+                event.stream, event.event_type, event.body
+            ));
             let matches_all = query_words.iter().all(|word| text_to_search.contains(word));
 
             if matches_all {
@@ -5167,6 +5648,102 @@ mod tests {
             "search must find indexed content immediately after put"
         );
         assert_eq!(results[0].id, "a");
+    }
+
+    #[cfg(feature = "search")]
+    #[test]
+    fn async_search_coalesces_mutations_without_timing_assumptions() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut engine = PersistentEngine::open_with_options(
+            dir.path(),
+            PersistentOpenOptions {
+                search_commit_interval_ms: 5_000,
+                search_commit_batch_size: 32,
+                ..PersistentOpenOptions::default()
+            },
+        )
+        .unwrap();
+
+        for value in 0..4 {
+            engine
+                .put_object(MemoryObject::new(
+                    "docs",
+                    "same",
+                    format!(r#"{{"text":"version-{value}"}}"#),
+                ))
+                .unwrap();
+        }
+
+        let queued = engine.storage_maintenance_status();
+        assert!(queued.search_mutations_queued >= 4);
+        assert!(queued.search_mutations_coalesced >= 1);
+        assert!(queued.search_queue_depth <= 1);
+        assert_eq!(
+            engine
+                .search("version-3", SearchOptions::default())
+                .unwrap()
+                .len(),
+            1
+        );
+    }
+
+    #[cfg(feature = "search")]
+    #[test]
+    fn async_search_commits_after_debounce_without_blocking_primary_writes() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut engine = PersistentEngine::open_with_options(
+            dir.path(),
+            PersistentOpenOptions {
+                search_commit_interval_ms: 10,
+                search_commit_batch_size: 32,
+                ..PersistentOpenOptions::default()
+            },
+        )
+        .unwrap();
+
+        for index in 0..1_000 {
+            engine
+                .put_object(MemoryObject::new(
+                    "bulk",
+                    format!("object-{index}"),
+                    format!(r#"{{"text":"bulk-term-{index}"}}"#),
+                ))
+                .unwrap();
+        }
+        assert_eq!(engine.count_objects().unwrap(), 1_000);
+
+        std::thread::sleep(Duration::from_millis(200));
+        let status = engine.storage_maintenance_status();
+        assert!(status.search_mutations_queued >= 1_000);
+        assert!(status.search_mutations_committed > 0);
+        assert_eq!(
+            engine
+                .search("bulk-term-999", SearchOptions::default())
+                .unwrap()
+                .len(),
+            1
+        );
+    }
+
+    #[cfg(feature = "search")]
+    #[test]
+    fn async_search_queue_overflow_preserves_primary_writes() {
+        let queue = SearchMutationQueue::new(1);
+        let first = MemoryObject::new("docs", "one", r#"{"text":"one"}"#);
+        let second = MemoryObject::new("docs", "two", r#"{"text":"two"}"#);
+        assert!(queue.enqueue(
+            "object:docs/one".to_string(),
+            SearchIndexMutation::UpsertObject(first)
+        ));
+        assert!(!queue.enqueue(
+            "object:docs/two".to_string(),
+            SearchIndexMutation::UpsertObject(second)
+        ));
+        let snapshot = queue.snapshot();
+        assert!(snapshot.stale);
+        assert!(snapshot.pending.is_empty());
+        assert_eq!(snapshot.queued, 2);
+        assert!(snapshot.last_error.is_some());
     }
 
     #[cfg(feature = "search")]

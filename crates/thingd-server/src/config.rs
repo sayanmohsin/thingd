@@ -118,6 +118,15 @@ pub struct ServerConfig {
     /// Optional resident-memory ceiling for recovery.
     #[serde(default = "default_recovery_memory_limit_bytes")]
     pub recovery_memory_limit_bytes: Option<u64>,
+    /// Tantivy commit debounce interval for asynchronous indexing.
+    #[serde(default = "default_search_commit_interval_ms")]
+    pub search_commit_interval_ms: u64,
+    /// Maximum mutations included in one Tantivy commit.
+    #[serde(default = "default_search_commit_batch_size")]
+    pub search_commit_batch_size: usize,
+    /// Maximum distinct document keys retained by the search queue.
+    #[serde(default = "default_search_queue_max_keys")]
+    pub search_queue_max_keys: usize,
 }
 
 fn default_journal_max_bytes() -> u64 {
@@ -154,11 +163,34 @@ fn default_recovery_memory_limit_bytes() -> Option<u64> {
         .and_then(|value| value.parse().ok())
 }
 
+fn default_search_commit_interval_ms() -> u64 {
+    std::env::var("THINGD_SEARCH_COMMIT_INTERVAL_MS")
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(250)
+}
+
+fn default_search_commit_batch_size() -> usize {
+    std::env::var("THINGD_SEARCH_COMMIT_BATCH_SIZE")
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(32)
+}
+
+fn default_search_queue_max_keys() -> usize {
+    std::env::var("THINGD_SEARCH_QUEUE_MAX_KEYS")
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(10_000)
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub enum SearchModeConfig {
     #[default]
     #[serde(rename = "persistent")]
     Persistent,
+    #[serde(rename = "persistent-async")]
+    PersistentAsync,
     #[serde(rename = "persistent-no-rebuild")]
     PersistentNoRebuild,
     #[serde(rename = "disabled")]
@@ -352,6 +384,9 @@ impl Default for ServerConfig {
             recovery_pause_ms: default_recovery_pause_ms(),
             recovery_max_retries: default_recovery_max_retries(),
             recovery_memory_limit_bytes: default_recovery_memory_limit_bytes(),
+            search_commit_interval_ms: default_search_commit_interval_ms(),
+            search_commit_batch_size: default_search_commit_batch_size(),
+            search_queue_max_keys: default_search_queue_max_keys(),
         }
     }
 }
@@ -546,8 +581,24 @@ impl Config {
             self.server.search_mode = match v.as_str() {
                 "disabled" => SearchModeConfig::Disabled,
                 "persistent-no-rebuild" => SearchModeConfig::PersistentNoRebuild,
+                "persistent-async" => SearchModeConfig::PersistentAsync,
                 _ => SearchModeConfig::Persistent,
             };
+        }
+        if let Ok(v) = std::env::var("THINGD_SEARCH_COMMIT_INTERVAL_MS")
+            && let Ok(n) = v.parse()
+        {
+            self.server.search_commit_interval_ms = n;
+        }
+        if let Ok(v) = std::env::var("THINGD_SEARCH_COMMIT_BATCH_SIZE")
+            && let Ok(n) = v.parse()
+        {
+            self.server.search_commit_batch_size = n;
+        }
+        if let Ok(v) = std::env::var("THINGD_SEARCH_QUEUE_MAX_KEYS")
+            && let Ok(n) = v.parse()
+        {
+            self.server.search_queue_max_keys = n;
         }
         if let Ok(v) = std::env::var("THINGD_SYNC_SOURCE_ID") {
             self.sync.source_id = v;
@@ -908,5 +959,17 @@ mod tests {
     fn valid_default_config_passes() {
         let config = Config::default();
         assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn parses_async_search_configuration() {
+        let config: Config = serde_yaml::from_str(
+            "server:\n  search_mode: persistent-async\n  search_commit_interval_ms: 400\n  search_commit_batch_size: 16\n  search_queue_max_keys: 512\n",
+        )
+        .unwrap();
+        assert_eq!(config.server.search_mode, SearchModeConfig::PersistentAsync);
+        assert_eq!(config.server.search_commit_interval_ms, 400);
+        assert_eq!(config.server.search_commit_batch_size, 16);
+        assert_eq!(config.server.search_queue_max_keys, 512);
     }
 }

@@ -78,10 +78,17 @@ thingd uses **Tantivy** (pure Rust, BM25 ranking) for full-text search.
 
 ```
 Search index directory:  {data_dir}/search/
-On write:               index (collection, id, body) in Tantivy
-On delete:              remove from Tantivy
+On write:               commit primary storage, then enqueue a coalesced mutation
+On delete:              enqueue the delete after primary storage commits
 On startup:             verify index consistency, rebuild if stale
 ```
+
+Tantivy is derived, eventually consistent state. A bounded background worker
+commits queued mutations in batches; it never delays or rejects a durable
+primary write. While mutations are pending, failed, or overflowing the queue,
+search falls back to a bounded primary-store scan and diagnostics report stale
+search state. `persistent-no-rebuild` is read-only for Tantivy and always uses
+fallback search so writes never touch the index.
 
 Tantivy is used by the persistent backend for full-text search and is feature-gated
 with `search`. The index is derived state: if an older SDK created an incompatible

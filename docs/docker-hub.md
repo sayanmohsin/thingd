@@ -47,7 +47,10 @@ memory database. Encrypted directory backups require the same key to restore.
 | `THINGD_PATH` | `/data/thingd.db` | Path to the persistent database directory |
 | `THINGD_DRIVER` | `native` | Storage driver (`native` or `memory`) |
 | `THINGD_ENCRYPTION_KEY` | — | Optional 64-character hexadecimal key for native persistent storage |
-| `THINGD_SEARCH_MODE` | `persistent` | `persistent`, `persistent-no-rebuild`, or `disabled` |
+| `THINGD_SEARCH_MODE` | `persistent` | `persistent`, `persistent-async`, `persistent-no-rebuild`, or `disabled` |
+| `THINGD_SEARCH_COMMIT_INTERVAL_MS` | `250` | Debounce interval before the async Tantivy commit |
+| `THINGD_SEARCH_COMMIT_BATCH_SIZE` | `32` | Maximum coalesced search mutations per commit |
+| `THINGD_SEARCH_QUEUE_MAX_KEYS` | `10000` | Bounded search queue capacity; overflow uses fallback search |
 | `THINGD_HOST` | `0.0.0.0` | Bind address |
 | `THINGD_PORT` | `8757` | HTTP server port |
 | `THINGD_AUTH_TOKEN` | — | Bearer token for `/mcp` endpoint. Required for non-loopback binding |

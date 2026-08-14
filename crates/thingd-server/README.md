@@ -64,7 +64,10 @@ Configure via environment variables or a YAML config file pointed at by `THINGD_
 | `THINGD_PORT` | `7377` | HTTP port |
 | `THINGD_DATABASE` | `thingd.db` | persistent database directory |
 | `THINGD_ENCRYPTION_KEY` | — | optional 64-character hexadecimal key for encrypted persistent storage |
-| `THINGD_SEARCH_MODE` | `persistent` | `persistent`, `persistent-no-rebuild`, or `disabled` |
+| `THINGD_SEARCH_MODE` | `persistent` | `persistent`, `persistent-async`, `persistent-no-rebuild`, or `disabled` |
+| `THINGD_SEARCH_COMMIT_INTERVAL_MS` | `250` | Maximum debounce before coalesced Tantivy commits |
+| `THINGD_SEARCH_COMMIT_BATCH_SIZE` | `32` | Maximum mutations per Tantivy commit |
+| `THINGD_SEARCH_QUEUE_MAX_KEYS` | `10000` | Bounded distinct search keys before fallback/rebuild |
 | `THINGD_JOURNAL_MAX_BYTES` | `33554432` | Soft journal threshold before recovery backpressure |
 | `THINGD_RECOVERY_BATCH_SIZE` | `32` | Maximum records per recovery batch |
 | `THINGD_RECOVERY_PAUSE_MS` | `50` | Yield interval between recovery batches |
