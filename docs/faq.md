@@ -26,7 +26,7 @@ Yes, and the last write wins. There is no distributed lock per object. For singl
 
 ### What does "atomic write" mean in thingd?
 
-Each SDK operation (`put`, `delete`, `appendEvent`, `queue.push`, `queue.ack`, `queue.nack`) is atomic within a single transaction. Object updates also atomically update the search index.
+Each SDK operation (`put`, `delete`, `appendEvent`, `queue.push`, `queue.ack`, `queue.nack`) is atomic within a single transaction. Object updates durably commit to primary storage before the asynchronous derived search update is queued.
 
 Cross-collection atomicity (e.g., put an object and append an event in one atomic operation) is not supported — they are separate SDK calls.
 
@@ -55,7 +55,7 @@ At-least-once delivery. A worker that claims a job but crashes before acking wil
 
 ### Are writes fsync'd per operation or batched?
 
-The persistent engine controls persistence and flush behavior. Related primary writes use a write batch; secondary search-index maintenance remains a separate hardening concern.
+The persistent engine controls persistence and flush behavior. Related primary writes use a write batch. Tantivy maintenance is asynchronous and coalesced, so a write does not perform a synchronous search commit or fsync. Search is eventually consistent and falls back to the primary store if the bounded queue is stale or full.
 
 ### How do you prevent data loss in in-memory mode?
 

@@ -43,8 +43,10 @@ thingd exposes a REST API on port 8757 (default) under the `/v1` prefix. All req
 
 Readiness for the primary store. This endpoint returns `503` with
 `Retry-After: 1` while search rebuild or primary journal compaction is in progress.
-Mutation requests are also rejected with the same response until maintenance
-returns to `idle`; reads use the bounded fallback search where necessary.
+Mutation requests are also rejected with the same response until startup
+maintenance returns to `idle`; reads use the bounded fallback search where
+necessary. Normal asynchronous search lag after startup does not make this
+endpoint fail while the primary store is healthy.
 
 ```json
 {
@@ -97,10 +99,16 @@ Returns bounded storage counts for objects, events, links, queues, active jobs,
 and dead-letter jobs without returning stored records. It also reports
 `storage.journalBytes`, `storage.journalCount`, and the `maintenance` state.
 Maintenance also reports `phase`, `generation`, `processed`, `total`,
-`retryCount`, and the last `error`. The state is `idle`, `rebuilding_search`,
-`compacting`, `degraded`, or `failed`. Readiness is strict: it returns `503`
-until primary recovery and search rebuild are complete. Clients must treat
-mutation `503` responses as retryable and honor `Retry-After: 1`.
+`retryCount`, and the last `error`. Asynchronous search telemetry includes
+`searchQueueDepth`, `searchQueueCapacity`, `searchMutationsQueued`,
+`searchMutationsCoalesced`, `searchMutationsCommitted`,
+`searchLastCommitUnixMs`, `searchLastCommitDurationMs`, `searchLastError`,
+`searchRetryCount`, and `searchStale`. The state is `idle`,
+`rebuilding_search`, `compacting`, `degraded`, or `failed`. Readiness is
+strict during startup recovery: it returns `503` until primary recovery and
+required search rebuild work are complete, but ordinary asynchronous search
+lag does not make it fail. Clients must treat mutation `503` responses as
+retryable and honor `Retry-After: 1`.
 
 ### `POST /admin/retention`
 

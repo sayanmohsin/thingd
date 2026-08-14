@@ -21,6 +21,9 @@ THINGD_PATH=/data/thingd.db
 THINGD_DRIVER=native
 THINGD_ENCRYPTION_KEY=<64 hexadecimal characters>
 THINGD_SEARCH_MODE=persistent
+THINGD_SEARCH_COMMIT_INTERVAL_MS=250
+THINGD_SEARCH_COMMIT_BATCH_SIZE=32
+THINGD_SEARCH_QUEUE_MAX_KEYS=10000
 THINGD_JOURNAL_MAX_BYTES=33554432
 THINGD_RECOVERY_BATCH_SIZE=32
 THINGD_RECOVERY_PAUSE_MS=50
@@ -43,10 +46,20 @@ than ignoring it. Changing the value does not rotate an existing database.
 without Tantivy, compacts primary storage, then rebuilds missing or incompatible
 Tantivy state with bounded batches and pauses. During storage recovery, search
 uses the bounded fallback scan, `/ready` returns `503`, and writes return `503`
-with `Retry-After: 1`. `persistent-no-rebuild` opens only an already
-compatible index and permanently uses fallback search when one is unavailable.
-`disabled` avoids opening Tantivy entirely. For hosts with less than 2 GB RAM,
-prefer a separate standalone thingd-server over HTTP.
+with `Retry-After: 1`. After startup, persistent indexing is asynchronous and
+eventually consistent: a durable write is acknowledged after primary storage
+commits, while one background worker coalesces Tantivy updates and commits them
+at the configured interval or batch size. `persistent-async` selects the same
+write behavior explicitly. `persistent-no-rebuild` never mutates Tantivy and
+always uses fallback scanning for search. `disabled` avoids opening Tantivy
+entirely. For hosts with less than 2 GB RAM, prefer a separate standalone
+thingd-server over HTTP.
+
+The search queue is bounded by `THINGD_SEARCH_QUEUE_MAX_KEYS`. Overflow or a
+Tantivy failure preserves the durable write, marks search stale, serves fallback
+search, and schedules a bounded rebuild. `THINGD_SEARCH_COMMIT_INTERVAL_MS`
+and `THINGD_SEARCH_COMMIT_BATCH_SIZE` control the debounce and commit batch.
+Normal search lag does not make `/ready` fail while primary storage is healthy.
 
 On small instances, start the sidecar before write-heavy clients and wait for
 `/ready`. Catalog seeders and other mutation clients must retry `503` responses

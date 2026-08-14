@@ -56,6 +56,26 @@ pub struct StorageMaintenanceStatus {
     pub journal_count: u64,
     /// Configured journal ceiling; zero means no ceiling for this store.
     pub journal_limit_bytes: u64,
+    /// Number of pending asynchronous search mutations.
+    pub search_queue_depth: u64,
+    /// Maximum distinct keys retained by the asynchronous search queue.
+    pub search_queue_capacity: u64,
+    /// Total search mutations accepted after durable primary commits.
+    pub search_mutations_queued: u64,
+    /// Number of mutations coalesced by document key.
+    pub search_mutations_coalesced: u64,
+    /// Number of mutations included in successful Tantivy commits.
+    pub search_mutations_committed: u64,
+    /// Unix milliseconds of the most recent successful Tantivy commit.
+    pub search_last_commit_unix_ms: Option<i64>,
+    /// Duration of the most recent Tantivy commit in milliseconds.
+    pub search_last_commit_duration_ms: Option<u64>,
+    /// Most recent asynchronous search error.
+    pub search_last_error: Option<String>,
+    /// Number of asynchronous search retries.
+    pub search_retry_count: u64,
+    /// Whether fallback search is required because the derived index is stale.
+    pub search_stale: bool,
 }
 
 impl Default for StorageMaintenanceStatus {
@@ -71,6 +91,16 @@ impl Default for StorageMaintenanceStatus {
             journal_bytes: 0,
             journal_count: 0,
             journal_limit_bytes: 0,
+            search_queue_depth: 0,
+            search_queue_capacity: 0,
+            search_mutations_queued: 0,
+            search_mutations_coalesced: 0,
+            search_mutations_committed: 0,
+            search_last_commit_unix_ms: None,
+            search_last_commit_duration_ms: None,
+            search_last_error: None,
+            search_retry_count: 0,
+            search_stale: false,
         }
     }
 }

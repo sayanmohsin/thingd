@@ -226,8 +226,12 @@ THINGD_SEARCH_MODE=disabled
 This avoids opening or rebuilding the Tantivy directory. Search uses the
 engine's slower fallback scan, so callers must use small limits and filters.
 For a persistent existing index without automatic repair, use
-`THINGD_SEARCH_MODE=persistent-no-rebuild`; a missing or incompatible index is
-then treated as unavailable rather than rebuilt during startup.
+`THINGD_SEARCH_MODE=persistent-no-rebuild`; this mode never mutates Tantivy and
+uses fallback scanning so writes remain cheap and correct. For indexed search
+with non-blocking writes, use `THINGD_SEARCH_MODE=persistent-async` (or the
+default `persistent` mode). Its bounded worker reports queue depth, coalesced
+and committed mutation counts, commit timing, retry count, last error, and
+stale state in `/v1/diagnostics`.
 Standalone HTTP mode is preferred on hosts with less than 2 GB RAM because it
 keeps the database process separate from application and catalog memory.
 

@@ -36,6 +36,12 @@ fn spawn_storage_recovery(engine: SharedEngine) {
                     break;
                 }
                 let result = if let Some(mut guard) = engine.try_lock() {
+                    let maintenance = guard.storage_maintenance_status();
+                    if !guard.search_rebuild_required() && maintenance.state == "idle" {
+                        drop(guard);
+                        thread::sleep(Duration::from_millis(100));
+                        continue;
+                    }
                     if !compacted {
                         let result = guard.compact_storage();
                         if result.is_ok() {
@@ -50,7 +56,10 @@ fn spawn_storage_recovery(engine: SharedEngine) {
                     continue;
                 };
                 match result {
-                    Ok(true) => break,
+                    Ok(true) => {
+                        retry_delay = Duration::from_millis(100);
+                        thread::sleep(Duration::from_millis(100));
+                    },
                     Ok(false) => {
                         let action = engine.try_lock().map(|mut guard| {
                             let status = guard.storage_maintenance_status();
@@ -168,6 +177,9 @@ impl EnginePool {
             50,
             3,
             None,
+            250,
+            32,
+            10_000,
         )
     }
 
@@ -181,6 +193,9 @@ impl EnginePool {
         recovery_pause_ms: u64,
         recovery_max_retries: u64,
         recovery_memory_limit_bytes: Option<u64>,
+        search_commit_interval_ms: u64,
+        search_commit_batch_size: usize,
+        search_queue_max_keys: usize,
     ) -> Result<Self, String> {
         let encryption = key
             .map(parse_hex_key)
@@ -197,6 +212,9 @@ impl EnginePool {
             recovery_pause_ms,
             recovery_max_retries,
             recovery_memory_limit_bytes,
+            search_commit_interval_ms,
+            search_commit_batch_size,
+            search_queue_max_keys,
             ..PersistentOpenOptions::default()
         };
         // Validate and open the configured default database during startup. This

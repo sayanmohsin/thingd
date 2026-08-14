@@ -212,6 +212,9 @@ async fn main() {
                 config::SearchModeConfig::Persistent => {
                     thingd::PersistentSearchMode::PersistentRecovery
                 },
+                config::SearchModeConfig::PersistentAsync => {
+                    thingd::PersistentSearchMode::PersistentAsync
+                },
                 config::SearchModeConfig::PersistentNoRebuild => {
                     thingd::PersistentSearchMode::PersistentNoRebuild
                 },
@@ -222,6 +225,9 @@ async fn main() {
             config.server.recovery_pause_ms,
             config.server.recovery_max_retries,
             config.server.recovery_memory_limit_bytes,
+            config.server.search_commit_interval_ms,
+            config.server.search_commit_batch_size,
+            config.server.search_queue_max_keys,
         )
         .unwrap_or_else(|e| {
             eprintln!("Encryption configuration error: {e}");

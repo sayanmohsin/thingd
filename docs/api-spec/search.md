@@ -2,6 +2,27 @@
 
 thingd supports both full-text search and vector similarity search. Full-text uses Tantivy (pure Rust BM25); vector search uses cosine similarity. Each is available via MCP and REST.
 
+## Consistency and degraded search
+
+In persistent modes, object and event writes commit to the durable primary
+store first. Tantivy indexing is asynchronous and eventually consistent: the
+background worker coalesces updates and commits them at a bounded interval or
+batch size. Search may briefly lag a successful write.
+
+If the bounded search queue overflows or a Tantivy commit fails, the primary
+write is still retained. thingd marks search stale, serves fallback scanning,
+and schedules a bounded rebuild. Readiness remains available when primary
+storage is healthy; startup recovery is the exception and keeps `/ready`
+unavailable until the required recovery phases finish. The maintenance fields
+`search_queue_depth`, `search_queue_capacity`, `search_mutations_queued`,
+`search_mutations_coalesced`, `search_mutations_committed`,
+`search_last_commit_unix_ms`, `search_last_commit_duration_ms`,
+`search_last_error`, `search_retry_count`, and `search_stale` expose this state
+through diagnostics.
+
+`persistent-no-rebuild` never writes to Tantivy and uses fallback scanning for
+correctness. `disabled` does not open Tantivy.
+
 ## Full-Text Search
 
 ## Query Syntax
