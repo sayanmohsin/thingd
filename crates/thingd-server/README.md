@@ -4,6 +4,9 @@ A single static binary that serves thingd over HTTP — **MCP**, **REST**, and *
 
 Use it instead of the Node.js SDK when you want a standalone server with no runtime dependencies.
 
+The server embeds its durable storage directly. It does not connect to a
+separate database container or require a database service.
+
 ## Quick start
 
 ```bash
@@ -110,6 +113,10 @@ thingd-server --repack /data/thingd.db --destination /data/thingd-repacked.db
 `--compact` requires exclusive access and preserves the native store. `--repack`
 is an explicit logical migration into a fresh destination; it is not automatic
 native-format conversion and never overwrites the source or destination.
+
+Legacy native directories require the isolated migration utility described in
+[the storage backend guide](../../docs/storage-backends.md), including its
+encrypted migration and safety requirements.
 
 For hosts with less than 2 GB RAM, prefer a separate standalone server over
 HTTP rather than embedding the native store in the application process.

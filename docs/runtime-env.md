@@ -63,6 +63,11 @@ low-memory deployments should set an explicit limit appropriate for their
 workload. `THINGD_NATIVE_MAX_BATCH_ITEMS` applies the same opt-in protection to
 the number of objects, events, or queue jobs in a native batch.
 
+The native durable backend is RocksDB compiled into the server/native artifact;
+these settings do not require a RocksDB service. Legacy native directories must
+be migrated explicitly with the repository-built `thingd-migrate` utility. See
+[Storage backends](./storage-backends.md).
+
 ## HTTP
 
 ```txt

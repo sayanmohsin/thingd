@@ -184,6 +184,10 @@ exclusive access. Compaction reduces physical journal pressure; repacking is a
 separate logical migration for stores whose journal is already too large for a
 safe in-place recovery.
 
+The current native format is embedded RocksDB. Existing legacy directories
+must first be migrated with the repository-built `thingd-migrate` utility; the
+published `thingd` CLI does not silently convert native stores.
+
 `THINGD_ENCRYPTION_KEY` supplies the normal native database key.
 `THINGD_ENCRYPTION_SOURCE_KEY` and `THINGD_ENCRYPTION_DESTINATION_KEY` supply
 the two keys for `db reencrypt`. Source and destination must differ, existing

@@ -58,6 +58,7 @@ returns to `idle`; reads use the bounded fallback search where necessary.
       "total": 1000,
       "journalBytes": 1048576,
       "journalCount": 1,
+      "journalLimitBytes": 33554432,
       "retryCount": 0,
       "error": null
     },

@@ -19,7 +19,7 @@ on:
       - "scripts/**"
       - "examples/**"
       - "deploy/**"
-      - "docs/api-spec/**"
+      - "docs/**"
       - ".dockerignore"
 
 concurrency:
@@ -58,6 +58,8 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
+      - name: Install RocksDB bindgen dependencies
+        run: sudo apt-get update && sudo apt-get install -y clang libclang-dev
       - uses: Swatinem/rust-cache@v2
         with:
           key: engine-${{ hashFiles('**/Cargo.lock') }}
@@ -84,6 +86,8 @@ jobs:
           cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
       - uses: dtolnay/rust-toolchain@stable
+      - name: Install RocksDB bindgen dependencies
+        run: sudo apt-get update && sudo apt-get install -y clang libclang-dev
       - uses: Swatinem/rust-cache@v2
         with:
           key: native-${{ hashFiles('**/Cargo.lock') }}

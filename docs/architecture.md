@@ -44,6 +44,11 @@ WASM binary:      InMemory (browser/edge, no file I/O available)
 
 ### persistent storage layout
 
+The persistent engine uses embedded RocksDB column families behind the
+backend-neutral `ThingStore` contract. RocksDB is compiled into the server or
+native addon; it is not a separate runtime service. Legacy native directories
+must be logically migrated before they can be opened by the current runtime.
+
 The persistent engine stores objects, events, queues, links, search data, and vectors
 under one configured storage directory. The layout is an implementation detail and
 may change between engine versions:
