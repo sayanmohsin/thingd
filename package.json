@@ -20,8 +20,9 @@
     "format": "biome format --write .",
     "format:check": "biome format .",
     "lint": "biome lint .",
-    "rust:check": "cargo check --workspace --all-targets --all-features",
-    "rust:clippy": "cargo clippy --workspace --all-targets --all-features -- -D warnings",
+    "rust:check": "cargo check --workspace --exclude thingd-migrate --all-targets --all-features",
+    "rust:clippy": "cargo clippy --workspace --exclude thingd-migrate --all-targets --all-features -- -D warnings",
+    "rust:migration:check": "cargo clippy -p thingd-migrate --all-targets --all-features -- -D warnings && cargo test -p thingd-migrate --all-targets --all-features",
     "rust:fmt": "cargo fmt --all",
     "rust:fmt:check": "cargo fmt --all --check",
     "serve:mcp": "node packages/thingd-cli/dist/index.js mcp-http",
@@ -41,10 +42,13 @@
     "examples": "pnpm --filter \"thingd-node-basic-example\" start && pnpm --filter \"thingd-node-stream-example\" start && pnpm --filter \"thingd-node-queue-example\" start",
     "examples:load": "pnpm --filter \"thingd-node-load-example\" start",
     "test:package": "pnpm --filter @thingd/sdk build && pnpm test:package:built",
-    "test:rust": "cargo test --workspace --all-targets --all-features",
+    "test:rust": "cargo test --workspace --exclude thingd-migrate --all-targets --all-features",
+    "test:rust:full": "cargo test --workspace --all-targets --all-features",
+    "test:rust:docs": "cargo test --doc --workspace --exclude thingd-migrate --all-features",
     "verify:local": "pnpm check:cargo-versions && pnpm check && pnpm check:docs",
     "build:node": "pnpm --filter @thingd/sdk --filter @thingd/cli --filter @thingd/native build",
-    "verify:pr": "pnpm check:cargo-versions && pnpm check && pnpm check:docs && pnpm rust:fmt:check && pnpm rust:clippy && pnpm test:rust && cargo test --doc --workspace --all-features && pnpm build:node && pnpm test:node:built && pnpm test:package:built && pnpm test:cli:built"
+    "verify:rust": "pnpm rust:fmt:check && pnpm rust:clippy && pnpm test:rust && pnpm test:rust:docs && pnpm rust:migration:check",
+    "verify:pr": "pnpm check:cargo-versions && pnpm check && pnpm check:docs && pnpm verify:rust && pnpm build:node && pnpm test:node:built && pnpm test:package:built && pnpm test:cli:built"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.7",

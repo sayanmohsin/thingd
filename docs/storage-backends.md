@@ -52,6 +52,10 @@ source untouched. This is a logical migration, not a binary conversion or a
 runtime dependency. The Fjall crate is linked only into this offline utility;
 it is not linked into `thingd-server` or `@thingd/native`.
 
+CI keeps this utility in a separate migration job. Routine server, native, and
+Rust runtime checks intentionally exclude `thingd-migrate`, while the migration
+job still runs formatting, Clippy, and the Fjall-to-RocksDB round-trip tests.
+
 After validation, point the runtime at the new directory with
 `THINGD_PATH`/`THINGD_DATABASE` or the native SDK path. Keep the original
 directory until application-level verification is complete.

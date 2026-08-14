@@ -246,6 +246,11 @@ mod tests {
         objects
             .insert(key, serde_json::to_vec(&object).unwrap())
             .unwrap();
+        for name in KEYSPACES.iter().copied().filter(|name| *name != "objects") {
+            source_db
+                .keyspace(name, KeyspaceCreateOptions::default)
+                .unwrap();
+        }
         source_db.persist(PersistMode::SyncAll).unwrap();
         drop(objects);
         drop(source_db);
@@ -259,6 +264,24 @@ mod tests {
             },
         )
         .unwrap();
-        assert_eq!(engine.get_object("notes", "one").unwrap(), Some(object));
+        assert_eq!(
+            engine.get_object("notes", "one").unwrap(),
+            Some(object.clone())
+        );
+        drop(engine);
+
+        let options = Options::default();
+        let destination_db = DB::open_cf(&options, &destination, KEYSPACES).unwrap();
+        for name in KEYSPACES {
+            assert!(
+                destination_db.cf_handle(name).is_some(),
+                "missing {name} CF"
+            );
+        }
+        let objects_cf = destination_db.cf_handle("objects").unwrap();
+        assert_eq!(
+            destination_db.get_cf(objects_cf, b"notes\0one").unwrap(),
+            Some(serde_json::to_vec(&object).unwrap())
+        );
     }
 }
