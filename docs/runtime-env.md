@@ -43,6 +43,11 @@ compatible index and permanently uses fallback search when one is unavailable.
 `disabled` avoids opening Tantivy entirely. For hosts with less than 2 GB RAM,
 prefer a separate standalone thingd-server over HTTP.
 
+On small instances, start the sidecar before write-heavy clients and wait for
+`/ready`. Catalog seeders and other mutation clients must retry `503` responses
+according to `Retry-After: 1`; restarting thingd in response to those responses
+can restart recovery and increase resource pressure.
+
 `THINGD_NATIVE_MAX_PAYLOAD_BYTES` optionally bounds JSON batch payloads passed
 through the embedded native binding. It is unset by default for compatibility;
 low-memory deployments should set an explicit limit appropriate for their
