@@ -41,14 +41,16 @@ thingd exposes a REST API on port 8757 (default) under the `/v1` prefix. All req
 
 ### `GET /ready`
 
-Readiness for the primary store. This endpoint remains `ready` while an
-asynchronous Tantivy rebuild is in progress; `degradedSearch` is `true` and
-search uses the bounded fallback scan until the derived index is promoted.
+Readiness for the primary store. This endpoint returns `503` with
+`Retry-After: 1` while search rebuild or primary journal compaction is in progress.
+Mutation requests are also rejected with the same response until maintenance
+returns to `idle`; reads use the bounded fallback search where necessary.
 
 ```json
 {
   "data": {
     "status": "ready",
+    "maintenance": { "state": "idle", "generation": 2, "retryCount": 0, "error": null },
     "degradedSearch": true,
     "search": {
       "state": "rebuilding",
@@ -81,7 +83,8 @@ curl http://localhost:8757/v1/health
 ### `GET /v1/diagnostics`
 
 Returns bounded storage counts for objects, events, links, queues, active jobs,
-and dead-letter jobs without returning stored records.
+and dead-letter jobs without returning stored records. It also reports
+`storage.journalBytes`, `storage.journalCount`, and the `maintenance` state.
 
 ### `POST /admin/retention`
 

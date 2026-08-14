@@ -11,6 +11,8 @@ server:
   encryption_key: null
   # Use "disabled" or "persistent-no-rebuild" for low-memory deployments.
   search_mode: persistent
+  # Thingd soft journal threshold; writes pause while recovery compacts storage.
+  journal_max_bytes: 33554432
   # Request timeout in seconds
   request_timeout_secs: 30
   # Maximum concurrent connections

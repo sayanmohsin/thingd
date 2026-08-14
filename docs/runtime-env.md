@@ -21,6 +21,7 @@ THINGD_PATH=/data/thingd.db
 THINGD_DRIVER=native
 THINGD_ENCRYPTION_KEY=<64 hexadecimal characters>
 THINGD_SEARCH_MODE=persistent
+THINGD_JOURNAL_MAX_BYTES=33554432
 THINGD_NATIVE_MAX_PAYLOAD_BYTES=<optional bytes>
 THINGD_NATIVE_MAX_BATCH_ITEMS=<optional count>
 ```
@@ -35,9 +36,9 @@ or request payloads. Memory and cloud drivers reject this local option rather
 than ignoring it. Changing the value does not rotate an existing database.
 
 `THINGD_SEARCH_MODE=persistent` opens the primary store immediately and
-rebuilds missing or incompatible Tantivy state asynchronously. During the
-rebuild, search uses the bounded fallback scan and `/ready` reports
-`degradedSearch: true`. `persistent-no-rebuild` opens only an already
+rebuilds missing or incompatible Tantivy state asynchronously. During storage
+recovery, search uses the bounded fallback scan, `/ready` returns `503`, and
+writes return `503` with `Retry-After: 1`. `persistent-no-rebuild` opens only an already
 compatible index and permanently uses fallback search when one is unavailable.
 `disabled` avoids opening Tantivy entirely. For hosts with less than 2 GB RAM,
 prefer a separate standalone thingd-server over HTTP.

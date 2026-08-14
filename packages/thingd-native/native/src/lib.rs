@@ -117,6 +117,12 @@ impl NativeThingStore {
         store.checkpoint().map_err(napi_error)
     }
 
+    #[napi]
+    pub fn compact(&self) -> Result<()> {
+        let mut store = self.lock_store()?;
+        store.compact_storage().map_err(napi_error)
+    }
+
     #[napi(factory)]
     pub fn open(path: String, encryption_key: Option<String>) -> Result<Self> {
         let encryption = encryption_key

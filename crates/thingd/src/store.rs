@@ -11,7 +11,7 @@ use crate::{
 };
 
 /// Read-only storage counts used by diagnostics and operator tooling.
-#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StorageDiagnostics {
     /// Number of stored objects.
@@ -26,6 +26,35 @@ pub struct StorageDiagnostics {
     pub active_jobs: u64,
     /// Number of dead-letter jobs.
     pub dead_jobs: u64,
+    /// Current primary-storage journal bytes, when available.
+    pub journal_bytes: u64,
+    /// Number of journals currently retained by the backend, when available.
+    pub journal_count: u64,
+}
+
+/// Runtime maintenance state for a durable store.
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StorageMaintenanceStatus {
+    /// `idle`, `rebuilding_search`, `compacting`, `degraded`, or `failed`.
+    pub state: String,
+    /// Rebuild generation currently being processed, if any.
+    pub generation: u64,
+    /// Number of bounded recovery retries attempted.
+    pub retry_count: u64,
+    /// Last maintenance error, when recovery is degraded or failed.
+    pub error: Option<String>,
+}
+
+impl Default for StorageMaintenanceStatus {
+    fn default() -> Self {
+        Self {
+            state: "idle".to_string(),
+            generation: 0,
+            retry_count: 0,
+            error: None,
+        }
+    }
 }
 
 /// Explicit retention request. No records are deleted when `dry_run` is true.
@@ -785,10 +814,31 @@ pub trait ThingStore:
         Ok(true)
     }
 
+    /// Retry a degraded search rebuild when bounded recovery permits another generation.
+    fn retry_search_rebuild(&mut self) -> bool {
+        false
+    }
+
     /// Return backend-specific asynchronous search rebuild status, when supported.
     #[cfg(feature = "persistent")]
     fn search_rebuild_status(&self) -> Option<crate::SearchRebuildStatus> {
         None
+    }
+
+    /// Return backend-specific storage maintenance state.
+    fn storage_maintenance_status(&self) -> crate::StorageMaintenanceStatus {
+        crate::StorageMaintenanceStatus::default()
+    }
+
+    /// Compact the primary durable store when supported.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the backend cannot persist or compact its data.
+    fn compact_storage(&mut self) -> ThingdResult<()> {
+        Err(ThingdError::Storage(
+            "storage compaction is unavailable".to_string(),
+        ))
     }
 
     /// Return bounded storage diagnostics. Adapters may add backend-specific
@@ -805,6 +855,8 @@ pub trait ThingStore:
             queues: self.list_queues()?.len() as u64,
             active_jobs: self.count_active_jobs()?,
             dead_jobs: self.count_dead_jobs()?,
+            journal_bytes: 0,
+            journal_count: 0,
         })
     }
 }
@@ -821,8 +873,33 @@ impl ThingStore for crate::PersistentEngine {
         self.search_rebuild_step(batch_size)
     }
 
+    fn retry_search_rebuild(&mut self) -> bool {
+        self.retry_search_rebuild()
+    }
+
     fn search_rebuild_status(&self) -> Option<crate::SearchRebuildStatus> {
         self.search_rebuild_status()
+    }
+
+    fn storage_maintenance_status(&self) -> crate::StorageMaintenanceStatus {
+        self.storage_maintenance_status()
+    }
+
+    fn compact_storage(&mut self) -> ThingdResult<()> {
+        self.compact_storage()
+    }
+
+    fn storage_diagnostics(&self) -> ThingdResult<StorageDiagnostics> {
+        Ok(StorageDiagnostics {
+            objects: self.count_objects()?,
+            events: self.count_events()?,
+            links: self.count_links()?,
+            queues: self.list_queues()?.len() as u64,
+            active_jobs: self.count_active_jobs()?,
+            dead_jobs: self.count_dead_jobs()?,
+            journal_bytes: self.journal_bytes(),
+            journal_count: self.journal_count(),
+        })
     }
 }
 

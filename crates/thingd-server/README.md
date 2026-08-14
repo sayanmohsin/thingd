@@ -62,6 +62,7 @@ Configure via environment variables or a YAML config file pointed at by `THINGD_
 | `THINGD_DATABASE` | `thingd.db` | persistent database directory |
 | `THINGD_ENCRYPTION_KEY` | — | optional 64-character hexadecimal key for encrypted persistent storage |
 | `THINGD_SEARCH_MODE` | `persistent` | `persistent`, `persistent-no-rebuild`, or `disabled` |
+| `THINGD_JOURNAL_MAX_BYTES` | `33554432` | Soft journal threshold before recovery backpressure |
 | `THINGD_AUTH_TOKEN` | — | Bearer token for authenticated requests |
 | `THINGD_ALLOW_UNAUTHENTICATED` | `false` | Skip auth entirely |
 | `THINGD_MCP_MAX_OBJECT_SIZE` | `1 MB` | Max object size for MCP puts |
@@ -85,9 +86,9 @@ does not open or mutate the database:
 thingd-server --check /data/thingd.db
 ```
 
-`GET /ready` returns `ready` once the primary store is available. During an
-asynchronous Tantivy rebuild it includes `degradedSearch: true`; search uses
-the bounded fallback scan until the derived index catches up.
+`GET /ready` returns `ready` only after storage recovery completes. During an
+asynchronous search rebuild or primary journal compaction it returns `503` with
+`Retry-After: 1`; search uses the bounded fallback scan and writes are paused.
 
 For hosts with less than 2 GB RAM, prefer a separate standalone server over
 HTTP rather than embedding the native store in the application process.

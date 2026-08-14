@@ -58,11 +58,24 @@ fn replication_collection_allowed(state: &AppState, collection: &str) -> bool {
                 .any(|allowed| allowed == collection))
 }
 
-fn ensure_source_writable(state: &AppState) -> Result<(), AppError> {
+fn ensure_source_writable(state: &AppState, headers: &HeaderMap) -> Result<(), AppError> {
     if state.sync_config.role == crate::config::SyncRole::Replica {
         return Err(AppError::bad_request(
             "This Thingd instance is configured as a replication target",
         ));
+    }
+    ensure_storage_writable(state, headers)
+}
+
+fn ensure_storage_writable(state: &AppState, headers: &HeaderMap) -> Result<(), AppError> {
+    let tenant_id = crate::auth::extract_tenant_id(headers, &state.tenant_config)?;
+    let db_path = state.tenant_config.resolve_db_path(tenant_id.as_deref());
+    let status = state.pool.storage_maintenance_status(&db_path);
+    if status.state != "idle" {
+        return Err(AppError::overloaded(format!(
+            "storage maintenance is {}; writes are temporarily paused",
+            status.state
+        )));
     }
     Ok(())
 }
@@ -153,11 +166,27 @@ pub async fn ready(State(state): State<Arc<AppState>>, headers: HeaderMap) -> Re
     };
     let guard = engine.lock();
     let search = guard.search_rebuild_status();
+    let maintenance = guard.storage_maintenance_status();
+    if maintenance.state != "idle" {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({
+                "data": {
+                    "status": "not_ready",
+                    "maintenance": maintenance,
+                    "degradedSearch": true,
+                    "search": search,
+                }
+            })),
+        )
+            .into_response();
+    }
     Json(json!({
         "data": {
             "status": "ready",
             "degradedSearch": search.is_some(),
             "search": search,
+            "maintenance": maintenance,
         }
     }))
     .into_response()
@@ -174,7 +203,13 @@ pub async fn diagnostics(
         let g = e.lock();
         let result = g
             .storage_diagnostics()
-            .map(|diagnostics| (diagnostics, g.search_rebuild_status()))
+            .map(|diagnostics| {
+                (
+                    diagnostics,
+                    g.search_rebuild_status(),
+                    g.storage_maintenance_status(),
+                )
+            })
             .map_err(|error| AppError::internal(error.to_string()));
         finish_blocking();
         result
@@ -184,6 +219,7 @@ pub async fn diagnostics(
     ok(json!({
         "storage": diagnostics.0,
         "search": diagnostics.1,
+        "maintenance": diagnostics.2,
         "blockingWorkers": {
             "active": BLOCKING_ACTIVE.load(Ordering::Relaxed),
             "rejected": BLOCKING_REJECTED.load(Ordering::Relaxed),
@@ -197,6 +233,7 @@ pub async fn retention(
     headers: HeaderMap,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, AppError> {
+    ensure_source_writable(&state, &headers)?;
     let options: RetentionOptions = serde_json::from_value(body.clone())
         .map_err(|error| AppError::bad_request(format!("invalid retention options: {error}")))?;
     if !options.dry_run && body.get("confirm").and_then(Value::as_bool) != Some(true) {
@@ -220,7 +257,11 @@ pub async fn retention(
     ok(report)
 }
 
-pub async fn clear_default_db(State(state): State<Arc<AppState>>) -> Result<Json<Value>, AppError> {
+pub async fn clear_default_db(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+) -> Result<Json<Value>, AppError> {
+    ensure_source_writable(&state, &headers)?;
     state
         .pool
         .clear_default_engine()
@@ -372,6 +413,7 @@ pub async fn create_index(
     headers: HeaderMap,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, AppError> {
+    ensure_source_writable(&state, &headers)?;
     let collection = body["collection"]
         .as_str()
         .ok_or_else(|| AppError::bad_request("collection is required"))?;
@@ -395,6 +437,7 @@ pub async fn delete_index(
     headers: HeaderMap,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, AppError> {
+    ensure_source_writable(&state, &headers)?;
     let collection = body["collection"]
         .as_str()
         .ok_or_else(|| AppError::bad_request("collection is required"))?;
@@ -473,7 +516,7 @@ pub async fn put_object(
     headers: axum::http::HeaderMap,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, AppError> {
-    ensure_source_writable(&state)?;
+    ensure_source_writable(&state, &headers)?;
     let mut obj = MemoryObject::new(collection.clone(), id.clone(), body.to_string());
     if let Some(vector) = body.get("vector").and_then(|v| v.as_array()) {
         let vec: Vec<f32> = vector
@@ -548,7 +591,7 @@ pub async fn delete_object(
     headers: HeaderMap,
     Path((collection, id)): Path<(String, String)>,
 ) -> Result<Json<Value>, AppError> {
-    ensure_source_writable(&state)?;
+    ensure_source_writable(&state, &headers)?;
     let e = get_engine(&state, &headers)?;
     let mut g = e.lock();
     let deleted = g
@@ -573,7 +616,7 @@ pub async fn put_batch(
     Query(params): Query<Value>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, AppError> {
-    ensure_source_writable(&state)?;
+    ensure_source_writable(&state, &headers)?;
     let collection = params["collection"]
         .as_str()
         .ok_or_else(|| AppError::bad_request("Missing collection"))?;
@@ -700,7 +743,7 @@ pub async fn delete_batch(
     Query(params): Query<Value>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, AppError> {
-    ensure_source_writable(&state)?;
+    ensure_source_writable(&state, &headers)?;
     let collection = params["collection"]
         .as_str()
         .ok_or_else(|| AppError::bad_request("Missing collection"))?;
@@ -757,7 +800,7 @@ pub async fn append_event(
     Path(stream): Path<String>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, AppError> {
-    ensure_source_writable(&state)?;
+    ensure_source_writable(&state, &headers)?;
     let et = body["type"]
         .as_str()
         .ok_or_else(|| AppError::bad_request("Missing 'type'"))?;
@@ -853,6 +896,7 @@ pub async fn replication_apply(
     headers: HeaderMap,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, AppError> {
+    ensure_storage_writable(&state, &headers)?;
     if state.sync_config.role == crate::config::SyncRole::Source {
         return Err(AppError::bad_request(
             "Replication apply requires this instance to be configured as a replica",
@@ -988,6 +1032,7 @@ pub async fn replication_snapshot_apply(
     headers: HeaderMap,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, AppError> {
+    ensure_storage_writable(&state, &headers)?;
     if state.sync_config.role == crate::config::SyncRole::Source {
         return Err(AppError::bad_request(
             "Snapshot apply requires this instance to be configured as a replica",
@@ -1222,7 +1267,7 @@ pub async fn snapshot_import(
     headers: HeaderMap,
     body: Body,
 ) -> Result<Json<Value>, AppError> {
-    ensure_source_writable(&state)?;
+    ensure_source_writable(&state, &headers)?;
     let e = get_engine(&state, &headers)?;
     let mut lines = body.into_data_stream();
     let mut buffer = Vec::new();
@@ -1344,6 +1389,7 @@ pub async fn push_job(
     Path(queue): Path<String>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, AppError> {
+    ensure_source_writable(&state, &headers)?;
     let payload = body.get("payload").cloned().unwrap_or(body.clone());
     let max_at = body
         .get("maxAttempts")
@@ -1367,6 +1413,7 @@ pub async fn claim_job(
     Path(queue): Path<String>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, AppError> {
+    ensure_source_writable(&state, &headers)?;
     let opts = QueueClaimOptions {
         lease_ms: body
             .get("leaseMs")
@@ -1390,6 +1437,7 @@ pub async fn ack_job(
     Path(queue): Path<String>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, AppError> {
+    ensure_source_writable(&state, &headers)?;
     let job_id = body["jobId"]
         .as_str()
         .ok_or_else(|| AppError::bad_request("Missing jobId"))?;
@@ -1410,6 +1458,7 @@ pub async fn nack_job(
     Path(queue): Path<String>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, AppError> {
+    ensure_source_writable(&state, &headers)?;
     let job_id = body["jobId"]
         .as_str()
         .ok_or_else(|| AppError::bad_request("Missing jobId"))?;
@@ -1461,6 +1510,7 @@ pub async fn create_link(
     headers: HeaderMap,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, AppError> {
+    ensure_source_writable(&state, &headers)?;
     let from_ref = body["fromRef"]
         .as_str()
         .ok_or_else(|| AppError::bad_request("Missing fromRef"))?;
@@ -1538,6 +1588,7 @@ pub async fn delete_link(
     headers: HeaderMap,
     Path(id): Path<String>,
 ) -> Result<Json<Value>, AppError> {
+    ensure_source_writable(&state, &headers)?;
     let e = get_engine(&state, &headers)?;
     let mut g = e.lock();
     ok(json!({ "deleted": g.delete_link(&id).map_err(|e| AppError::internal(e.to_string()))? }))
@@ -1747,6 +1798,7 @@ pub async fn pull_data(
     Path(connector_type): Path<String>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, AppError> {
+    ensure_source_writable(&state, &headers)?;
     let connector = get_connector(&connector_type)?;
     let config = build_connector_config(&connector_type, &body);
     validate_connector_access(&connector_type, &config, &state.hardening_config)?;
@@ -2085,6 +2137,7 @@ pub async fn put_schema_document(
     headers: HeaderMap,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, AppError> {
+    ensure_source_writable(&state, &headers)?;
     let schema_json = body
         .get("schemaJson")
         .and_then(Value::as_str)
@@ -2127,6 +2180,7 @@ pub async fn record_migration(
     headers: HeaderMap,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, AppError> {
+    ensure_source_writable(&state, &headers)?;
     let id = body
         .get("id")
         .and_then(Value::as_str)

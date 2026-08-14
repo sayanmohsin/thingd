@@ -14,20 +14,45 @@ pub type SharedEngine = Arc<Mutex<Box<dyn ThingStore + Send>>>;
 
 const SEARCH_REBUILD_BATCH_SIZE: usize = 128;
 
-fn spawn_search_rebuild(engine: SharedEngine) {
+fn spawn_storage_recovery(engine: SharedEngine) {
     let _ = thread::Builder::new()
-        .name("thingd-search-rebuild".to_string())
+        .name("thingd-storage-recovery".to_string())
         .spawn(move || {
+            let mut retry_delay = Duration::from_millis(100);
+            let mut compacted = false;
             loop {
                 let result = if let Some(mut guard) = engine.try_lock() {
-                    guard.search_rebuild_step(SEARCH_REBUILD_BATCH_SIZE)
+                    if !compacted {
+                        let result = guard.compact_storage();
+                        if result.is_ok() {
+                            compacted = true;
+                        }
+                        result.map(|_| true)
+                    } else {
+                        guard.search_rebuild_step(SEARCH_REBUILD_BATCH_SIZE)
+                    }
                 } else {
                     thread::sleep(Duration::from_millis(10));
                     continue;
                 };
                 match result {
                     Ok(true) => break,
-                    Ok(false) => thread::sleep(Duration::from_millis(10)),
+                    Ok(false) => {
+                        let action = engine.try_lock().map(|mut guard| {
+                            let status = guard.storage_maintenance_status();
+                            match status.state.as_str() {
+                                "degraded" if guard.retry_search_rebuild() => 1_i8,
+                                "degraded" | "failed" => -1_i8,
+                                _ => 0_i8,
+                            }
+                        });
+                        if action == Some(-1) {
+                            tracing::warn!("storage recovery stopped in degraded or failed state");
+                            break;
+                        }
+                        thread::sleep(retry_delay);
+                        retry_delay = (retry_delay * 2).min(Duration::from_secs(2));
+                    },
                     Err(error) => {
                         tracing::error!(error = %error, "asynchronous search rebuild stopped");
                         break;
@@ -73,10 +98,25 @@ impl EnginePool {
     }
 
     /// Construct a pool with an optional encryption key and search mode.
+    #[allow(dead_code)]
     pub fn new_with_encryption_key_and_search_mode(
         default_path: String,
         key: Option<&str>,
         search_mode: PersistentSearchMode,
+    ) -> Result<Self, String> {
+        Self::new_with_encryption_key_search_mode_and_journal_limit(
+            default_path,
+            key,
+            search_mode,
+            32 * 1024 * 1024,
+        )
+    }
+
+    pub fn new_with_encryption_key_search_mode_and_journal_limit(
+        default_path: String,
+        key: Option<&str>,
+        search_mode: PersistentSearchMode,
+        max_journal_bytes: u64,
     ) -> Result<Self, String> {
         let encryption = key
             .map(parse_hex_key)
@@ -88,6 +128,7 @@ impl EnginePool {
         pool.open_options = PersistentOpenOptions {
             encryption,
             search_mode,
+            max_journal_bytes,
             ..PersistentOpenOptions::default()
         };
         // Validate and open the configured default database during startup. This
@@ -100,8 +141,8 @@ impl EnginePool {
         let shared = Arc::new(Mutex::new(engine));
         let rebuild_required = shared.lock().search_rebuild_required();
         pool.writers.write().insert(default_path, shared.clone());
-        if rebuild_required {
-            spawn_search_rebuild(shared);
+        if rebuild_required || shared.lock().storage_maintenance_status().state != "idle" {
+            spawn_storage_recovery(shared);
         }
         Ok(pool)
     }
@@ -138,8 +179,10 @@ impl EnginePool {
 
         guard.insert(path.clone(), writer.clone());
 
-        if writer.lock().search_rebuild_required() {
-            spawn_search_rebuild(writer.clone());
+        if writer.lock().search_rebuild_required()
+            || writer.lock().storage_maintenance_status().state != "idle"
+        {
+            spawn_storage_recovery(writer.clone());
         }
 
         writer
@@ -148,6 +191,10 @@ impl EnginePool {
     /// Get a reader engine for a path. All readers share the writer (single-process engine).
     pub fn get_reader(&self, db_path: &str) -> SharedEngine {
         self.get_writer(db_path)
+    }
+
+    pub fn storage_maintenance_status(&self, db_path: &str) -> thingd::StorageMaintenanceStatus {
+        self.get_reader(db_path).lock().storage_maintenance_status()
     }
 
     /// Remove the default engine from the pool and delete its database file.
@@ -272,6 +319,7 @@ mod tests {
     #[tokio::test]
     async fn reader_and_writer_are_same_for_persistent_path() {
         let dir = std::env::temp_dir().join("thingd-test-engine-pool-rd");
+        let _ = std::fs::remove_dir_all(&dir);
         let _ = std::fs::create_dir_all(&dir);
         let db_path = dir.join("test.db").to_str().unwrap().to_string();
 
@@ -288,6 +336,7 @@ mod tests {
     #[tokio::test]
     async fn pool_returns_different_engines_for_different_paths() {
         let dir = std::env::temp_dir().join("thingd-test-engine-pool");
+        let _ = std::fs::remove_dir_all(&dir);
         let _ = std::fs::create_dir_all(&dir);
         let p1 = dir.join("a.db").to_str().unwrap().to_string();
         let p2 = dir.join("b.db").to_str().unwrap().to_string();

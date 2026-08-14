@@ -103,6 +103,16 @@ pub struct ServerConfig {
     /// Search index mode. `disabled` avoids Tantivy memory usage in embedded deployments.
     #[serde(default)]
     pub search_mode: SearchModeConfig,
+    /// Maximum primary journal bytes before writes are backpressured.
+    #[serde(default = "default_journal_max_bytes")]
+    pub journal_max_bytes: u64,
+}
+
+fn default_journal_max_bytes() -> u64 {
+    std::env::var("THINGD_JOURNAL_MAX_BYTES")
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(32 * 1024 * 1024)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
@@ -298,6 +308,7 @@ impl Default for ServerConfig {
             production_mode: false,
             encryption_key: None,
             search_mode: SearchModeConfig::Persistent,
+            journal_max_bytes: default_journal_max_bytes(),
         }
     }
 }

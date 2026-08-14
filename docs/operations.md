@@ -167,6 +167,7 @@ database, the correct key must be present.
 
 ```bash
 thingd db checkpoint
+thingd db compact --path /data/thingd.db
 ```
 
 Flushes pending native persistent writes through the engine's durability
