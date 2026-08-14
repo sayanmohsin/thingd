@@ -13,6 +13,13 @@
 - server: harden security boundaries (0961ffe)
 - complete public SDK type exports (8a8889a)
 
+## [0.82.0](https://github.com/sayanmohsin/thingd/compare/thingd-v0.81.0...thingd-v0.82.0) (2026-08-14)
+
+
+### Features
+
+* bound cold-start storage recovery ([#143](https://github.com/sayanmohsin/thingd/issues/143)) ([ab94a78](https://github.com/sayanmohsin/thingd/commit/ab94a787a09a5b19fa3c6b14dc547b0e3d75a2d9))
+
 ## [0.81.0](https://github.com/sayanmohsin/thingd/compare/thingd-v0.80.0...thingd-v0.81.0) (2026-08-13)
 
 
