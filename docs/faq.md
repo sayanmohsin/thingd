@@ -58,6 +58,14 @@ You don't — in-memory mode is ephemeral by design. It exits cleanly for testin
 
 Corruption or incomplete writes can still occur through hardware faults or improper shutdown. Recovery relies on backups and engine reopen/rebuild checks; thingd does not currently provide automatic corruption repair.
 
+### Why is `/ready` unavailable after a restart?
+
+Persistent server startup first recovers and compacts primary storage and then
+rebuilds Tantivy in bounded batches. During that window reads can use fallback
+scanning, but writes return `503` with `Retry-After: 1` so cold-start writes
+cannot keep extending the journal. If recovery fails closed, stop writers and
+use `thingd db compact` or an explicit `thingd db repack` into a new destination.
+
 ### How large can datasets grow before performance degrades?
 
 thingd is designed for small-to-medium datasets (hundreds of MB to low GBs). The persistent backend is intended for multi-GB datasets, and Tantivy BM25 search performs well into millions of rows on modern hardware. Benchmarks publish per-operation latency at small scale; we do not yet have published degradation curves for large datasets.

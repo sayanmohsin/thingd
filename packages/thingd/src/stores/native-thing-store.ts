@@ -136,6 +136,7 @@ type NativeThingStoreModule = {
     destinationKey?: string,
     allowPlaintextOutput?: boolean
   ): void;
+  repack(sourcePath: string, destinationPath: string, encryptionKey?: string): void;
   loadedPath?: string;
 };
 
@@ -273,6 +274,15 @@ export class NativeThingStore implements ThingStore {
   ): Promise<void> {
     const native = await loadNativeModule();
     native.reencrypt(sourcePath, destinationPath, sourceKey, destinationKey, allowPlaintextOutput);
+  }
+
+  static async repack(
+    sourcePath: string,
+    destinationPath: string,
+    encryptionKey?: string
+  ): Promise<void> {
+    const native = await loadNativeModule();
+    native.repack(sourcePath, destinationPath, encryptionKey);
   }
 
   static async getLoadedPath(): Promise<string | undefined> {
@@ -696,6 +706,7 @@ async function loadNativeModule(): Promise<NativeThingStoreModule> {
         NativeThingStore: binding.NativeThingStore,
         parseSchema: binding.parseSchema,
         reencrypt: binding.reencrypt,
+        repack: binding.repack,
         loadedPath: customPath,
       };
     } catch (error) {
@@ -712,6 +723,7 @@ async function loadNativeModule(): Promise<NativeThingStoreModule> {
       NativeThingStore: mod.NativeThingStore,
       parseSchema: mod.parseSchema,
       reencrypt: mod.reencrypt,
+      repack: mod.repack,
       loadedPath: mod.loadedPath,
     };
   } catch (importError) {
@@ -754,6 +766,7 @@ async function loadNativeModule(): Promise<NativeThingStoreModule> {
                 NativeThingStore: binding.NativeThingStore,
                 parseSchema: binding.parseSchema,
                 reencrypt: binding.reencrypt,
+                repack: binding.repack,
                 loadedPath: candidate,
               };
             }

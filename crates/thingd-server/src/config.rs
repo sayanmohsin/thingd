@@ -106,6 +106,18 @@ pub struct ServerConfig {
     /// Maximum primary journal bytes before writes are backpressured.
     #[serde(default = "default_journal_max_bytes")]
     pub journal_max_bytes: u64,
+    /// Maximum records per asynchronous recovery batch.
+    #[serde(default = "default_recovery_batch_size")]
+    pub recovery_batch_size: usize,
+    /// Milliseconds to yield between recovery batches.
+    #[serde(default = "default_recovery_pause_ms")]
+    pub recovery_pause_ms: u64,
+    /// Maximum automatic recovery retries.
+    #[serde(default = "default_recovery_max_retries")]
+    pub recovery_max_retries: u64,
+    /// Optional resident-memory ceiling for recovery.
+    #[serde(default = "default_recovery_memory_limit_bytes")]
+    pub recovery_memory_limit_bytes: Option<u64>,
 }
 
 fn default_journal_max_bytes() -> u64 {
@@ -113,6 +125,33 @@ fn default_journal_max_bytes() -> u64 {
         .ok()
         .and_then(|value| value.parse().ok())
         .unwrap_or(32 * 1024 * 1024)
+}
+
+fn default_recovery_batch_size() -> usize {
+    std::env::var("THINGD_RECOVERY_BATCH_SIZE")
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(32)
+}
+
+fn default_recovery_pause_ms() -> u64 {
+    std::env::var("THINGD_RECOVERY_PAUSE_MS")
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(50)
+}
+
+fn default_recovery_max_retries() -> u64 {
+    std::env::var("THINGD_RECOVERY_MAX_RETRIES")
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(3)
+}
+
+fn default_recovery_memory_limit_bytes() -> Option<u64> {
+    std::env::var("THINGD_RECOVERY_MEMORY_LIMIT_BYTES")
+        .ok()
+        .and_then(|value| value.parse().ok())
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
@@ -309,6 +348,10 @@ impl Default for ServerConfig {
             encryption_key: None,
             search_mode: SearchModeConfig::Persistent,
             journal_max_bytes: default_journal_max_bytes(),
+            recovery_batch_size: default_recovery_batch_size(),
+            recovery_pause_ms: default_recovery_pause_ms(),
+            recovery_max_retries: default_recovery_max_retries(),
+            recovery_memory_limit_bytes: default_recovery_memory_limit_bytes(),
         }
     }
 }

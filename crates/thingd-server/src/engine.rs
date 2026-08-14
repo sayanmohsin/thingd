@@ -12,8 +12,6 @@ use thingd::{
 
 pub type SharedEngine = Arc<Mutex<Box<dyn ThingStore + Send>>>;
 
-const SEARCH_REBUILD_BATCH_SIZE: usize = 128;
-
 fn spawn_storage_recovery(engine: SharedEngine) {
     let _ = thread::Builder::new()
         .name("thingd-storage-recovery".to_string())
@@ -21,15 +19,31 @@ fn spawn_storage_recovery(engine: SharedEngine) {
             let mut retry_delay = Duration::from_millis(100);
             let mut compacted = false;
             loop {
+                let budget = engine
+                    .try_lock()
+                    .map(|guard| guard.recovery_budget())
+                    .unwrap_or_default();
+                if let Some(limit) = budget.memory_limit_bytes
+                    && resident_memory_bytes().is_some_and(|used| used > limit)
+                {
+                    if let Some(mut guard) = engine.try_lock() {
+                        guard.fail_storage_recovery(format!(
+                            "recovery memory ceiling exceeded: {} bytes",
+                            limit
+                        ));
+                    }
+                    tracing::error!(limit, "storage recovery stopped at memory ceiling");
+                    break;
+                }
                 let result = if let Some(mut guard) = engine.try_lock() {
                     if !compacted {
                         let result = guard.compact_storage();
                         if result.is_ok() {
                             compacted = true;
                         }
-                        result.map(|_| true)
+                        result.map(|_| false)
                     } else {
-                        guard.search_rebuild_step(SEARCH_REBUILD_BATCH_SIZE)
+                        guard.search_rebuild_step(budget.batch_size.max(1))
                     }
                 } else {
                     thread::sleep(Duration::from_millis(10));
@@ -41,7 +55,12 @@ fn spawn_storage_recovery(engine: SharedEngine) {
                         let action = engine.try_lock().map(|mut guard| {
                             let status = guard.storage_maintenance_status();
                             match status.state.as_str() {
-                                "degraded" if guard.retry_search_rebuild() => 1_i8,
+                                "degraded"
+                                    if status.retry_count < budget.max_retries
+                                        && guard.retry_search_rebuild() =>
+                                {
+                                    1_i8
+                                },
                                 "degraded" | "failed" => -1_i8,
                                 _ => 0_i8,
                             }
@@ -58,8 +77,30 @@ fn spawn_storage_recovery(engine: SharedEngine) {
                         break;
                     },
                 }
+                if budget.pause_ms > 0 {
+                    thread::sleep(Duration::from_millis(budget.pause_ms));
+                }
             }
         });
+}
+
+#[cfg(target_os = "linux")]
+fn resident_memory_bytes() -> Option<u64> {
+    let status = std::fs::read_to_string("/proc/self/status").ok()?;
+    let value = status
+        .lines()
+        .find_map(|line| line.strip_prefix("VmRSS:"))?;
+    value
+        .split_whitespace()
+        .next()?
+        .parse::<u64>()
+        .ok()
+        .map(|kb| kb * 1024)
+}
+
+#[cfg(not(target_os = "linux"))]
+fn resident_memory_bytes() -> Option<u64> {
+    None
 }
 
 pub fn create_engine(
@@ -118,6 +159,29 @@ impl EnginePool {
         search_mode: PersistentSearchMode,
         max_journal_bytes: u64,
     ) -> Result<Self, String> {
+        Self::new_with_encryption_key_search_mode_journal_limit_and_recovery_budget(
+            default_path,
+            key,
+            search_mode,
+            max_journal_bytes,
+            32,
+            50,
+            3,
+            None,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn new_with_encryption_key_search_mode_journal_limit_and_recovery_budget(
+        default_path: String,
+        key: Option<&str>,
+        search_mode: PersistentSearchMode,
+        max_journal_bytes: u64,
+        recovery_batch_size: usize,
+        recovery_pause_ms: u64,
+        recovery_max_retries: u64,
+        recovery_memory_limit_bytes: Option<u64>,
+    ) -> Result<Self, String> {
         let encryption = key
             .map(parse_hex_key)
             .transpose()?
@@ -129,6 +193,10 @@ impl EnginePool {
             encryption,
             search_mode,
             max_journal_bytes,
+            recovery_batch_size,
+            recovery_pause_ms,
+            recovery_max_retries,
+            recovery_memory_limit_bytes,
             ..PersistentOpenOptions::default()
         };
         // Validate and open the configured default database during startup. This

@@ -180,6 +180,7 @@ Usage:
   thingd cloud api-key create <project> <name>
   thingd db checkpoint [--path <path>]
   thingd db compact [--path <path>]
+  thingd db repack --path <source> --destination <path>
   thingd db integrity [--path <path>]
   thingd db backup --out <archive.tar> [--path <path>]
   thingd db restore --in <archive.tar> --destination <path> [--replace]
@@ -452,7 +453,7 @@ async function runCommand(context: CliContext): Promise<void> {
   if (command === "db") {
     const sub = context.parsed.tokens[1];
     if (!sub) {
-      throw new Error("Expected db subcommand: checkpoint, compact, integrity");
+      throw new Error("Expected db subcommand: checkpoint, compact, repack, integrity");
     }
     if (sub === "checkpoint") {
       await runDbCheckpoint(context);
@@ -460,6 +461,10 @@ async function runCommand(context: CliContext): Promise<void> {
     }
     if (sub === "compact") {
       await runDbCompact(context);
+      return;
+    }
+    if (sub === "repack") {
+      await runDbRepack(context);
       return;
     }
     if (sub === "integrity") {
@@ -479,7 +484,7 @@ async function runCommand(context: CliContext): Promise<void> {
       return;
     }
     throw new Error(
-      `Unknown db subcommand: ${sub}. Expected: checkpoint, compact, integrity, backup, restore, reencrypt`
+      `Unknown db subcommand: ${sub}. Expected: checkpoint, compact, repack, integrity, backup, restore, reencrypt`
     );
   }
 
@@ -604,6 +609,32 @@ async function runDbCompact(context: CliContext): Promise<void> {
   } finally {
     await db.close();
   }
+}
+
+async function runDbRepack(context: CliContext): Promise<void> {
+  const source = stringFlag(context.parsed, "path") ?? context.env.THINGD_PATH;
+  const destination = stringFlag(context.parsed, "destination");
+  if (!source || !destination) {
+    throw new Error("db repack requires --path <source> and --destination <path>");
+  }
+  if (resolve(source) === resolve(destination)) {
+    throw new Error("db repack requires different source and destination paths");
+  }
+  await NativeThingStore.repack(
+    resolve(source),
+    resolve(destination),
+    context.env.THINGD_ENCRYPTION_KEY
+  );
+  writeJson(
+    context.stdout,
+    {
+      ok: true,
+      source: resolve(source),
+      destination: resolve(destination),
+      format: "thingd-native",
+    },
+    context.pretty
+  );
 }
 
 async function runDbIntegrity(context: CliContext): Promise<void> {
