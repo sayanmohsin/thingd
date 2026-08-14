@@ -1721,6 +1721,19 @@ pub async fn handle_mcp_request(
                     "This Thingd instance is configured as a replication target",
                 ));
             }
+            if tool.is_write {
+                let status = state.pool.storage_maintenance_status(&db_path);
+                if status.state != "idle" {
+                    return Ok(mcp_error(
+                        id,
+                        -32603,
+                        &format!(
+                            "Storage maintenance is {}; retry after recovery completes",
+                            status.state
+                        ),
+                    ));
+                }
+            }
 
             // Collection allowlist check
             if tool.needs_collection

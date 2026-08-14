@@ -160,6 +160,7 @@ same key to restore. JSON snapshots and logical exports are decrypted data.
 
 ```txt
 thingd db checkpoint
+thingd db compact [--path /path/to/thingd.db]
 thingd db integrity
 thingd db backup --out /path/to/backup.tar [--path /path/to/thingd.db]
 thingd db restore --in /path/to/backup.tar --destination /path/to/thingd.db [--replace]
@@ -167,6 +168,7 @@ thingd db reencrypt --source <path> --destination <path> [--allow-plaintext-outp
 ```
 
 - `checkpoint` — Flushes pending native persistent writes before a directory backup
+- `compact` — Flushes and compacts the primary native keyspaces; stop application writers first
 - `integrity` — Checks database accessibility and reports status
 - `backup` — Checkpoints and closes a local native database, then creates a tar archive of the complete directory. The source must not be open by another process.
 - `restore` — Validates a Thingd tar archive and atomically restores it into a new destination. Existing destinations require `--replace`.

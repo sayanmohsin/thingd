@@ -100,7 +100,8 @@ pub use replication::{
 };
 pub use store::{
     AggregateStore, EventLog, LinkStore, ObjectStore, QueueStore, RetentionOptions,
-    RetentionReport, SchemaStore, Searcher, StorageDiagnostics, ThingStore, VectorStore,
+    RetentionReport, SchemaStore, Searcher, StorageDiagnostics, StorageMaintenanceStatus,
+    ThingStore, VectorStore,
 };
 
 /// Shared contract tests for all engine backends.

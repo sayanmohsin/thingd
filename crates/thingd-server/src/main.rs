@@ -105,7 +105,7 @@ async fn main() {
     }
 
     let pool = Arc::new(
-        engine::EnginePool::new_with_encryption_key_and_search_mode(
+        engine::EnginePool::new_with_encryption_key_search_mode_and_journal_limit(
             config.server.database.clone(),
             config.server.encryption_key.as_deref(),
             match config.server.search_mode {
@@ -117,6 +117,7 @@ async fn main() {
                 },
                 config::SearchModeConfig::Disabled => thingd::PersistentSearchMode::Disabled,
             },
+            config.server.journal_max_bytes,
         )
         .unwrap_or_else(|e| {
             eprintln!("Encryption configuration error: {e}");

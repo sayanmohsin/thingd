@@ -179,6 +179,7 @@ Usage:
   thingd cloud instance list <project>
   thingd cloud api-key create <project> <name>
   thingd db checkpoint [--path <path>]
+  thingd db compact [--path <path>]
   thingd db integrity [--path <path>]
   thingd db backup --out <archive.tar> [--path <path>]
   thingd db restore --in <archive.tar> --destination <path> [--replace]
@@ -451,10 +452,14 @@ async function runCommand(context: CliContext): Promise<void> {
   if (command === "db") {
     const sub = context.parsed.tokens[1];
     if (!sub) {
-      throw new Error("Expected db subcommand: checkpoint, integrity");
+      throw new Error("Expected db subcommand: checkpoint, compact, integrity");
     }
     if (sub === "checkpoint") {
       await runDbCheckpoint(context);
+      return;
+    }
+    if (sub === "compact") {
+      await runDbCompact(context);
       return;
     }
     if (sub === "integrity") {
@@ -474,7 +479,7 @@ async function runCommand(context: CliContext): Promise<void> {
       return;
     }
     throw new Error(
-      `Unknown db subcommand: ${sub}. Expected: checkpoint, integrity, backup, restore, reencrypt`
+      `Unknown db subcommand: ${sub}. Expected: checkpoint, compact, integrity, backup, restore, reencrypt`
     );
   }
 
@@ -585,6 +590,20 @@ async function runDbCheckpoint(context: CliContext): Promise<void> {
     const result = db.walCheckpoint();
     writeJson(context.stdout, result, context.pretty);
   });
+}
+
+async function runDbCompact(context: CliContext): Promise<void> {
+  const connection = resolveConnection(context);
+  if (connection.cloud || connection.driver !== "native") {
+    throw new Error("db compact requires a local native database");
+  }
+  const db = await NativeThingStore.open(connection.path, connection.encryptionKey);
+  try {
+    await db.compact();
+    writeJson(context.stdout, { ok: true, path: connection.path }, context.pretty);
+  } finally {
+    await db.close();
+  }
 }
 
 async function runDbIntegrity(context: CliContext): Promise<void> {
