@@ -13,6 +13,13 @@
 - server: harden security boundaries (0961ffe)
 - complete public SDK type exports (8a8889a)
 
+## [0.83.1](https://github.com/sayanmohsin/thingd/compare/thingd-v0.83.0...thingd-v0.83.1) (2026-08-14)
+
+
+### Bug Fixes
+
+* coalesce asynchronous Tantivy write commits ([#155](https://github.com/sayanmohsin/thingd/issues/155)) ([76b7476](https://github.com/sayanmohsin/thingd/commit/76b74762ec19dc5a1b62a2965e8c97fa6d875b8a))
+
 ## [0.83.0](https://github.com/sayanmohsin/thingd/compare/thingd-v0.82.1...thingd-v0.83.0) (2026-08-14)
 
 
