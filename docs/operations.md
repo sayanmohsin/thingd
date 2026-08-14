@@ -168,12 +168,37 @@ database, the correct key must be present.
 ```bash
 thingd db checkpoint
 thingd db compact --path /data/thingd.db
+thingd db repack --path /data/thingd.db --destination /data/thingd-repacked.db
 ```
 
 Flushes pending native persistent writes through the engine's durability
 boundary before an operator copies the database directory. It does not rotate
 an encryption key or decrypt a backup. In-memory databases have no filesystem
 durability boundary.
+
+### Large-journal recovery on small hosts
+
+Persistent server startup is two-phase. Thingd opens primary storage without
+Tantivy, compacts it with a bounded worker, and then rebuilds the search index.
+While either phase is active, `/ready` is unavailable, reads may use fallback
+scanning, and mutation requests return `503 Retry-After: 1`. Stop application
+writers during manual maintenance; do not repeatedly restart a server into a
+write-heavy recovery window.
+
+If recovery reaches a terminal failed/degraded state, run one of the offline
+commands while the server is stopped:
+
+```bash
+thingd-server --compact /data/thingd.db
+thingd db compact --path /data/thingd.db
+thingd-server --repack /data/thingd.db --destination /data/thingd-repacked.db
+thingd db repack --path /data/thingd.db --destination /data/thingd-repacked.db
+```
+
+Compaction is an in-place physical maintenance operation and requires an
+exclusive lock. Repacking is an explicit bounded logical migration into a new
+validated store: it preserves the source, refuses overwrite, and is not native
+format conversion.
 
 ### Standalone compatibility check
 

@@ -875,6 +875,24 @@ pub fn reencrypt(
     .map_err(napi_error)
 }
 
+/// Repack a native database into a fresh directory, discarding journal history.
+#[napi]
+pub fn repack(
+    source_path: String,
+    destination_path: String,
+    encryption_key: Option<String>,
+) -> Result<()> {
+    let encryption = encryption_key
+        .as_deref()
+        .map(parse_hex_key)
+        .transpose()
+        .map_err(napi_error)?
+        .map(|key| EncryptionConfig::from_key(&key))
+        .transpose()
+        .map_err(napi_error)?;
+    PersistentEngine::repack_to(source_path, destination_path, encryption).map_err(napi_error)
+}
+
 use napi::bindgen_prelude::AsyncTask;
 use napi::{Env, Task};
 

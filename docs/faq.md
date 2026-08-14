@@ -60,14 +60,15 @@ Corruption or incomplete writes can still occur through hardware faults or impro
 
 ### What should I do if a tiny VM has high CPU after a restart?
 
-Use a staged startup: keep write-heavy clients stopped, start thingd, and wait
-for `GET /ready` to return success. During bounded search or storage recovery,
-thingd uses fallback search for safe reads and returns `503` with
-`Retry-After: 1` for mutations. Clients must retry those writes rather than
-restarting the sidecar repeatedly. Check `/v1/diagnostics` for the maintenance
-state and journal metrics. On hosts around 1 GB RAM, standalone HTTP mode and
-small, bounded catalog batches are preferred; `thingd db compact --path` is the
-explicit operator recovery command when readiness does not return.
+Persistent server startup first recovers and compacts primary storage and then
+rebuilds Tantivy in bounded batches. Keep write-heavy clients stopped, start
+thingd, and wait for `GET /ready` to return success. During recovery, reads can
+use fallback scanning, while mutations return `503` with `Retry-After: 1`.
+Clients must retry those writes rather than restarting the sidecar repeatedly.
+Check `/v1/diagnostics` for maintenance state and journal metrics. On hosts
+around 1 GB RAM, standalone HTTP mode and small, bounded catalog batches are
+preferred. If recovery fails closed, stop writers and use `thingd db compact
+--path` or `thingd db repack` into a new destination.
 
 ### How large can datasets grow before performance degrades?
 

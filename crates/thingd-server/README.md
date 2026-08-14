@@ -63,6 +63,10 @@ Configure via environment variables or a YAML config file pointed at by `THINGD_
 | `THINGD_ENCRYPTION_KEY` | — | optional 64-character hexadecimal key for encrypted persistent storage |
 | `THINGD_SEARCH_MODE` | `persistent` | `persistent`, `persistent-no-rebuild`, or `disabled` |
 | `THINGD_JOURNAL_MAX_BYTES` | `33554432` | Soft journal threshold before recovery backpressure |
+| `THINGD_RECOVERY_BATCH_SIZE` | `32` | Maximum records per recovery batch |
+| `THINGD_RECOVERY_PAUSE_MS` | `50` | Yield interval between recovery batches |
+| `THINGD_RECOVERY_MAX_RETRIES` | `3` | Maximum automatic search-rebuild retries |
+| `THINGD_RECOVERY_MEMORY_LIMIT_BYTES` | — | Optional resident-memory ceiling |
 | `THINGD_AUTH_TOKEN` | — | Bearer token for authenticated requests |
 | `THINGD_ALLOW_UNAUTHENTICATED` | `false` | Skip auth entirely |
 | `THINGD_MCP_MAX_OBJECT_SIZE` | `1 MB` | Max object size for MCP puts |
@@ -91,6 +95,21 @@ asynchronous search rebuild or primary journal compaction it returns `503` with
 `Retry-After: 1`; search uses the bounded fallback scan and writes are paused.
 Mutation clients should retry the response with bounded backoff rather than
 restarting the server, especially on hosts with around 1 GB RAM.
+
+Startup is staged: primary storage is recovered and compacted before Tantivy
+rebuild begins. `/ready` remains unavailable until both phases finish. Reads
+can use fallback scanning while writes receive `503` and must be retried after
+the advertised delay. If bounded recovery fails, stop writers and run an
+offline maintenance command:
+
+```bash
+thingd-server --compact /data/thingd.db
+thingd-server --repack /data/thingd.db --destination /data/thingd-repacked.db
+```
+
+`--compact` requires exclusive access and preserves the native store. `--repack`
+is an explicit logical migration into a fresh destination; it is not automatic
+native-format conversion and never overwrites the source or destination.
 
 For hosts with less than 2 GB RAM, prefer a separate standalone server over
 HTTP rather than embedding the native store in the application process.

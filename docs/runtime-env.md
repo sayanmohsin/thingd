@@ -22,6 +22,10 @@ THINGD_DRIVER=native
 THINGD_ENCRYPTION_KEY=<64 hexadecimal characters>
 THINGD_SEARCH_MODE=persistent
 THINGD_JOURNAL_MAX_BYTES=33554432
+THINGD_RECOVERY_BATCH_SIZE=32
+THINGD_RECOVERY_PAUSE_MS=50
+THINGD_RECOVERY_MAX_RETRIES=3
+THINGD_RECOVERY_MEMORY_LIMIT_BYTES=<optional bytes>
 THINGD_NATIVE_MAX_PAYLOAD_BYTES=<optional bytes>
 THINGD_NATIVE_MAX_BATCH_ITEMS=<optional count>
 ```
@@ -35,10 +39,11 @@ not put it in source control, container image layers, MCP configuration, URLs,
 or request payloads. Memory and cloud drivers reject this local option rather
 than ignoring it. Changing the value does not rotate an existing database.
 
-`THINGD_SEARCH_MODE=persistent` opens the primary store immediately and
-rebuilds missing or incompatible Tantivy state asynchronously. During storage
-recovery, search uses the bounded fallback scan, `/ready` returns `503`, and
-writes return `503` with `Retry-After: 1`. `persistent-no-rebuild` opens only an already
+`THINGD_SEARCH_MODE=persistent` uses staged startup: it opens primary storage
+without Tantivy, compacts primary storage, then rebuilds missing or incompatible
+Tantivy state with bounded batches and pauses. During storage recovery, search
+uses the bounded fallback scan, `/ready` returns `503`, and writes return `503`
+with `Retry-After: 1`. `persistent-no-rebuild` opens only an already
 compatible index and permanently uses fallback search when one is unavailable.
 `disabled` avoids opening Tantivy entirely. For hosts with less than 2 GB RAM,
 prefer a separate standalone thingd-server over HTTP.
@@ -47,6 +52,10 @@ On small instances, start the sidecar before write-heavy clients and wait for
 `/ready`. Catalog seeders and other mutation clients must retry `503` responses
 according to `Retry-After: 1`; restarting thingd in response to those responses
 can restart recovery and increase resource pressure.
+The defaults are conservative for approximately 1 GB hosts. A configured
+memory ceiling fails recovery closed instead of allowing the process to thrash.
+After failed recovery, stop writers and use `thingd db compact --path <path>`
+or `thingd db repack --path <source> --destination <destination>`.
 
 `THINGD_NATIVE_MAX_PAYLOAD_BYTES` optionally bounds JSON batch payloads passed
 through the embedded native binding. It is unset by default for compatibility;

@@ -99,7 +99,7 @@ pub use replication::{
     ReplicationService, ReplicationSnapshot, ReplicationStatus,
 };
 pub use store::{
-    AggregateStore, EventLog, LinkStore, ObjectStore, QueueStore, RetentionOptions,
+    AggregateStore, EventLog, LinkStore, ObjectStore, QueueStore, RecoveryBudget, RetentionOptions,
     RetentionReport, SchemaStore, Searcher, StorageDiagnostics, StorageMaintenanceStatus,
     ThingStore, VectorStore,
 };

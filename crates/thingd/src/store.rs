@@ -44,6 +44,16 @@ pub struct StorageMaintenanceStatus {
     pub retry_count: u64,
     /// Last maintenance error, when recovery is degraded or failed.
     pub error: Option<String>,
+    /// Current recovery phase, such as `primary`, `search`, or `complete`.
+    pub phase: String,
+    /// Number of records processed by the current recovery phase.
+    pub processed: u64,
+    /// Total records observed by the current recovery phase.
+    pub total: u64,
+    /// Current primary journal bytes.
+    pub journal_bytes: u64,
+    /// Current retained journal count.
+    pub journal_count: u64,
 }
 
 impl Default for StorageMaintenanceStatus {
@@ -53,8 +63,27 @@ impl Default for StorageMaintenanceStatus {
             generation: 0,
             retry_count: 0,
             error: None,
+            phase: "complete".to_string(),
+            processed: 0,
+            total: 0,
+            journal_bytes: 0,
+            journal_count: 0,
         }
     }
+}
+
+/// Bounded work budget used by background storage recovery.
+#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecoveryBudget {
+    /// Maximum records processed per search-rebuild batch.
+    pub batch_size: usize,
+    /// Milliseconds to yield between batches.
+    pub pause_ms: u64,
+    /// Maximum automatic retries after a degraded rebuild.
+    pub max_retries: u64,
+    /// Optional resident-memory ceiling in bytes.
+    pub memory_limit_bytes: Option<u64>,
 }
 
 /// Explicit retention request. No records are deleted when `dry_run` is true.
@@ -799,6 +828,21 @@ pub trait ThingStore:
     + VectorStore
     + SchemaStore
 {
+    /// Return the configured bounded recovery budget.
+    fn recovery_budget(&self) -> crate::RecoveryBudget {
+        crate::RecoveryBudget {
+            batch_size: 32,
+            pause_ms: 50,
+            max_retries: 3,
+            memory_limit_bytes: None,
+        }
+    }
+
+    /// Mark recovery failed without dropping durable data.
+    fn fail_storage_recovery(&mut self, message: String) {
+        let _ = message;
+    }
+
     /// Return whether the adapter has an asynchronous derived search rebuild
     /// that should be progressed by the hosting runtime.
     fn search_rebuild_required(&self) -> bool {
@@ -865,6 +909,14 @@ impl ThingStore for crate::MemoryEngine {}
 
 #[cfg(feature = "persistent")]
 impl ThingStore for crate::PersistentEngine {
+    fn recovery_budget(&self) -> crate::RecoveryBudget {
+        self.recovery_budget()
+    }
+
+    fn fail_storage_recovery(&mut self, message: String) {
+        self.fail_storage_recovery(message);
+    }
+
     fn search_rebuild_required(&self) -> bool {
         self.search_rebuild_required()
     }

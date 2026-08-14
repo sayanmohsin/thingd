@@ -50,7 +50,17 @@ returns to `idle`; reads use the bounded fallback search where necessary.
 {
   "data": {
     "status": "ready",
-    "maintenance": { "state": "idle", "generation": 2, "retryCount": 0, "error": null },
+    "maintenance": {
+      "state": "rebuilding_search",
+      "phase": "search",
+      "generation": 2,
+      "processed": 128,
+      "total": 1000,
+      "journalBytes": 1048576,
+      "journalCount": 1,
+      "retryCount": 0,
+      "error": null
+    },
     "degradedSearch": true,
     "search": {
       "state": "rebuilding",
@@ -85,6 +95,11 @@ curl http://localhost:8757/v1/health
 Returns bounded storage counts for objects, events, links, queues, active jobs,
 and dead-letter jobs without returning stored records. It also reports
 `storage.journalBytes`, `storage.journalCount`, and the `maintenance` state.
+Maintenance also reports `phase`, `generation`, `processed`, `total`,
+`retryCount`, and the last `error`. The state is `idle`, `rebuilding_search`,
+`compacting`, `degraded`, or `failed`. Readiness is strict: it returns `503`
+until primary recovery and search rebuild are complete. Clients must treat
+mutation `503` responses as retryable and honor `Retry-After: 1`.
 
 ### `POST /admin/retention`
 
