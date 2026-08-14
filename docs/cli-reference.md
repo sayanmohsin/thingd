@@ -161,6 +161,7 @@ same key to restore. JSON snapshots and logical exports are decrypted data.
 ```txt
 thingd db checkpoint
 thingd db compact [--path /path/to/thingd.db]
+thingd db repack --path /path/to/source --destination /path/to/destination
 thingd db integrity
 thingd db backup --out /path/to/backup.tar [--path /path/to/thingd.db]
 thingd db restore --in /path/to/backup.tar --destination /path/to/thingd.db [--replace]
@@ -169,11 +170,19 @@ thingd db reencrypt --source <path> --destination <path> [--allow-plaintext-outp
 
 - `checkpoint` — Flushes pending native persistent writes before a directory backup
 - `compact` — Flushes and compacts the primary native keyspaces; stop application writers first
+- `repack` — Exports a bounded logical snapshot into a new validated native store; the source is retained and the destination must not exist
 - `integrity` — Checks database accessibility and reports status
 - `backup` — Checkpoints and closes a local native database, then creates a tar archive of the complete directory. The source must not be open by another process.
 - `restore` — Validates a Thingd tar archive and atomically restores it into a new destination. Existing destinations require `--replace`.
 - `reencrypt` — Copies logical records into a new destination for migration or
   key rotation without modifying the source
+
+The standalone server exposes equivalent offline operations as
+`thingd-server --compact <path>` and
+`thingd-server --repack <source> --destination <path>`. Both forms require
+exclusive access. Compaction reduces physical journal pressure; repacking is a
+separate logical migration for stores whose journal is already too large for a
+safe in-place recovery.
 
 `THINGD_ENCRYPTION_KEY` supplies the normal native database key.
 `THINGD_ENCRYPTION_SOURCE_KEY` and `THINGD_ENCRYPTION_DESTINATION_KEY` supply

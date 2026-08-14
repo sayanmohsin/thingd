@@ -13,6 +13,12 @@ server:
   search_mode: persistent
   # Thingd soft journal threshold; writes pause while recovery compacts storage.
   journal_max_bytes: 33554432
+  # Conservative recovery budget for small hosts.
+  recovery_batch_size: 32
+  recovery_pause_ms: 50
+  recovery_max_retries: 3
+  # Optional resident-memory ceiling in bytes.
+  recovery_memory_limit_bytes: null
   # Request timeout in seconds
   request_timeout_secs: 30
   # Maximum concurrent connections

@@ -79,6 +79,10 @@ pub struct PersistentEngine {
     #[cfg(feature = "search")]
     search_rebuild_path: Option<PathBuf>,
     maintenance: StorageMaintenanceStatus,
+    recovery_batch_size: usize,
+    recovery_pause_ms: u64,
+    recovery_max_retries: u64,
+    recovery_memory_limit_bytes: Option<u64>,
     #[cfg(feature = "vectors")]
     vectors: Keyspace,
     codec: Box<dyn StorageCodec>,
@@ -137,6 +141,8 @@ pub enum PersistentSearchMode {
     /// Open the primary store immediately and rebuild a missing or incompatible
     /// search index incrementally through the server's background maintenance loop.
     PersistentAsync,
+    /// Open only primary storage, then rebuild search after startup maintenance.
+    PersistentRecovery,
     /// Open a compatible Tantivy index but do not create or rebuild one.
     PersistentNoRebuild,
     /// Do not open or rebuild Tantivy. Search uses the bounded fallback scan.
@@ -368,6 +374,14 @@ pub struct PersistentOpenOptions {
     pub search_mode: PersistentSearchMode,
     /// Maximum Fjall journal budget before maintenance backpressure applies.
     pub max_journal_bytes: u64,
+    /// Maximum records processed by one search-rebuild step.
+    pub recovery_batch_size: usize,
+    /// Milliseconds to yield between recovery batches.
+    pub recovery_pause_ms: u64,
+    /// Maximum number of automatic recovery retries.
+    pub recovery_max_retries: u64,
+    /// Optional resident-memory ceiling for recovery, in bytes.
+    pub recovery_memory_limit_bytes: Option<u64>,
 }
 
 impl Default for PersistentOpenOptions {
@@ -377,6 +391,10 @@ impl Default for PersistentOpenOptions {
             allow_plaintext_output: false,
             search_mode: PersistentSearchMode::Persistent,
             max_journal_bytes: DEFAULT_MAX_JOURNAL_BYTES,
+            recovery_batch_size: 32,
+            recovery_pause_ms: 50,
+            recovery_max_retries: MAX_SEARCH_REBUILD_RETRIES,
+            recovery_memory_limit_bytes: None,
         }
     }
 }
@@ -496,7 +514,8 @@ impl PersistentEngine {
             },
             PersistentSearchMode::PersistentNoRebuild if encrypted => (None, false),
             PersistentSearchMode::Persistent => Self::init_search_index(path, true)?,
-            PersistentSearchMode::PersistentAsync => {
+            PersistentSearchMode::PersistentRecovery if encrypted => (None, true),
+            PersistentSearchMode::PersistentAsync | PersistentSearchMode::PersistentRecovery => {
                 let (index, _) = Self::init_search_index(path, false)?;
                 let rebuild = index.is_none();
                 (index, rebuild)
@@ -538,6 +557,8 @@ impl PersistentEngine {
         };
         let initial_compaction_required =
             db.journal_disk_space().unwrap_or_default() > options.max_journal_bytes;
+        let initial_journal_bytes = db.journal_disk_space().unwrap_or_default();
+        let initial_journal_count = db.journal_count() as u64;
 
         let mut engine = Self {
             db,
@@ -581,7 +602,21 @@ impl PersistentEngine {
                 generation: u64::from(initial_rebuild_required),
                 retry_count: 0,
                 error: None,
+                phase: if initial_rebuild_required || initial_compaction_required {
+                    "primary"
+                } else {
+                    "complete"
+                }
+                .to_string(),
+                processed: 0,
+                total: 0,
+                journal_bytes: initial_journal_bytes,
+                journal_count: initial_journal_count,
             },
+            recovery_batch_size: options.recovery_batch_size.max(1),
+            recovery_pause_ms: options.recovery_pause_ms,
+            recovery_max_retries: options.recovery_max_retries,
+            recovery_memory_limit_bytes: options.recovery_memory_limit_bytes,
             #[cfg(feature = "vectors")]
             vectors,
             codec,
@@ -593,7 +628,10 @@ impl PersistentEngine {
 
         #[cfg(feature = "search")]
         if rebuild_search_index {
-            if options.search_mode == PersistentSearchMode::PersistentAsync {
+            if matches!(
+                options.search_mode,
+                PersistentSearchMode::PersistentAsync | PersistentSearchMode::PersistentRecovery
+            ) {
                 return Ok(engine);
             }
             for entry in engine.objects.iter() {
@@ -622,7 +660,36 @@ impl PersistentEngine {
 
     /// Return the current storage maintenance state.
     pub fn storage_maintenance_status(&self) -> StorageMaintenanceStatus {
-        self.maintenance.clone()
+        let mut status = self.maintenance.clone();
+        status.journal_bytes = self.journal_bytes();
+        status.journal_count = self.journal_count();
+        #[cfg(feature = "search")]
+        if let Some(progress) = &self.search_rebuild {
+            status.phase = match &progress.phase {
+                SearchRebuildPhase::Objects | SearchRebuildPhase::Events => "search",
+                SearchRebuildPhase::Replay => "search-replay",
+            }
+            .to_string();
+            status.processed = progress.processed;
+            status.total = progress.total;
+        }
+        status
+    }
+
+    /// Return the bounded recovery work budget.
+    pub const fn recovery_budget(&self) -> crate::RecoveryBudget {
+        crate::RecoveryBudget {
+            batch_size: self.recovery_batch_size,
+            pause_ms: self.recovery_pause_ms,
+            max_retries: self.recovery_max_retries,
+            memory_limit_bytes: self.recovery_memory_limit_bytes,
+        }
+    }
+
+    /// Fail recovery closed with an operator-visible error.
+    pub fn fail_storage_recovery(&mut self, message: String) {
+        self.maintenance.state = "failed".to_string();
+        self.maintenance.error = Some(message);
     }
 
     /// Return current Fjall journal bytes.
@@ -638,6 +705,9 @@ impl PersistentEngine {
     /// Persist and compact every primary keyspace.
     pub fn compact_storage(&mut self) -> ThingdResult<()> {
         self.maintenance.state = "compacting".to_string();
+        self.maintenance.phase = "primary".to_string();
+        self.maintenance.processed = 0;
+        self.maintenance.total = 0;
         self.maintenance.error = None;
         let result: ThingdResult<()> = (|| {
             self.db
@@ -671,15 +741,18 @@ impl PersistentEngine {
         })();
         match result {
             Ok(()) => {
-                self.maintenance.state = if self.needs_search_rebuild() {
-                    "rebuilding_search".to_string()
+                if self.needs_search_rebuild() {
+                    self.maintenance.state = "rebuilding_search".to_string();
+                    self.maintenance.phase = "search".to_string();
                 } else {
-                    "idle".to_string()
-                };
+                    self.maintenance.state = "idle".to_string();
+                    self.maintenance.phase = "complete".to_string();
+                }
                 Ok(())
             },
             Err(error) => {
                 self.maintenance.state = "failed".to_string();
+                self.maintenance.phase = "failed".to_string();
                 self.maintenance.error = Some(error.to_string());
                 Err(error)
             },
@@ -866,6 +939,7 @@ impl PersistentEngine {
                             "search rebuild mutation replay exceeded {SEARCH_REBUILD_REPLAY_LIMIT} keys"
                         ));
                         self.maintenance.state = "degraded".to_string();
+                        self.maintenance.phase = "search-replay".to_string();
                         self.maintenance.retry_count =
                             self.maintenance.retry_count.saturating_add(1);
                         return Ok(false);
@@ -881,6 +955,7 @@ impl PersistentEngine {
                     let _ = std::fs::remove_file(self.path.join(".thingd-search-rebuild"));
                     self.maintenance.generation = self.maintenance.generation.saturating_add(1);
                     self.maintenance.state = "idle".to_string();
+                    self.maintenance.phase = "complete".to_string();
                     return Ok(true);
                 },
             }
@@ -898,6 +973,7 @@ impl PersistentEngine {
             Err(error) => {
                 progress.error = Some(error.to_string());
                 self.maintenance.state = "failed".to_string();
+                self.maintenance.phase = "failed".to_string();
                 self.search_rebuild = Some(progress);
                 Err(error)
             },
@@ -908,7 +984,7 @@ impl PersistentEngine {
     #[cfg(feature = "search")]
     pub fn retry_search_rebuild(&mut self) -> bool {
         if self.maintenance.state != "degraded"
-            || self.maintenance.retry_count >= MAX_SEARCH_REBUILD_RETRIES
+            || self.maintenance.retry_count >= self.recovery_max_retries
         {
             return false;
         }
@@ -924,6 +1000,7 @@ impl PersistentEngine {
         self.search_rebuild_required = true;
         self.maintenance.generation = self.maintenance.generation.saturating_add(1);
         self.maintenance.state = "rebuilding_search".to_string();
+        self.maintenance.phase = "search".to_string();
         self.maintenance.error = None;
         true
     }
@@ -1109,6 +1186,64 @@ impl PersistentEngine {
         result.map_err(|error: ThingdError| {
             ThingdError::EncryptionMigration(format!("logical database copy failed: {error}"))
         })
+    }
+
+    /// Repack a persistent database into a fresh native directory.
+    ///
+    /// Repacking is an explicit logical migration. It preserves primary
+    /// records and their assigned identifiers, versions, sequences, queue
+    /// state, links, schemas, migrations, and vectors while discarding journal
+    /// history and derived search state.
+    pub fn repack_to(
+        source_path: impl AsRef<Path>,
+        destination_path: impl AsRef<Path>,
+        encryption: Option<EncryptionConfig>,
+    ) -> ThingdResult<()> {
+        let source_path = source_path.as_ref();
+        let destination_path = destination_path.as_ref();
+        if source_path == destination_path {
+            return Err(ThingdError::InvalidInput(
+                "source and destination paths must differ".to_string(),
+            ));
+        }
+        if destination_path.exists() {
+            return Err(ThingdError::Conflict(
+                "repack destination already exists".to_string(),
+            ));
+        }
+        let parent = destination_path.parent().unwrap_or_else(|| Path::new("."));
+        std::fs::create_dir_all(parent)
+            .map_err(|error| ThingdError::Storage(format!("create repack parent: {error}")))?;
+        let temp_path = parent.join(format!(
+            ".{}.repack-{}",
+            destination_path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or("thingd"),
+            std::process::id()
+        ));
+        if temp_path.exists() {
+            return Err(ThingdError::Conflict(
+                "repack temporary destination already exists".to_string(),
+            ));
+        }
+
+        let options = PersistentOpenOptions {
+            encryption,
+            search_mode: PersistentSearchMode::Disabled,
+            ..PersistentOpenOptions::default()
+        };
+        let result = Self::reencrypt_to(source_path, &temp_path, options.clone(), options)
+            .and_then(|()| {
+                Self::validate_path(&temp_path)?;
+                std::fs::rename(&temp_path, destination_path).map_err(|error| {
+                    ThingdError::Storage(format!("promote repacked database: {error}"))
+                })
+            });
+        if result.is_err() {
+            let _ = std::fs::remove_dir_all(&temp_path);
+        }
+        result
     }
 
     #[cfg(feature = "search")]
@@ -3968,6 +4103,48 @@ mod tests {
 
     #[cfg(feature = "search")]
     #[test]
+    fn recovery_search_mode_defers_index_creation_until_maintenance() {
+        let dir = tempfile::tempdir().unwrap();
+        let engine = PersistentEngine::open_with_options(
+            dir.path(),
+            PersistentOpenOptions {
+                search_mode: PersistentSearchMode::PersistentRecovery,
+                ..PersistentOpenOptions::default()
+            },
+        )
+        .unwrap();
+        assert!(engine.search_rebuild_required());
+        assert!(!dir.path().join("search").exists());
+        assert_eq!(
+            engine.storage_maintenance_status().state,
+            "rebuilding_search"
+        );
+    }
+
+    #[cfg(feature = "search")]
+    #[test]
+    fn recovery_search_mode_reuses_compatible_index_without_rebuilding() {
+        let dir = tempfile::tempdir().unwrap();
+        {
+            let mut engine = PersistentEngine::open(dir.path()).unwrap();
+            engine
+                .put_object(MemoryObject::new("notes", "one", r#"{"text":"ready"}"#))
+                .unwrap();
+        }
+        let engine = PersistentEngine::open_with_options(
+            dir.path(),
+            PersistentOpenOptions {
+                search_mode: PersistentSearchMode::PersistentRecovery,
+                ..PersistentOpenOptions::default()
+            },
+        )
+        .unwrap();
+        assert!(!engine.search_rebuild_required());
+        assert_eq!(engine.storage_maintenance_status().state, "idle");
+    }
+
+    #[cfg(feature = "search")]
+    #[test]
     fn async_search_rebuild_interleaves_writes_and_replays_mutations() {
         let dir = tempfile::tempdir().unwrap();
         {
@@ -4058,6 +4235,46 @@ mod tests {
         engine.compact_storage().unwrap();
         assert_eq!(engine.storage_maintenance_status().state, "idle");
         assert!(engine.journal_count() >= 1);
+    }
+
+    #[test]
+    fn repack_preserves_primary_records_and_rejects_overwrite() {
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("source");
+        let destination = dir.path().join("destination");
+        let mut engine = PersistentEngine::open_with_options(
+            &source,
+            PersistentOpenOptions {
+                search_mode: PersistentSearchMode::Disabled,
+                ..PersistentOpenOptions::default()
+            },
+        )
+        .unwrap();
+        let object = MemoryObject::new("notes", "one", r#"{"text":"hello"}"#);
+        let stored_object = engine.put_object(object).unwrap();
+        engine
+            .append_event(MemoryEvent::new("audit", "created", r#"{"id":"one"}"#))
+            .unwrap();
+        drop(engine);
+
+        PersistentEngine::repack_to(&source, &destination, None).unwrap();
+        let repacked = PersistentEngine::open_with_options(
+            &destination,
+            PersistentOpenOptions {
+                search_mode: PersistentSearchMode::Disabled,
+                ..PersistentOpenOptions::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            repacked.get_object("notes", "one").unwrap(),
+            Some(stored_object)
+        );
+        assert_eq!(repacked.count_events().unwrap(), 1);
+        assert!(matches!(
+            PersistentEngine::repack_to(&source, &destination, None),
+            Err(ThingdError::Conflict(message)) if message.contains("already exists")
+        ));
     }
 
     #[test]

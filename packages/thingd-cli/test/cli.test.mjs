@@ -8,6 +8,14 @@ test("prints help", async () => {
 
   assert.equal(result.code, 0);
   assert.match(result.stdout, /Admin and operator CLI/);
+  assert.match(result.stdout, /thingd db repack --path <source> --destination <path>/);
+});
+
+test("requires a destination for native database repack", async () => {
+  const result = await run(["db", "repack", "--path", "/tmp/source.db"]);
+
+  assert.equal(result.code, 1);
+  assert.match(result.stderr, /db repack requires --path <source> and --destination <path>/);
 });
 
 test("prints local status", async () => {

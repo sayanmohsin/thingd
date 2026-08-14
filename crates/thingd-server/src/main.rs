@@ -41,6 +41,48 @@ fn check_path_from_args() -> Option<PathBuf> {
     None
 }
 
+fn value_from_args(flag: &str) -> Option<PathBuf> {
+    let mut args = std::env::args().skip(1);
+    while let Some(arg) = args.next() {
+        if arg == flag {
+            return args.next().map(PathBuf::from);
+        }
+        if let Some(path) = arg.strip_prefix(&format!("{flag}=")) {
+            return Some(PathBuf::from(path));
+        }
+    }
+    None
+}
+
+fn parse_encryption_key(value: Option<&str>) -> Result<Option<thingd::EncryptionConfig>, String> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+    if value.len() != 64 {
+        return Err("encryption key must contain 64 hexadecimal characters".to_string());
+    }
+    let bytes = (0..value.len())
+        .step_by(2)
+        .map(|index| {
+            u8::from_str_radix(&value[index..index + 2], 16)
+                .map_err(|_| "encryption key must contain hexadecimal characters".to_string())
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    thingd::EncryptionConfig::from_key(&bytes)
+        .map(Some)
+        .map_err(|error| error.to_string())
+}
+
+fn maintenance_command() -> Option<&'static str> {
+    if std::env::args().any(|arg| arg == "--compact" || arg.starts_with("--compact=")) {
+        Some("compact")
+    } else if std::env::args().any(|arg| arg == "--repack" || arg.starts_with("--repack=")) {
+        Some("repack")
+    } else {
+        None
+    }
+}
+
 #[cfg(not(unix))]
 async fn shutdown_signal() {
     tokio::signal::ctrl_c().await.ok();
@@ -85,6 +127,64 @@ async fn main() {
             std::process::exit(1);
         });
 
+    if let Some(command) = maintenance_command() {
+        let key =
+            parse_encryption_key(config.server.encryption_key.as_deref()).unwrap_or_else(|e| {
+                eprintln!("Encryption configuration error: {e}");
+                std::process::exit(1);
+            });
+        if command == "compact" {
+            let Some(path) = value_from_args("--compact") else {
+                eprintln!("Usage: thingd-server --compact <database-path>");
+                std::process::exit(2);
+            };
+            let options = thingd::PersistentOpenOptions {
+                encryption: key,
+                search_mode: thingd::PersistentSearchMode::Disabled,
+                ..thingd::PersistentOpenOptions::default()
+            };
+            match thingd::PersistentEngine::open_with_options(&path, options) {
+                Ok(mut engine) => match engine.compact_storage() {
+                    Ok(()) => {
+                        println!(
+                            "OK: compacted path={} journal_bytes={} journal_count={}",
+                            path.display(),
+                            engine.journal_bytes(),
+                            engine.journal_count()
+                        );
+                    },
+                    Err(error) => {
+                        eprintln!("ERROR: compaction failed: {error}");
+                        std::process::exit(1);
+                    },
+                },
+                Err(error) => {
+                    eprintln!("ERROR: unable to open database exclusively: {error}");
+                    std::process::exit(1);
+                },
+            }
+        } else {
+            let Some(source) = value_from_args("--repack") else {
+                eprintln!("Usage: thingd-server --repack <source> --destination <path>");
+                std::process::exit(2);
+            };
+            let Some(destination) = value_from_args("--destination") else {
+                eprintln!("Usage: thingd-server --repack <source> --destination <path>");
+                std::process::exit(2);
+            };
+            if let Err(error) = thingd::PersistentEngine::repack_to(&source, &destination, key) {
+                eprintln!("ERROR: repack failed: {error}");
+                std::process::exit(1);
+            }
+            println!(
+                "OK: repacked source={} destination={}",
+                source.display(),
+                destination.display()
+            );
+        }
+        return;
+    }
+
     // Set global production mode for error sanitization
     error::set_production_mode(config.server.production_mode);
 
@@ -105,12 +205,12 @@ async fn main() {
     }
 
     let pool = Arc::new(
-        engine::EnginePool::new_with_encryption_key_search_mode_and_journal_limit(
+        engine::EnginePool::new_with_encryption_key_search_mode_journal_limit_and_recovery_budget(
             config.server.database.clone(),
             config.server.encryption_key.as_deref(),
             match config.server.search_mode {
                 config::SearchModeConfig::Persistent => {
-                    thingd::PersistentSearchMode::PersistentAsync
+                    thingd::PersistentSearchMode::PersistentRecovery
                 },
                 config::SearchModeConfig::PersistentNoRebuild => {
                     thingd::PersistentSearchMode::PersistentNoRebuild
@@ -118,6 +218,10 @@ async fn main() {
                 config::SearchModeConfig::Disabled => thingd::PersistentSearchMode::Disabled,
             },
             config.server.journal_max_bytes,
+            config.server.recovery_batch_size,
+            config.server.recovery_pause_ms,
+            config.server.recovery_max_retries,
+            config.server.recovery_memory_limit_bytes,
         )
         .unwrap_or_else(|e| {
             eprintln!("Encryption configuration error: {e}");
