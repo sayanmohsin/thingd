@@ -13,6 +13,13 @@
 - server: harden security boundaries (0961ffe)
 - complete public SDK type exports (8a8889a)
 
+## [0.83.0](https://github.com/sayanmohsin/thingd/compare/thingd-v0.82.1...thingd-v0.83.0) (2026-08-14)
+
+
+### Features
+
+* replace Fjall with embedded RocksDB ([#149](https://github.com/sayanmohsin/thingd/issues/149)) ([bb73e60](https://github.com/sayanmohsin/thingd/commit/bb73e6023c826b43fb4b35071198773648716915))
+
 ## [0.82.1](https://github.com/sayanmohsin/thingd/compare/thingd-v0.82.0...thingd-v0.82.1) (2026-08-14)
 
 
