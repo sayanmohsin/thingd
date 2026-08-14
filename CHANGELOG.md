@@ -13,6 +13,13 @@
 - server: harden security boundaries (0961ffe)
 - complete public SDK type exports (8a8889a)
 
+## [0.82.1](https://github.com/sayanmohsin/thingd/compare/thingd-v0.82.0...thingd-v0.82.1) (2026-08-14)
+
+
+### Bug Fixes
+
+* bound large-journal recovery on tiny instances ([#147](https://github.com/sayanmohsin/thingd/issues/147)) ([aee2e15](https://github.com/sayanmohsin/thingd/commit/aee2e15e225aba0d9c5f81ec1c4f1bdce01277c3))
+
 ## [0.82.0](https://github.com/sayanmohsin/thingd/compare/thingd-v0.81.0...thingd-v0.82.0) (2026-08-14)
 
 
