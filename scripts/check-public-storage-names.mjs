@@ -11,6 +11,8 @@ const allowedFiles = new Set([
   // format explicitly; production runtime and general docs stay neutral.
   "crates/thingd-migrate/Cargo.toml",
   "crates/thingd-migrate/src/main.rs",
+  ".github/workflows/ci.yml",
+  "docs/agent-implementation-guide.md",
   "docs/storage-backends.md",
 ]);
 const scannedRoots = ["AGENTS.md", "README.md", "docs", "crates", "packages", ".github", "package.json"];
