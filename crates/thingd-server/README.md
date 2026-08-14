@@ -89,6 +89,8 @@ thingd-server --check /data/thingd.db
 `GET /ready` returns `ready` only after storage recovery completes. During an
 asynchronous search rebuild or primary journal compaction it returns `503` with
 `Retry-After: 1`; search uses the bounded fallback scan and writes are paused.
+Mutation clients should retry the response with bounded backoff rather than
+restarting the server, especially on hosts with around 1 GB RAM.
 
 For hosts with less than 2 GB RAM, prefer a separate standalone server over
 HTTP rather than embedding the native store in the application process.

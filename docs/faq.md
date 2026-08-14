@@ -58,6 +58,17 @@ You don't — in-memory mode is ephemeral by design. It exits cleanly for testin
 
 Corruption or incomplete writes can still occur through hardware faults or improper shutdown. Recovery relies on backups and engine reopen/rebuild checks; thingd does not currently provide automatic corruption repair.
 
+### What should I do if a tiny VM has high CPU after a restart?
+
+Use a staged startup: keep write-heavy clients stopped, start thingd, and wait
+for `GET /ready` to return success. During bounded search or storage recovery,
+thingd uses fallback search for safe reads and returns `503` with
+`Retry-After: 1` for mutations. Clients must retry those writes rather than
+restarting the sidecar repeatedly. Check `/v1/diagnostics` for the maintenance
+state and journal metrics. On hosts around 1 GB RAM, standalone HTTP mode and
+small, bounded catalog batches are preferred; `thingd db compact --path` is the
+explicit operator recovery command when readiness does not return.
+
 ### How large can datasets grow before performance degrades?
 
 thingd is designed for small-to-medium datasets (hundreds of MB to low GBs). The persistent backend is intended for multi-GB datasets, and Tantivy BM25 search performs well into millions of rows on modern hardware. Benchmarks publish per-operation latency at small scale; we do not yet have published degradation curves for large datasets.

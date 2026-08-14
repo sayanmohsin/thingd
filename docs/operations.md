@@ -206,6 +206,38 @@ then treated as unavailable rather than rebuilt during startup.
 Standalone HTTP mode is preferred on hosts with less than 2 GB RAM because it
 keeps the database process separate from application and catalog memory.
 
+### Cold-start recovery on tiny instances
+
+The v0.82.0 runtime-sidecar deployment was verified on a shared 1 vCPU,
+approximately 1 GB instance after the v0.80/v0.81 cold-start failure mode had
+previously driven observed CPU from 171% to 828%. The v0.82.0 sidecar remained
+near 0.03% CPU immediately after deployment and the dependent backend returned
+healthy.
+
+For a new deployment, start the sidecar before a write-heavy catalog or seed
+process and wait for readiness:
+
+```bash
+until curl --fail --silent http://127.0.0.1:8757/ready >/dev/null; do
+  sleep 1
+done
+```
+
+During storage recovery, `/ready` returns `503` and mutations return `503`
+with `Retry-After: 1`. Clients that seed or synchronize data must retry those
+responses with bounded backoff; they must not treat them as permanent data
+loss. Reads and fallback search remain available when the primary store is
+healthy. Inspect `/v1/diagnostics` for the maintenance state, journal bytes,
+rebuild generation, retry count, and last error.
+
+If recovery fails, leave the write-heavy client stopped, preserve the database
+directory, and run the explicit operator recovery command after checking that
+no other process holds the database:
+
+```bash
+thingd db compact --path /data/thingd.db
+```
+
 ## Diagnostics and retention
 
 Use the additive diagnostics endpoint to inspect bounded record counts without
@@ -229,7 +261,8 @@ Thingd streams are skipped. Replication records additionally require
 `includeReplication:true` and are pruned only through the minimum active
 replica checkpoint; with no checkpoint they are reported as skipped.
 `compact:true` requests a separate major storage compaction after successful
-deletion; compaction is not run during startup.
+deletion. It is separate from startup recovery compaction, which runs only
+when the sidecar detects pending storage maintenance.
 
 Keep object, event, and queue payloads small. Store large blobs outside Thingd,
 avoid duplicating catalog/provider data, keep only queryable fields, and remove
