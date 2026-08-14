@@ -2872,7 +2872,7 @@ dependencies = [
 
 [[package]]
 name = "thingd"
-version = "0.82.0"
+version = "0.82.1"
 dependencies = [
  "chacha20poly1305",
  "chrono",
@@ -2892,7 +2892,7 @@ dependencies = [
 
 [[package]]
 name = "thingd-native"
-version = "0.82.0"
+version = "0.82.1"
 dependencies = [
  "napi",
  "napi-build",
@@ -2906,7 +2906,7 @@ dependencies = [
 
 [[package]]
 name = "thingd-schema"
-version = "0.82.0"
+version = "0.82.1"
 dependencies = [
  "pest",
  "pest_derive",
@@ -2917,7 +2917,7 @@ dependencies = [
 
 [[package]]
 name = "thingd-server"
-version = "0.82.0"
+version = "0.82.1"
 dependencies = [
  "axum",
  "bytes",
