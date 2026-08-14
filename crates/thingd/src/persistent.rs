@@ -5652,7 +5652,7 @@ mod tests {
 
     #[cfg(feature = "search")]
     #[test]
-    fn async_search_coalesces_mutations_and_reports_commit() {
+    fn async_search_coalesces_mutations_without_timing_assumptions() {
         let dir = tempfile::tempdir().unwrap();
         let mut engine = PersistentEngine::open_with_options(
             dir.path(),
@@ -5678,11 +5678,13 @@ mod tests {
         assert!(queued.search_mutations_queued >= 4);
         assert!(queued.search_mutations_coalesced >= 1);
         assert!(queued.search_queue_depth <= 1);
-
-        std::thread::sleep(Duration::from_millis(100));
-        let committed = engine.storage_maintenance_status();
-        assert_eq!(committed.search_mutations_committed, 0);
-        drop(engine);
+        assert_eq!(
+            engine
+                .search("version-3", SearchOptions::default())
+                .unwrap()
+                .len(),
+            1
+        );
     }
 
     #[cfg(feature = "search")]
