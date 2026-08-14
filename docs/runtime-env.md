@@ -48,6 +48,10 @@ compatible index and permanently uses fallback search when one is unavailable.
 `disabled` avoids opening Tantivy entirely. For hosts with less than 2 GB RAM,
 prefer a separate standalone thingd-server over HTTP.
 
+On small instances, start the sidecar before write-heavy clients and wait for
+`/ready`. Catalog seeders and other mutation clients must retry `503` responses
+according to `Retry-After: 1`; restarting thingd in response to those responses
+can restart recovery and increase resource pressure.
 The defaults are conservative for approximately 1 GB hosts. A configured
 memory ceiling fails recovery closed instead of allowing the process to thrash.
 After failed recovery, stop writers and use `thingd db compact --path <path>`
