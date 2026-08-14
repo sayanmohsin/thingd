@@ -325,7 +325,7 @@ jobs:
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
       - run: pipx install cargo-zigbuild
       - run: |
-          cargo build -p thingd-server --release --target x86_64-unknown-linux-musl
+          cargo zigbuild -p thingd-server --release --target x86_64-unknown-linux-musl
           mkdir -p docker-context
           cp target/x86_64-unknown-linux-musl/release/thingd-server docker-context/thingd-server-amd64
       - run: |
