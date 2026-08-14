@@ -526,6 +526,11 @@ const db = await ThingD.open();
 With `THINGD_URL` set, this uses the remote SDK driver and talks to the local
 sidecar over HTTP REST.
 
+Native and standalone runtimes embed RocksDB directly; no database service or
+database container is required. Memory mode remains process-local. Legacy
+native directories require the explicit offline migration described in
+[Storage backends](./docs/storage-backends.md).
+
 See [docs/mcp-server.md](./docs/mcp-server.md#bridge-mode) for the bridge
 environment, [docs/runtime-env.md](./docs/runtime-env.md) for all env vars, and
 the [deploy](./deploy) examples for Kubernetes and proxy shapes.

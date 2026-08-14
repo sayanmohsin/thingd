@@ -1723,12 +1723,19 @@ pub async fn handle_mcp_request(
             }
             if tool.is_write {
                 let status = state.pool.storage_maintenance_status(&db_path);
-                if status.state != "idle" {
+                let journal_capped = status.journal_limit_bytes > 0
+                    && status.journal_bytes >= status.journal_limit_bytes;
+                if status.state != "idle" || journal_capped {
+                    let reason = if journal_capped {
+                        "journal ceiling reached"
+                    } else {
+                        "storage maintenance is active"
+                    };
                     return Ok(mcp_error(
                         id,
                         -32603,
                         &format!(
-                            "Storage maintenance is {}; retry after recovery completes",
+                            "{reason} (state: {}); retry after recovery completes",
                             status.state
                         ),
                     ));

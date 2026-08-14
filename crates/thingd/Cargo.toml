@@ -15,7 +15,7 @@ exclude = ["examples/"]
 default = ["persistent", "search"]
 search = ["dep:tantivy"]
 persistent = [
-    "dep:fjall",
+    "dep:rocksdb",
     "dep:chacha20poly1305",
     "dep:getrandom",
     "dep:hkdf",
@@ -26,7 +26,7 @@ vectors = []
 connectors = ["dep:csv", "dep:sqlx", "dep:tokio"]
 
 [dependencies]
-fjall = { version = "3.1.8", optional = true }
+rocksdb = { version = "0.24", default-features = false, optional = true }
 tantivy = { version = "0.26.1", optional = true }
 csv = { version = "1.4", optional = true }
 chrono = "0.4.45"

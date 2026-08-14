@@ -54,6 +54,8 @@ pub struct StorageMaintenanceStatus {
     pub journal_bytes: u64,
     /// Current retained journal count.
     pub journal_count: u64,
+    /// Configured journal ceiling; zero means no ceiling for this store.
+    pub journal_limit_bytes: u64,
 }
 
 impl Default for StorageMaintenanceStatus {
@@ -68,6 +70,7 @@ impl Default for StorageMaintenanceStatus {
             total: 0,
             journal_bytes: 0,
             journal_count: 0,
+            journal_limit_bytes: 0,
         }
     }
 }

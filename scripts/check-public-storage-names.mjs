@@ -7,6 +7,11 @@ const allowedFiles = new Set([
   "crates/thingd/Cargo.toml",
   "crates/thingd/src/error.rs",
   "crates/thingd/src/persistent.rs",
+  // The isolated migration tool and its operator guide must name the legacy
+  // format explicitly; production runtime and general docs stay neutral.
+  "crates/thingd-migrate/Cargo.toml",
+  "crates/thingd-migrate/src/main.rs",
+  "docs/storage-backends.md",
 ]);
 const scannedRoots = ["AGENTS.md", "README.md", "docs", "crates", "packages", ".github", "package.json"];
 const textExtensions = new Set([".md", ".json", ".js", ".mjs", ".ts", ".rs", ".toml", ".yaml", ".yml"]);

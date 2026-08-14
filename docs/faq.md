@@ -36,6 +36,13 @@ No. An object write and an event append are separate operations. If you need bot
 
 ## Storage engine and durability
 
+### Does Thingd require a separate database service?
+
+No. Native and standalone deployments embed RocksDB in the Thingd artifact.
+HTTP deployments require a Thingd server process for transport, but do not
+require a PostgreSQL, Redis, RocksDB, or other database container. Memory mode
+remains process-local and non-durable. See [Storage backends](./storage-backends.md).
+
 ### What happens on crash during a queue ack or object write?
 
 persistent-engine write batches provide atomicity for primary object/vector updates. The queue job stays in its pre-operation status (leased or ready) if a durable write is interrupted.

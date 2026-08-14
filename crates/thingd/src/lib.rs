@@ -65,6 +65,8 @@ mod model;
 #[cfg(feature = "persistent")]
 mod persistent;
 pub mod replication;
+#[cfg(feature = "persistent")]
+mod storage_backend;
 mod store;
 
 #[cfg(feature = "connectors")]

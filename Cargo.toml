@@ -1,5 +1,11 @@
 [workspace]
-members = ["crates/thingd", "crates/thingd-schema", "crates/thingd-server", "packages/thingd-native"]
+members = [
+    "crates/thingd",
+    "crates/thingd-schema",
+    "crates/thingd-server",
+    "packages/thingd-native",
+    "crates/thingd-migrate",
+]
 resolver = "2"
 
 [workspace.package]

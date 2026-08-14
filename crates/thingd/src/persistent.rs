@@ -3,7 +3,8 @@
     clippy::missing_errors_doc,
     clippy::match_wildcard_for_single_variants,
     clippy::assigning_clones,
-    clippy::needless_pass_by_value
+    clippy::needless_pass_by_value,
+    clippy::doc_markdown
 )]
 
 use std::collections::HashMap;
@@ -14,7 +15,6 @@ use std::sync::{
     atomic::{AtomicU64, Ordering},
 };
 
-use fjall::{Database, Keyspace, KeyspaceCreateOptions, PersistMode};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -27,6 +27,8 @@ use crate::model::{
     TimeBucket, TimeSeriesBucket, TimeSeriesOptions, TimeSeriesResult,
 };
 use crate::replication::{REPLICATION_STATE_COLLECTION, REPLICATION_STREAM};
+use crate::storage_backend::{Database, Keyspace, KeyspaceCreateOptions, PersistMode};
+use crate::storage_backend::{Guard, Slice};
 use crate::store::{
     AggregateStore, EventLog, LinkStore, ObjectStore, QueueStore, RetentionOptions,
     RetentionReport, Searcher, StorageMaintenanceStatus,
@@ -83,13 +85,14 @@ pub struct PersistentEngine {
     recovery_pause_ms: u64,
     recovery_max_retries: u64,
     recovery_memory_limit_bytes: Option<u64>,
+    max_journal_bytes: u64,
     #[cfg(feature = "vectors")]
     vectors: Keyspace,
     codec: Box<dyn StorageCodec>,
 }
 
 const STORAGE_FORMAT_VERSION: u32 = 1;
-const STORAGE_CONTRACT: &str = "fjall-tantivy-v1";
+const STORAGE_CONTRACT: &str = "rocksdb-tantivy-v1";
 const STORAGE_MANIFEST_FILE: &str = ".thingd-storage.json";
 const STORAGE_LOCK_FILE: &str = "lock";
 const STORAGE_KEYSPACES_DIR: &str = "keyspaces";
@@ -97,7 +100,6 @@ const STORAGE_KEYSPACES_DIR: &str = "keyspaces";
 // previous 50 MB budget while remaining valid for the current Tantivy release.
 const SEARCH_WRITER_MEMORY_BYTES: usize = 15_000_000;
 const DEFAULT_MAX_JOURNAL_BYTES: u64 = 32 * 1024 * 1024;
-const FJALL_MIN_JOURNAL_BYTES: u64 = 64 * 1024 * 1024;
 const MAX_SEARCH_REBUILD_RETRIES: u64 = 3;
 type UniqueIndexCache = HashMap<(String, String, String), ObjectKey>;
 
@@ -199,7 +201,7 @@ enum SearchReplayMutation {
 #[cfg(feature = "search")]
 const SEARCH_REBUILD_REPLAY_LIMIT: usize = 100_000;
 
-/// Result of validating a native storage directory without opening Fjall.
+/// Result of validating a native RocksDB storage directory without opening it.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StorageValidationReport {
     /// Current Thingd storage format version.
@@ -272,15 +274,21 @@ fn validate_existing_directory(path: &Path) -> ThingdResult<Option<StorageValida
         return Ok(None);
     }
 
-    let lock_present = path.join(STORAGE_LOCK_FILE).is_file();
-    if !lock_present {
+    let lock_present = path.join(STORAGE_LOCK_FILE).is_file() || path.join("LOCK").is_file();
+    let rocksdb_layout = path.join("CURRENT").is_file();
+    if rocksdb_layout && !manifest_path_exists(path) {
+        return Err(ThingdError::UnsupportedStorageFormat(
+            "RocksDB directory is missing the Thingd storage manifest".to_string(),
+        ));
+    }
+    if !lock_present && !rocksdb_layout {
         return Err(ThingdError::StorageValidation(format!(
             "missing required lock file: {}",
             path.join(STORAGE_LOCK_FILE).display()
         )));
     }
 
-    let keyspaces_present = path.join(STORAGE_KEYSPACES_DIR).is_dir();
+    let keyspaces_present = path.join(STORAGE_KEYSPACES_DIR).is_dir() || rocksdb_layout;
     if !keyspaces_present {
         return Err(ThingdError::UnsupportedStorageFormat(format!(
             "missing keyspaces directory: {}",
@@ -326,8 +334,26 @@ fn validate_existing_directory(path: &Path) -> ThingdResult<Option<StorageValida
         }));
     }
 
-    // Stores created before the manifest was introduced are accepted after the
-    // structural checks above and receive a manifest during the normal open.
+    if path.join(STORAGE_KEYSPACES_DIR).is_dir()
+        || std::fs::read_dir(path)
+            .ok()
+            .into_iter()
+            .flatten()
+            .flatten()
+            .any(|entry| {
+                entry
+                    .path()
+                    .extension()
+                    .is_some_and(|extension| extension == "jnl")
+            })
+    {
+        return Err(ThingdError::UnsupportedStorageFormat(
+            "legacy Fjall storage requires explicit migration with thingd-migrate".to_string(),
+        ));
+    }
+
+    // An otherwise empty directory is a valid new RocksDB destination and
+    // receives a manifest during the normal open.
     Ok(Some(StorageValidationReport {
         format_version: STORAGE_FORMAT_VERSION,
         legacy_manifest: true,
@@ -335,6 +361,10 @@ fn validate_existing_directory(path: &Path) -> ThingdResult<Option<StorageValida
         keyspaces_present,
         search_index_compatible: search_index_compatible(path),
     }))
+}
+
+fn manifest_path_exists(path: &Path) -> bool {
+    path.join(STORAGE_MANIFEST_FILE).is_file()
 }
 
 fn write_or_validate_manifest(
@@ -372,7 +402,7 @@ pub struct PersistentOpenOptions {
     pub allow_plaintext_output: bool,
     /// Controls whether the persistent Tantivy index is opened.
     pub search_mode: PersistentSearchMode,
-    /// Maximum Fjall journal budget before maintenance backpressure applies.
+    /// Maximum RocksDB WAL budget before maintenance backpressure applies.
     pub max_journal_bytes: u64,
     /// Maximum records processed by one search-rebuild step.
     pub recovery_batch_size: usize,
@@ -407,16 +437,15 @@ struct StoredVector {
     vector: Vec<f32>,
 }
 
-fn value_to_vec(v: Option<fjall::Slice>) -> Option<Vec<u8>> {
+fn value_to_vec(v: Option<Slice>) -> Option<Vec<u8>> {
     v.map(|c| c.to_vec())
 }
 
 impl PersistentEngine {
     /// Open or create a Persistent database at the given path.
     /// Creates all required keyspaces (partitions) on first open.
-    pub fn open(path: impl AsRef<Path>) -> Result<Self, fjall::Error> {
+    pub fn open(path: impl AsRef<Path>) -> ThingdResult<Self> {
         Self::open_with_options(path, PersistentOpenOptions::default())
-            .map_err(|error| fjall::Error::Io(std::io::Error::other(error.to_string())))
     }
 
     /// Open a persistent database with explicit options.
@@ -430,7 +459,7 @@ impl PersistentEngine {
         let codec = make_codec(crypto);
         let encrypted = codec.encrypted();
         let db = Database::builder(path)
-            .max_journaling_size(options.max_journal_bytes.max(FJALL_MIN_JOURNAL_BYTES))
+            .max_journaling_size(options.max_journal_bytes)
             .open()?;
 
         let objects = db.keyspace("objects", KeyspaceCreateOptions::default)?;
@@ -612,11 +641,13 @@ impl PersistentEngine {
                 total: 0,
                 journal_bytes: initial_journal_bytes,
                 journal_count: initial_journal_count,
+                journal_limit_bytes: options.max_journal_bytes,
             },
             recovery_batch_size: options.recovery_batch_size.max(1),
             recovery_pause_ms: options.recovery_pause_ms,
             recovery_max_retries: options.recovery_max_retries,
             recovery_memory_limit_bytes: options.recovery_memory_limit_bytes,
+            max_journal_bytes: options.max_journal_bytes,
             #[cfg(feature = "vectors")]
             vectors,
             codec,
@@ -663,6 +694,7 @@ impl PersistentEngine {
         let mut status = self.maintenance.clone();
         status.journal_bytes = self.journal_bytes();
         status.journal_count = self.journal_count();
+        status.journal_limit_bytes = self.max_journal_bytes;
         #[cfg(feature = "search")]
         if let Some(progress) = &self.search_rebuild {
             status.phase = match &progress.phase {
@@ -692,12 +724,12 @@ impl PersistentEngine {
         self.maintenance.error = Some(message);
     }
 
-    /// Return current Fjall journal bytes.
+    /// Return current RocksDB WAL bytes.
     pub fn journal_bytes(&self) -> u64 {
         self.db.journal_disk_space().unwrap_or_default()
     }
 
-    /// Return the number of Fjall journals retained by the database.
+    /// Return the number of RocksDB WAL files retained by the database.
     pub fn journal_count(&self) -> u64 {
         self.db.journal_count() as u64
     }
@@ -1010,14 +1042,14 @@ impl PersistentEngine {
         false
     }
 
-    /// Validate a native storage directory without opening Fjall or mutating files.
+    /// Validate a native storage directory without opening RocksDB or mutating files.
     pub fn validate_path(path: impl AsRef<Path>) -> ThingdResult<StorageValidationReport> {
         validate_existing_directory(path.as_ref())?.ok_or_else(|| {
             ThingdError::StorageValidation("database directory does not exist yet".to_string())
         })
     }
 
-    /// Persist all pending Fjall journal state before an offline directory copy.
+    /// Persist all pending RocksDB WAL state before an offline directory copy.
     pub fn checkpoint(&self) -> ThingdResult<()> {
         self.db
             .persist(PersistMode::SyncAll)
@@ -1287,7 +1319,7 @@ impl PersistentEngine {
 
         // A Tantivy index is derived state. If an older SDK wrote an
         // incompatible schema (for example without `doc_key`), discard only
-        // that derived directory and rebuild it from Fjall records. Never let
+        // that derived directory and rebuild it from durable records. Never let
         // a schema mismatch panic or make the primary database unreadable.
         if let Ok(index) = tantivy::Index::open_in_dir(&search_dir)
             && Self::search_schema_is_compatible(&index.schema())
@@ -1736,7 +1768,7 @@ impl PersistentEngine {
     }
 }
 
-fn guard_data(kv: fjall::Guard) -> ThingdResult<(Vec<u8>, Vec<u8>)> {
+fn guard_data(kv: Guard) -> ThingdResult<(Vec<u8>, Vec<u8>)> {
     let kv = kv.into_inner()?;
     let key = kv.0.to_vec();
     let val = kv.1.to_vec();
@@ -4035,6 +4067,20 @@ mod tests {
         assert!(matches!(
             result,
             Err(ThingdError::StorageValidation(message)) if message.contains("lock")
+        ));
+    }
+
+    #[test]
+    fn validation_rejects_legacy_fjall_directory_for_rocksdb_runtime() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(dir.path().join(STORAGE_KEYSPACES_DIR)).unwrap();
+        std::fs::write(dir.path().join(STORAGE_LOCK_FILE), []).unwrap();
+        std::fs::write(dir.path().join("0.jnl"), []).unwrap();
+        let result = PersistentEngine::validate_path(dir.path());
+        assert!(matches!(
+            result,
+            Err(ThingdError::UnsupportedStorageFormat(message))
+                if message.contains("legacy Fjall")
         ));
     }
 

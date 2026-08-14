@@ -35,6 +35,13 @@ pub enum ThingdError {
     EncryptionMigration(String),
 }
 
+#[cfg(feature = "persistent")]
+impl From<crate::storage_backend::Error> for ThingdError {
+    fn from(error: crate::storage_backend::Error) -> Self {
+        Self::Storage(error.to_string())
+    }
+}
+
 impl Display for ThingdError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> FormatResult {
         match self {
@@ -69,10 +76,3 @@ impl Display for ThingdError {
 }
 
 impl Error for ThingdError {}
-
-#[cfg(feature = "persistent")]
-impl From<fjall::Error> for ThingdError {
-    fn from(error: fjall::Error) -> Self {
-        Self::Storage(error.to_string())
-    }
-}
