@@ -62,7 +62,8 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y clang libclang-dev
       - uses: Swatinem/rust-cache@v2
         with:
-          shared-key: rust-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/Cargo.lock') }}
+          shared-key: rust-runtime-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/Cargo.lock') }}
+          cache-all-crates: true
           save-if: ${{ runner.os == 'Linux' }}
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --exclude thingd-migrate --all-targets --all-features -- -D warnings
@@ -94,7 +95,8 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y clang libclang-dev
       - uses: Swatinem/rust-cache@v2
         with:
-          shared-key: rust-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/Cargo.lock') }}
+          shared-key: rust-migration-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/Cargo.lock') }}
+          cache-all-crates: true
           save-if: ${{ runner.os == 'Linux' }}
       # Fjall is intentionally compiled only by this offline migration utility.
       - run: cargo fmt --all --check
@@ -118,7 +120,8 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y clang libclang-dev
       - uses: Swatinem/rust-cache@v2
         with:
-          shared-key: rust-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/Cargo.lock') }}
+          shared-key: rust-node-native-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/Cargo.lock') }}
+          cache-all-crates: true
           save-if: ${{ runner.os == 'Linux' }}
       - run: pnpm install --frozen-lockfile
       - run: pnpm build:node
