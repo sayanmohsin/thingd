@@ -40,6 +40,65 @@ without opening a persistent search index. Use `persistent` for the normal
 Tantivy path and `persistent-no-rebuild` for the no-startup-rebuild path.
 It uses temporary databases and does not leave benchmark data in the repo.
 
+## ThingDB benchmark plan
+
+ThingDB benchmarking is a promotion gate, not a marketing benchmark. Every
+ThingDB result must include the matching RocksDB result from the same binary,
+machine, filesystem, dataset, and workload configuration.
+
+### Workload matrix
+
+Run each workload against both durable backends at 10k, 100k, and 1M logical
+records. Add 10M records only after the 1M run is stable.
+
+| Area | Workloads |
+| --- | --- |
+| Ingest and updates | sequential puts, random puts, updates, mixed put/update |
+| Reads | point gets, random reads, cold restart reads, concurrent reads |
+| Ordered access | prefix scans, bounded range scans, full ordered scans |
+| Deletes | random deletes, delete-heavy mixed workload, tombstone cleanup |
+| Atomicity | single-key writes, multi-key batches, cross-keyspace batches |
+| Durability | sync writes, restart after each workload, WAL truncation/replay |
+| Maintenance | flush, compaction, interrupted compaction, repeated reopen |
+| Search integration | durable writes plus derived Tantivy rebuild and catch-up |
+| Operations | repack, backup/restore, encryption reopen, disk usage and rollback |
+
+### Measurements
+
+Record throughput and p50/p95/p99 latency for each operation, plus total
+ingest time, restart time, recovery time, compaction time, peak RSS, CPU time,
+WAL bytes, table bytes, total disk usage, write amplification, and read/write
+stall time. Record failures, checksum errors, lost records, duplicate records,
+and search lag separately from normal latency.
+
+Run at least five repetitions per workload and report the median plus the
+spread. Use release builds, pinned Rust and dependency versions, a dedicated
+filesystem, and the same logical input for both backends. Separate cold-cache
+and warm-cache runs, and report whether Tantivy is disabled, synchronous, or
+asynchronous. Never compare numbers from different machines as a regression
+claim.
+
+### Reliability and promotion gates
+
+Before moving beyond the experimental phase:
+
+- differential tests must produce identical logical records, ordering,
+  versions, deletes, queues, links, schemas, vectors, and replication state;
+- every WAL, flush, manifest, and compaction fault-injection point must recover
+  without acknowledged data loss or silent corruption;
+- fuzz/property tests must cover key/value encoding, WAL framing, manifests,
+  table records, truncation, and recovery decisions;
+- 1M-record runs must complete within the documented memory budget and report
+  bounded restart/recovery time;
+- ThingDB must meet provisional targets of at least 80% of RocksDB throughput,
+  no more than 2x RocksDB p99 latency for the defined core workloads, and no
+  more than 1.5x total disk usage, or the gap must be explicitly accepted;
+- repack, encryption, backup/restore, rollback, and derived-search rebuilds
+  must pass with the source database preserved.
+
+These are provisional promotion targets for Phase 3/4, not current claims.
+The current ThingDB implementation is expected to miss some of them.
+
 ## Latest smoke run
 
 Run date: 2026-08-06

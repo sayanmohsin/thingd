@@ -28,6 +28,28 @@ directly. Switching between formats is a logical repack, not a file rename.
 Keep RocksDB as the default until the experimental backend passes the
 large-store durability and performance gates.
 
+## ThingDB development phase
+
+ThingDB is currently in **Phase 0: experimental foundation and compatibility**.
+This phase is complete enough for opt-in development, differential testing, and
+safe logical repack, but it is not a production replacement for RocksDB.
+
+| Phase | Goal | Status |
+| --- | --- | --- |
+| 0. Foundation | WAL, checksums, manifests, ordered access, batches, snapshots, repack, shared Thingd contracts | Current; implemented and opt-in |
+| 1. Storage engine hardening | Bounded memtables, immutable incremental tables, leveled/size-tiered compaction, fault injection | Next |
+| 2. Correctness and recovery | Crash matrices, interrupted compaction recovery, corruption handling, differential tests, fuzzing | Planned |
+| 3. Scale and performance | Large-data benchmarks, memory/disk amplification limits, restart and recovery budgets | Planned |
+| 4. Controlled adoption | Soak testing, operational rollback, backup/restore validation, limited opt-in deployments | Planned |
+| 5. Default-candidate review | Compare against RocksDB gates and decide whether the default should change | Not scheduled |
+
+The current implementation still keeps substantial state in memory and uses a
+full snapshot table during compaction. Until Phases 1–4 pass, do not use
+ThingDB as the only copy of important production data. Keep the RocksDB source
+directory during repack and validate the destination before switching traffic.
+
+See [Benchmarks](./benchmarks.md) for the workload matrix and promotion gates.
+
 ## Migration from legacy stores
 
 Existing Fjall directories are not opened by the RocksDB runtime. Migration is
