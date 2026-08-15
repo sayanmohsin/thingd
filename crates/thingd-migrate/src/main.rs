@@ -25,6 +25,7 @@ const KEYSPACES: &[&str] = &[
     "indexes",
     "vectors",
 ];
+const BATCH_RECORD_LIMIT: usize = 10_000;
 
 fn main() {
     if let Err(error) = run() {
@@ -91,6 +92,9 @@ fn migrate(
     encryption_key: Option<&str>,
 ) -> Result<(), Box<dyn Error>> {
     validate_paths(source, destination)?;
+    if source.join("CURRENT").is_file() || source.join(".thingd-storage.json").is_file() {
+        return Err("source appears to be a RocksDB Thingd store, not a legacy Fjall store".into());
+    }
     let source_db = Database::builder(source).open()?;
     let partial = partial_destination(destination)?;
     fs::create_dir_all(&partial)?;
@@ -108,7 +112,8 @@ fn migrate(
                 )
                 .collect::<Vec<_>>();
         let destination_db = DB::open_cf_descriptors(&options, &partial, descriptors)?;
-        let mut batch = WriteBatch::default();
+        let mut write_options = WriteOptions::default();
+        write_options.set_sync(true);
         let mut records = 0u64;
 
         for name in KEYSPACES {
@@ -116,15 +121,26 @@ fn migrate(
             let Some(column_family) = destination_db.cf_handle(name) else {
                 return Err(format!("destination is missing column family {name}").into());
             };
+            let mut batch = WriteBatch::default();
+            let mut batch_records = 0usize;
+            let mut keyspace_records = 0u64;
             for guard in source_keyspace.iter() {
                 let (key, value) = guard.into_inner()?;
                 batch.put_cf(column_family, key.as_ref(), value.as_ref());
                 records += 1;
+                keyspace_records += 1;
+                batch_records += 1;
+                if batch_records == BATCH_RECORD_LIMIT {
+                    destination_db.write_opt(batch, &write_options)?;
+                    batch = WriteBatch::default();
+                    batch_records = 0;
+                }
             }
+            if batch_records > 0 {
+                destination_db.write_opt(batch, &write_options)?;
+            }
+            println!("migrated keyspace={name} records={keyspace_records}");
         }
-        let mut write_options = WriteOptions::default();
-        write_options.set_sync(true);
-        destination_db.write_opt(batch, &write_options)?;
         destination_db.flush_wal(true)?;
         destination_db.flush()?;
         drop(destination_db);

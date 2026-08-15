@@ -96,6 +96,13 @@ does not open or mutate the database:
 thingd-server --check /data/thingd.db
 ```
 
+For a production cutover where a fresh empty directory must never be accepted,
+require a migrated RocksDB manifest:
+
+```bash
+thingd-server --check /data/thingd.db --require-migrated
+```
+
 `GET /ready` returns `ready` only after storage recovery completes. During an
 asynchronous search rebuild or primary journal compaction it returns `503` with
 `Retry-After: 1`; search uses the bounded fallback scan and writes are paused.
