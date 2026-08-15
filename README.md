@@ -6,7 +6,9 @@
 [![Docker pulls](https://img.shields.io/docker/pulls/sayanmohsin/thingd?label=Docker&logo=docker&color=ff6a00)](https://hub.docker.com/r/sayanmohsin/thingd)
 [![GitHub stars](https://img.shields.io/github/stars/sayanmohsin/thingd?label=Stars&logo=github&color=ff6a00)](https://github.com/sayanmohsin/thingd)
 
-A fast object-first data engine for applications and AI agents.
+**Thingd — the open-source engine for managing your things.**
+
+An object-first data engine for applications and AI agents.
 
 🌐 [sayanmohsin.github.io/thingd](https://sayanmohsin.github.io/thingd) — landing page
 ☁️ [thingd.cloud](https://thingd.cloud) — managed cloud

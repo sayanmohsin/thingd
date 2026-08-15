@@ -947,6 +947,80 @@ mod tests {
     }
 
     #[test]
+    fn wal_checksum_corruption_is_reported() {
+        let directory = tempfile::tempdir().unwrap();
+        let db = Database::open(directory.path()).unwrap();
+        let objects = db
+            .keyspace("objects", KeyspaceCreateOptions::default)
+            .unwrap();
+        objects.insert(b"a", b"one").unwrap();
+        drop(objects);
+        drop(db);
+
+        let wal_path = directory.path().join(WAL_FILE);
+        let mut bytes = std::fs::read(&wal_path).unwrap();
+        *bytes.last_mut().unwrap() ^= 0xff;
+        std::fs::write(&wal_path, bytes).unwrap();
+
+        let Err(error) = Database::open(directory.path()) else {
+            panic!("corrupted WAL unexpectedly opened")
+        };
+        assert!(error.to_string().contains("WAL checksum mismatch"));
+    }
+
+    #[test]
+    fn table_checksum_corruption_is_reported() {
+        let directory = tempfile::tempdir().unwrap();
+        let db = Database::open(directory.path()).unwrap();
+        let objects = db
+            .keyspace("objects", KeyspaceCreateOptions::default)
+            .unwrap();
+        objects.insert(b"a", b"one").unwrap();
+        db.compact().unwrap();
+        drop(objects);
+        drop(db);
+
+        let manifest: Manifest =
+            serde_json::from_slice(&std::fs::read(directory.path().join(MANIFEST_FILE)).unwrap())
+                .unwrap();
+        let table_path = directory.path().join(manifest.table_file.unwrap());
+        let mut bytes = std::fs::read(&table_path).unwrap();
+        let last = bytes.len() - 1;
+        bytes[last] ^= 0xff;
+        std::fs::write(table_path, bytes).unwrap();
+
+        let Err(error) = Database::open(directory.path()) else {
+            panic!("corrupted table unexpectedly opened")
+        };
+        assert!(error.to_string().contains("table checksum mismatch"));
+    }
+
+    #[test]
+    fn repeated_open_close_preserves_durable_state() {
+        let directory = tempfile::tempdir().unwrap();
+        for value in 0..8 {
+            let db = Database::open(directory.path()).unwrap();
+            let objects = db
+                .keyspace("objects", KeyspaceCreateOptions::default)
+                .unwrap();
+            objects
+                .insert(b"counter", value.to_string().as_bytes())
+                .unwrap();
+            if value % 2 == 1 {
+                db.compact().unwrap();
+            }
+            drop(objects);
+            drop(db);
+        }
+
+        let db = Database::open(directory.path()).unwrap();
+        let objects = db
+            .keyspace("objects", KeyspaceCreateOptions::default)
+            .unwrap();
+        assert_eq!(objects.get(b"counter").unwrap(), Some(b"7".to_vec()));
+    }
+
+    #[test]
     fn prefix_and_range_are_ordered() {
         let directory = tempfile::tempdir().unwrap();
         let db = Database::open(directory.path()).unwrap();

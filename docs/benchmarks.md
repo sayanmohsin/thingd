@@ -11,16 +11,41 @@ does not benchmark REST, MCP, or sidecar throughput.
 ```bash
 pnpm bench:rust
 pnpm bench:rust:smoke
+pnpm bench:rust:structured
 ```
 
 The default is 5,000 iterations. Override it with either
 `THINGD_BENCH_ITERS=20000 pnpm bench:rust` or by passing the count directly to
-the Rust example. The smoke command uses 10 iterations and is intended only to
-verify that the benchmark remains buildable and runnable.
+the Rust example. The smoke command uses 10 deterministic iterations and is
+intended only to verify that the benchmark remains buildable and runnable.
 
-The benchmark measures object, event, queue, search, vector search, batch,
-count, delete, concurrent-read, and lock-contention operations for `in-memory`,
-`persistent` (RocksDB), and `thingdb-experimental`.
+For a reproducible RocksDB-vs-ThingDB run with structured output:
+
+```bash
+cargo run --release -p thingd --example storage_bench --features persistent,search -- \
+  --iterations 1000 --seed 42 --backend all --output target/storage-benchmark.json
+```
+
+Use `--output target/storage-benchmark.csv` for a flat CSV result. The output
+includes commit, Rust, operating system, architecture, seed, operation counts,
+throughput, p50/p95/p99/max latency, and durable directory size. Each durable
+backend gets a fresh temporary directory, and correctness/reopen checks run
+before the command succeeds. A correctness or recovery error is a failed run,
+not a performance datapoint.
+
+Every run is also appended automatically to
+`target/storage-benchmark-history.jsonl`. Set `--history` or
+`THINGD_BENCH_HISTORY` to retain history elsewhere, and set `--phase` or
+`THINGD_BENCH_PHASE` to label a run, for example `reliability-baseline`,
+`wal-group-commit`, or `table-indexes`. Each history record contains the date,
+branch, commit, environment, selected backend, and all measured RocksDB,
+ThingDB, or in-memory workload rows. This makes repeated runs comparable by
+phase and date without committing machine-specific results.
+
+The benchmark selects `--backend all|rocksdb|thingdb|memory`; `all` is the
+default and is the required comparison mode. It measures object, event, queue,
+search, vector search, batch, count, delete, concurrent-read, and
+lock-contention operations for the selected adapters.
 
 Each persistent run also reports a reopen/startup duration and first-search
 latency. To exercise the low-memory path on Linux/macOS, run the benchmark in
@@ -123,8 +148,10 @@ deliberate baseline update.
 | persistent | queue_claim_ack | 2,316 |
 
 The complete output is available from the command above. ThingDB numbers are
-exploratory until its large-store and crash-recovery gates pass. Do not compare this
-smoke table with results from a different machine or iteration count.
+exploratory until its large-store and crash-recovery gates pass. Do not compare
+this smoke table with results from a different machine or iteration count. The
+generated structured output is ignored by Git and should be retained as a
+workflow artifact or local evidence.
 
 ## Node.js SDK benchmark
 
