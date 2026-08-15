@@ -180,6 +180,16 @@ impl Database {
             })
             .count()
     }
+
+    pub(crate) fn wal_diagnostics(&self) -> Result<Option<thingdb::WalDiagnostics>, Error> {
+        match self.db.as_ref() {
+            Backend::RocksDb(_) => Ok(None),
+            Backend::ThingDb(db) => db
+                .wal_diagnostics()
+                .map(Some)
+                .map_err(|error| Error(error.to_string())),
+        }
+    }
 }
 
 impl DatabaseBuilder {

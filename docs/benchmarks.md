@@ -47,6 +47,14 @@ default and is the required comparison mode. It measures object, event, queue,
 search, vector search, batch, count, delete, concurrent-read, and
 lock-contention operations for the selected adapters.
 
+Use `--repetitions 5` or `THINGD_BENCH_REPETITIONS=5` for phase comparisons.
+Structured JSON output includes grouped median, minimum, maximum, and spread
+throughput summaries in addition to each repetition's raw result.
+The WAL-hardening phase additionally records `wal-single-write`,
+`wal-explicit-batch`, and `wal-recovery` rows plus ThingDB WAL timing
+diagnostics. Single writes remain sync-before-ack; the batch measurement does
+not trade durability for throughput.
+
 Each persistent run also reports a reopen/startup duration and first-search
 latency. To exercise the low-memory path on Linux/macOS, run the benchmark in
 an externally constrained process and record the platform's peak RSS:

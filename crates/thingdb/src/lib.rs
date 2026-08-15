@@ -28,6 +28,7 @@ use std::io::{self, ErrorKind, Read, Seek, SeekFrom, Write};
 use std::ops::{Bound, RangeBounds};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
+use std::time::Instant;
 
 use crc32fast::Hasher;
 use serde::{Deserialize, Serialize};
@@ -38,6 +39,33 @@ const FORMAT_VERSION: u32 = 1;
 const WAL_FILE: &str = "WAL";
 const MANIFEST_FILE: &str = "MANIFEST.json";
 const LOCK_FILE: &str = "LOCK";
+
+#[cfg(test)]
+thread_local! {
+    static FAULT_POINT: std::cell::RefCell<Option<&'static str>> = const { std::cell::RefCell::new(None) };
+}
+
+#[cfg(test)]
+fn set_fault_point(point: Option<&'static str>) {
+    FAULT_POINT.with(|fault| *fault.borrow_mut() = point);
+}
+
+#[cfg(test)]
+fn maybe_fail(point: &'static str) -> Result<()> {
+    FAULT_POINT.with(|fault| {
+        if fault.borrow().as_ref() == Some(&point) {
+            Err(Error::message(format!("injected ThingDB fault: {point}")))
+        } else {
+            Ok(())
+        }
+    })
+}
+
+#[cfg(not(test))]
+#[allow(clippy::unnecessary_wraps)]
+fn maybe_fail(_point: &'static str) -> Result<()> {
+    Ok(())
+}
 
 /// Result type returned by ThingDB.
 pub type Result<T> = std::result::Result<T, Error>;
@@ -79,6 +107,31 @@ pub enum PersistMode {
     SyncAll,
 }
 
+/// Bounded WAL and recovery diagnostics for local measurements.
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize)]
+pub struct WalDiagnostics {
+    /// Bytes currently present in the WAL.
+    pub journal_bytes: u64,
+    /// Complete frames currently present in the WAL.
+    pub frame_count: u64,
+    /// Bytes inspected while replaying the WAL during the last open.
+    pub recovery_bytes: u64,
+    /// Nanoseconds spent replaying the WAL during the last open.
+    pub recovery_duration_ns: u64,
+    /// Nanoseconds spent encoding WAL frames.
+    pub encode_duration_ns: u64,
+    /// Nanoseconds spent appending WAL frames.
+    pub append_duration_ns: u64,
+    /// Nanoseconds spent syncing WAL frames.
+    pub sync_duration_ns: u64,
+    /// Nanoseconds spent applying committed operations to memory.
+    pub state_apply_duration_ns: u64,
+    /// Nanoseconds spent holding the database lock for commits.
+    pub lock_duration_ns: u64,
+    /// Last WAL error observed after the database opened, if any.
+    pub last_error: Option<String>,
+}
+
 /// Keyspace creation options reserved for future per-keyspace tuning.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct KeyspaceCreateOptions;
@@ -109,6 +162,7 @@ struct Inner {
     sequence: u64,
     table_sequence: u64,
     max_journaling_size: u64,
+    diagnostics: WalDiagnostics,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -229,6 +283,17 @@ impl Database {
         usize::from(self.inner.lock().is_ok())
     }
 
+    /// Return bounded WAL and recovery diagnostics.
+    pub fn wal_diagnostics(&self) -> Result<WalDiagnostics> {
+        let inner = self
+            .inner
+            .lock()
+            .map_err(|_| Error::message("database lock poisoned"))?;
+        let mut diagnostics = inner.diagnostics.clone();
+        diagnostics.journal_bytes = inner.wal.metadata()?.len();
+        Ok(diagnostics)
+    }
+
     fn flush_table(&self, sync: bool) -> Result<()> {
         let mut inner = self
             .inner
@@ -253,6 +318,8 @@ impl Database {
         if sync {
             inner.wal.sync_data()?;
         }
+        inner.diagnostics.journal_bytes = inner.wal.metadata()?.len();
+        inner.diagnostics.frame_count = 0;
         Ok(())
     }
 }
@@ -318,12 +385,16 @@ impl DatabaseBuilder {
             .read(true)
             .append(true)
             .open(&wal_path)?;
-        let (last_sequence, valid_offset) = replay_wal(&mut wal, table_sequence, &mut state)?;
+        let recovery_started = Instant::now();
+        let (last_sequence, valid_offset, frame_count) =
+            replay_wal(&mut wal, table_sequence, &mut state)?;
+        let recovery_duration_ns = elapsed_nanos(recovery_started.elapsed());
         let wal_len = wal.metadata()?.len();
         if valid_offset < wal_len {
             wal.set_len(valid_offset)?;
             wal.seek(SeekFrom::End(0))?;
         }
+        let journal_bytes = wal.metadata()?.len();
         let sequence = last_sequence.max(table_sequence);
         if manifest.is_none() {
             write_manifest(
@@ -345,6 +416,13 @@ impl DatabaseBuilder {
                 sequence,
                 table_sequence,
                 max_journaling_size: self.max_journaling_size,
+                diagnostics: WalDiagnostics {
+                    journal_bytes,
+                    frame_count,
+                    recovery_bytes: valid_offset,
+                    recovery_duration_ns,
+                    ..WalDiagnostics::default()
+                },
             })),
         })
     }
@@ -520,31 +598,76 @@ impl Batch {
         if self.operations.is_empty() {
             return Ok(());
         }
+        let lock_started = Instant::now();
         let mut inner = self
             .db
             .inner
             .lock()
             .map_err(|_| Error::message("database lock poisoned"))?;
+        let wal_start = inner.wal.metadata()?.len();
         let sequence = inner.sequence.saturating_add(1);
-        let frame = encode_frame(sequence, &self.operations)?;
-        inner.wal.write_all(&frame)?;
-        inner.wal.sync_data()?;
-        for operation in &self.operations {
-            match operation {
-                Operation::Put { key, value } => {
-                    inner.state.insert(key.clone(), value.clone());
-                },
-                Operation::Delete { key } => {
-                    inner.state.remove(key);
-                },
+        let result: Result<()> = (|| {
+            let started = Instant::now();
+            let frame = encode_frame(sequence, &self.operations)?;
+            inner.diagnostics.encode_duration_ns = inner
+                .diagnostics
+                .encode_duration_ns
+                .saturating_add(elapsed_nanos(started.elapsed()));
+
+            maybe_fail("before-wal-append")?;
+            let started = Instant::now();
+            inner.wal.write_all(&frame)?;
+            inner.diagnostics.append_duration_ns = inner
+                .diagnostics
+                .append_duration_ns
+                .saturating_add(elapsed_nanos(started.elapsed()));
+
+            maybe_fail("after-wal-write-before-sync")?;
+            let started = Instant::now();
+            inner.wal.sync_data()?;
+            inner.diagnostics.sync_duration_ns = inner
+                .diagnostics
+                .sync_duration_ns
+                .saturating_add(elapsed_nanos(started.elapsed()));
+
+            maybe_fail("after-wal-sync-before-state-apply")?;
+            let started = Instant::now();
+            for operation in self.operations {
+                match operation {
+                    Operation::Put { key, value } => {
+                        inner.state.insert(key, value);
+                    },
+                    Operation::Delete { key } => {
+                        inner.state.remove(&key);
+                    },
+                }
             }
+            inner.diagnostics.state_apply_duration_ns = inner
+                .diagnostics
+                .state_apply_duration_ns
+                .saturating_add(elapsed_nanos(started.elapsed()));
+            inner.sequence = sequence;
+            inner.diagnostics.frame_count = inner.diagnostics.frame_count.saturating_add(1);
+            if inner.wal.metadata()?.len() > inner.max_journaling_size {
+                // The next explicit persist/compact performs the bounded table
+                // rewrite. Do not compact synchronously on the write path.
+            }
+            Ok(())
+        })();
+        if result.is_err() && inner.sequence < sequence {
+            if inner.wal.set_len(wal_start).is_ok() {
+                let _ = inner.wal.seek(SeekFrom::End(0));
+            }
+            inner.diagnostics.journal_bytes = wal_start;
         }
-        inner.sequence = sequence;
-        if inner.wal.metadata()?.len() > inner.max_journaling_size {
-            // The next explicit persist/compact performs the bounded table
-            // rewrite. Do not compact synchronously on the write path.
+        inner.diagnostics.lock_duration_ns = inner
+            .diagnostics
+            .lock_duration_ns
+            .saturating_add(elapsed_nanos(lock_started.elapsed()));
+        if let Err(error) = &result {
+            inner.diagnostics.last_error = Some(error.to_string());
         }
-        Ok(())
+        result
     }
 }
 
@@ -649,24 +772,28 @@ fn replay_wal(
     wal: &mut File,
     table_sequence: u64,
     state: &mut BTreeMap<Vec<u8>, Vec<u8>>,
-) -> Result<(u64, u64)> {
+) -> Result<(u64, u64, u64)> {
     wal.seek(SeekFrom::Start(0))?;
     let mut bytes = Vec::new();
     wal.read_to_end(&mut bytes)?;
     let mut cursor = 0usize;
     let mut last_sequence = table_sequence;
+    let mut frame_count = 0;
     while cursor < bytes.len() {
         let frame_start = cursor;
         if bytes.len() - cursor < WAL_MAGIC.len() + 8 {
-            return Ok((last_sequence, frame_start as u64));
+            return Ok((last_sequence, frame_start as u64, frame_count));
         }
         if &bytes[cursor..cursor + WAL_MAGIC.len()] != WAL_MAGIC {
             return Err(Error::message("invalid ThingDB WAL magic"));
         }
         cursor += WAL_MAGIC.len();
         let frame_len = read_u64(&bytes, &mut cursor)? as usize;
-        if frame_len < 12 || frame_len > bytes.len().saturating_sub(cursor) {
-            return Ok((last_sequence, frame_start as u64));
+        if frame_len < 12 {
+            return Err(Error::message("invalid ThingDB WAL frame length"));
+        }
+        if frame_len > bytes.len().saturating_sub(cursor) {
+            return Ok((last_sequence, frame_start as u64, frame_count));
         }
         let frame_end = cursor + frame_len;
         let sequence = read_u64(&bytes, &mut cursor)?;
@@ -703,9 +830,14 @@ fn replay_wal(
             }
             last_sequence = sequence;
         }
+        frame_count += 1;
         cursor = frame_end;
     }
-    Ok((last_sequence, cursor as u64))
+    Ok((last_sequence, cursor as u64, frame_count))
+}
+
+fn elapsed_nanos(duration: std::time::Duration) -> u64 {
+    u64::try_from(duration.as_nanos()).unwrap_or(u64::MAX)
 }
 
 fn apply_operation(state: &mut BTreeMap<Vec<u8>, Vec<u8>>, operation: Operation) {
@@ -922,6 +1054,137 @@ mod tests {
             .unwrap();
         assert_eq!(objects.get(b"a").unwrap(), Some(b"one".to_vec()));
         assert_eq!(objects.get(b"b").unwrap(), Some(b"two".to_vec()));
+    }
+
+    #[test]
+    fn injected_wal_failures_preserve_batch_atomicity() {
+        for point in [
+            "before-wal-append",
+            "after-wal-write-before-sync",
+            "after-wal-sync-before-state-apply",
+        ] {
+            let directory = tempfile::tempdir().unwrap();
+            let db = Database::open(directory.path()).unwrap();
+            let objects = db
+                .keyspace("objects", KeyspaceCreateOptions::default)
+                .unwrap();
+            set_fault_point(Some(point));
+            let result = db
+                .batch()
+                .put(&objects, b"a", b"one")
+                .put(&objects, b"b", b"two")
+                .commit();
+            set_fault_point(None);
+            assert!(result.is_err(), "fault point {point} did not fail");
+            db.batch()
+                .put(&objects, b"a", b"one")
+                .put(&objects, b"b", b"two")
+                .commit()
+                .unwrap();
+            drop(objects);
+            drop(db);
+
+            let db = Database::open(directory.path()).unwrap();
+            let objects = db
+                .keyspace("objects", KeyspaceCreateOptions::default)
+                .unwrap();
+            let first = objects.get(b"a").unwrap();
+            let second = objects.get(b"b").unwrap();
+            assert_eq!(first, Some(b"one".to_vec()), "fault point {point}");
+            assert_eq!(second, Some(b"two".to_vec()), "fault point {point}");
+        }
+    }
+
+    #[test]
+    fn truncating_wal_at_every_boundary_recovers_only_complete_frames() {
+        let source = tempfile::tempdir().unwrap();
+        let db = Database::open(source.path()).unwrap();
+        let objects = db
+            .keyspace("objects", KeyspaceCreateOptions::default)
+            .unwrap();
+        objects.insert(b"a", b"one").unwrap();
+        let first_frame_len = std::fs::metadata(source.path().join(WAL_FILE))
+            .unwrap()
+            .len();
+        objects.insert(b"b", b"two").unwrap();
+        drop(objects);
+        drop(db);
+        let complete = std::fs::read(source.path().join(WAL_FILE)).unwrap();
+        let second_frame_len = complete.len() as u64 - first_frame_len;
+
+        for cut in 0..=complete.len() {
+            let directory = tempfile::tempdir().unwrap();
+            let db = Database::open(directory.path()).unwrap();
+            drop(db);
+            std::fs::write(directory.path().join(WAL_FILE), &complete[..cut]).unwrap();
+            let db = Database::open(directory.path()).unwrap();
+            let objects = db
+                .keyspace("objects", KeyspaceCreateOptions::default)
+                .unwrap();
+            let expected = if cut < first_frame_len as usize {
+                0
+            } else if cut < (first_frame_len + second_frame_len) as usize {
+                1
+            } else {
+                2
+            };
+            let actual = usize::from(objects.get(b"a").unwrap().is_some())
+                + usize::from(objects.get(b"b").unwrap().is_some());
+            assert_eq!(actual, expected, "unexpected recovery at WAL byte {cut}");
+        }
+    }
+
+    #[test]
+    fn malformed_wal_length_and_operation_are_reported() {
+        let directory = tempfile::tempdir().unwrap();
+        let db = Database::open(directory.path()).unwrap();
+        drop(db);
+        let mut malformed = Vec::from(WAL_MAGIC.as_slice());
+        malformed.extend_from_slice(&1_u64.to_be_bytes());
+        std::fs::write(directory.path().join(WAL_FILE), malformed).unwrap();
+        let Err(error) = Database::open(directory.path()) else {
+            panic!("malformed WAL length unexpectedly opened")
+        };
+        assert!(error.to_string().contains("frame length"));
+
+        let directory = tempfile::tempdir().unwrap();
+        let db = Database::open(directory.path()).unwrap();
+        drop(db);
+        let mut invalid = encode_frame(
+            1,
+            &[Operation::Put {
+                key: b"objects\0a".to_vec(),
+                value: b"one".to_vec(),
+            }],
+        )
+        .unwrap();
+        invalid[28] = 9;
+        std::fs::write(directory.path().join(WAL_FILE), invalid).unwrap();
+        let Err(error) = Database::open(directory.path()) else {
+            panic!("invalid WAL operation unexpectedly opened")
+        };
+        assert!(error.to_string().contains("invalid ThingDB WAL operation"));
+    }
+
+    #[test]
+    fn diagnostics_report_wal_timings_and_recovery() {
+        let directory = tempfile::tempdir().unwrap();
+        let db = Database::open(directory.path()).unwrap();
+        let objects = db
+            .keyspace("objects", KeyspaceCreateOptions::default)
+            .unwrap();
+        objects.insert(b"a", b"one").unwrap();
+        let diagnostics = db.wal_diagnostics().unwrap();
+        assert_eq!(diagnostics.frame_count, 1);
+        assert!(diagnostics.journal_bytes > 0);
+        assert!(diagnostics.sync_duration_ns > 0);
+        drop(objects);
+        drop(db);
+
+        let db = Database::open(directory.path()).unwrap();
+        let diagnostics = db.wal_diagnostics().unwrap();
+        assert!(diagnostics.recovery_bytes > 0);
+        assert!(diagnostics.recovery_duration_ns > 0);
     }
 
     #[test]

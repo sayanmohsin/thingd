@@ -1233,6 +1233,13 @@ impl PersistentEngine {
         self.db.journal_count() as u64
     }
 
+    /// Return ThingDB WAL timings and recovery diagnostics when ThingDB is active.
+    pub fn wal_diagnostics(&self) -> ThingdResult<Option<thingdb::WalDiagnostics>> {
+        self.db
+            .wal_diagnostics()
+            .map_err(|error| ThingdError::Storage(error.to_string()))
+    }
+
     /// Persist and compact every primary keyspace.
     pub fn compact_storage(&mut self) -> ThingdResult<()> {
         self.maintenance.state = "compacting".to_string();
