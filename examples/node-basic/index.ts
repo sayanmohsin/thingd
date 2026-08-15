@@ -16,12 +16,12 @@ function log(step: string, message: string, data?: unknown) {
 async function main() {
   console.log("\n🚀 Starting thingd Node.js Basic TypeScript Example...");
 
-  // 1. Open database (persistent SQLite file via native driver)
+  // 1. Open database (persistent RocksDB file via native driver by default)
   const db = await ThingD.open({
     path: "./data.db",
     driver: "native",
   });
-  log("1. Database Open", "Opened a persistent SQLite thingd instance.");
+  log("1. Database Open", "Opened a persistent thingd instance.");
 
   // 2. Put object
   const decision = await db.put("decisions", {

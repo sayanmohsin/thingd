@@ -16,6 +16,7 @@ default = ["persistent", "search"]
 search = ["dep:tantivy"]
 persistent = [
     "dep:rocksdb",
+    "dep:thingdb",
     "dep:chacha20poly1305",
     "dep:getrandom",
     "dep:hkdf",
@@ -27,6 +28,7 @@ connectors = ["dep:csv", "dep:sqlx", "dep:tokio"]
 
 [dependencies]
 rocksdb = { version = "0.24", default-features = false, optional = true }
+thingdb = { path = "../thingdb", version = "0.83", optional = true }
 tantivy = { version = "0.26.1", optional = true }
 csv = { version = "1.4", optional = true }
 chrono = "0.4.45"

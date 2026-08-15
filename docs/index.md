@@ -42,7 +42,7 @@ features:
     # MCP tool count: update docs/.vitepress/config.ts (mcpToolCount) and packages/thingd/src/constants.ts
   - icon: ⚡
     title: Multi-mode
-    details: Embedded, sidecar, or cluster. In-memory or RocksDB-backed local engine. Same API everywhere.
+    details: Embedded, sidecar, or cluster. In-memory or durable local engine, with RocksDB by default and experimental ThingDB opt-in. Same API everywhere.
   - icon: 🔁
     title: Provider-neutral replication
     details: Synchronize an explicit Thingd source to a protected replica with cursors, tombstones, snapshots, provenance, and conflict quarantine.

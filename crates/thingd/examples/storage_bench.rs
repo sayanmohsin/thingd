@@ -52,12 +52,34 @@ fn main() -> Result<(), Box<dyn Error>> {
     time_persistent_lifecycle(lifecycle_dir.path())?;
     bench_store("persistent", persistent_engine, iterations)?;
 
+    let thingdb_dir = tempfile::tempdir()?;
+    let thingdb_options = PersistentOpenOptions {
+        backend: thingd::PersistentBackend::ThingDb,
+        ..persistent_options.clone()
+    };
+    let thingdb_engine =
+        PersistentEngine::open_with_options(thingdb_dir.path(), thingdb_options.clone())?;
+    bench_store("thingdb-experimental", thingdb_engine, iterations)?;
+
     let conc_dir = tempfile::tempdir()?;
     bench_concurrent(
         "persistent",
         || {
             let engine =
                 PersistentEngine::open_with_options(conc_dir.path(), persistent_options.clone())?;
+            Ok(engine)
+        },
+        iterations,
+    )?;
+
+    let thingdb_conc_dir = tempfile::tempdir()?;
+    bench_concurrent(
+        "thingdb-experimental",
+        || {
+            let engine = PersistentEngine::open_with_options(
+                thingdb_conc_dir.path(),
+                thingdb_options.clone(),
+            )?;
             Ok(engine)
         },
         iterations,

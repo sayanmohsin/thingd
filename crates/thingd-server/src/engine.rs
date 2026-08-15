@@ -6,8 +6,8 @@ use std::time::Duration;
 
 use parking_lot::{Mutex, RwLock};
 use thingd::{
-    EncryptionConfig, MemoryEngine, PersistentEngine, PersistentOpenOptions, PersistentSearchMode,
-    ThingStore,
+    EncryptionConfig, MemoryEngine, PersistentBackend, PersistentEngine, PersistentOpenOptions,
+    PersistentSearchMode, ThingStore,
 };
 
 pub type SharedEngine = Arc<Mutex<Box<dyn ThingStore + Send>>>;
@@ -197,6 +197,37 @@ impl EnginePool {
         search_commit_batch_size: usize,
         search_queue_max_keys: usize,
     ) -> Result<Self, String> {
+        Self::new_with_encryption_key_search_mode_journal_limit_and_recovery_budget_and_backend(
+            default_path,
+            key,
+            search_mode,
+            max_journal_bytes,
+            recovery_batch_size,
+            recovery_pause_ms,
+            recovery_max_retries,
+            recovery_memory_limit_bytes,
+            search_commit_interval_ms,
+            search_commit_batch_size,
+            search_queue_max_keys,
+            PersistentBackend::default(),
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn new_with_encryption_key_search_mode_journal_limit_and_recovery_budget_and_backend(
+        default_path: String,
+        key: Option<&str>,
+        search_mode: PersistentSearchMode,
+        max_journal_bytes: u64,
+        recovery_batch_size: usize,
+        recovery_pause_ms: u64,
+        recovery_max_retries: u64,
+        recovery_memory_limit_bytes: Option<u64>,
+        search_commit_interval_ms: u64,
+        search_commit_batch_size: usize,
+        search_queue_max_keys: usize,
+        backend: PersistentBackend,
+    ) -> Result<Self, String> {
         let encryption = key
             .map(parse_hex_key)
             .transpose()?
@@ -205,6 +236,7 @@ impl EnginePool {
             .map_err(|error| error.to_string())?;
         let mut pool = Self::new(default_path);
         pool.open_options = PersistentOpenOptions {
+            backend,
             encryption,
             search_mode,
             max_journal_bytes,

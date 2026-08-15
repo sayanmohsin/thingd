@@ -526,7 +526,9 @@ const db = await ThingD.open();
 With `THINGD_URL` set, this uses the remote SDK driver and talks to the local
 sidecar over HTTP REST.
 
-Native and standalone runtimes embed RocksDB directly; no database service or
+Native and standalone runtimes embed RocksDB directly by default; the
+experimental Rust-native ThingDB backend can be selected with
+`THINGD_STORAGE_BACKEND=thingdb`. No database service or
 database container is required. Memory mode remains process-local. Legacy
 native directories require the explicit offline migration described in
 [Storage backends](./docs/storage-backends.md).

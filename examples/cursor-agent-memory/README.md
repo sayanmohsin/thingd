@@ -63,7 +63,7 @@ pnpm install
 
 ### `quickstart.ts` — SDK Basics
 
-Demonstrates opening a persistent native SQLite database, storing structured memory objects, full-text stemming search (e.g. `"learning"` matches `"learn"`), and metadata filters.
+Demonstrates opening a persistent native Thingd database, storing structured memory objects, full-text stemming search (e.g. `"learning"` matches `"learn"`), and metadata filters. RocksDB is the default native backend; experimental ThingDB can be selected with `THINGD_STORAGE_BACKEND=thingdb`.
 
 ```bash
 pnpm tsx quickstart.ts

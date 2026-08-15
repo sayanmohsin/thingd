@@ -2,8 +2,9 @@
 
 The storage benchmark is a local development signal, not a portable product
 claim. Results vary with CPU, filesystem, thermal state, Rust version, and
-iteration count. The benchmark currently compares the in-memory and persistent
-adapters; it does not benchmark REST, MCP, or sidecar throughput.
+iteration count. The benchmark compares the in-memory adapter, the default
+RocksDB-backed persistent adapter, and the experimental ThingDB adapter; it
+does not benchmark REST, MCP, or sidecar throughput.
 
 ## Run
 
@@ -18,8 +19,8 @@ the Rust example. The smoke command uses 10 iterations and is intended only to
 verify that the benchmark remains buildable and runnable.
 
 The benchmark measures object, event, queue, search, vector search, batch,
-count, delete, concurrent-read, and lock-contention operations for `in-memory`
-and `persistent`.
+count, delete, concurrent-read, and lock-contention operations for `in-memory`,
+`persistent` (RocksDB), and `thingdb-experimental`.
 
 Each persistent run also reports a reopen/startup duration and first-search
 latency. To exercise the low-memory path on Linux/macOS, run the benchmark in
@@ -62,7 +63,8 @@ deliberate baseline update.
 | persistent | event_append | 3 |
 | persistent | queue_claim_ack | 2,316 |
 
-The complete output is available from the command above. Do not compare this
+The complete output is available from the command above. ThingDB numbers are
+exploratory until its large-store and crash-recovery gates pass. Do not compare this
 smoke table with results from a different machine or iteration count.
 
 ## Node.js SDK benchmark

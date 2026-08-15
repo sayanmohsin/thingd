@@ -18,6 +18,12 @@ const allowedFiles = new Set([
 const scannedRoots = ["AGENTS.md", "README.md", "docs", "crates", "packages", ".github", "package.json"];
 const textExtensions = new Set([".md", ".json", ".js", ".mjs", ".ts", ".rs", ".toml", ".yaml", ".yml"]);
 const forbidden = /\bFjallEngine\b|\bFjall\b|\bfjall\b|feature\s*=\s*["']fjall["']/g;
+const stalePublicClaims = [
+  "The current native format is embedded RocksDB",
+  "ThingDB is the default",
+  "ThingDB is production-ready",
+  "ThingDB replaces RocksDB",
+];
 
 async function collect(relativePath) {
   const absolutePath = path.join(repoRoot, relativePath);
@@ -48,6 +54,7 @@ for (const root of scannedRoots) {
 }
 
 const violations = [];
+const staleClaims = [];
 for (const relativePath of [...new Set(files)]) {
   if (allowedFiles.has(relativePath)) {
     continue;
@@ -56,13 +63,41 @@ for (const relativePath of [...new Set(files)]) {
   if (forbidden.test(source)) {
     violations.push(relativePath);
   }
+  if (relativePath.endsWith(".md") || relativePath.endsWith(".yaml")) {
+    for (const claim of stalePublicClaims) {
+      if (source.includes(claim)) {
+        staleClaims.push(`${relativePath}: ${claim}`);
+      }
+    }
+  }
   forbidden.lastIndex = 0;
+}
+
+const storageGuide = (
+  await readFile(path.join(repoRoot, "docs/storage-backends.md"), "utf8")
+)
+  .toLowerCase()
+  .replace(/\s+/g, " ");
+for (const required of [
+  "thingd_storage_backend=thingdb",
+  "experimental",
+  "does not open rocksdb files directly",
+  "logical repack",
+]) {
+  if (!storageGuide.includes(required)) {
+    staleClaims.push(`docs/storage-backends.md is missing required guidance: ${required}`);
+  }
 }
 
 if (violations.length > 0) {
   console.error(
     `Backend-specific storage names are public in:\n${violations.map((file) => `- ${file}`).join("\n")}`
   );
+  process.exit(1);
+}
+
+if (staleClaims.length > 0) {
+  console.error(`Stale or unsafe public storage claims found:\n${staleClaims.map((claim) => `- ${claim}`).join("\n")}`);
   process.exit(1);
 }
 

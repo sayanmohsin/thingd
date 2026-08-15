@@ -28,9 +28,12 @@ pub fn create_engine(db_path: &str) -> Result<Box<dyn ThingStore + Send>> {
 }
 ```
 
-## Two storage backends
+## Storage backends
 
-thingd ships with two backends. A third backend means implementing the six traits:
+thingd exposes a backend-neutral persistent boundary. Memory/WASM storage and
+durable local storage are separate modes; durable local storage currently has
+RocksDB as the default implementation and ThingDB as an experimental opt-in.
+Adding another durable backend means implementing the same storage boundary:
 
 ```
 Native binary:    PersistentEngine (durable local storage) + MemoryEngine (cache/warm)
@@ -40,14 +43,18 @@ WASM binary:      InMemory (browser/edge, no file I/O available)
 | Backend | Type | Persist | WASM | Use case |
 |---------|------|---------|------|----------|
 | **MemoryEngine** | `BTreeMap` + `Vec` | No | Yes | Cache, WASM, testing ~675K ops/s |
-| **PersistentEngine** | durable local storage | Yes | No | Production and single-node deployments |
+| **PersistentEngine + RocksDB** | durable local storage | Yes | No | Default production and single-node deployments |
+| **PersistentEngine + ThingDB** | experimental Rust-native local storage | Yes | No | Opt-in testing and development |
 
 ### persistent storage layout
 
-The persistent engine uses embedded RocksDB column families behind the
-backend-neutral `ThingStore` contract. RocksDB is compiled into the server or
-native addon; it is not a separate runtime service. Legacy native directories
-must be logically migrated before they can be opened by the current runtime.
+The persistent engine uses embedded storage behind the backend-neutral
+`ThingStore` contract. RocksDB is compiled into the server or native addon and
+remains the default; it is not a separate runtime service. ThingDB can be
+selected with `THINGD_STORAGE_BACKEND=thingdb`, but it has a separate format and
+must be created fresh or populated through logical repack. It does not open
+RocksDB files directly. Legacy native directories must be logically migrated
+before they can be opened by the current runtime.
 
 The persistent engine stores objects, events, queues, links, search data, and vectors
 under one configured storage directory. The layout is an implementation detail and
@@ -90,8 +97,8 @@ search falls back to a bounded primary-store scan and diagnostics report stale
 search state. `persistent-no-rebuild` is read-only for Tantivy and always uses
 fallback search so writes never touch the index.
 
-Tantivy is used by the persistent backend for full-text search and is feature-gated
-with `search`. The index is derived state: if an older SDK created an incompatible
+Tantivy is used by either durable backend for full-text search and is
+feature-gated with `search`. The index is derived state: if an older SDK created an incompatible
 schema (including one without `doc_key`), thingd discards only the Tantivy
 directory and rebuilds it from the durable object and event records. Primary data
 is not migrated or discarded.
@@ -192,7 +199,7 @@ See [mcp-server.md](./mcp-server.md) for the full reference.
 
 | Mode | How | Backend |
 |------|-----|---------|
-| **Rust embedded** | `use thingd::{PersistentEngine, ObjectStore}` | persistent or InMemory |
+| **Rust embedded** | `use thingd::{PersistentEngine, ObjectStore}` | RocksDB by default, ThingDB experimental opt-in, or InMemory |
 | **Node.js embedded** | `new ThingD({driver:"native"})` | persistent or InMemory |
 | **MCP sidecar** | `thingd mcp` | PersistentEngine with optional storage codec |
 | **REST sidecar** | `thingd-server` (axum) | PersistentEngine |
@@ -244,3 +251,6 @@ The **only** files that know about concrete backend types:
 - `crates/thingd-server/src/engine.rs` — `create_engine()` factory
 
 Everything else uses `Box<dyn ThingStore + Send>` and never sees the concrete type.
+
+See [Storage backends](./storage-backends.md) for runtime selection, format
+compatibility, and logical repack procedures.

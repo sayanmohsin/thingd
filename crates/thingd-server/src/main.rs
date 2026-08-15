@@ -45,6 +45,22 @@ fn has_arg(flag: &str) -> bool {
     std::env::args().any(|arg| arg == flag)
 }
 
+fn parse_storage_backend(value: &str) -> Result<thingd::PersistentBackend, String> {
+    match value {
+        "rocksdb" => Ok(thingd::PersistentBackend::RocksDb),
+        "thingdb" => Ok(thingd::PersistentBackend::ThingDb),
+        _ => Err(format!(
+            "invalid storage backend {value:?}; expected rocksdb or thingdb"
+        )),
+    }
+}
+
+fn configured_storage_backend() -> Result<thingd::PersistentBackend, String> {
+    parse_storage_backend(
+        &std::env::var("THINGD_STORAGE_BACKEND").unwrap_or_else(|_| "rocksdb".to_string()),
+    )
+}
+
 fn value_from_args(flag: &str) -> Option<PathBuf> {
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
@@ -106,11 +122,15 @@ async fn main() {
             eprintln!("Usage: thingd-server --check <database-path> [--require-migrated]");
             std::process::exit(2);
         };
-        match thingd::PersistentEngine::validate_path(&path) {
+        let backend = configured_storage_backend().unwrap_or_else(|error| {
+            eprintln!("ERROR: {error}");
+            std::process::exit(2);
+        });
+        match thingd::PersistentEngine::validate_path_with_backend(&path, backend) {
             Ok(report) => {
                 if has_arg("--require-migrated") && report.legacy_manifest {
                     eprintln!(
-                        "ERROR: storage path is a new or legacy-unmarked directory; expected a validated RocksDB migration: {}",
+                        "ERROR: storage path is a new or legacy-unmarked directory; expected a validated migrated store: {}",
                         path.display()
                     );
                     std::process::exit(1);
@@ -153,6 +173,12 @@ async fn main() {
             let options = thingd::PersistentOpenOptions {
                 encryption: key,
                 search_mode: thingd::PersistentSearchMode::Disabled,
+                backend: parse_storage_backend(&config.server.storage_backend).unwrap_or_else(
+                    |e| {
+                        eprintln!("ERROR: {e}");
+                        std::process::exit(2);
+                    },
+                ),
                 ..thingd::PersistentOpenOptions::default()
             };
             match thingd::PersistentEngine::open_with_options(&path, options) {
@@ -177,14 +203,36 @@ async fn main() {
             }
         } else {
             let Some(source) = value_from_args("--repack") else {
-                eprintln!("Usage: thingd-server --repack <source> --destination <path>");
+                eprintln!(
+                    "Usage: thingd-server --repack <source> --destination <path> [--source-backend rocksdb|thingdb]"
+                );
                 std::process::exit(2);
             };
             let Some(destination) = value_from_args("--destination") else {
-                eprintln!("Usage: thingd-server --repack <source> --destination <path>");
+                eprintln!(
+                    "Usage: thingd-server --repack <source> --destination <path> [--source-backend rocksdb|thingdb]"
+                );
                 std::process::exit(2);
             };
-            if let Err(error) = thingd::PersistentEngine::repack_to(&source, &destination, key) {
+            let source_backend = value_from_args("--source-backend")
+                .map(|path| path.to_string_lossy().into_owned())
+                .unwrap_or_else(|| "rocksdb".to_string());
+            let source_backend = parse_storage_backend(&source_backend).unwrap_or_else(|error| {
+                eprintln!("ERROR: {error}");
+                std::process::exit(2);
+            });
+            let destination_backend = parse_storage_backend(&config.server.storage_backend)
+                .unwrap_or_else(|error| {
+                    eprintln!("ERROR: {error}");
+                    std::process::exit(2);
+                });
+            if let Err(error) = thingd::PersistentEngine::repack_to_with_backends(
+                &source,
+                &destination,
+                source_backend,
+                destination_backend,
+                key,
+            ) {
                 eprintln!("ERROR: repack failed: {error}");
                 std::process::exit(1);
             }
@@ -217,7 +265,7 @@ async fn main() {
     }
 
     let pool = Arc::new(
-        engine::EnginePool::new_with_encryption_key_search_mode_journal_limit_and_recovery_budget(
+        engine::EnginePool::new_with_encryption_key_search_mode_journal_limit_and_recovery_budget_and_backend(
             config.server.database.clone(),
             config.server.encryption_key.as_deref(),
             match config.server.search_mode {
@@ -240,6 +288,10 @@ async fn main() {
             config.server.search_commit_interval_ms,
             config.server.search_commit_batch_size,
             config.server.search_queue_max_keys,
+            parse_storage_backend(&config.server.storage_backend).unwrap_or_else(|error| {
+                eprintln!("ERROR: {error}");
+                std::process::exit(2);
+            }),
         )
         .unwrap_or_else(|e| {
             eprintln!("Encryption configuration error: {e}");

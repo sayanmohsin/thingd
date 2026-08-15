@@ -19,6 +19,7 @@ used automatically.
 ```txt
 THINGD_PATH=/data/thingd.db
 THINGD_DRIVER=native
+THINGD_STORAGE_BACKEND=rocksdb|thingdb
 THINGD_ENCRYPTION_KEY=<64 hexadecimal characters>
 THINGD_SEARCH_MODE=persistent
 THINGD_SEARCH_COMMIT_INTERVAL_MS=250
@@ -35,6 +36,11 @@ THINGD_NATIVE_MAX_BATCH_ITEMS=<optional count>
 
 `THINGD_DRIVER` can be `memory` or `native`. Use `native` for the Rust-backed
 persistent store after the native package has been built into the runtime image.
+
+`THINGD_STORAGE_BACKEND` defaults to `rocksdb`. Set it to `thingdb` only for
+the experimental Rust-native backend. ThingDB uses a separate on-disk format;
+switching an existing directory requires logical repack rather than changing
+the environment variable in place.
 
 `THINGD_ENCRYPTION_KEY` is optional and applies only to native persistent
 storage. It must represent exactly 32 bytes as 64 hexadecimal characters. Do
@@ -76,8 +82,9 @@ low-memory deployments should set an explicit limit appropriate for their
 workload. `THINGD_NATIVE_MAX_BATCH_ITEMS` applies the same opt-in protection to
 the number of objects, events, or queue jobs in a native batch.
 
-The native durable backend is RocksDB compiled into the server/native artifact;
-these settings do not require a RocksDB service. Legacy native directories must
+The native durable backend is RocksDB compiled into the server/native artifact
+by default; set `THINGD_STORAGE_BACKEND=thingdb` to opt into the experimental
+Rust-native backend. These settings do not require a RocksDB service. Legacy native directories must
 be migrated explicitly with the repository-built `thingd-migrate` utility. See
 [Storage backends](./storage-backends.md).
 
@@ -124,6 +131,7 @@ server:
   host: "0.0.0.0"
   port: 8757
   database: "/data/thingd.db"
+  storage_backend: "rocksdb" # or experimental "thingdb"
   encryption_key: "<64 hexadecimal characters>"
   production_mode: false
 auth:

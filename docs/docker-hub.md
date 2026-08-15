@@ -46,6 +46,7 @@ memory database. Encrypted directory backups require the same key to restore.
 |----------|---------|-------------|
 | `THINGD_PATH` | `/data/thingd.db` | Path to the persistent database directory |
 | `THINGD_DRIVER` | `native` | Storage driver (`native` or `memory`) |
+| `THINGD_STORAGE_BACKEND` | `rocksdb` | Durable backend (`rocksdb` or experimental `thingdb`) |
 | `THINGD_ENCRYPTION_KEY` | — | Optional 64-character hexadecimal key for native persistent storage |
 | `THINGD_SEARCH_MODE` | `persistent` | `persistent`, `persistent-async`, `persistent-no-rebuild`, or `disabled` |
 | `THINGD_SEARCH_COMMIT_INTERVAL_MS` | `250` | Debounce interval before the async Tantivy commit |
@@ -61,6 +62,12 @@ memory database. Encrypted directory backups require the same key to restore.
 | `THINGD_MCP_COLLECTIONS` | — | Comma-separated allowlist of collection names |
 | `THINGD_MCP_READ_ONLY` | `false` | Set to `true` to disable all write tools |
 | `THINGD_MCP_MAX_PAYLOAD_BYTES` | `524288` | Maximum MCP request payload size in bytes |
+
+RocksDB is the default durable backend. Set `THINGD_STORAGE_BACKEND=thingdb`
+only for the experimental Rust-native backend; it uses a separate format and
+requires logical repack when changing an existing database. See
+[Storage backends](./storage-backends.md) for compatibility and rollback-safe
+repack guidance.
 
 ## Cluster mode
 

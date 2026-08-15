@@ -6,8 +6,12 @@ thingd's security model and hardening options.
 
 Native persistent storage can use authenticated encryption with a 32-byte key
 represented as 64 hexadecimal characters at the CLI, SDK, and sidecar
-boundaries. The key is required to open an encrypted database; the runtime
+boundaries. This applies to the default RocksDB backend and the experimental
+ThingDB backend. The key is required to open an encrypted database; the runtime
 fails closed on missing, invalid, or wrong keys and never falls back to memory.
+
+See [Storage backends](./storage-backends.md) for backend selection and safe
+logical repack procedures.
 
 Storage encryption is independent of `THINGD_AUTH_TOKEN`: authentication
 protects network access, while the encryption key unlocks local database

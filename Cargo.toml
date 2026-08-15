@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "crates/thingd",
+    "crates/thingdb",
     "crates/thingd-schema",
     "crates/thingd-server",
     "packages/thingd-native",

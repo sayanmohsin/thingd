@@ -29,7 +29,9 @@ use crate::model::{
     TimeBucket, TimeSeriesBucket, TimeSeriesOptions, TimeSeriesResult,
 };
 use crate::replication::{REPLICATION_STATE_COLLECTION, REPLICATION_STREAM};
-use crate::storage_backend::{Database, Keyspace, KeyspaceCreateOptions, PersistMode};
+use crate::storage_backend::{
+    Database, Keyspace, KeyspaceCreateOptions, PersistMode, StorageBackend,
+};
 use crate::storage_backend::{Guard, Slice};
 use crate::store::{
     AggregateStore, EventLog, LinkStore, ObjectStore, QueueStore, RetentionOptions,
@@ -422,6 +424,25 @@ pub struct StorageValidationReport {
     pub search_index_compatible: Option<bool>,
 }
 
+/// Selects the durable backend used by a persistent Thingd engine.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum PersistentBackend {
+    /// The mature C++ RocksDB backend. This remains the default.
+    #[default]
+    RocksDb,
+    /// The experimental Rust-native ThingDB backend.
+    ThingDb,
+}
+
+impl From<PersistentBackend> for StorageBackend {
+    fn from(backend: PersistentBackend) -> Self {
+        match backend {
+            PersistentBackend::RocksDb => Self::RocksDb,
+            PersistentBackend::ThingDb => Self::ThingDb,
+        }
+    }
+}
+
 fn manifest_keyspaces() -> Vec<String> {
     #[cfg(feature = "vectors")]
     let extra = std::iter::once(REQUIRED_VECTOR_KEYSPACE);
@@ -569,6 +590,45 @@ fn validate_existing_directory(path: &Path) -> ThingdResult<Option<StorageValida
     }))
 }
 
+fn validate_thingdb_directory(path: &Path) -> ThingdResult<StorageValidationReport> {
+    if !path.is_dir() {
+        return Err(ThingdError::StorageValidation(format!(
+            "ThingDB path is not a directory: {}",
+            path.display()
+        )));
+    }
+    let manifest_path = path.join("MANIFEST.json");
+    let bytes = std::fs::read(&manifest_path).map_err(|error| {
+        ThingdError::StorageValidation(format!("read {}: {error}", manifest_path.display()))
+    })?;
+    let manifest: serde_json::Value = serde_json::from_slice(&bytes).map_err(|error| {
+        ThingdError::UnsupportedStorageFormat(format!(
+            "invalid ThingDB manifest {}: {error}",
+            manifest_path.display()
+        ))
+    })?;
+    let format_version = manifest
+        .get("format_version")
+        .and_then(serde_json::Value::as_u64)
+        .ok_or_else(|| {
+            ThingdError::UnsupportedStorageFormat(
+                "ThingDB manifest has no format_version".to_string(),
+            )
+        })?;
+    if format_version != 1 {
+        return Err(ThingdError::UnsupportedStorageFormat(format!(
+            "unsupported ThingDB format version {format_version}"
+        )));
+    }
+    Ok(StorageValidationReport {
+        format_version: u32::try_from(format_version).unwrap_or(u32::MAX),
+        legacy_manifest: false,
+        lock_present: path.join("LOCK").is_file(),
+        keyspaces_present: true,
+        search_index_compatible: search_index_compatible(path),
+    })
+}
+
 fn manifest_path_exists(path: &Path) -> bool {
     path.join(STORAGE_MANIFEST_FILE).is_file()
 }
@@ -576,6 +636,7 @@ fn manifest_path_exists(path: &Path) -> bool {
 fn write_or_validate_manifest(
     path: &Path,
     existing: Option<&StorageValidationReport>,
+    backend: PersistentBackend,
 ) -> ThingdResult<()> {
     let manifest_path = path.join(STORAGE_MANIFEST_FILE);
     if manifest_path.exists() {
@@ -588,7 +649,10 @@ fn write_or_validate_manifest(
     }
     let manifest = StorageManifest {
         format_version: STORAGE_FORMAT_VERSION,
-        contract: STORAGE_CONTRACT.to_string(),
+        contract: match backend {
+            PersistentBackend::RocksDb => STORAGE_CONTRACT.to_string(),
+            PersistentBackend::ThingDb => "thingdb-tantivy-v1".to_string(),
+        },
         keyspaces: manifest_keyspaces(),
         search_schema_version: 1,
     };
@@ -601,6 +665,8 @@ fn write_or_validate_manifest(
 /// Options used when opening a persistent database.
 #[derive(Clone)]
 pub struct PersistentOpenOptions {
+    /// Durable backend selection. RocksDB remains the default.
+    pub backend: PersistentBackend,
     /// Optional authenticated-encryption configuration.
     pub encryption: Option<EncryptionConfig>,
     /// Permit an explicit encrypted-to-plaintext migration when used by
@@ -629,6 +695,7 @@ pub struct PersistentOpenOptions {
 impl Default for PersistentOpenOptions {
     fn default() -> Self {
         Self {
+            backend: PersistentBackend::default(),
             encryption: None,
             allow_plaintext_output: false,
             search_mode: PersistentSearchMode::Persistent,
@@ -814,11 +881,27 @@ impl PersistentEngine {
         options: PersistentOpenOptions,
     ) -> ThingdResult<Self> {
         let path = path.as_ref();
-        let existing = validate_existing_directory(path)?;
+        if options.backend == PersistentBackend::ThingDb
+            && (path.join("CURRENT").is_file()
+                || path.join(STORAGE_MANIFEST_FILE).is_file()
+                    && std::fs::read(path.join(STORAGE_MANIFEST_FILE))
+                        .ok()
+                        .and_then(|bytes| serde_json::from_slice::<StorageManifest>(&bytes).ok())
+                        .is_some_and(|manifest| manifest.contract == STORAGE_CONTRACT))
+        {
+            return Err(ThingdError::UnsupportedStorageFormat(
+                "RocksDB directory cannot be opened as ThingDB; use logical repack".to_string(),
+            ));
+        }
+        let existing = if options.backend == PersistentBackend::RocksDb {
+            validate_existing_directory(path)?
+        } else {
+            None
+        };
         let crypto = StorageCrypto::open(path, options.encryption.as_ref())?;
         let codec = make_codec(crypto);
         let encrypted = codec.encrypted();
-        let db = Database::builder(path)
+        let db = Database::builder_with_backend(path, options.backend.into())
             .max_journaling_size(options.max_journal_bytes)
             .open()?;
 
@@ -837,7 +920,7 @@ impl PersistentEngine {
         #[cfg(feature = "vectors")]
         let vectors = db.keyspace("vectors", KeyspaceCreateOptions::default)?;
 
-        write_or_validate_manifest(path, existing.as_ref())?;
+        write_or_validate_manifest(path, existing.as_ref(), options.backend)?;
 
         let mut next_link_id = 0u64;
         for kv in links_by_id.iter() {
@@ -1477,7 +1560,19 @@ impl PersistentEngine {
 
     /// Validate a native storage directory without opening RocksDB or mutating files.
     pub fn validate_path(path: impl AsRef<Path>) -> ThingdResult<StorageValidationReport> {
-        validate_existing_directory(path.as_ref())?.ok_or_else(|| {
+        Self::validate_path_with_backend(path, PersistentBackend::RocksDb)
+    }
+
+    /// Validate a durable directory using an explicit backend format.
+    pub fn validate_path_with_backend(
+        path: impl AsRef<Path>,
+        backend: PersistentBackend,
+    ) -> ThingdResult<StorageValidationReport> {
+        let path = path.as_ref();
+        if backend == PersistentBackend::ThingDb {
+            return validate_thingdb_directory(path);
+        }
+        validate_existing_directory(path)?.ok_or_else(|| {
             ThingdError::StorageValidation("database directory does not exist yet".to_string())
         })
     }
@@ -1664,6 +1759,23 @@ impl PersistentEngine {
         destination_path: impl AsRef<Path>,
         encryption: Option<EncryptionConfig>,
     ) -> ThingdResult<()> {
+        Self::repack_to_with_backends(
+            source_path,
+            destination_path,
+            PersistentBackend::RocksDb,
+            PersistentBackend::RocksDb,
+            encryption,
+        )
+    }
+
+    /// Repack between explicit durable backends without modifying the source.
+    pub fn repack_to_with_backends(
+        source_path: impl AsRef<Path>,
+        destination_path: impl AsRef<Path>,
+        source_backend: PersistentBackend,
+        destination_backend: PersistentBackend,
+        encryption: Option<EncryptionConfig>,
+    ) -> ThingdResult<()> {
         let source_path = source_path.as_ref();
         let destination_path = destination_path.as_ref();
         if source_path == destination_path {
@@ -1693,18 +1805,26 @@ impl PersistentEngine {
             ));
         }
 
-        let options = PersistentOpenOptions {
+        let source_options = PersistentOpenOptions {
+            backend: source_backend,
             encryption,
             search_mode: PersistentSearchMode::Disabled,
             ..PersistentOpenOptions::default()
         };
-        let result = Self::reencrypt_to(source_path, &temp_path, options.clone(), options)
-            .and_then(|()| {
-                Self::validate_path(&temp_path)?;
-                std::fs::rename(&temp_path, destination_path).map_err(|error| {
-                    ThingdError::Storage(format!("promote repacked database: {error}"))
-                })
-            });
+        let destination_options = PersistentOpenOptions {
+            backend: destination_backend,
+            encryption: source_options.encryption.clone(),
+            search_mode: PersistentSearchMode::Disabled,
+            ..PersistentOpenOptions::default()
+        };
+        let result =
+            Self::reencrypt_to(source_path, &temp_path, source_options, destination_options)
+                .and_then(|()| {
+                    Self::validate_path_with_backend(&temp_path, destination_backend)?;
+                    std::fs::rename(&temp_path, destination_path).map_err(|error| {
+                        ThingdError::Storage(format!("promote repacked database: {error}"))
+                    })
+                });
         if result.is_err() {
             let _ = std::fs::remove_dir_all(&temp_path);
         }
@@ -4840,6 +4960,53 @@ mod tests {
         );
     }
 
+    #[test]
+    fn encrypted_thingdb_reopens_and_rejects_missing_or_wrong_keys() {
+        let dir = tempfile::tempdir().unwrap();
+        let key = [0x2a_u8; 32];
+        let options = PersistentOpenOptions {
+            backend: PersistentBackend::ThingDb,
+            encryption: Some(EncryptionConfig::from_key(&key).unwrap()),
+            ..PersistentOpenOptions::default()
+        };
+        {
+            let mut engine = PersistentEngine::open_with_options(&dir, options.clone()).unwrap();
+            engine
+                .put_object(MemoryObject::new(
+                    "private",
+                    "id",
+                    r#"{"secret":"thingdb"}"#,
+                ))
+                .unwrap();
+        }
+        assert!(matches!(
+            PersistentEngine::open_with_options(
+                &dir,
+                PersistentOpenOptions {
+                    backend: PersistentBackend::ThingDb,
+                    ..PersistentOpenOptions::default()
+                }
+            ),
+            Err(ThingdError::EncryptionRequired(_))
+        ));
+        assert!(matches!(
+            PersistentEngine::open_with_options(
+                &dir,
+                PersistentOpenOptions {
+                    backend: PersistentBackend::ThingDb,
+                    encryption: Some(EncryptionConfig::from_key(&[0x2b_u8; 32]).unwrap()),
+                    ..PersistentOpenOptions::default()
+                }
+            ),
+            Err(ThingdError::EncryptionAuthentication(_))
+        ));
+        let engine = PersistentEngine::open_with_options(&dir, options).unwrap();
+        assert_eq!(
+            engine.get_object("private", "id").unwrap().unwrap().body,
+            r#"{"secret":"thingdb"}"#
+        );
+    }
+
     #[cfg(feature = "search")]
     #[test]
     fn encrypted_search_rebuilds_in_memory_without_search_directory() {
@@ -4997,6 +5164,57 @@ mod tests {
                 .body,
             r#"{"name":"Alice"}"#
         );
+    }
+
+    #[test]
+    fn repacks_rocksdb_into_thingdb_without_overwriting_source() {
+        let root = tempfile::tempdir().unwrap();
+        let source_path = root.path().join("rocksdb-source");
+        let destination_path = root.path().join("thingdb-destination");
+        {
+            let mut source = PersistentEngine::open(&source_path).unwrap();
+            source
+                .put_object(MemoryObject::new("users", "alice", r#"{"name":"Alice"}"#))
+                .unwrap();
+            source
+                .append_event(MemoryEvent::new("audit", "created", "body"))
+                .unwrap();
+        }
+
+        PersistentEngine::repack_to_with_backends(
+            &source_path,
+            &destination_path,
+            PersistentBackend::RocksDb,
+            PersistentBackend::ThingDb,
+            None,
+        )
+        .unwrap();
+
+        let destination = PersistentEngine::open_with_options(
+            &destination_path,
+            PersistentOpenOptions {
+                backend: PersistentBackend::ThingDb,
+                ..PersistentOpenOptions::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            destination
+                .get_object("users", "alice")
+                .unwrap()
+                .unwrap()
+                .body,
+            r#"{"name":"Alice"}"#
+        );
+        assert_eq!(
+            destination
+                .list_events(Some("audit"), ListEventsOptions::default())
+                .unwrap()
+                .len(),
+            1
+        );
+        assert!(source_path.join("CURRENT").is_file());
+        assert!(destination_path.join("MANIFEST.json").is_file());
     }
 
     #[test]
@@ -6389,6 +6607,34 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let engine = PersistentEngine::open(dir.path()).unwrap();
         (engine, dir)
+    }
+
+    fn setup_thingdb() -> (PersistentEngine, tempfile::TempDir) {
+        let dir = tempfile::tempdir().unwrap();
+        let engine = PersistentEngine::open_with_options(
+            dir.path(),
+            PersistentOpenOptions {
+                backend: PersistentBackend::ThingDb,
+                ..PersistentOpenOptions::default()
+            },
+        )
+        .unwrap();
+        (engine, dir)
+    }
+
+    #[test]
+    fn thingdb_backend_runs_shared_contracts() {
+        let (mut engine, _dir) = setup_thingdb();
+        crate::contract_tests::test_contract_object_lifecycle(&mut engine);
+        crate::contract_tests::test_contract_vector_lifecycle(&mut engine);
+        crate::contract_tests::test_contract_schema_store(&mut engine);
+        crate::contract_tests::test_contract_indexes(&mut engine);
+        crate::contract_tests::test_contract_event_idempotency(&mut engine);
+        crate::contract_tests::test_contract_queue_lifecycle(&mut engine);
+        crate::contract_tests::test_contract_delayed_job(&mut engine);
+        crate::contract_tests::test_contract_lease_expiration(&mut engine);
+        crate::contract_tests::test_contract_nack_dead_letter(&mut engine);
+        crate::contract_tests::test_contract_search(&mut engine);
     }
 
     #[test]
