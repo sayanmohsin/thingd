@@ -41,6 +41,10 @@ fn check_path_from_args() -> Option<PathBuf> {
     None
 }
 
+fn has_arg(flag: &str) -> bool {
+    std::env::args().any(|arg| arg == flag)
+}
+
 fn value_from_args(flag: &str) -> Option<PathBuf> {
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
@@ -99,13 +103,21 @@ async fn main() {
 
     if std::env::args().any(|arg| arg == "--check" || arg.starts_with("--check=")) {
         let Some(path) = check_path_from_args() else {
-            eprintln!("Usage: thingd-server --check <database-path>");
+            eprintln!("Usage: thingd-server --check <database-path> [--require-migrated]");
             std::process::exit(2);
         };
         match thingd::PersistentEngine::validate_path(&path) {
             Ok(report) => {
+                if has_arg("--require-migrated") && report.legacy_manifest {
+                    eprintln!(
+                        "ERROR: storage path is a new or legacy-unmarked directory; expected a validated RocksDB migration: {}",
+                        path.display()
+                    );
+                    std::process::exit(1);
+                }
                 println!(
-                    "OK: format={} legacy_manifest={} lock_present={} keyspaces_present={} search_index_compatible={:?}",
+                    "OK: path={} format={} legacy_manifest={} lock_present={} keyspaces_present={} search_index_compatible={:?}",
+                    path.display(),
                     report.format_version,
                     report.legacy_manifest,
                     report.lock_present,

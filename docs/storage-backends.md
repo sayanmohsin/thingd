@@ -29,13 +29,19 @@ versions, timestamps, events, queues, links, schemas, migrations, idempotency
 state, replication state, and encryption markers. Search indexes are derived
 state and are rebuilt after migration.
 
-Build and run the isolated migration utility from this repository:
+Build and run the isolated migration utility from this repository. It is a
+temporary beta compatibility tool: do not add new migration formats or make it
+a runtime dependency. It will be removed only after the deprecation gates in
+the Cloud handoff are satisfied.
 
 ```bash
 cargo run -p thingd-migrate -- fjall-to-rocksdb \
   --source /data/thingd-fjall \
   --destination /data/thingd-rocksdb
 ```
+
+The utility copies in bounded batches and reports counts per keyspace. The
+destination is validated before promotion and the source remains untouched.
 
 For encrypted stores, provide the same 64-character hexadecimal key:
 
