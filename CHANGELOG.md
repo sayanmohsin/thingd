@@ -13,6 +13,13 @@
 - server: harden security boundaries (0961ffe)
 - complete public SDK type exports (8a8889a)
 
+## [0.83.2](https://github.com/sayanmohsin/thingd/compare/thingd-v0.83.1...thingd-v0.83.2) (2026-08-15)
+
+
+### Bug Fixes
+
+* harden RocksDB migration cutover ([#157](https://github.com/sayanmohsin/thingd/issues/157)) ([8826da6](https://github.com/sayanmohsin/thingd/commit/8826da6beeb84ce61490ffb9a57bfd6cc94fadd7))
+
 ## [0.83.1](https://github.com/sayanmohsin/thingd/compare/thingd-v0.83.0...thingd-v0.83.1) (2026-08-14)
 
 
