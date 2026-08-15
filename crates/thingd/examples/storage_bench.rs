@@ -8,10 +8,13 @@
 
 use std::env;
 use std::error::Error;
+use std::fs;
 use std::hint::black_box;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use serde::Serialize;
 use thingd::{
     EncryptionConfig, EventLog, ListEventsOptions, ListObjectsOptions, MemoryEngine, MemoryEvent,
     MemoryObject, ObjectStore, PersistentEngine, PersistentOpenOptions, QueueClaimOptions,
@@ -29,11 +32,101 @@ const OBJECT_BODY_INACTIVE: &str =
     r#"{"text":"benchmark object","project":"thingd","status":"inactive","confidence":0.10}"#;
 const EVENT_BODY: &str = r#"{"text":"benchmark event","project":"thingd","actor":"benchmark"}"#;
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum BackendSelection {
+    All,
+    InMemory,
+    RocksDb,
+    ThingDb,
+}
+
+#[derive(Debug)]
+struct BenchConfig {
+    iterations: usize,
+    seed: u64,
+    backend: BackendSelection,
+    output: Option<PathBuf>,
+    history: PathBuf,
+    phase: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
+struct BenchResult {
+    driver: String,
+    operation: String,
+    operations: usize,
+    total_ns: u128,
+    throughput_ops_per_second: u128,
+    min_ns: u128,
+    p50_ns: u128,
+    p95_ns: u128,
+    p99_ns: u128,
+    max_ns: u128,
+    error_count: usize,
+}
+
+#[derive(Clone, Debug, Serialize)]
+struct StorageSnapshot {
+    driver: String,
+    path: String,
+    bytes_on_disk: u64,
+    file_count: usize,
+}
+
+#[derive(Debug, Serialize)]
+struct BenchOutput {
+    metadata: BenchMetadata,
+    results: Vec<BenchResult>,
+    storage: Vec<StorageSnapshot>,
+}
+
+#[derive(Debug, Serialize)]
+struct BenchMetadata {
+    date: String,
+    phase: String,
+    branch: String,
+    iterations: usize,
+    seed: u64,
+    backend: String,
+    commit: String,
+    rust: String,
+    os: String,
+    arch: String,
+    parallelism: usize,
+}
+
+static RESULTS: std::sync::OnceLock<Mutex<BenchOutput>> = std::sync::OnceLock::new();
+
 fn main() -> Result<(), Box<dyn Error>> {
-    let iterations = iterations();
+    let config = BenchConfig::from_args()?;
+    RESULTS
+        .set(Mutex::new(BenchOutput {
+            metadata: BenchMetadata {
+                date: command_output("date", &["-u", "+%Y-%m-%dT%H:%M:%SZ"]),
+                phase: config.phase.clone(),
+                branch: command_output("git", &["branch", "--show-current"]),
+                iterations: config.iterations,
+                seed: config.seed,
+                backend: config.backend.name().to_string(),
+                commit: command_output("git", &["rev-parse", "HEAD"]),
+                rust: command_output("rustc", &["-Vv"]),
+                os: env::consts::OS.to_string(),
+                arch: env::consts::ARCH.to_string(),
+                parallelism: std::thread::available_parallelism()
+                    .map(usize::from)
+                    .unwrap_or(1),
+            },
+            results: Vec::new(),
+            storage: Vec::new(),
+        }))
+        .map_err(|_| "benchmark output was initialized more than once")?;
+
+    let iterations = config.iterations;
 
     println!("thingd storage benchmark");
     println!("iterations: {iterations}");
+    println!("seed: {}", config.seed);
+    println!("backend: {}", config.backend.name());
     println!();
     println!(
         "{:>13} | {:<22} | {:>7} | {:>12} | {:>12}",
@@ -41,88 +134,150 @@ fn main() -> Result<(), Box<dyn Error>> {
     );
     println!("{}", "-".repeat(80));
 
-    bench_store("in-memory", MemoryEngine::new(), iterations)?;
-    bench_concurrent("in-memory", || Ok(MemoryEngine::new()), iterations)?;
+    if config.backend.includes(BackendSelection::InMemory) {
+        bench_store("in-memory", MemoryEngine::new(), iterations, config.seed)?;
+        bench_concurrent("in-memory", || Ok(MemoryEngine::new()), iterations)?;
+    }
 
-    let dir = tempfile::tempdir()?;
-    let persistent_options = benchmark_persistent_options();
-    let persistent_engine =
-        PersistentEngine::open_with_options(dir.path(), persistent_options.clone())?;
-    let lifecycle_dir = tempfile::tempdir()?;
-    time_persistent_lifecycle(lifecycle_dir.path())?;
-    bench_store("persistent", persistent_engine, iterations)?;
+    if config.backend.includes(BackendSelection::RocksDb) {
+        let dir = tempfile::tempdir()?;
+        let persistent_options = benchmark_persistent_options(thingd::PersistentBackend::RocksDb);
+        let persistent_engine =
+            PersistentEngine::open_with_options(dir.path(), persistent_options.clone())?;
+        let lifecycle_dir = tempfile::tempdir()?;
+        time_persistent_lifecycle(lifecycle_dir.path(), persistent_options.clone())?;
+        bench_store("persistent", persistent_engine, iterations, config.seed)?;
+        record_storage("persistent", dir.path());
+        let latency_dir = tempfile::tempdir()?;
+        bench_latency_distribution(
+            "persistent",
+            latency_dir.path(),
+            persistent_options,
+            iterations.min(256),
+            config.seed,
+        )?;
+    }
 
-    let thingdb_dir = tempfile::tempdir()?;
-    let thingdb_options = PersistentOpenOptions {
-        backend: thingd::PersistentBackend::ThingDb,
-        ..persistent_options.clone()
-    };
-    let thingdb_engine =
-        PersistentEngine::open_with_options(thingdb_dir.path(), thingdb_options.clone())?;
-    bench_store("thingdb-experimental", thingdb_engine, iterations)?;
+    if config.backend.includes(BackendSelection::ThingDb) {
+        let thingdb_dir = tempfile::tempdir()?;
+        let thingdb_options = benchmark_persistent_options(thingd::PersistentBackend::ThingDb);
+        let thingdb_engine =
+            PersistentEngine::open_with_options(thingdb_dir.path(), thingdb_options.clone())?;
+        bench_store(
+            "thingdb-experimental",
+            thingdb_engine,
+            iterations,
+            config.seed,
+        )?;
+        record_storage("thingdb-experimental", thingdb_dir.path());
+        let latency_dir = tempfile::tempdir()?;
+        bench_latency_distribution(
+            "thingdb-experimental",
+            latency_dir.path(),
+            thingdb_options,
+            iterations.min(256),
+            config.seed,
+        )?;
+    }
 
-    let conc_dir = tempfile::tempdir()?;
-    bench_concurrent(
-        "persistent",
-        || {
-            let engine =
-                PersistentEngine::open_with_options(conc_dir.path(), persistent_options.clone())?;
-            Ok(engine)
-        },
-        iterations,
-    )?;
+    if config.backend.includes(BackendSelection::RocksDb) {
+        let conc_dir = tempfile::tempdir()?;
+        let persistent_options = benchmark_persistent_options(thingd::PersistentBackend::RocksDb);
+        bench_concurrent(
+            "persistent",
+            || {
+                let engine = PersistentEngine::open_with_options(
+                    conc_dir.path(),
+                    persistent_options.clone(),
+                )?;
+                Ok(engine)
+            },
+            iterations,
+        )?;
+    }
 
-    let thingdb_conc_dir = tempfile::tempdir()?;
-    bench_concurrent(
-        "thingdb-experimental",
-        || {
-            let engine = PersistentEngine::open_with_options(
-                thingdb_conc_dir.path(),
-                thingdb_options.clone(),
-            )?;
-            Ok(engine)
-        },
-        iterations,
-    )?;
+    if config.backend.includes(BackendSelection::ThingDb) {
+        let thingdb_conc_dir = tempfile::tempdir()?;
+        let thingdb_options = benchmark_persistent_options(thingd::PersistentBackend::ThingDb);
+        bench_concurrent(
+            "thingdb-experimental",
+            || {
+                let engine = PersistentEngine::open_with_options(
+                    thingdb_conc_dir.path(),
+                    thingdb_options.clone(),
+                )?;
+                Ok(engine)
+            },
+            iterations,
+        )?;
+    }
 
-    let encrypted_dir = tempfile::tempdir()?;
-    let encrypted_options = PersistentOpenOptions {
-        encryption: Some(EncryptionConfig::from_key(&[0x42_u8; 32])?),
-        ..PersistentOpenOptions::default()
-    };
-    let encrypted_engine =
-        PersistentEngine::open_with_options(encrypted_dir.path(), encrypted_options.clone())?;
-    bench_store("persistent-encrypted", encrypted_engine, iterations)?;
+    if config.backend.includes(BackendSelection::RocksDb) {
+        let encrypted_dir = tempfile::tempdir()?;
+        let encrypted_options = PersistentOpenOptions {
+            backend: thingd::PersistentBackend::RocksDb,
+            encryption: Some(EncryptionConfig::from_key(&[0x42_u8; 32])?),
+            ..PersistentOpenOptions::default()
+        };
+        let encrypted_engine =
+            PersistentEngine::open_with_options(encrypted_dir.path(), encrypted_options.clone())?;
+        bench_store(
+            "persistent-encrypted",
+            encrypted_engine,
+            iterations,
+            config.seed,
+        )?;
+        record_storage("persistent-encrypted", encrypted_dir.path());
+    }
 
-    let encrypted_conc_dir = tempfile::tempdir()?;
-    bench_concurrent(
-        "persistent-encrypted",
-        || {
-            Ok(PersistentEngine::open_with_options(
-                encrypted_conc_dir.path(),
-                encrypted_options.clone(),
-            )?)
-        },
-        iterations,
-    )?;
+    if config.backend.includes(BackendSelection::RocksDb) {
+        let encrypted_conc_dir = tempfile::tempdir()?;
+        let encrypted_options = PersistentOpenOptions {
+            backend: thingd::PersistentBackend::RocksDb,
+            encryption: Some(EncryptionConfig::from_key(&[0x42_u8; 32])?),
+            ..PersistentOpenOptions::default()
+        };
+        bench_concurrent(
+            "persistent-encrypted",
+            || {
+                Ok(PersistentEngine::open_with_options(
+                    encrypted_conc_dir.path(),
+                    encrypted_options.clone(),
+                )?)
+            },
+            iterations,
+        )?;
+    }
+
+    run_correctness_smoke(config.seed)?;
+    if let Some(path) = config.output.as_deref() {
+        write_output(path)?;
+        println!("structured results: {}", path.display());
+    }
+    append_history(&config.history)?;
+    println!("benchmark history: {}", config.history.display());
 
     Ok(())
 }
 
-fn benchmark_persistent_options() -> PersistentOpenOptions {
+fn benchmark_persistent_options(backend: thingd::PersistentBackend) -> PersistentOpenOptions {
     let search_mode = match env::var("THINGD_BENCH_SEARCH_MODE").as_deref() {
         Ok("disabled") => thingd::PersistentSearchMode::Disabled,
         Ok("persistent-no-rebuild") => thingd::PersistentSearchMode::PersistentNoRebuild,
         _ => thingd::PersistentSearchMode::Persistent,
     };
     PersistentOpenOptions {
+        backend,
         search_mode,
         ..PersistentOpenOptions::default()
     }
 }
 
-fn time_persistent_lifecycle(path: &std::path::Path) -> Result<(), Box<dyn Error>> {
-    let mut engine = PersistentEngine::open(path)?;
+fn time_persistent_lifecycle(
+    path: &std::path::Path,
+    options: PersistentOpenOptions,
+) -> Result<(), Box<dyn Error>> {
+    let mut engine = PersistentEngine::open_with_options(path, options.clone())?;
     engine.put_object(MemoryObject::new(
         "bench_startup",
         "first-request",
@@ -131,7 +286,7 @@ fn time_persistent_lifecycle(path: &std::path::Path) -> Result<(), Box<dyn Error
     drop(engine);
 
     let started = Instant::now();
-    let engine = PersistentEngine::open(path)?;
+    let engine = PersistentEngine::open_with_options(path, options)?;
     let startup = started.elapsed();
     let first_request = Instant::now();
     let hits = engine.search("benchmark", SearchOptions::default())?;
@@ -145,18 +300,82 @@ fn time_persistent_lifecycle(path: &std::path::Path) -> Result<(), Box<dyn Error
     Ok(())
 }
 
-fn iterations() -> usize {
-    if let Some(value) = env::args().nth(1) {
-        return value.parse().unwrap_or(DEFAULT_ITERATIONS);
+impl BenchConfig {
+    fn from_args() -> Result<Self, Box<dyn Error>> {
+        let mut iterations = env::var("THINGD_BENCH_ITERS")
+            .ok()
+            .and_then(|value| value.parse().ok())
+            .unwrap_or(DEFAULT_ITERATIONS);
+        let mut seed = 0x5eed_u64;
+        let mut backend = BackendSelection::All;
+        let mut output = env::var_os("THINGD_BENCH_OUTPUT").map(PathBuf::from);
+        let mut history = env::var_os("THINGD_BENCH_HISTORY")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from("target/storage-benchmark-history.jsonl"));
+        let mut phase = env::var("THINGD_BENCH_PHASE").unwrap_or_else(|_| "baseline".to_string());
+        let mut positional_iterations = None;
+        let mut args = env::args().skip(1);
+        while let Some(argument) = args.next() {
+            let mut value = |flag: &str| -> Result<String, Box<dyn Error>> {
+                args.next()
+                    .ok_or_else(|| format!("missing value for {flag}").into())
+            };
+            match argument.as_str() {
+                "--iterations" => iterations = value("--iterations")?.parse()?,
+                "--seed" => seed = value("--seed")?.parse()?,
+                "--output" => output = Some(PathBuf::from(value("--output")?)),
+                "--history" => history = PathBuf::from(value("--history")?),
+                "--phase" => phase = value("--phase")?,
+                "--backend" => {
+                    backend = match value("--backend")?.as_str() {
+                        "all" => BackendSelection::All,
+                        "memory" => BackendSelection::InMemory,
+                        "rocksdb" => BackendSelection::RocksDb,
+                        "thingdb" => BackendSelection::ThingDb,
+                        other => return Err(format!("unknown backend {other:?}").into()),
+                    };
+                },
+                value if !value.starts_with('-') && positional_iterations.is_none() => {
+                    positional_iterations = Some(value.parse()?);
+                },
+                other => return Err(format!("unknown benchmark argument {other:?}").into()),
+            }
+        }
+        if let Some(value) = positional_iterations {
+            iterations = value;
+        }
+        Ok(Self {
+            iterations,
+            seed,
+            backend,
+            output,
+            history,
+            phase,
+        })
     }
-
-    env::var("THINGD_BENCH_ITERS")
-        .ok()
-        .and_then(|value| value.parse().ok())
-        .unwrap_or(DEFAULT_ITERATIONS)
 }
 
-fn bench_store<S>(name: &str, mut store: S, iterations: usize) -> Result<(), Box<dyn Error>>
+impl BackendSelection {
+    fn includes(self, backend: Self) -> bool {
+        self == Self::All || self == backend
+    }
+
+    const fn name(self) -> &'static str {
+        match self {
+            Self::All => "all",
+            Self::InMemory => "memory",
+            Self::RocksDb => "rocksdb",
+            Self::ThingDb => "thingdb",
+        }
+    }
+}
+
+fn bench_store<S>(
+    name: &str,
+    mut store: S,
+    iterations: usize,
+    _seed: u64,
+) -> Result<(), Box<dyn Error>>
 where
     S: EventLog + ObjectStore + QueueStore + Searcher + VectorStore,
 {
@@ -265,6 +484,161 @@ where
 
     println!();
     Ok(())
+}
+
+fn bench_latency_distribution(
+    name: &str,
+    path: &Path,
+    options: PersistentOpenOptions,
+    samples: usize,
+    seed: u64,
+) -> Result<(), Box<dyn Error>> {
+    let mut store = PersistentEngine::open_with_options(path, options)?;
+    let samples = samples.max(1);
+    let put_latencies = measure_samples(samples, |index| {
+        let id = format!("latency-{}", deterministic_index(seed, index, samples));
+        store.put_object(MemoryObject::new(COLLECTION, id, OBJECT_BODY_ACTIVE))?;
+        Ok(())
+    })?;
+    record_latency(name, "latency_object_put", put_latencies);
+
+    let get_latencies = measure_samples(samples, |index| {
+        let id = format!("latency-{}", deterministic_index(seed, index, samples));
+        black_box(store.get_object(COLLECTION, &id)?);
+        Ok(())
+    })?;
+    record_latency(name, "latency_object_get", get_latencies);
+
+    let event_latencies = measure_samples(samples, |index| {
+        let event = MemoryEvent::new(
+            STREAM,
+            "benchmark.latency",
+            format!("{EVENT_BODY}:latency-{index}"),
+        );
+        black_box(store.append_event(event)?);
+        Ok(())
+    })?;
+    record_latency(name, "latency_event_append", event_latencies);
+    Ok(())
+}
+
+fn run_correctness_smoke(seed: u64) -> Result<(), Box<dyn Error>> {
+    for backend in [
+        thingd::PersistentBackend::RocksDb,
+        thingd::PersistentBackend::ThingDb,
+    ] {
+        let directory = tempfile::tempdir()?;
+        let options = PersistentOpenOptions {
+            backend,
+            search_mode: thingd::PersistentSearchMode::Disabled,
+            ..PersistentOpenOptions::default()
+        };
+        let first_id = format!("correctness-{seed}-first");
+        let second_id = format!("correctness-{seed}-second");
+        let event_body = format!("{{\"seed\":{seed}}}");
+
+        {
+            let mut engine =
+                PersistentEngine::open_with_options(directory.path(), options.clone())?;
+            let first = engine.put_object(MemoryObject::new(
+                "correctness",
+                &first_id,
+                OBJECT_BODY_ACTIVE,
+            ))?;
+            let updated = engine.put_object(MemoryObject::new(
+                "correctness",
+                &first_id,
+                OBJECT_BODY_INACTIVE,
+            ))?;
+            if updated.version <= first.version || updated.body != OBJECT_BODY_INACTIVE {
+                return Err(format!("{backend:?}: update/version mismatch").into());
+            }
+
+            let batch = engine.put_objects_batch(vec![MemoryObject::new(
+                "correctness",
+                &second_id,
+                OBJECT_BODY_ACTIVE,
+            )])?;
+            if batch.len() != 1 {
+                return Err(
+                    format!("{backend:?}: atomic batch returned {} records", batch.len()).into(),
+                );
+            }
+            engine.append_event(MemoryEvent::new("correctness", "smoke", event_body.clone()))?;
+            if engine.count_objects()? != 2 || engine.count_events()? != 1 {
+                return Err(format!("{backend:?}: count mismatch before reopen").into());
+            }
+        }
+
+        let engine = PersistentEngine::open_with_options(directory.path(), options)?;
+        let reopened = engine
+            .get_object("correctness", &first_id)?
+            .ok_or_else(|| format!("{backend:?}: updated object missing after reopen"))?;
+        if reopened.body != OBJECT_BODY_INACTIVE || reopened.version < 2 {
+            return Err(format!("{backend:?}: reopened object mismatch").into());
+        }
+        let second = engine
+            .get_object("correctness", &second_id)?
+            .ok_or_else(|| format!("{backend:?}: batched object missing after reopen"))?;
+        if second.body != OBJECT_BODY_ACTIVE || engine.count_events()? != 1 {
+            return Err(format!("{backend:?}: reopened batch/event mismatch").into());
+        }
+        println!("correctness | {backend:?} | passed");
+    }
+    Ok(())
+}
+
+fn measure_samples<F>(count: usize, mut operation: F) -> Result<Vec<u128>, Box<dyn Error>>
+where
+    F: FnMut(usize) -> Result<(), Box<dyn Error>>,
+{
+    let mut samples = Vec::with_capacity(count);
+    for index in 0..count {
+        let started = Instant::now();
+        operation(index)?;
+        samples.push(started.elapsed().as_nanos());
+    }
+    Ok(samples)
+}
+
+fn record_latency(driver: &str, operation: &str, mut samples: Vec<u128>) {
+    samples.sort_unstable();
+    let total_ns = samples.iter().sum::<u128>();
+    let operations = samples.len();
+    let result = BenchResult {
+        driver: driver.to_string(),
+        operation: operation.to_string(),
+        operations,
+        total_ns,
+        throughput_ops_per_second: throughput(operations, total_ns),
+        min_ns: samples[0],
+        p50_ns: percentile(&samples, 50),
+        p95_ns: percentile(&samples, 95),
+        p99_ns: percentile(&samples, 99),
+        max_ns: *samples.last().unwrap_or(&0),
+        error_count: 0,
+    };
+    println!(
+        "{driver:>13} | {operation:<22} | p50={:?} p95={:?} p99={:?} max={:?}",
+        Duration::from_nanos(result.p50_ns.min(u64::MAX as u128) as u64),
+        Duration::from_nanos(result.p95_ns.min(u64::MAX as u128) as u64),
+        Duration::from_nanos(result.p99_ns.min(u64::MAX as u128) as u64),
+        Duration::from_nanos(result.max_ns.min(u64::MAX as u128) as u64),
+    );
+    results().lock().unwrap().results.push(result);
+}
+
+fn percentile(samples: &[u128], percentile: usize) -> u128 {
+    let index = ((samples.len() - 1) * percentile).div_ceil(100);
+    samples[index]
+}
+
+fn deterministic_index(seed: u64, index: usize, count: usize) -> usize {
+    let mut value = seed ^ index as u64;
+    value ^= value >> 12;
+    value ^= value << 25;
+    value ^= value >> 27;
+    (value.wrapping_mul(2_685_821_657_736_338_717) as usize) % count
 }
 
 fn bench_concurrent<S, F>(name: &str, factory: F, iterations: usize) -> Result<(), Box<dyn Error>>
@@ -655,10 +1029,144 @@ where
 }
 
 fn report(store: &str, operation: &str, iterations: usize, elapsed: Duration) {
-    let elapsed_micros = elapsed.as_micros().max(1);
-    let operations_per_second = iterations as u128 * 1_000_000 / elapsed_micros;
+    let total_ns = elapsed.as_nanos().max(1);
+    let operations_per_second = throughput(iterations, total_ns);
 
     println!(
         "{store:>13} | {operation:<22} | {iterations:>7} ops | {elapsed:>12?} | {operations_per_second:>10} ops/s"
     );
+    results().lock().unwrap().results.push(BenchResult {
+        driver: store.to_string(),
+        operation: operation.to_string(),
+        operations: iterations,
+        total_ns,
+        throughput_ops_per_second: operations_per_second,
+        min_ns: total_ns / iterations.max(1) as u128,
+        p50_ns: total_ns / iterations.max(1) as u128,
+        p95_ns: total_ns / iterations.max(1) as u128,
+        p99_ns: total_ns / iterations.max(1) as u128,
+        max_ns: total_ns / iterations.max(1) as u128,
+        error_count: 0,
+    });
+}
+
+fn throughput(operations: usize, total_ns: u128) -> u128 {
+    operations as u128 * 1_000_000_000 / total_ns.max(1)
+}
+
+fn results() -> &'static Mutex<BenchOutput> {
+    RESULTS.get().expect("benchmark output is initialized")
+}
+
+fn command_output(command: &str, arguments: &[&str]) -> String {
+    std::process::Command::new(command)
+        .args(arguments)
+        .output()
+        .ok()
+        .filter(|output| output.status.success())
+        .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_string())
+        .unwrap_or_else(|| "unknown".to_string())
+}
+
+fn record_storage(driver: &str, path: &Path) {
+    let (bytes_on_disk, file_count) = directory_stats(path);
+    results().lock().unwrap().storage.push(StorageSnapshot {
+        driver: driver.to_string(),
+        path: path.display().to_string(),
+        bytes_on_disk,
+        file_count,
+    });
+    println!(
+        "{driver:>13} | storage_snapshot       | bytes={} files={file_count}",
+        bytes_on_disk
+    );
+}
+
+fn directory_stats(path: &Path) -> (u64, usize) {
+    let mut bytes = 0;
+    let mut files = 0;
+    let Ok(entries) = fs::read_dir(path) else {
+        return (0, 0);
+    };
+    for entry in entries.flatten() {
+        let entry_path = entry.path();
+        if let Ok(metadata) = entry.metadata() {
+            if metadata.is_dir() {
+                let (nested_bytes, nested_files) = directory_stats(&entry_path);
+                bytes += nested_bytes;
+                files += nested_files;
+            } else {
+                bytes += metadata.len();
+                files += 1;
+            }
+        }
+    }
+    (bytes, files)
+}
+
+fn write_output(path: &Path) -> Result<(), Box<dyn Error>> {
+    if let Some(parent) = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+    {
+        fs::create_dir_all(parent)?;
+    }
+    let output = results().lock().unwrap();
+    if path.extension().and_then(|extension| extension.to_str()) == Some("csv") {
+        let mut csv = String::from(
+            "commit,rust,os,arch,iterations,seed,backend,driver,operation,operations,total_ns,throughput_ops_per_second,min_ns,p50_ns,p95_ns,p99_ns,max_ns,error_count\n",
+        );
+        for result in &output.results {
+            csv.push_str(&format!(
+                "{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}\n",
+                csv_escape(&output.metadata.commit),
+                csv_escape(&output.metadata.rust),
+                output.metadata.os,
+                output.metadata.arch,
+                output.metadata.iterations,
+                output.metadata.seed,
+                output.metadata.backend,
+                csv_escape(&result.driver),
+                csv_escape(&result.operation),
+                result.operations,
+                result.total_ns,
+                result.throughput_ops_per_second,
+                result.min_ns,
+                result.p50_ns,
+                result.p95_ns,
+                result.p99_ns,
+                result.max_ns,
+                result.error_count,
+            ));
+        }
+        fs::write(path, csv)?;
+    } else {
+        fs::write(path, serde_json::to_string_pretty(&*output)?)?;
+    }
+    Ok(())
+}
+
+fn append_history(path: &Path) -> Result<(), Box<dyn Error>> {
+    if let Some(parent) = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+    {
+        fs::create_dir_all(parent)?;
+    }
+    let line = serde_json::to_string(&*results().lock().unwrap())?;
+    use std::io::Write as _;
+    let mut history = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)?;
+    writeln!(history, "{line}")?;
+    Ok(())
+}
+
+fn csv_escape(value: &str) -> String {
+    if value.contains([',', '"', '\n', '\r']) {
+        format!("\"{}\"", value.replace('"', "\"\""))
+    } else {
+        value.to_string()
+    }
 }
