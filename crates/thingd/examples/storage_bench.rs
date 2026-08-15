@@ -8,8 +8,10 @@
 
 use std::env;
 use std::error::Error;
+use std::fmt::Write as FmtWrite;
 use std::fs;
 use std::hint::black_box;
+use std::io::Write as IoWrite;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -97,6 +99,7 @@ struct BenchMetadata {
 
 static RESULTS: std::sync::OnceLock<Mutex<BenchOutput>> = std::sync::OnceLock::new();
 
+#[allow(clippy::too_many_lines)]
 fn main() -> Result<(), Box<dyn Error>> {
     let config = BenchConfig::from_args()?;
     RESULTS
@@ -112,9 +115,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 rust: command_output("rustc", &["-Vv"]),
                 os: env::consts::OS.to_string(),
                 arch: env::consts::ARCH.to_string(),
-                parallelism: std::thread::available_parallelism()
-                    .map(usize::from)
-                    .unwrap_or(1),
+                parallelism: std::thread::available_parallelism().map_or(1, usize::from),
             },
             results: Vec::new(),
             storage: Vec::new(),
@@ -220,7 +221,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             ..PersistentOpenOptions::default()
         };
         let encrypted_engine =
-            PersistentEngine::open_with_options(encrypted_dir.path(), encrypted_options.clone())?;
+            PersistentEngine::open_with_options(encrypted_dir.path(), encrypted_options)?;
         bench_store(
             "persistent-encrypted",
             encrypted_engine,
@@ -309,9 +310,10 @@ impl BenchConfig {
         let mut seed = 0x5eed_u64;
         let mut backend = BackendSelection::All;
         let mut output = env::var_os("THINGD_BENCH_OUTPUT").map(PathBuf::from);
-        let mut history = env::var_os("THINGD_BENCH_HISTORY")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| PathBuf::from("target/storage-benchmark-history.jsonl"));
+        let mut history = env::var_os("THINGD_BENCH_HISTORY").map_or_else(
+            || PathBuf::from("target/storage-benchmark-history.jsonl"),
+            PathBuf::from,
+        );
         let mut phase = env::var("THINGD_BENCH_PHASE").unwrap_or_else(|_| "baseline".to_string());
         let mut positional_iterations = None;
         let mut args = env::args().skip(1);
@@ -620,10 +622,10 @@ fn record_latency(driver: &str, operation: &str, mut samples: Vec<u128>) {
     };
     println!(
         "{driver:>13} | {operation:<22} | p50={:?} p95={:?} p99={:?} max={:?}",
-        Duration::from_nanos(result.p50_ns.min(u64::MAX as u128) as u64),
-        Duration::from_nanos(result.p95_ns.min(u64::MAX as u128) as u64),
-        Duration::from_nanos(result.p99_ns.min(u64::MAX as u128) as u64),
-        Duration::from_nanos(result.max_ns.min(u64::MAX as u128) as u64),
+        nanos_duration(result.p50_ns),
+        nanos_duration(result.p95_ns),
+        nanos_duration(result.p99_ns),
+        nanos_duration(result.max_ns),
     );
     results().lock().unwrap().results.push(result);
 }
@@ -633,12 +635,19 @@ fn percentile(samples: &[u128], percentile: usize) -> u128 {
     samples[index]
 }
 
-fn deterministic_index(seed: u64, index: usize, count: usize) -> usize {
+const fn deterministic_index(seed: u64, index: usize, count: usize) -> usize {
     let mut value = seed ^ index as u64;
     value ^= value >> 12;
     value ^= value << 25;
     value ^= value >> 27;
-    (value.wrapping_mul(2_685_821_657_736_338_717) as usize) % count
+    #[allow(clippy::cast_possible_truncation)]
+    {
+        (value.wrapping_mul(2_685_821_657_736_338_717) as usize) % count
+    }
+}
+
+fn nanos_duration(nanos: u128) -> Duration {
+    Duration::from_nanos(u64::try_from(nanos.min(u128::from(u64::MAX))).unwrap_or(u64::MAX))
 }
 
 fn bench_concurrent<S, F>(name: &str, factory: F, iterations: usize) -> Result<(), Box<dyn Error>>
@@ -1064,8 +1073,10 @@ fn command_output(command: &str, arguments: &[&str]) -> String {
         .output()
         .ok()
         .filter(|output| output.status.success())
-        .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_string())
-        .unwrap_or_else(|| "unknown".to_string())
+        .map_or_else(
+            || "unknown".to_string(),
+            |output| String::from_utf8_lossy(&output.stdout).trim().to_string(),
+        )
 }
 
 fn record_storage(driver: &str, path: &Path) {
@@ -1076,10 +1087,7 @@ fn record_storage(driver: &str, path: &Path) {
         bytes_on_disk,
         file_count,
     });
-    println!(
-        "{driver:>13} | storage_snapshot       | bytes={} files={file_count}",
-        bytes_on_disk
-    );
+    println!("{driver:>13} | storage_snapshot       | bytes={bytes_on_disk} files={file_count}");
 }
 
 fn directory_stats(path: &Path) -> (u64, usize) {
@@ -1111,37 +1119,43 @@ fn write_output(path: &Path) -> Result<(), Box<dyn Error>> {
     {
         fs::create_dir_all(parent)?;
     }
-    let output = results().lock().unwrap();
     if path.extension().and_then(|extension| extension.to_str()) == Some("csv") {
-        let mut csv = String::from(
-            "commit,rust,os,arch,iterations,seed,backend,driver,operation,operations,total_ns,throughput_ops_per_second,min_ns,p50_ns,p95_ns,p99_ns,max_ns,error_count\n",
-        );
-        for result in &output.results {
-            csv.push_str(&format!(
-                "{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}\n",
-                csv_escape(&output.metadata.commit),
-                csv_escape(&output.metadata.rust),
-                output.metadata.os,
-                output.metadata.arch,
-                output.metadata.iterations,
-                output.metadata.seed,
-                output.metadata.backend,
-                csv_escape(&result.driver),
-                csv_escape(&result.operation),
-                result.operations,
-                result.total_ns,
-                result.throughput_ops_per_second,
-                result.min_ns,
-                result.p50_ns,
-                result.p95_ns,
-                result.p99_ns,
-                result.max_ns,
-                result.error_count,
-            ));
-        }
+        let csv = {
+            let output = results().lock().unwrap();
+            let mut csv = String::from(
+                "commit,rust,os,arch,iterations,seed,backend,driver,operation,operations,total_ns,throughput_ops_per_second,min_ns,p50_ns,p95_ns,p99_ns,max_ns,error_count\n",
+            );
+            for result in &output.results {
+                let _ = writeln!(
+                    csv,
+                    "{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
+                    csv_escape(&output.metadata.commit),
+                    csv_escape(&output.metadata.rust),
+                    output.metadata.os,
+                    output.metadata.arch,
+                    output.metadata.iterations,
+                    output.metadata.seed,
+                    output.metadata.backend,
+                    csv_escape(&result.driver),
+                    csv_escape(&result.operation),
+                    result.operations,
+                    result.total_ns,
+                    result.throughput_ops_per_second,
+                    result.min_ns,
+                    result.p50_ns,
+                    result.p95_ns,
+                    result.p99_ns,
+                    result.max_ns,
+                    result.error_count,
+                );
+            }
+            drop(output);
+            csv
+        };
         fs::write(path, csv)?;
     } else {
-        fs::write(path, serde_json::to_string_pretty(&*output)?)?;
+        let serialized = serde_json::to_string_pretty(&*results().lock().unwrap())?;
+        fs::write(path, serialized)?;
     }
     Ok(())
 }
@@ -1154,7 +1168,6 @@ fn append_history(path: &Path) -> Result<(), Box<dyn Error>> {
         fs::create_dir_all(parent)?;
     }
     let line = serde_json::to_string(&*results().lock().unwrap())?;
-    use std::io::Write as _;
     let mut history = fs::OpenOptions::new()
         .create(true)
         .append(true)

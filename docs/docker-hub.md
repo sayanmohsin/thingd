@@ -1,6 +1,8 @@
 # thingd
 
-A fast object-first data engine for applications and AI agents.
+**Thingd — the open-source engine for managing your things.**
+
+An object-first data engine for applications and AI agents.
 
 thingd is a high-performance object-first data engine that combines persistent storage, durable queues, event streams, full-text search, and MCP-native access into a single system that can run embedded, standalone, or in the cloud.
 
