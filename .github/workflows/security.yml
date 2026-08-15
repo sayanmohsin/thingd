@@ -11,6 +11,10 @@ on:
   schedule:
     - cron: "0 6 * * 1" # every Monday 6am UTC
 
+concurrency:
+  group: security-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   audit:
     runs-on: ubuntu-latest

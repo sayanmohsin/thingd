@@ -295,42 +295,89 @@ jobs:
           npm install --prefix "$SMOKE_DIR" --prefer-online --no-audit --no-fund "@thingd/cli@$VERSION"
           (cd "$SMOKE_DIR" && node --input-type=module -e "await import('@thingd/cli')")
 
+  docker-binary:
+    name: Build Docker binary (${{ matrix.arch }})
+    needs: release-please
+    if: ${{ needs.release-please.outputs.release_created == 'true' || needs.release-please.outputs.retry == 'true' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            target: x86_64-unknown-linux-musl
+          - arch: arm64
+            target: aarch64-unknown-linux-musl
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+          ref: ${{ needs.release-please.outputs.tag_name }}
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - name: Install RocksDB bindgen dependencies
+        run: sudo apt-get update && sudo apt-get install -y clang libclang-dev
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: docker-${{ matrix.target }}-${{ hashFiles('**/Cargo.lock') }}
+          cache-all-crates: true
+          cache-on-failure: true
+      - name: Install cross-compilation dependencies
+        run: sudo apt-get update && sudo apt-get install -y cmake musl-tools pipx
+      - name: Restore Zig toolchain
+        id: zig-cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/zig-0.14.0
+          key: zig-${{ runner.os }}-${{ runner.arch }}-0.14.0
+      - name: Install Zig
+        if: steps.zig-cache.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p "${{ runner.temp }}"
+          curl -sL https://ziglang.org/download/0.14.0/zig-linux-x86_64-0.14.0.tar.xz | tar xJ -C "${{ runner.temp }}"
+          mv "${{ runner.temp }}/zig-linux-x86_64-0.14.0" "${{ runner.temp }}/zig-0.14.0"
+      - name: Add Zig to PATH
+        run: |
+          mkdir -p "$HOME/.local/bin"
+          ln -sf "${{ runner.temp }}/zig-0.14.0/zig" "$HOME/.local/bin/zig"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - run: pipx install cargo-zigbuild
+      - name: Build static server
+        run: |
+          started=$(date +%s)
+          cargo zigbuild -p thingd-server --release --target "${{ matrix.target }}"
+          elapsed=$(( $(date +%s) - started ))
+          echo "### Docker binary build" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Target: `${{ matrix.target }}`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Elapsed: ${elapsed}s" >> "$GITHUB_STEP_SUMMARY"
+      - name: Stage binary
+        run: |
+          mkdir -p docker-context
+          cp "target/${{ matrix.target }}/release/thingd-server" "docker-context/thingd-server-${{ matrix.arch }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: thingd-server-${{ matrix.arch }}
+          path: docker-context/thingd-server-${{ matrix.arch }}
+          if-no-files-found: error
+          retention-days: 1
+
   docker:
     name: Publish Docker image
-    needs: [release-please, publish-npm]
+    needs: [release-please, docker-binary]
     if: ${{ needs.release-please.outputs.release_created == 'true' || needs.release-please.outputs.retry == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
         with:
-          fetch-depth: 0
-          fetch-tags: true
+          fetch-depth: 1
           ref: ${{ needs.release-please.outputs.tag_name }}
-      - uses: dtolnay/rust-toolchain@stable
+      - name: Download Docker binaries
+        uses: actions/download-artifact@v8
         with:
-          targets: aarch64-unknown-linux-musl, x86_64-unknown-linux-musl
-      - name: Install RocksDB bindgen dependencies
-        run: sudo apt-get update && sudo apt-get install -y clang libclang-dev
-      - uses: Swatinem/rust-cache@v2
-        with:
-          key: docker-${{ hashFiles('**/Cargo.lock') }}
-          cache-on-failure: true
-      - name: Install cross-compilation dependencies
-        run: sudo apt-get update && sudo apt-get install -y cmake musl-tools pipx
-      - name: Install zig
-        run: |
-          curl -sL https://ziglang.org/download/0.14.0/zig-linux-x86_64-0.14.0.tar.xz | tar xJ -C /tmp
-          mkdir -p "$HOME/.local/bin"
-          ln -sf /tmp/zig-linux-x86_64-0.14.0/zig "$HOME/.local/bin/zig"
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-      - run: pipx install cargo-zigbuild
-      - run: |
-          cargo zigbuild -p thingd-server --release --target x86_64-unknown-linux-musl
-          mkdir -p docker-context
-          cp target/x86_64-unknown-linux-musl/release/thingd-server docker-context/thingd-server-amd64
-      - run: |
-          cargo zigbuild -p thingd-server --release --target aarch64-unknown-linux-musl
-          cp target/aarch64-unknown-linux-musl/release/thingd-server docker-context/thingd-server-arm64
+          pattern: thingd-server-*
+          path: docker-context
+          merge-multiple: true
       - uses: docker/setup-buildx-action@v4
       - uses: docker/login-action@v4
         with:
