@@ -22,6 +22,11 @@ The release workflow builds multi-arch images for `linux/amd64` and `linux/arm64
 docker pull sayanmohsin/thingd:latest   # auto-selects your arch
 ```
 
+The release pipeline compiles the two static server binaries in parallel and
+then assembles them into the scratch image. A local multi-arch build still
+compiles both targets on the current machine and may be substantially slower
+than pulling the published image.
+
 Local multi-arch build:
 
 ```bash

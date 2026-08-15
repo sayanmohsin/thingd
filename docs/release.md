@@ -42,6 +42,9 @@ the release.
 
 CI runs on pull requests targeting `main` and pushes to `main`.
 
+Build-time troubleshooting and scoped local commands are documented in
+[Build performance](./build-performance.md).
+
 The release workflow runs on pushes to `main`. Release Please creates or updates
 the release PR; native artifacts and publishing run only after a release is
 created or a manual retry is requested with `publish_version`.
@@ -94,7 +97,7 @@ The publish runs in parallel with npm and Docker publishing.
 
 ## Docker Image Publishing
 
-On every release, the workflow builds and pushes a Docker image to [Docker Hub](https://hub.docker.com/r/sayanmohsin/thingd):
+On every release, the workflow builds and pushes a Docker image to [Docker Hub](https://hub.docker.com/r/sayanmohsin/thingd). The `amd64` and `arm64` static server binaries build in parallel after the release tag is created; the image assembly runs after both binaries are uploaded and does not wait for npm publication.
 
 - `sayanmohsin/thingd:<version>` — tagged with the exact SemVer (e.g., `v0.71.0`)
 - `sayanmohsin/thingd:latest` — always points to the latest release
