@@ -1,8 +1,8 @@
 # 📦 thingd Node.js Basic Example
 
-A runnable, clean demonstration of how you can treat `thingd` as a local, fully-featured, SQLite-powered application memory layer for Node.js apps.
+A runnable, clean demonstration of how you can treat `thingd` as a local, fully-featured application memory layer for Node.js apps.
 
-This example runs in **in-memory SQLite mode** by default, but it can also be configured to run with the **native Rust driver** or in **remote sidecar mode**.
+This example runs in **in-memory mode** by default, but it can also be configured to run with the **native Rust driver** or in **remote sidecar mode**.
 
 ---
 
@@ -38,7 +38,7 @@ pnpm dev
 The [`index.ts`](./index.ts) script takes you step-by-step through the core features of `thingd`:
 
 ### 1. Unified Client Open
-Instantiates the database client. By default, it runs as a pure in-memory SQLite store:
+Instantiates the database client. By default, it runs as a pure in-memory store:
 ```ts
 import { ThingD } from "@thingd/sdk";
 const db = await ThingD.open();
@@ -95,7 +95,7 @@ const hits = await db.search("rust");
 
 You don't need to change any controller or application logic to change storage modes:
 
-### Local SQLite Persistent File (Native Driver)
+### Local Persistent File (Native Driver)
 Ensure you have built the native crate (`pnpm build` in the workspace root first) and open with the `native` driver:
 ```ts
 const db = await ThingD.open({
@@ -103,6 +103,9 @@ const db = await ThingD.open({
   driver: "native",
 });
 ```
+
+The native driver uses RocksDB by default. The experimental ThingDB backend can
+be selected with `THINGD_STORAGE_BACKEND=thingdb`; it uses a separate format.
 
 ### Remote Sidecar / Server Mode
 To use `thingd` running as a background service or remote instance, set the following environment variables:

@@ -1,7 +1,4 @@
-//! Small internal adapter around RocksDB used by the persistent engine.
-//!
-//! This module is intentionally private. It keeps the durable engine's
-//! keyspace and batch semantics separate from the public `ThingStore` API.
+//! Backend-neutral durable keyspace adapter.
 
 #![allow(
     clippy::cast_possible_truncation,
@@ -20,6 +17,12 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use rocksdb::{ColumnFamilyDescriptor, DB, FlushOptions, Options, WriteBatch, WriteOptions};
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum StorageBackend {
+    RocksDb,
+    ThingDb,
+}
 
 #[derive(Debug)]
 pub(crate) struct Error(String);
@@ -40,13 +43,19 @@ impl From<rocksdb::Error> for Error {
 
 #[derive(Clone)]
 pub(crate) struct Database {
-    db: Arc<DB>,
+    db: Arc<Backend>,
     path: PathBuf,
+}
+
+enum Backend {
+    RocksDb(Arc<DB>),
+    ThingDb(thingdb::Database),
 }
 
 pub(crate) struct DatabaseBuilder {
     path: PathBuf,
     max_journaling_size: u64,
+    backend: StorageBackend,
 }
 
 #[derive(Clone, Copy)]
@@ -69,14 +78,20 @@ pub(crate) enum PersistMode {
 }
 
 pub(crate) struct Keyspace {
-    db: Arc<DB>,
+    db: Arc<Backend>,
     name: String,
 }
 
 pub(crate) struct Batch {
-    db: Arc<DB>,
-    writes: WriteBatch,
+    db: Arc<Backend>,
+    writes: Vec<BatchWrite>,
     error: Option<Error>,
+}
+
+struct BatchWrite {
+    keyspace: String,
+    key: Vec<u8>,
+    value: Option<Vec<u8>>,
 }
 
 #[derive(Clone)]
@@ -93,10 +108,14 @@ pub(crate) struct Iter {
 }
 
 impl Database {
-    pub(crate) fn builder(path: impl AsRef<Path>) -> DatabaseBuilder {
+    pub(crate) fn builder_with_backend(
+        path: impl AsRef<Path>,
+        backend: StorageBackend,
+    ) -> DatabaseBuilder {
         DatabaseBuilder {
             path: path.as_ref().to_path_buf(),
             max_journaling_size: 32 * 1024 * 1024,
+            backend,
         }
     }
 
@@ -105,7 +124,9 @@ impl Database {
         name: &str,
         _options: KeyspaceCreateOptions,
     ) -> Result<Keyspace, Error> {
-        if self.db.cf_handle(name).is_none() {
+        if let Backend::RocksDb(db) = self.db.as_ref()
+            && db.cf_handle(name).is_none()
+        {
             return Err(Error(format!("missing RocksDB column family: {name}")));
         }
         Ok(Keyspace {
@@ -117,24 +138,37 @@ impl Database {
     pub(crate) fn batch(&self) -> Batch {
         Batch {
             db: Arc::clone(&self.db),
-            writes: WriteBatch::default(),
+            writes: Vec::new(),
             error: None,
         }
     }
 
     pub(crate) fn persist(&self, mode: PersistMode) -> Result<(), Error> {
-        let _ = mode;
-        self.db.flush_wal(true).map_err(Error::from)?;
-        self.db
-            .flush_opt(&FlushOptions::default())
-            .map_err(Error::from)
+        match self.db.as_ref() {
+            Backend::RocksDb(db) => {
+                let _ = mode;
+                db.flush_wal(true).map_err(Error::from)?;
+                db.flush_opt(&FlushOptions::default()).map_err(Error::from)
+            },
+            Backend::ThingDb(db) => db
+                .persist(thingdb::PersistMode::SyncAll)
+                .map_err(|error| Error(error.to_string())),
+        }
     }
 
     pub(crate) fn journal_disk_space(&self) -> Result<u64, Error> {
-        Ok(directory_size(&self.path))
+        match self.db.as_ref() {
+            Backend::RocksDb(_) => Ok(directory_size(&self.path)),
+            Backend::ThingDb(db) => db
+                .journal_disk_space()
+                .map_err(|error| Error(error.to_string())),
+        }
     }
 
     pub(crate) fn journal_count(&self) -> usize {
+        if let Backend::ThingDb(_) = self.db.as_ref() {
+            return 1;
+        }
         std::fs::read_dir(&self.path)
             .ok()
             .into_iter()
@@ -156,46 +190,67 @@ impl DatabaseBuilder {
 
     pub(crate) fn open(self) -> Result<Database, Error> {
         std::fs::create_dir_all(&self.path).map_err(|error| Error(error.to_string()))?;
-        let mut db_options = Options::default();
-        db_options.create_if_missing(true);
-        db_options.create_missing_column_families(true);
-        db_options.set_write_buffer_size(self.max_journaling_size as usize);
-        let names = [
-            "default",
-            "objects",
-            "events",
-            "event_meta",
-            "queue_jobs",
-            "ready_jobs",
-            "links_by_id",
-            "links_from",
-            "links_to",
-            "schemas",
-            "migrations",
-            "indexes",
-            "vectors",
-        ];
-        let descriptors = names
-            .iter()
-            .map(|name| ColumnFamilyDescriptor::new(*name, Options::default()))
-            .collect::<Vec<_>>();
-        let db = DB::open_cf_descriptors(&db_options, &self.path, descriptors)?;
+        let backend = match self.backend {
+            StorageBackend::RocksDb => {
+                let mut options = Options::default();
+                options.create_if_missing(true);
+                options.create_missing_column_families(true);
+                options.set_write_buffer_size(self.max_journaling_size as usize);
+                let names = [
+                    "default",
+                    "objects",
+                    "events",
+                    "event_meta",
+                    "queue_jobs",
+                    "ready_jobs",
+                    "links_by_id",
+                    "links_from",
+                    "links_to",
+                    "schemas",
+                    "migrations",
+                    "indexes",
+                    "vectors",
+                ];
+                let descriptors = names
+                    .iter()
+                    .map(|name| ColumnFamilyDescriptor::new(*name, Options::default()))
+                    .collect::<Vec<_>>();
+                Backend::RocksDb(Arc::new(DB::open_cf_descriptors(
+                    &options,
+                    &self.path,
+                    descriptors,
+                )?))
+            },
+            StorageBackend::ThingDb => Backend::ThingDb(
+                thingdb::Database::builder(&self.path)
+                    .max_journaling_size(self.max_journaling_size)
+                    .open()
+                    .map_err(|error| Error(error.to_string()))?,
+            ),
+        };
         Ok(Database {
-            db: Arc::new(db),
+            db: Arc::new(backend),
             path: self.path,
         })
     }
 }
 
 impl Keyspace {
-    fn cf(&self) -> Result<&rocksdb::ColumnFamily, Error> {
-        self.db
-            .cf_handle(&self.name)
-            .ok_or_else(|| Error(format!("missing RocksDB column family: {}", self.name)))
-    }
-
     pub(crate) fn get(&self, key: impl AsRef<[u8]>) -> Result<Option<Slice>, Error> {
-        Ok(self.db.get_cf(self.cf()?, key.as_ref())?.map(Slice))
+        match self.db.as_ref() {
+            Backend::RocksDb(db) => {
+                let cf = db.cf_handle(&self.name).ok_or_else(|| {
+                    Error(format!("missing RocksDB column family: {}", self.name))
+                })?;
+                Ok(db.get_cf(cf, key.as_ref())?.map(Slice))
+            },
+            Backend::ThingDb(db) => Ok(db
+                .keyspace(&self.name, thingdb::KeyspaceCreateOptions::default)
+                .map_err(|error| Error(error.to_string()))?
+                .get(key.as_ref())
+                .map_err(|error| Error(error.to_string()))?
+                .map(Slice)),
+        }
     }
 
     pub(crate) fn insert(
@@ -203,18 +258,23 @@ impl Keyspace {
         key: impl AsRef<[u8]>,
         value: impl AsRef<[u8]>,
     ) -> Result<(), Error> {
-        let mut options = WriteOptions::default();
-        options.set_sync(true);
-        self.db
-            .put_cf_opt(self.cf()?, key.as_ref(), value.as_ref(), &options)?;
-        Ok(())
+        let mut batch = Batch {
+            db: Arc::clone(&self.db),
+            writes: Vec::new(),
+            error: None,
+        };
+        batch.insert(self, key, value);
+        batch.commit()
     }
 
     pub(crate) fn remove(&self, key: impl AsRef<[u8]>) -> Result<(), Error> {
-        let mut options = WriteOptions::default();
-        options.set_sync(true);
-        self.db.delete_cf_opt(self.cf()?, key.as_ref(), &options)?;
-        Ok(())
+        let mut batch = Batch {
+            db: Arc::clone(&self.db),
+            writes: Vec::new(),
+            error: None,
+        };
+        batch.remove(self, key);
+        batch.commit()
     }
 
     pub(crate) fn iter(&self) -> Iter {
@@ -240,6 +300,25 @@ impl Keyspace {
             Bound::Excluded(value) => Some((value.as_ref().to_vec(), false)),
             Bound::Unbounded => None,
         };
+        if let Backend::ThingDb(db) = self.db.as_ref()
+            && let Ok(keyspace) = db.keyspace(&self.name, thingdb::KeyspaceCreateOptions::default)
+        {
+            let entries: Vec<_> = keyspace
+                .range_bounds(
+                    Some((start.0.as_slice(), start.1)),
+                    end.as_ref()
+                        .map(|(value, inclusive)| (value.as_slice(), *inclusive)),
+                )
+                .map(|entry| Guard {
+                    key: entry.key,
+                    value: entry.value,
+                    error: None,
+                })
+                .collect();
+            return Iter {
+                entries: entries.into_iter(),
+            };
+        }
         let entries: Vec<_> = self
             .collect(None)
             .filter(|entry| {
@@ -267,31 +346,58 @@ impl Keyspace {
     }
 
     fn collect(&self, prefix: Option<Vec<u8>>) -> Iter {
-        let entries = match self.cf() {
-            Ok(cf) => self
-                .db
-                .iterator_cf(cf, rocksdb::IteratorMode::Start)
-                .filter_map(|entry| match entry {
-                    Ok((key, value)) if prefix.as_ref().is_none_or(|p| key.starts_with(p)) => {
-                        Some(Guard {
-                            key: key.to_vec(),
-                            value: value.to_vec(),
+        let entries = match self.db.as_ref() {
+            Backend::RocksDb(db) => match db.cf_handle(&self.name) {
+                Some(cf) => db
+                    .iterator_cf(cf, rocksdb::IteratorMode::Start)
+                    .filter_map(|entry| match entry {
+                        Ok((key, value)) if prefix.as_ref().is_none_or(|p| key.starts_with(p)) => {
+                            Some(Guard {
+                                key: key.to_vec(),
+                                value: value.to_vec(),
+                                error: None,
+                            })
+                        },
+                        Ok(_) => None,
+                        Err(error) => Some(Guard {
+                            key: Vec::new(),
+                            value: Vec::new(),
+                            error: Some(Error::from(error)),
+                        }),
+                    })
+                    .collect(),
+                None => vec![Guard {
+                    key: Vec::new(),
+                    value: Vec::new(),
+                    error: Some(Error(format!(
+                        "missing RocksDB column family: {}",
+                        self.name
+                    ))),
+                }],
+            },
+            Backend::ThingDb(db) => match db
+                .keyspace(&self.name, thingdb::KeyspaceCreateOptions::default)
+                .map_err(|error| Error(error.to_string()))
+            {
+                Ok(keyspace) => {
+                    let iterator = match prefix {
+                        Some(prefix) => keyspace.prefix(prefix),
+                        None => keyspace.iter(),
+                    };
+                    iterator
+                        .map(|entry| Guard {
+                            key: entry.key,
+                            value: entry.value,
                             error: None,
                         })
-                    },
-                    Ok(_) => None,
-                    Err(error) => Some(Guard {
-                        key: Vec::new(),
-                        value: Vec::new(),
-                        error: Some(Error::from(error)),
-                    }),
-                })
-                .collect(),
-            Err(error) => vec![Guard {
-                key: Vec::new(),
-                value: Vec::new(),
-                error: Some(error),
-            }],
+                        .collect()
+                },
+                Err(error) => vec![Guard {
+                    key: Vec::new(),
+                    value: Vec::new(),
+                    error: Some(error),
+                }],
+            },
         };
         Iter {
             entries: entries.into_iter(),
@@ -299,9 +405,16 @@ impl Keyspace {
     }
 
     pub(crate) fn major_compact(&self) -> Result<(), Error> {
-        self.db
-            .compact_range_cf(self.cf()?, None::<&[u8]>, None::<&[u8]>);
-        self.db.flush().map_err(Error::from)
+        match self.db.as_ref() {
+            Backend::RocksDb(db) => {
+                let cf = db.cf_handle(&self.name).ok_or_else(|| {
+                    Error(format!("missing RocksDB column family: {}", self.name))
+                })?;
+                db.compact_range_cf(cf, None::<&[u8]>, None::<&[u8]>);
+                db.flush().map_err(Error::from)
+            },
+            Backend::ThingDb(db) => db.compact().map_err(|error| Error(error.to_string())),
+        }
     }
 }
 
@@ -312,28 +425,59 @@ impl Batch {
         key: impl AsRef<[u8]>,
         value: impl AsRef<[u8]>,
     ) {
-        match keyspace.cf() {
-            Ok(cf) => self.writes.put_cf(cf, key.as_ref(), value.as_ref()),
-            Err(error) => self.error = Some(error),
-        }
+        self.writes.push(BatchWrite {
+            keyspace: keyspace.name.clone(),
+            key: key.as_ref().to_vec(),
+            value: Some(value.as_ref().to_vec()),
+        });
     }
 
     pub(crate) fn remove(&mut self, keyspace: &Keyspace, key: impl AsRef<[u8]>) {
-        match keyspace.cf() {
-            Ok(cf) => self.writes.delete_cf(cf, key.as_ref()),
-            Err(error) => self.error = Some(error),
-        }
+        self.writes.push(BatchWrite {
+            keyspace: keyspace.name.clone(),
+            key: key.as_ref().to_vec(),
+            value: None,
+        });
     }
 
     pub(crate) fn commit(self) -> Result<(), Error> {
         if let Some(error) = self.error {
             return Err(error);
         }
-        let mut options = WriteOptions::default();
-        options.set_sync(true);
-        self.db
-            .write_opt(self.writes, &options)
-            .map_err(Error::from)
+        match self.db.as_ref() {
+            Backend::RocksDb(db) => {
+                let mut writes = WriteBatch::default();
+                for operation in self.writes {
+                    let cf = db.cf_handle(&operation.keyspace).ok_or_else(|| {
+                        Error(format!(
+                            "missing RocksDB column family: {}",
+                            operation.keyspace
+                        ))
+                    })?;
+                    if let Some(value) = operation.value {
+                        writes.put_cf(cf, &operation.key, value);
+                    } else {
+                        writes.delete_cf(cf, &operation.key);
+                    }
+                }
+                let mut options = WriteOptions::default();
+                options.set_sync(true);
+                db.write_opt(writes, &options).map_err(Error::from)
+            },
+            Backend::ThingDb(db) => {
+                let mut writes = db.batch();
+                for operation in self.writes {
+                    let keyspace = db
+                        .keyspace(&operation.keyspace, thingdb::KeyspaceCreateOptions::default)
+                        .map_err(|error| Error(error.to_string()))?;
+                    writes = match operation.value {
+                        Some(value) => writes.put(&keyspace, operation.key, value),
+                        None => writes.delete(&keyspace, operation.key),
+                    };
+                }
+                writes.commit().map_err(|error| Error(error.to_string()))
+            },
+        }
     }
 }
 

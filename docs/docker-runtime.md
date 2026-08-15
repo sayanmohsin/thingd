@@ -59,6 +59,7 @@ Default container environment:
 ```txt
 THINGD_PATH=/data/thingd.db
 THINGD_DRIVER=native
+THINGD_STORAGE_BACKEND=rocksdb
 THINGD_ENCRYPTION_KEY=<64 hexadecimal characters, optional>
 THINGD_HOST=0.0.0.0
 THINGD_PORT=8757

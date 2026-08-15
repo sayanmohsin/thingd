@@ -10,10 +10,10 @@ use serde_json::Value;
 use thingd::{
     AggregateFunction, AggregateOptions, AggregateStore, EncryptionConfig, EventLog,
     IndexDefinition, Link, LinkDirection, LinkQueryOptions, LinkStore, ListEventsOptions,
-    ListObjectsOptions, MemoryEvent, MemoryObject, MigrationRecord, ObjectStore, PersistentEngine,
-    PersistentOpenOptions, PutObjectOptions, QueueClaimOptions, QueueJob, QueueJobStatus,
-    QueueNackOptions, QueueStore, SchemaOptions, SchemaStore, SearchOptions, Searcher,
-    StoredSchema, TimeSeriesOptions, VectorSearchOptions, VectorStore,
+    ListObjectsOptions, MemoryEvent, MemoryObject, MigrationRecord, ObjectStore, PersistentBackend,
+    PersistentEngine, PersistentOpenOptions, PutObjectOptions, QueueClaimOptions, QueueJob,
+    QueueJobStatus, QueueNackOptions, QueueStore, SchemaOptions, SchemaStore, SearchOptions,
+    Searcher, StoredSchema, TimeSeriesOptions, VectorSearchOptions, VectorStore,
 };
 use thingd_schema::parse as parse_schema_source;
 
@@ -134,6 +134,10 @@ impl NativeThingStore {
             .transpose()
             .map_err(napi_error)?;
         let options = PersistentOpenOptions {
+            backend: match std::env::var("THINGD_STORAGE_BACKEND").as_deref() {
+                Ok("thingdb") => PersistentBackend::ThingDb,
+                _ => PersistentBackend::RocksDb,
+            },
             encryption,
             ..PersistentOpenOptions::default()
         };

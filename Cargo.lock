@@ -2989,6 +2989,7 @@ dependencies = [
  "sqlx",
  "tantivy",
  "tempfile",
+ "thingdb",
  "tokio",
 ]
 
@@ -3051,6 +3052,16 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "uuid",
+]
+
+[[package]]
+name = "thingdb"
+version = "0.83.2"
+dependencies = [
+ "crc32fast",
+ "serde",
+ "serde_json",
+ "tempfile",
 ]
 
 [[package]]

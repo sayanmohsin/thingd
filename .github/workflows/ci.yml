@@ -50,6 +50,12 @@ jobs:
       - run: pnpm test:publish-manifests
       - run: pnpm docs:metadata
       - run: git diff --exit-code -- docs/.generated/mcp-metadata.json
+      - name: Install documentation dependencies
+        run: pnpm install --frozen-lockfile
+        working-directory: docs
+      - name: Build VitePress documentation
+        run: pnpm build
+        working-directory: docs
 
   # ── Rust runtime: fmt + clippy + test (parallel to node) ─
   rust:
@@ -69,6 +75,16 @@ jobs:
       - run: cargo clippy --workspace --exclude thingd-migrate --all-targets --all-features -- -D warnings
       - run: cargo test --workspace --exclude thingd-migrate --all-targets --all-features
       - run: cargo test --doc --workspace --exclude thingd-migrate --all-features
+      - name: Verify ThingDB backend contract and format tests
+        run: |
+          cargo test -p thingdb --all-targets
+          cargo test -p thingd --features persistent --lib thingdb
+          cargo test -p thingd --features persistent --lib encrypted_thingdb
+          cargo test -p thingd --features persistent --lib repacks_rocksdb_into_thingdb
+      - name: ThingDB server backend smoke test
+        run: |
+          cargo build -p thingd-server
+          bash scripts/test-thingdb-backend.sh ./target/debug/thingd-server
       - name: Verify migration utility is outside runtime dependency graphs
         run: |
           if cargo tree -p thingd-server --all-features | grep -q '^.*fjall'; then
@@ -128,6 +144,27 @@ jobs:
       - run: pnpm test:node:built
       - run: pnpm test:package:built
       - run: pnpm test:cli:built
+      - name: Verify native ThingDB opt-in preserves the Node API
+        run: |
+          THINGD_STORAGE_BACKEND=thingdb node --input-type=module <<'EOF'
+          import { mkdtempSync, rmSync } from 'node:fs';
+          import { tmpdir } from 'node:os';
+          import { join } from 'node:path';
+          import { NativeThingStore } from './packages/thingd-native/index.js';
+
+          const path = mkdtempSync(join(tmpdir(), 'thingd-native-thingdb-'));
+          try {
+            const store = NativeThingStore.open(path);
+            store.putObjectJson('ci', 'thingdb', JSON.stringify({ backend: 'thingdb' }));
+            const object = JSON.parse(store.getObjectJson('ci', 'thingdb'));
+            if (JSON.parse(object.body).backend !== 'thingdb') {
+              throw new Error('native ThingDB smoke test returned an unexpected object');
+            }
+            console.log('Native ThingDB API smoke test passed');
+          } finally {
+            rmSync(path, { recursive: true, force: true });
+          }
+          EOF
       - name: Verify native filter
         run: |
           node << 'EOF'

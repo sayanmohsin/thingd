@@ -12,6 +12,11 @@ durable job queues, full-text search, and graph links. It ships with two
 engines: an in-memory engine for fast prototyping and testing, and an optional
 persistent engine for durable local storage.
 
+RocksDB is the default persistent backend. The experimental Rust-native ThingDB
+backend can be selected through `PersistentOpenOptions` with
+`PersistentBackend::ThingDb`; it uses a separate format and requires logical
+repack rather than direct file opening. See the public [storage backend guide](../../docs/storage-backends.md).
+
 Persistent callers can use `PersistentEngine::open(path)` for the existing
 unencrypted behavior or `PersistentEngine::open_with_options(path, options)`
 with an `EncryptionConfig`. Encryption uses a fallible `KeyProvider`; native

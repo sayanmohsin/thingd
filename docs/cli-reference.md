@@ -184,9 +184,12 @@ exclusive access. Compaction reduces physical journal pressure; repacking is a
 separate logical migration for stores whose journal is already too large for a
 safe in-place recovery.
 
-The current native format is embedded RocksDB. Existing legacy directories
-must first be migrated with the repository-built `thingd-migrate` utility; the
-published `thingd` CLI does not silently convert native stores.
+The default native format is embedded RocksDB. The experimental Rust-native
+ThingDB backend can be selected with `THINGD_STORAGE_BACKEND=thingdb`; it uses
+a separate format and is not opened by changing the variable on an existing
+RocksDB directory. Existing legacy directories must first be migrated with the
+repository-built `thingd-migrate` utility; the published `thingd` CLI does not
+silently convert native stores. See [Storage backends](./storage-backends.md).
 
 `THINGD_ENCRYPTION_KEY` supplies the normal native database key.
 `THINGD_ENCRYPTION_SOURCE_KEY` and `THINGD_ENCRYPTION_DESTINATION_KEY` supply

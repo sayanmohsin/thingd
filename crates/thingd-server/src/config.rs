@@ -91,6 +91,9 @@ pub struct ServerConfig {
     pub port: u16,
     #[serde(default = "default_db")]
     pub database: String,
+    /// Durable backend: `rocksdb` (default) or experimental `thingdb`.
+    #[serde(default = "default_storage_backend")]
+    pub storage_backend: String,
     #[serde(default = "default_request_timeout")]
     pub request_timeout_secs: u64,
     #[serde(default)]
@@ -134,6 +137,10 @@ fn default_journal_max_bytes() -> u64 {
         .ok()
         .and_then(|value| value.parse().ok())
         .unwrap_or(32 * 1024 * 1024)
+}
+
+fn default_storage_backend() -> String {
+    std::env::var("THINGD_STORAGE_BACKEND").unwrap_or_else(|_| "rocksdb".to_string())
 }
 
 fn default_recovery_batch_size() -> usize {
@@ -374,6 +381,7 @@ impl Default for ServerConfig {
             host: default_host(),
             port: default_port(),
             database: default_db(),
+            storage_backend: default_storage_backend(),
             request_timeout_secs: default_request_timeout(),
             max_connections: default_max_connections(),
             production_mode: false,
@@ -573,6 +581,9 @@ impl Config {
         }
         if let Ok(v) = std::env::var("THINGD_PATH") {
             self.server.database = v;
+        }
+        if let Ok(v) = std::env::var("THINGD_STORAGE_BACKEND") {
+            self.server.storage_backend = v;
         }
         if let Ok(v) = std::env::var("THINGD_ENCRYPTION_KEY") {
             self.server.encryption_key = Some(v);

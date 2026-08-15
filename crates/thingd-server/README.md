@@ -63,6 +63,7 @@ Configure via environment variables or a YAML config file pointed at by `THINGD_
 | `THINGD_HOST` | `0.0.0.0` | Bind address |
 | `THINGD_PORT` | `7377` | HTTP port |
 | `THINGD_DATABASE` | `thingd.db` | persistent database directory |
+| `THINGD_STORAGE_BACKEND` | `rocksdb` | durable backend: `rocksdb` or experimental `thingdb` |
 | `THINGD_ENCRYPTION_KEY` | — | optional 64-character hexadecimal key for encrypted persistent storage |
 | `THINGD_SEARCH_MODE` | `persistent` | `persistent`, `persistent-async`, `persistent-no-rebuild`, or `disabled` |
 | `THINGD_SEARCH_COMMIT_INTERVAL_MS` | `250` | Maximum debounce before coalesced Tantivy commits |
@@ -122,7 +123,9 @@ thingd-server --repack /data/thingd.db --destination /data/thingd-repacked.db
 
 `--compact` requires exclusive access and preserves the native store. `--repack`
 is an explicit logical migration into a fresh destination; it is not automatic
-native-format conversion and never overwrites the source or destination.
+native-format conversion and never overwrites the source or destination. The
+destination backend follows `THINGD_STORAGE_BACKEND` (RocksDB by default); use
+`--source-backend thingdb` when the source is a ThingDB directory.
 
 Legacy native directories require the isolated migration utility described in
 [the storage backend guide](../../docs/storage-backends.md), including its

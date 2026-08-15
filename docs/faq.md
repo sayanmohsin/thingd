@@ -38,7 +38,9 @@ No. An object write and an event append are separate operations. If you need bot
 
 ### Does Thingd require a separate database service?
 
-No. Native and standalone deployments embed RocksDB in the Thingd artifact.
+No. Native and standalone deployments embed RocksDB in the Thingd artifact by
+default; the experimental ThingDB backend is also embedded and can be selected
+with `THINGD_STORAGE_BACKEND=thingdb`.
 HTTP deployments require a Thingd server process for transport, but do not
 require a PostgreSQL, Redis, RocksDB, or other database container. Memory mode
 remains process-local and non-durable. See [Storage backends](./storage-backends.md).

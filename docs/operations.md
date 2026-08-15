@@ -1,6 +1,8 @@
 # Operations
 
-thingd's current native persistent backend stores a database as a directory.
+thingd's native persistent backends store a database as a directory. RocksDB is
+the default; ThingDB is experimental and opt-in through
+`THINGD_STORAGE_BACKEND=thingdb`.
 The procedures below distinguish opaque filesystem backups from logical exports;
 deprecated SQLite compatibility commands are retained only for older installs.
 
@@ -301,6 +303,11 @@ disabled or no-rebuild search is preferred over embedding Thingd beside a
 catalog enrichment process.
 
 ## Schema and format migrations
+
+RocksDB and ThingDB are separate formats. Do not switch an existing directory
+by changing the backend variable. Use the documented logical repack workflow,
+validate the destination, and retain the source until application-level
+verification is complete. See [Storage backends](./storage-backends.md).
 
 The current native backend does not expose manual SQL schema migrations.
 Persistent format changes are versioned by the engine and encrypted databases

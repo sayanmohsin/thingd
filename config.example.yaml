@@ -5,11 +5,13 @@ server:
   # Bind address and port
   host: "127.0.0.1"
   port: 8757
-  # SQLite database path (":memory:" for in-memory)
+  # Persistent database path (":memory:" for in-memory)
   database: "/data/thingd.db"
+  # Durable backend: "rocksdb" (default) or experimental "thingdb".
+  storage_backend: "rocksdb"
   # Request timeout in seconds
   request_timeout_secs: 30
-  # Maximum concurrent connections to SQLite
+  # Maximum concurrent connections
   max_connections: 256
   # When true, internal error details are stripped from 500 responses
   production_mode: false

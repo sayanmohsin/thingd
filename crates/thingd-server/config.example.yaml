@@ -7,6 +7,8 @@ server:
   port: 8757
   # Database path (or ":memory:" for in-memory)
   database: "/data/thingd.db"
+  # Durable backend: "rocksdb" (default) or experimental "thingdb".
+  storage_backend: "rocksdb"
   # Optional 64-character hexadecimal key; prefer THINGD_ENCRYPTION_KEY.
   encryption_key: null
   # Use "persistent-async" for bounded eventual search indexing, or

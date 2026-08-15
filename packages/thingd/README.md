@@ -40,6 +40,10 @@ configuration; inject them through the deployment environment. Storage
 encryption does not change object, event, queue, graph, vector, search, REST,
 or MCP APIs.
 
+Native persistence uses RocksDB by default. The experimental Rust-native
+ThingDB backend can be selected with `THINGD_STORAGE_BACKEND=thingdb`; it uses
+a separate format and requires logical repack when changing an existing store.
+
 ## Subpath imports
 
 ```typescript
