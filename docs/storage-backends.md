@@ -30,21 +30,26 @@ large-store durability and performance gates.
 
 ## ThingDB development phase
 
-ThingDB is currently in **Phase 0: experimental foundation and compatibility**.
-This phase is complete enough for opt-in development, differential testing, and
-safe logical repack, but it is not a production replacement for RocksDB.
+ThingDB is currently in **Phase 1A: WAL hardening and durable write-path
+measurement**. Phase 0 is complete enough for opt-in development, differential
+testing, and safe logical repack, but ThingDB is not a production replacement
+for RocksDB.
 
 | Phase | Goal | Status |
 | --- | --- | --- |
-| 0. Foundation | WAL, checksums, manifests, ordered access, batches, snapshots, repack, shared Thingd contracts | Current; implemented and opt-in |
-| 1. Storage engine hardening | Bounded memtables, immutable incremental tables, leveled/size-tiered compaction, fault injection | Next |
+| 0. Foundation | WAL, checksums, manifests, ordered access, batches, snapshots, repack, shared Thingd contracts | Complete; experimental and opt-in |
+| 1A. WAL hardening | Sync-before-ack writes, WAL timing diagnostics, batch-path measurement, deterministic WAL fault tests | Active |
+| 1B. Storage engine hardening | Bounded memtables, immutable incremental tables, leveled/size-tiered compaction | Planned after WAL evidence |
 | 2. Correctness and recovery | Crash matrices, interrupted compaction recovery, corruption handling, differential tests, fuzzing | Planned |
 | 3. Scale and performance | Large-data benchmarks, memory/disk amplification limits, restart and recovery budgets | Planned |
 | 4. Controlled adoption | Soak testing, operational rollback, backup/restore validation, limited opt-in deployments | Planned |
 | 5. Default-candidate review | Compare against RocksDB gates and decide whether the default should change | Not scheduled |
 
-The current implementation still keeps substantial state in memory and uses a
-full snapshot table during compaction. Until Phases 1–4 pass, do not use
+Single writes remain synchronously WAL-backed before acknowledgement. Explicit
+multi-key batches share one WAL frame and one sync boundary; this is the first
+write-path optimization being measured in Phase 1A. The current implementation
+still keeps substantial state in memory and uses a full snapshot table during
+compaction. Until Phases 1A–4 pass, do not use
 ThingDB as the only copy of important production data. Keep the RocksDB source
 directory during repack and validate the destination before switching traffic.
 

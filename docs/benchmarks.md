@@ -19,6 +19,14 @@ The default is 5,000 iterations. Override it with either
 the Rust example. The smoke command uses 10 deterministic iterations and is
 intended only to verify that the benchmark remains buildable and runnable.
 
+The Rust storage benchmark is one unified harness: WAL, object, event, queue,
+search, vector, batch, delete, concurrency, encryption, and lifecycle workloads
+are all measured by the same executable against the selected backends. WAL
+measurements are included in the normal structured run rather than maintained
+as a separate benchmark. Use `--repetitions 5 --phase wal-hardening` when
+recording a Phase 1A comparison; generated JSON and JSONL files must not be
+committed.
+
 For a reproducible RocksDB-vs-ThingDB run with structured output:
 
 ```bash
@@ -46,6 +54,14 @@ The benchmark selects `--backend all|rocksdb|thingdb|memory`; `all` is the
 default and is the required comparison mode. It measures object, event, queue,
 search, vector search, batch, count, delete, concurrent-read, and
 lock-contention operations for the selected adapters.
+
+Use `--repetitions 5` or `THINGD_BENCH_REPETITIONS=5` for phase comparisons.
+Structured JSON output includes grouped median, minimum, maximum, and spread
+throughput summaries in addition to each repetition's raw result.
+The WAL-hardening phase additionally records `wal-single-write`,
+`wal-explicit-batch`, and `wal-recovery` rows plus ThingDB WAL timing
+diagnostics. Single writes remain sync-before-ack; the batch measurement does
+not trade durability for throughput.
 
 Each persistent run also reports a reopen/startup duration and first-search
 latency. To exercise the low-memory path on Linux/macOS, run the benchmark in

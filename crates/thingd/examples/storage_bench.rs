@@ -13,7 +13,10 @@ use std::fs;
 use std::hint::black_box;
 use std::io::Write as IoWrite;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::{
+    Arc, Mutex,
+    atomic::{AtomicUsize, Ordering},
+};
 use std::time::{Duration, Instant};
 
 use serde::Serialize;
@@ -45,6 +48,7 @@ enum BackendSelection {
 #[derive(Debug)]
 struct BenchConfig {
     iterations: usize,
+    repetitions: usize,
     seed: u64,
     backend: BackendSelection,
     output: Option<PathBuf>,
@@ -54,6 +58,7 @@ struct BenchConfig {
 
 #[derive(Clone, Debug, Serialize)]
 struct BenchResult {
+    repetition: usize,
     driver: String,
     operation: String,
     operations: usize,
@@ -70,6 +75,7 @@ struct BenchResult {
 #[derive(Clone, Debug, Serialize)]
 struct StorageSnapshot {
     driver: String,
+    repetition: usize,
     path: String,
     bytes_on_disk: u64,
     file_count: usize,
@@ -79,7 +85,27 @@ struct StorageSnapshot {
 struct BenchOutput {
     metadata: BenchMetadata,
     results: Vec<BenchResult>,
+    summaries: Vec<BenchSummary>,
     storage: Vec<StorageSnapshot>,
+    wal: Vec<WalSnapshot>,
+}
+
+#[derive(Debug, Serialize)]
+struct BenchSummary {
+    driver: String,
+    operation: String,
+    repetitions: usize,
+    median_throughput_ops_per_second: u128,
+    minimum_throughput_ops_per_second: u128,
+    maximum_throughput_ops_per_second: u128,
+    spread_throughput_ops_per_second: u128,
+}
+
+#[derive(Debug, Serialize)]
+struct WalSnapshot {
+    driver: String,
+    repetition: usize,
+    diagnostics: thingdb::WalDiagnostics,
 }
 
 #[derive(Debug, Serialize)]
@@ -88,6 +114,7 @@ struct BenchMetadata {
     phase: String,
     branch: String,
     iterations: usize,
+    repetitions: usize,
     seed: u64,
     backend: String,
     commit: String,
@@ -98,6 +125,7 @@ struct BenchMetadata {
 }
 
 static RESULTS: std::sync::OnceLock<Mutex<BenchOutput>> = std::sync::OnceLock::new();
+static CURRENT_REPETITION: AtomicUsize = AtomicUsize::new(0);
 
 #[allow(clippy::too_many_lines)]
 fn main() -> Result<(), Box<dyn Error>> {
@@ -109,6 +137,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 phase: config.phase.clone(),
                 branch: command_output("git", &["branch", "--show-current"]),
                 iterations: config.iterations,
+                repetitions: config.repetitions,
                 seed: config.seed,
                 backend: config.backend.name().to_string(),
                 commit: command_output("git", &["rev-parse", "HEAD"]),
@@ -118,7 +147,9 @@ fn main() -> Result<(), Box<dyn Error>> {
                 parallelism: std::thread::available_parallelism().map_or(1, usize::from),
             },
             results: Vec::new(),
+            summaries: Vec::new(),
             storage: Vec::new(),
+            wal: Vec::new(),
         }))
         .map_err(|_| "benchmark output was initialized more than once")?;
 
@@ -128,6 +159,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     println!("iterations: {iterations}");
     println!("seed: {}", config.seed);
     println!("backend: {}", config.backend.name());
+    println!("repetitions: {}", config.repetitions);
     println!();
     println!(
         "{:>13} | {:<22} | {:>7} | {:>12} | {:>12}",
@@ -135,122 +167,138 @@ fn main() -> Result<(), Box<dyn Error>> {
     );
     println!("{}", "-".repeat(80));
 
-    if config.backend.includes(BackendSelection::InMemory) {
-        bench_store("in-memory", MemoryEngine::new(), iterations, config.seed)?;
-        bench_concurrent("in-memory", || Ok(MemoryEngine::new()), iterations)?;
-    }
+    for repetition in 0..config.repetitions {
+        CURRENT_REPETITION.store(repetition, Ordering::Relaxed);
+        println!("repetition: {}", repetition + 1);
 
-    if config.backend.includes(BackendSelection::RocksDb) {
-        let dir = tempfile::tempdir()?;
-        let persistent_options = benchmark_persistent_options(thingd::PersistentBackend::RocksDb);
-        let persistent_engine =
-            PersistentEngine::open_with_options(dir.path(), persistent_options.clone())?;
-        let lifecycle_dir = tempfile::tempdir()?;
-        time_persistent_lifecycle(lifecycle_dir.path(), persistent_options.clone())?;
-        bench_store("persistent", persistent_engine, iterations, config.seed)?;
-        record_storage("persistent", dir.path());
-        let latency_dir = tempfile::tempdir()?;
-        bench_latency_distribution(
-            "persistent",
-            latency_dir.path(),
-            persistent_options,
-            iterations.min(256),
-            config.seed,
-        )?;
-    }
+        if config.backend.includes(BackendSelection::InMemory) {
+            bench_store("in-memory", MemoryEngine::new(), iterations, config.seed)?;
+            bench_concurrent("in-memory", || Ok(MemoryEngine::new()), iterations)?;
+        }
 
-    if config.backend.includes(BackendSelection::ThingDb) {
-        let thingdb_dir = tempfile::tempdir()?;
-        let thingdb_options = benchmark_persistent_options(thingd::PersistentBackend::ThingDb);
-        let thingdb_engine =
-            PersistentEngine::open_with_options(thingdb_dir.path(), thingdb_options.clone())?;
-        bench_store(
-            "thingdb-experimental",
-            thingdb_engine,
-            iterations,
-            config.seed,
-        )?;
-        record_storage("thingdb-experimental", thingdb_dir.path());
-        let latency_dir = tempfile::tempdir()?;
-        bench_latency_distribution(
-            "thingdb-experimental",
-            latency_dir.path(),
-            thingdb_options,
-            iterations.min(256),
-            config.seed,
-        )?;
-    }
+        if config.backend.includes(BackendSelection::RocksDb) {
+            let dir = tempfile::tempdir()?;
+            let persistent_options =
+                benchmark_persistent_options(thingd::PersistentBackend::RocksDb);
+            let persistent_engine =
+                PersistentEngine::open_with_options(dir.path(), persistent_options.clone())?;
+            let lifecycle_dir = tempfile::tempdir()?;
+            time_persistent_lifecycle(lifecycle_dir.path(), persistent_options.clone())?;
+            bench_store("persistent", persistent_engine, iterations, config.seed)?;
+            record_storage("persistent", dir.path());
+            let latency_dir = tempfile::tempdir()?;
+            bench_latency_distribution(
+                "persistent",
+                latency_dir.path(),
+                persistent_options,
+                iterations.min(256),
+                config.seed,
+            )?;
+        }
 
-    if config.backend.includes(BackendSelection::RocksDb) {
-        let conc_dir = tempfile::tempdir()?;
-        let persistent_options = benchmark_persistent_options(thingd::PersistentBackend::RocksDb);
-        bench_concurrent(
-            "persistent",
-            || {
-                let engine = PersistentEngine::open_with_options(
-                    conc_dir.path(),
-                    persistent_options.clone(),
-                )?;
-                Ok(engine)
-            },
-            iterations,
-        )?;
-    }
+        if config.backend.includes(BackendSelection::ThingDb) {
+            let thingdb_dir = tempfile::tempdir()?;
+            let thingdb_options = benchmark_persistent_options(thingd::PersistentBackend::ThingDb);
+            let thingdb_engine =
+                PersistentEngine::open_with_options(thingdb_dir.path(), thingdb_options.clone())?;
+            bench_store(
+                "thingdb-experimental",
+                thingdb_engine,
+                iterations,
+                config.seed,
+            )?;
+            record_storage("thingdb-experimental", thingdb_dir.path());
+            let latency_dir = tempfile::tempdir()?;
+            bench_latency_distribution(
+                "thingdb-experimental",
+                latency_dir.path(),
+                thingdb_options,
+                iterations.min(256),
+                config.seed,
+            )?;
+            let wal_dir = tempfile::tempdir()?;
+            bench_wal_workloads(
+                "thingdb-experimental",
+                wal_dir.path(),
+                benchmark_persistent_options(thingd::PersistentBackend::ThingDb),
+                iterations,
+                config.seed,
+            )?;
+        }
 
-    if config.backend.includes(BackendSelection::ThingDb) {
-        let thingdb_conc_dir = tempfile::tempdir()?;
-        let thingdb_options = benchmark_persistent_options(thingd::PersistentBackend::ThingDb);
-        bench_concurrent(
-            "thingdb-experimental",
-            || {
-                let engine = PersistentEngine::open_with_options(
-                    thingdb_conc_dir.path(),
-                    thingdb_options.clone(),
-                )?;
-                Ok(engine)
-            },
-            iterations,
-        )?;
-    }
+        if config.backend.includes(BackendSelection::RocksDb) {
+            let conc_dir = tempfile::tempdir()?;
+            let persistent_options =
+                benchmark_persistent_options(thingd::PersistentBackend::RocksDb);
+            bench_concurrent(
+                "persistent",
+                || {
+                    let engine = PersistentEngine::open_with_options(
+                        conc_dir.path(),
+                        persistent_options.clone(),
+                    )?;
+                    Ok(engine)
+                },
+                iterations,
+            )?;
+        }
 
-    if config.backend.includes(BackendSelection::RocksDb) {
-        let encrypted_dir = tempfile::tempdir()?;
-        let encrypted_options = PersistentOpenOptions {
-            backend: thingd::PersistentBackend::RocksDb,
-            encryption: Some(EncryptionConfig::from_key(&[0x42_u8; 32])?),
-            ..PersistentOpenOptions::default()
-        };
-        let encrypted_engine =
-            PersistentEngine::open_with_options(encrypted_dir.path(), encrypted_options)?;
-        bench_store(
-            "persistent-encrypted",
-            encrypted_engine,
-            iterations,
-            config.seed,
-        )?;
-        record_storage("persistent-encrypted", encrypted_dir.path());
-    }
+        if config.backend.includes(BackendSelection::ThingDb) {
+            let thingdb_conc_dir = tempfile::tempdir()?;
+            let thingdb_options = benchmark_persistent_options(thingd::PersistentBackend::ThingDb);
+            bench_concurrent(
+                "thingdb-experimental",
+                || {
+                    let engine = PersistentEngine::open_with_options(
+                        thingdb_conc_dir.path(),
+                        thingdb_options.clone(),
+                    )?;
+                    Ok(engine)
+                },
+                iterations,
+            )?;
+        }
 
-    if config.backend.includes(BackendSelection::RocksDb) {
-        let encrypted_conc_dir = tempfile::tempdir()?;
-        let encrypted_options = PersistentOpenOptions {
-            backend: thingd::PersistentBackend::RocksDb,
-            encryption: Some(EncryptionConfig::from_key(&[0x42_u8; 32])?),
-            ..PersistentOpenOptions::default()
-        };
-        bench_concurrent(
-            "persistent-encrypted",
-            || {
-                Ok(PersistentEngine::open_with_options(
-                    encrypted_conc_dir.path(),
-                    encrypted_options.clone(),
-                )?)
-            },
-            iterations,
-        )?;
+        if config.backend.includes(BackendSelection::RocksDb) {
+            let encrypted_dir = tempfile::tempdir()?;
+            let encrypted_options = PersistentOpenOptions {
+                backend: thingd::PersistentBackend::RocksDb,
+                encryption: Some(EncryptionConfig::from_key(&[0x42_u8; 32])?),
+                ..PersistentOpenOptions::default()
+            };
+            let encrypted_engine =
+                PersistentEngine::open_with_options(encrypted_dir.path(), encrypted_options)?;
+            bench_store(
+                "persistent-encrypted",
+                encrypted_engine,
+                iterations,
+                config.seed,
+            )?;
+            record_storage("persistent-encrypted", encrypted_dir.path());
+        }
+
+        if config.backend.includes(BackendSelection::RocksDb) {
+            let encrypted_conc_dir = tempfile::tempdir()?;
+            let encrypted_options = PersistentOpenOptions {
+                backend: thingd::PersistentBackend::RocksDb,
+                encryption: Some(EncryptionConfig::from_key(&[0x42_u8; 32])?),
+                ..PersistentOpenOptions::default()
+            };
+            bench_concurrent(
+                "persistent-encrypted",
+                || {
+                    Ok(PersistentEngine::open_with_options(
+                        encrypted_conc_dir.path(),
+                        encrypted_options.clone(),
+                    )?)
+                },
+                iterations,
+            )?;
+        }
     }
 
     run_correctness_smoke(config.seed)?;
+    update_summaries();
     if let Some(path) = config.output.as_deref() {
         write_output(path)?;
         println!("structured results: {}", path.display());
@@ -307,6 +355,10 @@ impl BenchConfig {
             .ok()
             .and_then(|value| value.parse().ok())
             .unwrap_or(DEFAULT_ITERATIONS);
+        let mut repetitions = env::var("THINGD_BENCH_REPETITIONS")
+            .ok()
+            .and_then(|value| value.parse().ok())
+            .unwrap_or(1);
         let mut seed = 0x5eed_u64;
         let mut backend = BackendSelection::All;
         let mut output = env::var_os("THINGD_BENCH_OUTPUT").map(PathBuf::from);
@@ -324,6 +376,7 @@ impl BenchConfig {
             };
             match argument.as_str() {
                 "--iterations" => iterations = value("--iterations")?.parse()?,
+                "--repetitions" => repetitions = value("--repetitions")?.parse()?,
                 "--seed" => seed = value("--seed")?.parse()?,
                 "--output" => output = Some(PathBuf::from(value("--output")?)),
                 "--history" => history = PathBuf::from(value("--history")?),
@@ -348,6 +401,7 @@ impl BenchConfig {
         }
         Ok(Self {
             iterations,
+            repetitions: repetitions.max(1),
             seed,
             backend,
             output,
@@ -524,6 +578,76 @@ fn bench_latency_distribution(
     Ok(())
 }
 
+fn bench_wal_workloads(
+    name: &str,
+    path: &Path,
+    mut options: PersistentOpenOptions,
+    iterations: usize,
+    seed: u64,
+) -> Result<(), Box<dyn Error>> {
+    options.search_mode = thingd::PersistentSearchMode::Disabled;
+    let mut engine = PersistentEngine::open_with_options(path, options.clone())?;
+    let samples = measure_samples(iterations.clamp(1, 256), |index| {
+        let id = format!(
+            "wal-single-{}",
+            deterministic_index(seed, index, iterations.max(1))
+        );
+        engine.put_object(MemoryObject::new(COLLECTION, id, OBJECT_BODY_ACTIVE))?;
+        Ok(())
+    })?;
+    record_latency(name, "wal-single-write", samples);
+
+    let batch_size = iterations.clamp(1, 1_000);
+    let objects = (0..batch_size)
+        .map(|index| {
+            MemoryObject::new(COLLECTION, format!("wal-batch-{index}"), OBJECT_BODY_ACTIVE)
+        })
+        .collect();
+    let started = Instant::now();
+    let stored = engine.put_objects_batch(objects)?;
+    black_box(stored.len());
+    report(name, "wal-explicit-batch", batch_size, started.elapsed());
+
+    let before_reopen = engine
+        .wal_diagnostics()?
+        .ok_or("ThingDB diagnostics unavailable")?;
+    drop(engine);
+    let started = Instant::now();
+    let reopened = PersistentEngine::open_with_options(path, options)?;
+    report(name, "wal-recovery", 1, started.elapsed());
+    let after_reopen = reopened
+        .wal_diagnostics()?
+        .ok_or("ThingDB diagnostics unavailable after reopen")?;
+    results().lock().unwrap().wal.push(WalSnapshot {
+        driver: name.to_string(),
+        repetition: CURRENT_REPETITION.load(Ordering::Relaxed),
+        diagnostics: WalDiagnosticsSnapshot::merge(before_reopen, after_reopen),
+    });
+    Ok(())
+}
+
+struct WalDiagnosticsSnapshot;
+
+impl WalDiagnosticsSnapshot {
+    fn merge(
+        before: thingdb::WalDiagnostics,
+        after: thingdb::WalDiagnostics,
+    ) -> thingdb::WalDiagnostics {
+        thingdb::WalDiagnostics {
+            journal_bytes: before.journal_bytes.max(after.journal_bytes),
+            frame_count: before.frame_count.max(after.frame_count),
+            recovery_bytes: after.recovery_bytes,
+            recovery_duration_ns: after.recovery_duration_ns,
+            encode_duration_ns: before.encode_duration_ns,
+            append_duration_ns: before.append_duration_ns,
+            sync_duration_ns: before.sync_duration_ns,
+            state_apply_duration_ns: before.state_apply_duration_ns,
+            lock_duration_ns: before.lock_duration_ns,
+            last_error: after.last_error.or(before.last_error),
+        }
+    }
+}
+
 fn run_correctness_smoke(seed: u64) -> Result<(), Box<dyn Error>> {
     for backend in [
         thingd::PersistentBackend::RocksDb,
@@ -608,6 +732,7 @@ fn record_latency(driver: &str, operation: &str, mut samples: Vec<u128>) {
     let total_ns = samples.iter().sum::<u128>();
     let operations = samples.len();
     let result = BenchResult {
+        repetition: CURRENT_REPETITION.load(Ordering::Relaxed),
         driver: driver.to_string(),
         operation: operation.to_string(),
         operations,
@@ -633,6 +758,40 @@ fn record_latency(driver: &str, operation: &str, mut samples: Vec<u128>) {
 fn percentile(samples: &[u128], percentile: usize) -> u128 {
     let index = ((samples.len() - 1) * percentile).div_ceil(100);
     samples[index]
+}
+
+fn update_summaries() {
+    let mut output = results().lock().unwrap();
+    let mut grouped = std::collections::BTreeMap::<(String, String), Vec<u128>>::new();
+    for result in &output.results {
+        grouped
+            .entry((result.driver.clone(), result.operation.clone()))
+            .or_default()
+            .push(result.throughput_ops_per_second);
+    }
+    output.summaries = grouped
+        .into_iter()
+        .map(|((driver, operation), mut throughputs)| {
+            throughputs.sort_unstable();
+            let minimum = throughputs[0];
+            let maximum = *throughputs.last().unwrap_or(&minimum);
+            let middle = throughputs.len() / 2;
+            let median = if throughputs.len() % 2 == 0 {
+                throughputs[middle - 1].saturating_add(throughputs[middle]) / 2
+            } else {
+                throughputs[middle]
+            };
+            BenchSummary {
+                driver,
+                operation,
+                repetitions: throughputs.len(),
+                median_throughput_ops_per_second: median,
+                minimum_throughput_ops_per_second: minimum,
+                maximum_throughput_ops_per_second: maximum,
+                spread_throughput_ops_per_second: maximum.saturating_sub(minimum),
+            }
+        })
+        .collect();
 }
 
 const fn deterministic_index(seed: u64, index: usize, count: usize) -> usize {
@@ -1045,6 +1204,7 @@ fn report(store: &str, operation: &str, iterations: usize, elapsed: Duration) {
         "{store:>13} | {operation:<22} | {iterations:>7} ops | {elapsed:>12?} | {operations_per_second:>10} ops/s"
     );
     results().lock().unwrap().results.push(BenchResult {
+        repetition: CURRENT_REPETITION.load(Ordering::Relaxed),
         driver: store.to_string(),
         operation: operation.to_string(),
         operations: iterations,
@@ -1083,6 +1243,7 @@ fn record_storage(driver: &str, path: &Path) {
     let (bytes_on_disk, file_count) = directory_stats(path);
     results().lock().unwrap().storage.push(StorageSnapshot {
         driver: driver.to_string(),
+        repetition: CURRENT_REPETITION.load(Ordering::Relaxed),
         path: path.display().to_string(),
         bytes_on_disk,
         file_count,
@@ -1123,19 +1284,21 @@ fn write_output(path: &Path) -> Result<(), Box<dyn Error>> {
         let csv = {
             let output = results().lock().unwrap();
             let mut csv = String::from(
-                "commit,rust,os,arch,iterations,seed,backend,driver,operation,operations,total_ns,throughput_ops_per_second,min_ns,p50_ns,p95_ns,p99_ns,max_ns,error_count\n",
+                "commit,rust,os,arch,iterations,repetitions,seed,backend,repetition,driver,operation,operations,total_ns,throughput_ops_per_second,min_ns,p50_ns,p95_ns,p99_ns,max_ns,error_count\n",
             );
             for result in &output.results {
                 let _ = writeln!(
                     csv,
-                    "{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
+                    "{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
                     csv_escape(&output.metadata.commit),
                     csv_escape(&output.metadata.rust),
                     output.metadata.os,
                     output.metadata.arch,
                     output.metadata.iterations,
+                    output.metadata.repetitions,
                     output.metadata.seed,
                     output.metadata.backend,
+                    result.repetition,
                     csv_escape(&result.driver),
                     csv_escape(&result.operation),
                     result.operations,
