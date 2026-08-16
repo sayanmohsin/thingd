@@ -14,7 +14,7 @@ use std::hint::black_box;
 use std::io::Write as IoWrite;
 use std::path::{Path, PathBuf};
 use std::sync::{
-    Arc, Mutex,
+    Arc, Barrier, Mutex,
     atomic::{AtomicUsize, Ordering},
 };
 use std::time::{Duration, Instant};
@@ -623,6 +623,62 @@ fn bench_wal_workloads(
         repetition: CURRENT_REPETITION.load(Ordering::Relaxed),
         diagnostics: WalDiagnosticsSnapshot::merge(before_reopen, after_reopen),
     });
+    bench_thingdb_concurrent_writes(name, path, iterations, seed)?;
+    Ok(())
+}
+
+fn bench_thingdb_concurrent_writes(
+    name: &str,
+    path: &Path,
+    iterations: usize,
+    seed: u64,
+) -> Result<(), Box<dyn Error>> {
+    let concurrent_path = path.join("group-commit");
+    let db = thingdb::Database::open(&concurrent_path)?;
+    let keyspace = db.keyspace("objects", thingdb::KeyspaceCreateOptions::default)?;
+    let writers = iterations.clamp(1, 32);
+    let per_writer = iterations.div_ceil(writers);
+    let barrier = Arc::new(Barrier::new(writers));
+    let started = Instant::now();
+    let handles: Vec<_> = (0..writers)
+        .map(|writer| {
+            let keyspace = keyspace.clone();
+            let barrier = Arc::clone(&barrier);
+            std::thread::spawn(move || -> thingdb::Result<usize> {
+                barrier.wait();
+                for offset in 0..per_writer {
+                    let index = writer * per_writer + offset;
+                    let key = format!(
+                        "group-{}-{}-{index}",
+                        seed,
+                        deterministic_index(seed, index, iterations.max(1))
+                    );
+                    keyspace.insert(key.as_bytes(), OBJECT_BODY_ACTIVE.as_bytes())?;
+                }
+                Ok(per_writer)
+            })
+        })
+        .collect();
+    let mut completed = 0;
+    for handle in handles {
+        completed += handle
+            .join()
+            .map_err(|_| "ThingDB concurrent benchmark writer panicked")??;
+    }
+    report(name, "wal-concurrent-write", completed, started.elapsed());
+
+    let before_reopen = db.wal_diagnostics()?;
+    drop(keyspace);
+    drop(db);
+    let started = Instant::now();
+    let reopened = thingdb::Database::open(&concurrent_path)?;
+    report(name, "wal-concurrent-recovery", 1, started.elapsed());
+    let after_reopen = reopened.wal_diagnostics()?;
+    results().lock().unwrap().wal.push(WalSnapshot {
+        driver: name.to_string(),
+        repetition: CURRENT_REPETITION.load(Ordering::Relaxed),
+        diagnostics: WalDiagnosticsSnapshot::merge(before_reopen, after_reopen),
+    });
     Ok(())
 }
 
@@ -643,6 +699,13 @@ impl WalDiagnosticsSnapshot {
             sync_duration_ns: before.sync_duration_ns,
             state_apply_duration_ns: before.state_apply_duration_ns,
             lock_duration_ns: before.lock_duration_ns,
+            logical_commit_count: before.logical_commit_count,
+            physical_sync_count: before.physical_sync_count,
+            total_group_size: before.total_group_size,
+            max_group_size: before.max_group_size,
+            queue_wait_duration_ns: before.queue_wait_duration_ns,
+            recovery_required: after.recovery_required,
+            wal_over_budget: before.wal_over_budget || after.wal_over_budget,
             last_error: after.last_error.or(before.last_error),
         }
     }
