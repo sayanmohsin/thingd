@@ -27,8 +27,12 @@ use std::fs::{self, File, OpenOptions};
 use std::io::{self, ErrorKind, Read, Seek, SeekFrom, Write};
 use std::ops::{Bound, RangeBounds};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
-use std::time::Instant;
+use std::sync::{
+    Arc, Mutex, Weak,
+    mpsc::{self, RecvTimeoutError, SyncSender},
+};
+use std::thread;
+use std::time::{Duration, Instant};
 
 use crc32fast::Hasher;
 use serde::{Deserialize, Serialize};
@@ -51,20 +55,21 @@ fn set_fault_point(point: Option<&'static str>) {
 }
 
 #[cfg(test)]
-fn maybe_fail(point: &'static str) -> Result<()> {
-    FAULT_POINT.with(|fault| {
-        if fault.borrow().as_ref() == Some(&point) {
-            Err(Error::message(format!("injected ThingDB fault: {point}")))
-        } else {
-            Ok(())
-        }
-    })
+fn current_fault_point() -> Option<&'static str> {
+    FAULT_POINT.with(|fault| *fault.borrow())
 }
 
 #[cfg(not(test))]
-#[allow(clippy::unnecessary_wraps)]
-fn maybe_fail(_point: &'static str) -> Result<()> {
-    Ok(())
+fn current_fault_point() -> Option<&'static str> {
+    None
+}
+
+fn maybe_fail(point: &'static str, fault_point: Option<&'static str>) -> Result<()> {
+    if fault_point == Some(point) {
+        Err(Error::message(format!("injected ThingDB fault: {point}")))
+    } else {
+        Ok(())
+    }
 }
 
 /// Result type returned by ThingDB.
@@ -128,6 +133,20 @@ pub struct WalDiagnostics {
     pub state_apply_duration_ns: u64,
     /// Nanoseconds spent holding the database lock for commits.
     pub lock_duration_ns: u64,
+    /// Number of logical commit requests processed.
+    pub logical_commit_count: u64,
+    /// Number of physical WAL sync calls.
+    pub physical_sync_count: u64,
+    /// Total number of requests included in commit groups.
+    pub total_group_size: u64,
+    /// Largest commit group observed.
+    pub max_group_size: u64,
+    /// Nanoseconds spent waiting in the commit queue.
+    pub queue_wait_duration_ns: u64,
+    /// Whether the database requires reopen and recovery before writing.
+    pub recovery_required: bool,
+    /// Whether the WAL is above the configured soft budget.
+    pub wal_over_budget: bool,
     /// Last WAL error observed after the database opened, if any.
     pub last_error: Option<String>,
 }
@@ -152,6 +171,7 @@ pub struct DatabaseBuilder {
 #[derive(Clone)]
 pub struct Database {
     inner: Arc<Mutex<Inner>>,
+    writer: Arc<WriterCoordinator>,
 }
 
 struct Inner {
@@ -163,6 +183,7 @@ struct Inner {
     table_sequence: u64,
     max_journaling_size: u64,
     diagnostics: WalDiagnostics,
+    recovery_required: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -189,6 +210,264 @@ pub struct Batch {
 enum Operation {
     Put { key: Vec<u8>, value: Vec<u8> },
     Delete { key: Vec<u8> },
+}
+
+struct CommitRequest {
+    operations: Vec<Operation>,
+    submitted_at: Instant,
+    fault_point: Option<&'static str>,
+    response: mpsc::Sender<Result<()>>,
+}
+
+struct WriterCoordinator {
+    sender: SyncSender<CommitRequest>,
+}
+
+const WRITER_QUEUE_CAPACITY: usize = 1024;
+const GROUP_COMMIT_WINDOW: Duration = Duration::from_millis(1);
+const MAX_GROUP_OPERATIONS: usize = 4_096;
+const MAX_GROUP_BYTES: usize = 4 * 1024 * 1024;
+
+impl WriterCoordinator {
+    fn new(inner: Weak<Mutex<Inner>>) -> Result<Arc<Self>> {
+        let (sender, receiver) = mpsc::sync_channel(WRITER_QUEUE_CAPACITY);
+        thread::Builder::new()
+            .name("thingdb-writer".to_string())
+            .spawn(move || writer_loop(inner, receiver))
+            .map_err(Error::from)?;
+        Ok(Arc::new(Self { sender }))
+    }
+}
+
+fn writer_loop(inner: Weak<Mutex<Inner>>, receiver: mpsc::Receiver<CommitRequest>) {
+    let mut pending = None;
+    loop {
+        let Some(first) = pending.take().or_else(|| receiver.recv().ok()) else {
+            return;
+        };
+        let mut group = vec![first];
+        let mut operation_count = group[0].operations.len();
+        let mut operation_bytes = operations_bytes(&group[0].operations);
+        let deadline = Instant::now() + GROUP_COMMIT_WINDOW;
+
+        loop {
+            if operation_count >= MAX_GROUP_OPERATIONS || operation_bytes >= MAX_GROUP_BYTES {
+                break;
+            }
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                break;
+            }
+            match receiver.recv_timeout(remaining) {
+                Ok(request) => {
+                    let request_operations = request.operations.len();
+                    let request_bytes = operations_bytes(&request.operations);
+                    if !group.is_empty()
+                        && (operation_count + request_operations > MAX_GROUP_OPERATIONS
+                            || operation_bytes + request_bytes > MAX_GROUP_BYTES)
+                    {
+                        pending = Some(request);
+                        break;
+                    }
+                    operation_count += request_operations;
+                    operation_bytes += request_bytes;
+                    group.push(request);
+                },
+                Err(RecvTimeoutError::Timeout | RecvTimeoutError::Disconnected) => break,
+            }
+        }
+
+        process_group(&inner, group);
+    }
+}
+
+fn operations_bytes(operations: &[Operation]) -> usize {
+    operations
+        .iter()
+        .map(|operation| match operation {
+            Operation::Put { key, value } => key.len().saturating_add(value.len()),
+            Operation::Delete { key } => key.len(),
+        })
+        .sum()
+}
+
+fn request_has_fault(requests: &[CommitRequest], point: &'static str) -> Option<&'static str> {
+    requests
+        .iter()
+        .find_map(|request| (request.fault_point == Some(point)).then_some(point))
+}
+
+fn process_group(inner: &Weak<Mutex<Inner>>, mut requests: Vec<CommitRequest>) {
+    let Some(inner_arc) = inner.upgrade() else {
+        for request in requests {
+            let _ = request
+                .response
+                .send(Err(Error::message("ThingDB writer is unavailable")));
+        }
+        return;
+    };
+    let lock_started = Instant::now();
+    let Ok(mut inner) = inner_arc.lock() else {
+        drop(inner_arc);
+        for request in requests {
+            let _ = request
+                .response
+                .send(Err(Error::message("database lock poisoned")));
+        }
+        return;
+    };
+
+    let group_size = requests.len() as u64;
+    inner.diagnostics.logical_commit_count = inner
+        .diagnostics
+        .logical_commit_count
+        .saturating_add(group_size);
+    inner.diagnostics.total_group_size = inner
+        .diagnostics
+        .total_group_size
+        .saturating_add(group_size);
+    inner.diagnostics.max_group_size = inner.diagnostics.max_group_size.max(group_size);
+    for request in &requests {
+        inner.diagnostics.queue_wait_duration_ns = inner
+            .diagnostics
+            .queue_wait_duration_ns
+            .saturating_add(elapsed_nanos(request.submitted_at.elapsed()));
+    }
+
+    if inner.recovery_required {
+        let message = "ThingDB requires reopen and recovery before writing";
+        inner.diagnostics.last_error = Some(message.to_string());
+        inner.diagnostics.lock_duration_ns = inner
+            .diagnostics
+            .lock_duration_ns
+            .saturating_add(elapsed_nanos(lock_started.elapsed()));
+        drop(inner);
+        drop(inner_arc);
+        finish_group_with_error(&mut requests, message);
+        return;
+    }
+
+    let wal_start = match inner.wal.metadata() {
+        Ok(metadata) => metadata.len(),
+        Err(error) => {
+            drop(inner);
+            drop(inner_arc);
+            finish_group_with_error(&mut requests, &error.to_string());
+            return;
+        },
+    };
+    let (result, synced) = execute_group(&mut inner, &mut requests, wal_start, group_size);
+
+    if let Err(error) = &result {
+        inner.diagnostics.last_error = Some(error.to_string());
+        if synced {
+            inner.recovery_required = true;
+            inner.diagnostics.recovery_required = true;
+        }
+    }
+    if let Ok(bytes) = inner.wal.metadata().map(|metadata| metadata.len()) {
+        inner.diagnostics.journal_bytes = bytes;
+        inner.diagnostics.wal_over_budget = bytes > inner.max_journaling_size;
+    }
+    inner.diagnostics.lock_duration_ns = inner
+        .diagnostics
+        .lock_duration_ns
+        .saturating_add(elapsed_nanos(lock_started.elapsed()));
+    drop(inner);
+    drop(inner_arc);
+
+    match result {
+        Ok(()) => {
+            for request in requests {
+                let _ = request.response.send(Ok(()));
+            }
+        },
+        Err(error) => finish_group_with_error(&mut requests, &error.to_string()),
+    }
+}
+
+fn execute_group(
+    inner: &mut Inner,
+    requests: &mut [CommitRequest],
+    wal_start: u64,
+    group_size: u64,
+) -> (Result<()>, bool) {
+    let mut next_sequence = inner.sequence.saturating_add(1);
+    let mut frames = Vec::with_capacity(requests.len());
+    let mut synced = false;
+    let result: Result<()> = (|| {
+        for request in requests.iter() {
+            let started = Instant::now();
+            let frame = encode_frame(next_sequence, &request.operations)?;
+            inner.diagnostics.encode_duration_ns = inner
+                .diagnostics
+                .encode_duration_ns
+                .saturating_add(elapsed_nanos(started.elapsed()));
+            frames.push(frame);
+            next_sequence = next_sequence.saturating_add(1);
+        }
+
+        if let Some(point) = request_has_fault(requests, "before-wal-append") {
+            maybe_fail(point, Some(point))?;
+        }
+        let started = Instant::now();
+        for frame in &frames {
+            inner.wal.write_all(frame)?;
+        }
+        inner.diagnostics.append_duration_ns = inner
+            .diagnostics
+            .append_duration_ns
+            .saturating_add(elapsed_nanos(started.elapsed()));
+
+        if let Some(point) = request_has_fault(requests, "after-wal-write-before-sync") {
+            maybe_fail(point, Some(point))?;
+        }
+        let started = Instant::now();
+        inner.diagnostics.physical_sync_count =
+            inner.diagnostics.physical_sync_count.saturating_add(1);
+        inner.wal.sync_data()?;
+        synced = true;
+        inner.diagnostics.sync_duration_ns = inner
+            .diagnostics
+            .sync_duration_ns
+            .saturating_add(elapsed_nanos(started.elapsed()));
+
+        if let Some(point) = request_has_fault(requests, "after-wal-sync-before-state-apply") {
+            maybe_fail(point, Some(point))?;
+        }
+        let started = Instant::now();
+        for request in requests {
+            for operation in std::mem::take(&mut request.operations) {
+                match operation {
+                    Operation::Put { key, value } => {
+                        inner.state.insert(key, value);
+                    },
+                    Operation::Delete { key } => {
+                        inner.state.remove(&key);
+                    },
+                }
+            }
+        }
+        inner.diagnostics.state_apply_duration_ns = inner
+            .diagnostics
+            .state_apply_duration_ns
+            .saturating_add(elapsed_nanos(started.elapsed()));
+        inner.sequence = next_sequence.saturating_sub(1);
+        inner.diagnostics.frame_count = inner.diagnostics.frame_count.saturating_add(group_size);
+        Ok(())
+    })();
+
+    if result.is_err() && !synced && inner.wal.set_len(wal_start).is_ok() {
+        let _ = inner.wal.seek(SeekFrom::End(0));
+        inner.diagnostics.journal_bytes = wal_start;
+    }
+    (result, synced)
+}
+
+fn finish_group_with_error(requests: &mut [CommitRequest], message: &str) {
+    for request in requests.iter_mut() {
+        let _ = request.response.send(Err(Error::message(message)));
+    }
 }
 
 /// An owned key/value returned by an iterator.
@@ -299,6 +578,11 @@ impl Database {
             .inner
             .lock()
             .map_err(|_| Error::message("database lock poisoned"))?;
+        if inner.recovery_required {
+            return Err(Error::message(
+                "ThingDB requires reopen and recovery before writing",
+            ));
+        }
         inner.wal.sync_data()?;
         let next_sequence = inner.sequence;
         let table_name = format!("table-{next_sequence:020}.tdb");
@@ -407,24 +691,25 @@ impl DatabaseBuilder {
                 true,
             )?;
         }
-        Ok(Database {
-            inner: Arc::new(Mutex::new(Inner {
-                path: self.path,
-                wal,
-                lock,
-                state,
-                sequence,
-                table_sequence,
-                max_journaling_size: self.max_journaling_size,
-                diagnostics: WalDiagnostics {
-                    journal_bytes,
-                    frame_count,
-                    recovery_bytes: valid_offset,
-                    recovery_duration_ns,
-                    ..WalDiagnostics::default()
-                },
-            })),
-        })
+        let inner = Arc::new(Mutex::new(Inner {
+            path: self.path,
+            wal,
+            lock,
+            state,
+            sequence,
+            table_sequence,
+            max_journaling_size: self.max_journaling_size,
+            diagnostics: WalDiagnostics {
+                journal_bytes,
+                frame_count,
+                recovery_bytes: valid_offset,
+                recovery_duration_ns,
+                ..WalDiagnostics::default()
+            },
+            recovery_required: false,
+        }));
+        let writer = WriterCoordinator::new(Arc::downgrade(&inner))?;
+        Ok(Database { inner, writer })
     }
 }
 
@@ -598,76 +883,21 @@ impl Batch {
         if self.operations.is_empty() {
             return Ok(());
         }
-        let lock_started = Instant::now();
-        let mut inner = self
-            .db
-            .inner
-            .lock()
-            .map_err(|_| Error::message("database lock poisoned"))?;
-        let wal_start = inner.wal.metadata()?.len();
-        let sequence = inner.sequence.saturating_add(1);
-        let result: Result<()> = (|| {
-            let started = Instant::now();
-            let frame = encode_frame(sequence, &self.operations)?;
-            inner.diagnostics.encode_duration_ns = inner
-                .diagnostics
-                .encode_duration_ns
-                .saturating_add(elapsed_nanos(started.elapsed()));
-
-            maybe_fail("before-wal-append")?;
-            let started = Instant::now();
-            inner.wal.write_all(&frame)?;
-            inner.diagnostics.append_duration_ns = inner
-                .diagnostics
-                .append_duration_ns
-                .saturating_add(elapsed_nanos(started.elapsed()));
-
-            maybe_fail("after-wal-write-before-sync")?;
-            let started = Instant::now();
-            inner.wal.sync_data()?;
-            inner.diagnostics.sync_duration_ns = inner
-                .diagnostics
-                .sync_duration_ns
-                .saturating_add(elapsed_nanos(started.elapsed()));
-
-            maybe_fail("after-wal-sync-before-state-apply")?;
-            let started = Instant::now();
-            for operation in self.operations {
-                match operation {
-                    Operation::Put { key, value } => {
-                        inner.state.insert(key, value);
-                    },
-                    Operation::Delete { key } => {
-                        inner.state.remove(&key);
-                    },
-                }
-            }
-            inner.diagnostics.state_apply_duration_ns = inner
-                .diagnostics
-                .state_apply_duration_ns
-                .saturating_add(elapsed_nanos(started.elapsed()));
-            inner.sequence = sequence;
-            inner.diagnostics.frame_count = inner.diagnostics.frame_count.saturating_add(1);
-            if inner.wal.metadata()?.len() > inner.max_journaling_size {
-                // The next explicit persist/compact performs the bounded table
-                // rewrite. Do not compact synchronously on the write path.
-            }
-            Ok(())
-        })();
-        if result.is_err() && inner.sequence < sequence {
-            if inner.wal.set_len(wal_start).is_ok() {
-                let _ = inner.wal.seek(SeekFrom::End(0));
-            }
-            inner.diagnostics.journal_bytes = wal_start;
-        }
-        inner.diagnostics.lock_duration_ns = inner
-            .diagnostics
-            .lock_duration_ns
-            .saturating_add(elapsed_nanos(lock_started.elapsed()));
-        if let Err(error) = &result {
-            inner.diagnostics.last_error = Some(error.to_string());
-        }
+        let (response, result) = mpsc::channel();
+        let request = CommitRequest {
+            operations: self.operations,
+            submitted_at: Instant::now(),
+            fault_point: current_fault_point(),
+            response,
+        };
+        self.db
+            .writer
+            .sender
+            .send(request)
+            .map_err(|_| Error::message("ThingDB writer is unavailable"))?;
         result
+            .recv()
+            .map_err(|_| Error::message("ThingDB writer stopped unexpectedly"))?
     }
 }
 
@@ -1076,6 +1306,19 @@ mod tests {
                 .commit();
             set_fault_point(None);
             assert!(result.is_err(), "fault point {point} did not fail");
+            if point == "after-wal-sync-before-state-apply" {
+                let rejected = db.batch().put(&objects, b"rejected", b"write").commit();
+                assert!(rejected.is_err());
+                drop(objects);
+                drop(db);
+                let db = Database::open(directory.path()).unwrap();
+                let objects = db
+                    .keyspace("objects", KeyspaceCreateOptions::default)
+                    .unwrap();
+                assert_eq!(objects.get(b"a").unwrap(), Some(b"one".to_vec()));
+                assert_eq!(objects.get(b"b").unwrap(), Some(b"two".to_vec()));
+                continue;
+            }
             db.batch()
                 .put(&objects, b"a", b"one")
                 .put(&objects, b"b", b"two")
@@ -1176,6 +1419,9 @@ mod tests {
         objects.insert(b"a", b"one").unwrap();
         let diagnostics = db.wal_diagnostics().unwrap();
         assert_eq!(diagnostics.frame_count, 1);
+        assert_eq!(diagnostics.logical_commit_count, 1);
+        assert_eq!(diagnostics.physical_sync_count, 1);
+        assert_eq!(diagnostics.max_group_size, 1);
         assert!(diagnostics.journal_bytes > 0);
         assert!(diagnostics.sync_duration_ns > 0);
         drop(objects);
@@ -1185,6 +1431,44 @@ mod tests {
         let diagnostics = db.wal_diagnostics().unwrap();
         assert!(diagnostics.recovery_bytes > 0);
         assert!(diagnostics.recovery_duration_ns > 0);
+    }
+
+    #[test]
+    fn concurrent_writes_share_physical_syncs() {
+        let directory = tempfile::tempdir().unwrap();
+        let db = Database::open(directory.path()).unwrap();
+        let objects = db
+            .keyspace("objects", KeyspaceCreateOptions::default)
+            .unwrap();
+        let writers = 32;
+        let barrier = Arc::new(std::sync::Barrier::new(writers));
+        let handles: Vec<_> = (0..writers)
+            .map(|index| {
+                let objects = objects.clone();
+                let barrier = Arc::clone(&barrier);
+                std::thread::spawn(move || {
+                    barrier.wait();
+                    objects
+                        .insert(format!("key-{index}").as_bytes(), b"value")
+                        .unwrap();
+                })
+            })
+            .collect();
+        for handle in handles {
+            handle.join().unwrap();
+        }
+
+        let diagnostics = db.wal_diagnostics().unwrap();
+        assert_eq!(diagnostics.logical_commit_count, writers as u64);
+        assert_eq!(diagnostics.frame_count, writers as u64);
+        assert!(diagnostics.physical_sync_count < diagnostics.logical_commit_count);
+        assert!(diagnostics.max_group_size > 1);
+        for index in 0..writers {
+            assert_eq!(
+                objects.get(format!("key-{index}").as_bytes()).unwrap(),
+                Some(b"value".to_vec())
+            );
+        }
     }
 
     #[test]
