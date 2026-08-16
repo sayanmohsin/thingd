@@ -53,8 +53,8 @@ The persistent engine uses embedded storage behind the backend-neutral
 remains the default; it is not a separate runtime service. ThingDB can be
 selected with `THINGD_STORAGE_BACKEND=thingdb`, but it has a separate format and
 must be created fresh or populated through logical repack. It does not open
-RocksDB files directly. Legacy native directories must be logically migrated
-before they can be opened by the current runtime.
+RocksDB files directly. Legacy native directories are not opened by the current
+runtime and require recovery through an archived release or a logical export.
 
 The persistent engine stores objects, events, queues, links, search data, and vectors
 under one configured storage directory. The layout is an implementation detail and

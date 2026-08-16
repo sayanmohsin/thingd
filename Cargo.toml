@@ -5,7 +5,6 @@ members = [
     "crates/thingd-schema",
     "crates/thingd-server",
     "packages/thingd-native",
-    "crates/thingd-migrate",
 ]
 resolver = "2"
 

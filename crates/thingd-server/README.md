@@ -127,9 +127,9 @@ native-format conversion and never overwrites the source or destination. The
 destination backend follows `THINGD_STORAGE_BACKEND` (RocksDB by default); use
 `--source-backend thingdb` when the source is a ThingDB directory.
 
-Legacy native directories require the isolated migration utility described in
-[the storage backend guide](../../docs/storage-backends.md), including its
-encrypted migration and safety requirements.
+Current releases do not open legacy native directories. Recover those stores
+with the archived compatibility release that created them or from a logical
+export before switching to the current runtime.
 
 For hosts with less than 2 GB RAM, prefer a separate standalone server over
 HTTP rather than embedding the native store in the application process.

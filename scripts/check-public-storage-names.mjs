@@ -7,17 +7,11 @@ const allowedFiles = new Set([
   "crates/thingd/Cargo.toml",
   "crates/thingd/src/error.rs",
   "crates/thingd/src/persistent.rs",
-  // The isolated migration tool and its operator guide must name the legacy
-  // format explicitly; production runtime and general docs stay neutral.
-  "crates/thingd-migrate/Cargo.toml",
-  "crates/thingd-migrate/src/main.rs",
   ".github/workflows/ci.yml",
-  "docs/agent-implementation-guide.md",
-  "docs/storage-backends.md",
 ]);
 const scannedRoots = ["AGENTS.md", "README.md", "docs", "crates", "packages", ".github", "package.json"];
 const textExtensions = new Set([".md", ".json", ".js", ".mjs", ".ts", ".rs", ".toml", ".yaml", ".yml"]);
-const forbidden = /\bFjallEngine\b|\bFjall\b|\bfjall\b|feature\s*=\s*["']fjall["']/g;
+const forbidden = /\bFjallEngine\b|\bFjall\b|\bfjall\b|thingd-migrate|fjall-to-rocksdb|feature\s*=\s*["']fjall["']/g;
 const stalePublicClaims = [
   "The current native format is embedded RocksDB",
   "ThingDB is the default",

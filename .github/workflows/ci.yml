@@ -72,9 +72,9 @@ jobs:
           cache-all-crates: true
           save-if: ${{ runner.os == 'Linux' }}
       - run: cargo fmt --all --check
-      - run: cargo clippy --workspace --exclude thingd-migrate --all-targets --all-features -- -D warnings
-      - run: cargo test --workspace --exclude thingd-migrate --all-targets --all-features
-      - run: cargo test --doc --workspace --exclude thingd-migrate --all-features
+      - run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+      - run: cargo test --workspace --all-targets --all-features
+      - run: cargo test --doc --workspace --all-features
       - name: Verify ThingDB backend contract and format tests
         run: |
           cargo test -p thingdb --all-targets
@@ -85,39 +85,16 @@ jobs:
         run: |
           cargo build -p thingd-server
           bash scripts/test-thingdb-backend.sh ./target/debug/thingd-server
-      - name: Verify migration utility is outside runtime dependency graphs
+      - name: Verify Fjall is absent from the workspace dependency graph
         run: |
-          if cargo tree -p thingd-server --all-features | grep -q '^.*fjall'; then
-            echo 'thingd-server unexpectedly depends on Fjall'
-            exit 1
-          fi
-          if cargo tree -p thingd-native --all-features | grep -q '^.*fjall'; then
-            echo 'thingd-native unexpectedly depends on Fjall'
+          if cargo tree --workspace | grep -qi 'fjall'; then
+            echo 'Fjall unexpectedly remains in the workspace dependency graph'
             exit 1
           fi
       - name: Tenant isolation test
         run: |
           cargo build -p thingd-server
           bash scripts/test-tenant-isolation.sh ./target/debug/thingd-server
-
-  # ── Legacy migration: Fjall + RocksDB round-trip ──────
-  migration:
-    name: Migration (fmt, clippy, test)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-      - uses: dtolnay/rust-toolchain@stable
-      - name: Install RocksDB bindgen dependencies
-        run: sudo apt-get update && sudo apt-get install -y clang libclang-dev
-      - uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: rust-migration-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/Cargo.lock') }}
-          cache-all-crates: true
-          save-if: ${{ runner.os == 'Linux' }}
-      # Fjall is intentionally compiled only by this offline migration utility.
-      - run: cargo fmt --all --check
-      - run: cargo clippy -p thingd-migrate --all-targets --all-features -- -D warnings
-      - run: cargo test -p thingd-migrate --all-targets --all-features
 
   # ── Node tests (linux) — no `needs: [rust]` ──────────
   node:
