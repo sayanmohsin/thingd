@@ -1,10 +1,10 @@
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 
 const trackedFiles = execFileSync("git", ["ls-files"], { encoding: "utf8" })
   .trim()
   .split("\n")
-  .filter(Boolean);
+  .filter((file) => Boolean(file) && existsSync(file));
 
 const forbiddenPaths = [
   /^docs\/(roadmap|handoff|sidecar-cluster)\.md$/,

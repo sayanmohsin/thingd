@@ -20,9 +20,6 @@ pnpm rust:build:server
 # Native addon only
 pnpm rust:build:native
 
-# Offline migration utility only
-pnpm rust:build:migration
-
 # Inspect compiler timing for a server build
 pnpm rust:build:timings
 ```
@@ -56,10 +53,10 @@ Zig and `cargo-zigbuild` for the static musl targets.
 
 ## CI and release builds
 
-Pull requests keep the Rust runtime, migration, and Node/native checks as
-separate correctness gates. Their caches are keyed independently by job,
-platform, architecture, and lockfile so concurrent jobs do not overwrite one
-another's target cache.
+Pull requests keep the Rust runtime and Node/native checks as separate
+correctness gates. Their caches are keyed independently by job, platform,
+architecture, and lockfile so concurrent jobs do not overwrite one another's
+target cache.
 
 The release workflow builds the static Docker server for `linux/amd64` and
 `linux/arm64` in parallel, uploads the two binaries, and then assembles the

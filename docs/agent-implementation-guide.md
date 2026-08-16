@@ -321,13 +321,10 @@ pnpm rust:check
 pnpm rust:fmt:check
 pnpm rust:clippy
 pnpm test:rust
-pnpm rust:migration:check
 ```
 
-Routine Rust checks run with all features enabled but exclude `thingd-migrate`,
-so production crates do not compile the legacy Fjall dependency. The isolated
-`pnpm rust:migration:check` command keeps the offline Fjall-to-RocksDB utility
-covered. Use `pnpm test:rust:full` when comprehensive workspace tests are needed.
+Routine Rust checks run with all workspace members and features enabled. Use
+`pnpm test:rust:full` when comprehensive workspace tests are needed.
 
 `pnpm verify:local` intentionally omits Rust compilation and test suites so the
 pre-push loop remains fast. `pnpm verify:pr` is the complete local equivalent

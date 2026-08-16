@@ -32,7 +32,7 @@
 
 ### Features
 
-* replace Fjall with embedded RocksDB ([#149](https://github.com/sayanmohsin/thingd/issues/149)) ([bb73e60](https://github.com/sayanmohsin/thingd/commit/bb73e6023c826b43fb4b35071198773648716915))
+* replace the legacy LSM backend with embedded RocksDB ([#149](https://github.com/sayanmohsin/thingd/issues/149)) ([bb73e60](https://github.com/sayanmohsin/thingd/commit/bb73e6023c826b43fb4b35071198773648716915))
 
 ## [0.82.1](https://github.com/sayanmohsin/thingd/compare/thingd-v0.82.0...thingd-v0.82.1) (2026-08-14)
 
@@ -177,7 +177,7 @@
 * add collection bar chart and capacity gauge to TUI metrics view ([23f0f4e](https://github.com/sayanmohsin/thingd/commit/23f0f4e1b454ef9df3a8c2b4782577ca28155546))
 * add event payload, queue job payload, and dead job retry to TUI ([6abb057](https://github.com/sayanmohsin/thingd/commit/6abb05763f259dd3f13e57fbfc417c2be9dc3331))
 * add export, import, and dashboard launch to TUI ([62420df](https://github.com/sayanmohsin/thingd/commit/62420df24e02794bbc68acc3d1c5aef97ef84c59))
-* add fjall.rs unit tests (38), close() support, Tantivy deletion fix ([5a35cb8](https://github.com/sayanmohsin/thingd/commit/5a35cb8f47fd68dd7d7572e837f0e94f31c678c6))
+* add durable storage unit tests (38), close() support, Tantivy deletion fix ([5a35cb8](https://github.com/sayanmohsin/thingd/commit/5a35cb8f47fd68dd7d7572e837f0e94f31c678c6))
 * add functional indexes for json_extract filter queries ([a4673a8](https://github.com/sayanmohsin/thingd/commit/a4673a8aa6c77f5b8e03b48b7a08ea881fc77555)), closes [#53](https://github.com/sayanmohsin/thingd/issues/53)
 * add hosted app backend contract and client ([#70](https://github.com/sayanmohsin/thingd/issues/70)) ([5d5e307](https://github.com/sayanmohsin/thingd/commit/5d5e30755d16fec388dad316cb935cf7ff101cc8))
 * add index on objects.updated_at for sort-by-recency queries ([222da8f](https://github.com/sayanmohsin/thingd/commit/222da8fe42c4a02946ce75d5914cd642beb7fba0)), closes [#55](https://github.com/sayanmohsin/thingd/issues/55)
@@ -214,7 +214,7 @@
 * **engine:** add POST /admin/clear-default-db + EnginePool.clear_default_engine() ([ea56f85](https://github.com/sayanmohsin/thingd/commit/ea56f859f3600b77b32112f6677b28ca44a1aae6))
 * **engine:** add vector field, VectorStore trait, and cosine-similarity search ([71e1e9d](https://github.com/sayanmohsin/thingd/commit/71e1e9d529e356689c09889f53479c5bbeab9681)), closes [#60](https://github.com/sayanmohsin/thingd/issues/60)
 * expose connector table discovery ([0dc9ab6](https://github.com/sayanmohsin/thingd/commit/0dc9ab620f23e514c4d7d20a20caea6294e966e2))
-* harden Fjall engine against restart, index, and consistency failures ([da6f84e](https://github.com/sayanmohsin/thingd/commit/da6f84e42aa4a2b8a5b191da9abcd53982416539))
+* harden the durable engine against restart, index, and consistency failures ([da6f84e](https://github.com/sayanmohsin/thingd/commit/da6f84e42aa4a2b8a5b191da9abcd53982416539))
 * implement all remaining improvements ([29a064f](https://github.com/sayanmohsin/thingd/commit/29a064f721899c905c82b5aff29c7a7ab0d93e4f))
 * make listObjectsJson async to avoid blocking event loop ([f997ac0](https://github.com/sayanmohsin/thingd/commit/f997ac0839f272816ef0e5f3d585d91596336247)), closes [#54](https://github.com/sayanmohsin/thingd/issues/54)
 * make spec-driven workflow discoverable ([0494bc0](https://github.com/sayanmohsin/thingd/commit/0494bc0916634bbf5371d4058b7988bdc614c40d))
@@ -227,7 +227,7 @@
 * **sidecar:** implement all 27 MCP tools (was 5 stubs) ([e6f45e9](https://github.com/sayanmohsin/thingd/commit/e6f45e97fc32811f39a29e3cb3729dffbc783718))
 * **skill:** add audit-after-change skill — doc cross-ref, thingd-cloud sync, test gap check ([0958e12](https://github.com/sayanmohsin/thingd/commit/0958e12818a1e3f6bbd1fcb9fae02df0907677ee))
 * startup integrity check via PRAGMA quick_check ([fc451f3](https://github.com/sayanmohsin/thingd/commit/fc451f356cdadd046b6424dc5a11e3c357b7cce2))
-* **storage:** replace SQLite with Fjall LSM-tree and Tantivy search ([c27722e](https://github.com/sayanmohsin/thingd/commit/c27722e865c2291d47c900f032eb8a2ab375f8ae))
+* **storage:** replace SQLite with an embedded LSM-tree and Tantivy search ([c27722e](https://github.com/sayanmohsin/thingd/commit/c27722e865c2291d47c900f032eb8a2ab375f8ae))
 * support comparison operators in listObjects filters ([1b00ad3](https://github.com/sayanmohsin/thingd/commit/1b00ad36a891c2b85b3923384192ac1eef4fd06d)), closes [#56](https://github.com/sayanmohsin/thingd/issues/56)
 * support sorting by JSON body fields in listObjects ([853ae35](https://github.com/sayanmohsin/thingd/commit/853ae35fedc335bd2c9dcb759c27cd1274e412bb)), closes [#58](https://github.com/sayanmohsin/thingd/issues/58)
 * **tenant:** wire TenantConfig into MCP handler for per-instance DB isolation ([e50696f](https://github.com/sayanmohsin/thingd/commit/e50696f066062ac08a76ff15af3701bf8b17c298))
@@ -376,8 +376,8 @@
 * **sidecar:** loud fallback on SQLite failure + track has_fallback status ([d16419e](https://github.com/sayanmohsin/thingd/commit/d16419e366e965c537d99fafe776a697a36ef285))
 * **sidecar:** rate limiter hardening and cluster status from real config ([1f9ba9c](https://github.com/sayanmohsin/thingd/commit/1f9ba9c9648d50e46cd415193ab6926e849fc0e9))
 * **sidecar:** wire request_timeout_secs into tower timeout middleware ([96c6a9a](https://github.com/sayanmohsin/thingd/commit/96c6a9a84e6ce9be6c4cb4882a4d4372601b3e43))
-* skip broken CLI tests, fix rmSync for Fjall directories ([29d7a4f](https://github.com/sayanmohsin/thingd/commit/29d7a4feb1161291b9d4d9dd51df34c2fcbaf481))
-* skip native reopen test (Fjall single-process), fix clippy ([423e71a](https://github.com/sayanmohsin/thingd/commit/423e71a361e0109744137e645454c318df4db5a0))
+* skip broken CLI tests, fix rmSync for native storage directories ([29d7a4f](https://github.com/sayanmohsin/thingd/commit/29d7a4feb1161291b9d4d9dd51df34c2fcbaf481))
+* skip native reopen test (single-process storage limitation), fix clippy ([423e71a](https://github.com/sayanmohsin/thingd/commit/423e71a361e0109744137e645454c318df4db5a0))
 * skip pnpm test:package on Windows (spawn cmd.exe not available) ([83faf17](https://github.com/sayanmohsin/thingd/commit/83faf17a459c7bd4e931748540e8ab79988ab0e1))
 * skip pre-push hooks during semantic-release git push ([54d1b05](https://github.com/sayanmohsin/thingd/commit/54d1b055956856787120afc80e46a8026eff43ad))
 * slow TUI poll interval from 2s to 10s ([8937108](https://github.com/sayanmohsin/thingd/commit/8937108c1316a6f05101e8c733316b940d24fb96))
