@@ -575,7 +575,7 @@ fn validate_existing_directory(path: &Path) -> ThingdResult<Option<StorageValida
             })
     {
         return Err(ThingdError::UnsupportedStorageFormat(
-            "legacy Fjall storage requires explicit migration with thingd-migrate".to_string(),
+            "legacy storage format is not supported by this runtime; restore it with the archived compatibility release or import a logical export".to_string(),
         ));
     }
 
@@ -4679,7 +4679,7 @@ mod tests {
     }
 
     #[test]
-    fn validation_rejects_legacy_fjall_directory_for_rocksdb_runtime() {
+    fn validation_rejects_legacy_storage_directory_for_rocksdb_runtime() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir(dir.path().join(STORAGE_KEYSPACES_DIR)).unwrap();
         std::fs::write(dir.path().join(STORAGE_LOCK_FILE), []).unwrap();
@@ -4688,7 +4688,7 @@ mod tests {
         assert!(matches!(
             result,
             Err(ThingdError::UnsupportedStorageFormat(message))
-                if message.contains("legacy Fjall")
+                if message.contains("legacy storage format")
         ));
     }
 

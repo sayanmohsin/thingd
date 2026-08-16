@@ -531,9 +531,9 @@ sidecar over HTTP REST.
 Native and standalone runtimes embed RocksDB directly by default; the
 experimental Rust-native ThingDB backend can be selected with
 `THINGD_STORAGE_BACKEND=thingdb`. No database service or
-database container is required. Memory mode remains process-local. Legacy
-native directories require the explicit offline migration described in
-[Storage backends](./docs/storage-backends.md).
+database container is required. Memory mode remains process-local. Current
+releases do not open or automatically convert legacy native directories; see
+[Storage backends](./docs/storage-backends.md) for the supported format rules.
 
 See [docs/mcp-server.md](./docs/mcp-server.md#bridge-mode) for the bridge
 environment, [docs/runtime-env.md](./docs/runtime-env.md) for all env vars, and
