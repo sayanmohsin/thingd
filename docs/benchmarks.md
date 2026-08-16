@@ -11,6 +11,7 @@ does not benchmark REST, MCP, or sidecar throughput.
 ```bash
 pnpm bench:rust
 pnpm bench:rust:smoke
+pnpm bench:rust:wal
 pnpm bench:rust:structured
 ```
 
@@ -18,6 +19,12 @@ The default is 5,000 iterations. Override it with either
 `THINGD_BENCH_ITERS=20000 pnpm bench:rust` or by passing the count directly to
 the Rust example. The smoke command uses 10 deterministic iterations and is
 intended only to verify that the benchmark remains buildable and runnable.
+
+`pnpm bench:rust:wal` runs the Phase 1A WAL comparison with 1,000 iterations,
+five repetitions, seed `42`, and both durable backends. It writes the structured
+comparison to `target/wal-hardening-comparison.json` and appends each repetition
+to `target/wal-hardening-history.jsonl`. These files are generated locally and
+must not be committed.
 
 For a reproducible RocksDB-vs-ThingDB run with structured output:
 

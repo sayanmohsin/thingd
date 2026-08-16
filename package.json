@@ -11,6 +11,7 @@
     "bench:node": "pnpm build && node packages/thingd/bench/node-bench.mjs",
     "bench:rust": "cargo run --release -p thingd --example storage_bench --features persistent,search",
     "bench:rust:smoke": "cargo run --release -p thingd --example storage_bench --features persistent,search -- --iterations 10 --seed 42 --backend all",
+    "bench:rust:wal": "cargo run --release -p thingd --example storage_bench --features persistent,search -- --iterations 1000 --repetitions 5 --seed 42 --backend all --phase wal-hardening --output target/wal-hardening-comparison.json --history target/wal-hardening-history.jsonl",
     "bench:rust:structured": "cargo run --release -p thingd --example storage_bench --features persistent,search -- --backend all --output target/storage-benchmark.json",
     "check": "biome check .",
     "check:docs": "node scripts/check-docs.mjs && node scripts/check-public-storage-names.mjs && node scripts/check-public-doc-boundary.mjs",
