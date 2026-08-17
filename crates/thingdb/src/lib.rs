@@ -39,6 +39,7 @@ use serde::{Deserialize, Serialize};
 
 const WAL_MAGIC: &[u8; 8] = b"TDBWAL01";
 const TABLE_MAGIC: &[u8; 8] = b"TDBTAB01";
+const TABLE_MAGIC_V2: &[u8; 8] = b"TDBTAB02";
 const FORMAT_VERSION: u32 = 1;
 const WAL_FILE: &str = "WAL";
 const MANIFEST_FILE: &str = "MANIFEST.json";
@@ -181,6 +182,8 @@ struct Inner {
     state: BTreeMap<Vec<u8>, Vec<u8>>,
     sequence: u64,
     table_sequence: u64,
+    table_files: Vec<String>,
+    pending_table: BTreeMap<Vec<u8>, Option<Vec<u8>>>,
     max_journaling_size: u64,
     diagnostics: WalDiagnostics,
     recovery_required: bool,
@@ -190,6 +193,8 @@ struct Inner {
 struct Manifest {
     format_version: u32,
     table_file: Option<String>,
+    #[serde(default)]
+    table_files: Vec<String>,
     table_sequence: u64,
 }
 
@@ -438,14 +443,7 @@ fn execute_group(
         let started = Instant::now();
         for request in requests {
             for operation in std::mem::take(&mut request.operations) {
-                match operation {
-                    Operation::Put { key, value } => {
-                        inner.state.insert(key, value);
-                    },
-                    Operation::Delete { key } => {
-                        inner.state.remove(&key);
-                    },
-                }
+                apply_operation_with_pending(&mut inner.state, &mut inner.pending_table, operation);
             }
         }
         inner.diagnostics.state_apply_duration_ns = inner
@@ -534,7 +532,7 @@ impl Database {
 
     /// Compact the database into a new immutable table.
     pub fn compact(&self) -> Result<()> {
-        self.flush_table(true)
+        self.compact_tables(true)
     }
 
     /// Return a consistent snapshot of all keyspaces.
@@ -583,20 +581,85 @@ impl Database {
                 "ThingDB requires reopen and recovery before writing",
             ));
         }
+        if inner.pending_table.is_empty() {
+            inner.wal.sync_data()?;
+            return Ok(());
+        }
+        let updates = std::mem::take(&mut inner.pending_table);
+        let result = (|| {
+            inner.wal.sync_data()?;
+            let next_sequence = inner.sequence;
+            let table_name = format!(
+                "table-{next_sequence:020}-{:04}.tdb",
+                inner.table_files.len()
+            );
+            let table_path = inner.path.join(&table_name);
+            let temp_path = inner.path.join(format!(".{table_name}.tmp"));
+            write_table(&temp_path, next_sequence, &updates, sync)?;
+            fs::rename(&temp_path, &table_path)?;
+            let mut table_files = inner.table_files.clone();
+            table_files.push(table_name.clone());
+            let manifest = Manifest {
+                format_version: FORMAT_VERSION,
+                table_file: Some(table_name),
+                table_files: table_files.clone(),
+                table_sequence: next_sequence,
+            };
+            write_manifest(&inner.path, &manifest, sync)?;
+            inner.table_files = table_files;
+            inner.table_sequence = next_sequence;
+            inner.wal.set_len(0)?;
+            inner.wal.seek(SeekFrom::End(0))?;
+            if sync {
+                inner.wal.sync_data()?;
+            }
+            inner.diagnostics.journal_bytes = inner.wal.metadata()?.len();
+            inner.diagnostics.frame_count = 0;
+            Ok(())
+        })();
+        if result.is_err() {
+            inner.pending_table = updates;
+        }
+        result
+    }
+
+    fn compact_tables(&self, sync: bool) -> Result<()> {
+        let mut inner = self
+            .inner
+            .lock()
+            .map_err(|_| Error::message("database lock poisoned"))?;
+        if inner.recovery_required {
+            return Err(Error::message(
+                "ThingDB requires reopen and recovery before writing",
+            ));
+        }
         inner.wal.sync_data()?;
         let next_sequence = inner.sequence;
-        let table_name = format!("table-{next_sequence:020}.tdb");
+        let table_name = format!("table-{next_sequence:020}-compact.tdb");
         let table_path = inner.path.join(&table_name);
         let temp_path = inner.path.join(format!(".{table_name}.tmp"));
-        write_table(&temp_path, next_sequence, &inner.state, sync)?;
+        let entries: BTreeMap<_, _> = inner
+            .state
+            .iter()
+            .map(|(key, value)| (key.clone(), Some(value.clone())))
+            .collect();
+        write_table(&temp_path, next_sequence, &entries, sync)?;
         fs::rename(&temp_path, &table_path)?;
         let manifest = Manifest {
             format_version: FORMAT_VERSION,
-            table_file: Some(table_name),
+            table_file: Some(table_name.clone()),
+            table_files: vec![table_name.clone()],
             table_sequence: next_sequence,
         };
         write_manifest(&inner.path, &manifest, sync)?;
+        for old_table in &inner.table_files {
+            if old_table != &table_name {
+                let _ = fs::remove_file(inner.path.join(old_table));
+            }
+        }
+        inner.table_files = vec![table_name];
         inner.table_sequence = next_sequence;
+        inner.pending_table.clear();
         inner.wal.set_len(0)?;
         inner.wal.seek(SeekFrom::End(0))?;
         if sync {
@@ -653,15 +716,31 @@ impl DatabaseBuilder {
         };
         let mut state = BTreeMap::new();
         let mut table_sequence = 0;
-        if let Some(manifest) = &manifest
-            && let Some(table_file) = &manifest.table_file
-        {
-            let (sequence, table) = read_table(&self.path.join(table_file))?;
-            if sequence != manifest.table_sequence {
-                return Err(Error::message("table sequence does not match manifest"));
+        let table_files = manifest
+            .as_ref()
+            .map(|manifest| {
+                if manifest.table_files.is_empty() {
+                    manifest.table_file.iter().cloned().collect::<Vec<_>>()
+                } else {
+                    manifest.table_files.clone()
+                }
+            })
+            .unwrap_or_default();
+        if let Some(manifest) = &manifest {
+            for table_file in &table_files {
+                let (sequence, table) = read_table(&self.path.join(table_file))?;
+                if sequence > manifest.table_sequence {
+                    return Err(Error::message("table sequence exceeds manifest sequence"));
+                }
+                for (key, value) in table {
+                    if let Some(value) = value {
+                        state.insert(key, value);
+                    } else {
+                        state.remove(&key);
+                    }
+                }
             }
-            table_sequence = sequence;
-            state = table;
+            table_sequence = manifest.table_sequence;
         }
         let wal_path = self.path.join(WAL_FILE);
         let mut wal = OpenOptions::new()
@@ -686,6 +765,7 @@ impl DatabaseBuilder {
                 &Manifest {
                     format_version: FORMAT_VERSION,
                     table_file: None,
+                    table_files: Vec::new(),
                     table_sequence: 0,
                 },
                 true,
@@ -698,6 +778,8 @@ impl DatabaseBuilder {
             state,
             sequence,
             table_sequence,
+            table_files,
+            pending_table: BTreeMap::new(),
             max_journaling_size: self.max_journaling_size,
             diagnostics: WalDiagnostics {
                 journal_bytes,
@@ -1081,26 +1163,49 @@ fn apply_operation(state: &mut BTreeMap<Vec<u8>, Vec<u8>>, operation: Operation)
     }
 }
 
+fn apply_operation_with_pending(
+    state: &mut BTreeMap<Vec<u8>, Vec<u8>>,
+    pending: &mut BTreeMap<Vec<u8>, Option<Vec<u8>>>,
+    operation: Operation,
+) {
+    match operation {
+        Operation::Put { key, value } => {
+            state.insert(key.clone(), value.clone());
+            pending.insert(key, Some(value));
+        },
+        Operation::Delete { key } => {
+            state.remove(&key);
+            pending.insert(key, None);
+        },
+    }
+}
+
 fn write_table(
     path: &Path,
     sequence: u64,
-    state: &BTreeMap<Vec<u8>, Vec<u8>>,
+    entries: &BTreeMap<Vec<u8>, Option<Vec<u8>>>,
     sync: bool,
 ) -> Result<()> {
     let mut file = File::create(path)?;
-    file.write_all(TABLE_MAGIC)?;
+    file.write_all(TABLE_MAGIC_V2)?;
     write_u64_to(&mut file, sequence)?;
     write_u64_to(
         &mut file,
-        state
+        entries
             .len()
             .try_into()
             .map_err(|_| Error::message("too many entries in ThingDB table"))?,
     )?;
-    for (key, value) in state {
+    for (key, value) in entries {
         let mut record = Vec::new();
         write_bytes(&mut record, key)?;
-        write_bytes(&mut record, value)?;
+        match value {
+            Some(value) => {
+                record.push(1);
+                write_bytes(&mut record, value)?;
+            },
+            None => record.push(2),
+        }
         let record_checksum = checksum(&record);
         write_u32(&mut record, record_checksum);
         file.write_all(&record)?;
@@ -1111,23 +1216,35 @@ fn write_table(
     Ok(())
 }
 
-fn read_table(path: &Path) -> Result<(u64, BTreeMap<Vec<u8>, Vec<u8>>)> {
+fn read_table(path: &Path) -> Result<(u64, BTreeMap<Vec<u8>, Option<Vec<u8>>>)> {
     let bytes = fs::read(path)?;
-    if bytes.len() < TABLE_MAGIC.len() + 16 || &bytes[..TABLE_MAGIC.len()] != TABLE_MAGIC {
+    if bytes.len() < TABLE_MAGIC.len() + 16
+        || (&bytes[..TABLE_MAGIC.len()] != TABLE_MAGIC
+            && &bytes[..TABLE_MAGIC_V2.len()] != TABLE_MAGIC_V2)
+    {
         return Err(Error::message("invalid ThingDB table"));
     }
+    let version = &bytes[..TABLE_MAGIC.len()];
+    let is_v2 = version == TABLE_MAGIC_V2;
     let mut cursor = TABLE_MAGIC.len();
     let sequence = read_u64(&bytes, &mut cursor)?;
     let count = read_u64(&bytes, &mut cursor)? as usize;
     let mut state = BTreeMap::new();
     for _ in 0..count {
+        let record_start = cursor;
         let key = read_bytes(&bytes, &mut cursor)?;
-        let value = read_bytes(&bytes, &mut cursor)?;
+        let value = if is_v2 {
+            match read_byte(&bytes, &mut cursor)? {
+                1 => Some(read_bytes(&bytes, &mut cursor)?),
+                2 => None,
+                _ => return Err(Error::message("invalid ThingDB table operation")),
+            }
+        } else {
+            Some(read_bytes(&bytes, &mut cursor)?)
+        };
+        let checksum_end = cursor;
         let stored = read_u32(&bytes, &mut cursor)?;
-        let record_start = cursor
-            .checked_sub(20 + key.len() + value.len())
-            .ok_or_else(|| Error::message("invalid ThingDB table record"))?;
-        let actual = checksum(&bytes[record_start..cursor - 4]);
+        let actual = checksum(&bytes[record_start..checksum_end]);
         if stored != actual {
             return Err(Error::message("ThingDB table checksum mismatch"));
         }
@@ -1262,6 +1379,49 @@ mod tests {
         let entries: Vec<_> = keyspace.iter().collect();
         assert_eq!(entries[0].key, b"a");
         assert_eq!(entries[1].key, b"b");
+    }
+
+    #[test]
+    fn incremental_tables_preserve_updates_and_tombstones() {
+        let directory = tempfile::tempdir().unwrap();
+        let db = Database::open(directory.path()).unwrap();
+        let objects = db
+            .keyspace("objects", KeyspaceCreateOptions::default)
+            .unwrap();
+        objects.insert(b"a", b"one").unwrap();
+        db.persist(PersistMode::SyncAll).unwrap();
+        objects.insert(b"b", b"two").unwrap();
+        db.persist(PersistMode::SyncAll).unwrap();
+        objects.remove(b"a").unwrap();
+        db.persist(PersistMode::SyncAll).unwrap();
+        drop(objects);
+        drop(db);
+
+        let manifest: Manifest =
+            serde_json::from_slice(&std::fs::read(directory.path().join(MANIFEST_FILE)).unwrap())
+                .unwrap();
+        assert_eq!(manifest.table_files.len(), 3);
+
+        let db = Database::open(directory.path()).unwrap();
+        let objects = db
+            .keyspace("objects", KeyspaceCreateOptions::default)
+            .unwrap();
+        assert_eq!(objects.get(b"a").unwrap(), None);
+        assert_eq!(objects.get(b"b").unwrap(), Some(b"two".to_vec()));
+        db.compact().unwrap();
+        drop(objects);
+        drop(db);
+
+        let manifest: Manifest =
+            serde_json::from_slice(&std::fs::read(directory.path().join(MANIFEST_FILE)).unwrap())
+                .unwrap();
+        assert_eq!(manifest.table_files.len(), 1);
+        let db = Database::open(directory.path()).unwrap();
+        let objects = db
+            .keyspace("objects", KeyspaceCreateOptions::default)
+            .unwrap();
+        assert_eq!(objects.get(b"a").unwrap(), None);
+        assert_eq!(objects.get(b"b").unwrap(), Some(b"two".to_vec()));
     }
 
     #[test]

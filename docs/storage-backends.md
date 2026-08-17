@@ -30,16 +30,16 @@ large-store durability and performance gates.
 
 ## ThingDB development phase
 
-ThingDB is currently in **Phase 1B: durable group commit**. Phase 0 and Phase
-1A are complete enough for opt-in development, differential testing, and safe
+ThingDB is currently in **Phase 1C: immutable table layers**. Phases 0 through
+1B are complete enough for opt-in development, differential testing, and safe
 logical repack, but ThingDB is not a production replacement for RocksDB.
 
 | Phase | Goal | Status |
 | --- | --- | --- |
 | 0. Foundation | WAL, checksums, manifests, ordered access, batches, snapshots, repack, shared Thingd contracts | Complete; experimental and opt-in |
 | 1A. WAL hardening | Sync-before-ack writes, WAL timing diagnostics, batch-path measurement, deterministic WAL fault tests | Complete; no promotion claim |
-| 1B. Durable group commit | Bounded writer queue, one physical sync for nearby durable frames, grouped-write recovery and diagnostics | Active |
-| 1C. Storage engine hardening | Bounded memtables, immutable incremental tables, leveled/size-tiered compaction | Planned after group-commit evidence |
+| 1B. Durable group commit | Bounded writer queue, one physical sync for nearby durable frames, grouped-write recovery and diagnostics | Complete; no promotion claim |
+| 1C. Immutable table layers | Incremental immutable tables, tombstones, multi-table manifests, bounded flushes, and safe full compaction | Active |
 | 2. Correctness and recovery | Crash matrices, interrupted compaction recovery, corruption handling, differential tests, fuzzing | Planned |
 | 3. Scale and performance | Large-data benchmarks, memory/disk amplification limits, restart and recovery budgets | Planned |
 | 4. Controlled adoption | Soak testing, operational rollback, backup/restore validation, limited opt-in deployments | Planned |
@@ -48,8 +48,10 @@ logical repack, but ThingDB is not a production replacement for RocksDB.
 Single writes remain synchronously WAL-backed before acknowledgement. Explicit
 multi-key batches share one WAL frame and one sync boundary. Phase 1B additionally
 groups nearby independent frames into one physical sync while preserving their
-individual atomicity. The current implementation still keeps substantial state
-in memory and uses a full snapshot table during compaction. Until Phases 1A–4 pass, do not use
+individual atomicity. Phase 1C writes only changed keys and tombstones into new
+immutable table layers; explicit compaction merges those layers into one
+snapshot. The current implementation still keeps substantial state in memory.
+Until Phases 1A–4 pass, do not use
 ThingDB as the only copy of important production data. Keep the RocksDB source
 directory during repack and validate the destination before switching traffic.
 
