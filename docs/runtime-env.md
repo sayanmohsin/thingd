@@ -84,8 +84,8 @@ the number of objects, events, or queue jobs in a native batch.
 
 The native durable backend is RocksDB compiled into the server/native artifact
 by default; set `THINGD_STORAGE_BACKEND=thingdb` to opt into the experimental
-Rust-native backend. These settings do not require a RocksDB service. Legacy native directories must
-be migrated explicitly with the repository-built `thingd-migrate` utility. See
+Rust-native backend. These settings do not require a RocksDB service. Current
+releases do not open or automatically convert legacy native directories. See
 [Storage backends](./storage-backends.md).
 
 ## HTTP

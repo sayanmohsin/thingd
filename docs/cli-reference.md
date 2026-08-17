@@ -187,9 +187,8 @@ safe in-place recovery.
 The default native format is embedded RocksDB. The experimental Rust-native
 ThingDB backend can be selected with `THINGD_STORAGE_BACKEND=thingdb`; it uses
 a separate format and is not opened by changing the variable on an existing
-RocksDB directory. Existing legacy directories must first be migrated with the
-repository-built `thingd-migrate` utility; the published `thingd` CLI does not
-silently convert native stores. See [Storage backends](./storage-backends.md).
+RocksDB directory. Current releases do not open or automatically convert
+legacy native directories. See [Storage backends](./storage-backends.md).
 
 `THINGD_ENCRYPTION_KEY` supplies the normal native database key.
 `THINGD_ENCRYPTION_SOURCE_KEY` and `THINGD_ENCRYPTION_DESTINATION_KEY` supply

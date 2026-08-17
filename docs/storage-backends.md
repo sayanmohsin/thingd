@@ -57,46 +57,18 @@ directory during repack and validate the destination before switching traffic.
 
 See [Benchmarks](./benchmarks.md) for the workload matrix and promotion gates.
 
-## Migration from legacy stores
+## Legacy storage formats
 
-Existing Fjall directories are not opened by the RocksDB runtime. Migration is
-an explicit, one-time logical copy that preserves primary records, IDs,
-versions, timestamps, events, queues, links, schemas, migrations, idempotency
-state, replication state, and encryption markers. Search indexes are derived
-state and are rebuilt after migration.
+The current runtime supports RocksDB and the experimental ThingDB format only.
+It does not open older native storage directories. Existing legacy stores must
+be recovered with the archived compatibility release that created them, or
+through a previously generated logical export; current releases do not perform
+automatic format conversion.
 
-Build and run the isolated migration utility from this repository. It is a
-temporary beta compatibility tool: do not add new migration formats or make it
-a runtime dependency. It will be removed only after the deprecation gates in
-the Cloud handoff are satisfied.
-
-```bash
-cargo run -p thingd-migrate -- fjall-to-rocksdb \
-  --source /data/thingd-fjall \
-  --destination /data/thingd-rocksdb
-```
-
-The utility copies in bounded batches and reports counts per keyspace. The
-destination is validated before promotion and the source remains untouched.
-
-For encrypted stores, provide the same 64-character hexadecimal key:
-
-```bash
-cargo run -p thingd-migrate -- fjall-to-rocksdb \
-  --source /data/thingd-fjall \
-  --destination /data/thingd-rocksdb \
-  --encryption-key "$THINGD_ENCRYPTION_KEY"
-```
-
-The utility requires an inactive source, refuses an existing destination and
-unsafe paths, validates the destination before promotion, and leaves the
-source untouched. This is a logical migration, not a binary conversion or a
-runtime dependency. The Fjall crate is linked only into this offline utility;
-it is not linked into `thingd-server` or `@thingd/native`.
-
-CI keeps this utility in a separate migration job. Routine server, native, and
-Rust runtime checks intentionally exclude `thingd-migrate`, while the migration
-job still runs formatting, Clippy, and the Fjall-to-RocksDB round-trip tests.
+Do not rename a storage directory or change `THINGD_STORAGE_BACKEND` in place.
+Use the supported logical repack operation for a current RocksDB or ThingDB
+store, keep the source untouched, and validate the destination before changing
+traffic.
 
 After validation, point the runtime at the new directory with
 `THINGD_PATH`/`THINGD_DATABASE` or the native SDK path. To repack a RocksDB
