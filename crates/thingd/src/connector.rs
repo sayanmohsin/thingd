@@ -6,6 +6,8 @@
 use std::collections::HashMap;
 use std::path::Path;
 
+use serde::{Deserialize, Serialize};
+
 use crate::{ThingdError, ThingdResult};
 
 /// A streaming iterator of rows returned by a connector's `pull()` method.
@@ -91,6 +93,13 @@ pub struct ConnectorConfig {
     /// Number of rows to fetch per batch when streaming (DB connectors only).
     /// Defaults to 1000.
     pub batch_size: usize,
+
+    /// Connector-specific source options, preserved by generic clients.
+    ///
+    /// Cloud integrations should store this value opaquely and render the
+    /// connector's [`ConnectorDescriptor::config_schema`] rather than
+    /// branching on connector names.
+    pub source_options: Option<serde_json::Value>,
 }
 
 impl Default for ConnectorConfig {
@@ -104,8 +113,40 @@ impl Default for ConnectorConfig {
             column_mapping: None,
             auth: None,
             batch_size: 1000,
+            source_options: None,
         }
     }
+}
+
+/// A capability advertised by a connector to generic clients.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ConnectorDescriptor {
+    /// Stable connector identifier used in API paths and persisted configs.
+    pub id: String,
+    /// Human-readable connector name.
+    pub display_name: String,
+    /// Operations supported by this connector.
+    pub operations: Vec<ConnectorOperation>,
+    /// Accepted source kinds, such as `file`, `url`, or `public_export`.
+    pub source_kinds: Vec<String>,
+    /// JSON Schema-like configuration metadata for generic clients.
+    pub config_schema: serde_json::Value,
+    /// Connector-specific limits and feature flags.
+    pub metadata: serde_json::Value,
+}
+
+/// Operation supported by a connector.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ConnectorOperation {
+    /// Test whether the source can be reached and read.
+    Validate,
+    /// Discover sheets, tables, columns, or other source structure.
+    Discover,
+    /// Return a bounded sample without importing it.
+    Preview,
+    /// Import source rows into Thingd.
+    Pull,
 }
 
 /// Sync strategy for pulling data.
@@ -173,6 +214,33 @@ pub trait Connector: Send + Sync {
     /// Human-readable name for this connector type.
     fn name(&self) -> &'static str;
 
+    /// Describe this connector for generic API clients.
+    ///
+    /// A default descriptor keeps existing third-party connectors compatible;
+    /// built-in connectors should override it with their complete source and
+    /// configuration metadata.
+    fn descriptor(&self) -> ConnectorDescriptor {
+        ConnectorDescriptor {
+            id: self.name().to_string(),
+            display_name: self.name().to_string(),
+            operations: vec![
+                ConnectorOperation::Validate,
+                ConnectorOperation::Discover,
+                ConnectorOperation::Pull,
+            ],
+            source_kinds: vec!["source".to_string()],
+            config_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "source": { "type": "string" },
+                    "query": { "type": "string" }
+                },
+                "required": ["source"]
+            }),
+            metadata: serde_json::json!({}),
+        }
+    }
+
     /// Discover the schema of the external source.
     ///
     /// # Errors
@@ -208,9 +276,42 @@ pub trait Connector: Send + Sync {
 /// CSV/JSON file connector.
 pub struct FileConnector;
 
+/// Excel workbook connector for `.xlsx` and related spreadsheet formats.
+pub struct ExcelConnector;
+
+/// Google Sheets connector for a public CSV export.
+///
+/// The sidecar resolves the public export URL to a bounded local file before
+/// invoking this connector. Keeping URL fetching outside the engine keeps the
+/// core connector contract usable by native and embedded clients.
+pub struct GoogleSheetsConnector;
+
 impl Connector for FileConnector {
     fn name(&self) -> &'static str {
         "file"
+    }
+
+    fn descriptor(&self) -> ConnectorDescriptor {
+        ConnectorDescriptor {
+            id: "file".to_string(),
+            display_name: "CSV or JSON file".to_string(),
+            operations: vec![
+                ConnectorOperation::Validate,
+                ConnectorOperation::Discover,
+                ConnectorOperation::Preview,
+                ConnectorOperation::Pull,
+            ],
+            source_kinds: vec!["file".to_string()],
+            config_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "source": { "type": "string", "description": "Path to a CSV or JSONL file" },
+                    "columnMapping": { "type": "object", "additionalProperties": { "type": "string" } }
+                },
+                "required": ["source"]
+            }),
+            metadata: serde_json::json!({ "formats": ["csv", "json", "jsonl", "ndjson"] }),
+        }
     }
 
     fn discover_schema(&self, config: &ConnectorConfig) -> ThingdResult<Schema> {
@@ -248,6 +349,205 @@ impl Connector for FileConnector {
         };
 
         Ok(Box::new(rows.into_iter().map(Ok)))
+    }
+}
+
+impl Connector for ExcelConnector {
+    fn name(&self) -> &'static str {
+        "excel"
+    }
+
+    fn descriptor(&self) -> ConnectorDescriptor {
+        ConnectorDescriptor {
+            id: "excel".to_string(),
+            display_name: "Excel workbook".to_string(),
+            operations: vec![
+                ConnectorOperation::Validate,
+                ConnectorOperation::Discover,
+                ConnectorOperation::Preview,
+                ConnectorOperation::Pull,
+            ],
+            source_kinds: vec!["file".to_string()],
+            config_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "source": { "type": "string", "description": "Path to an Excel workbook" },
+                    "query": { "type": "string", "description": "Worksheet name" },
+                    "columnMapping": { "type": "object", "additionalProperties": { "type": "string" } }
+                },
+                "required": ["source"]
+            }),
+            metadata: serde_json::json!({ "formats": ["xlsx", "xlsm", "xlsb", "ods"] }),
+        }
+    }
+
+    fn list_tables(&self, config: &ConnectorConfig) -> ThingdResult<Vec<String>> {
+        use calamine::{Reader, open_workbook_auto};
+
+        let workbook = open_workbook_auto(&config.source)
+            .map_err(|e| ThingdError::Storage(format!("failed to read Excel workbook: {e}")))?;
+        Ok(workbook.sheet_names())
+    }
+
+    fn discover_schema(&self, config: &ConnectorConfig) -> ThingdResult<Schema> {
+        let rows = Self::read_rows(config)?;
+        let Some(headers) = rows.first() else {
+            return Err(ThingdError::Storage("Excel worksheet is empty".into()));
+        };
+
+        let headers = headers
+            .iter()
+            .enumerate()
+            .map(|(index, value)| {
+                let name = value
+                    .as_str()
+                    .filter(|value| !value.is_empty())
+                    .map_or_else(|| format!("column_{}", index + 1), ToString::to_string);
+                (index, name)
+            })
+            .collect::<Vec<_>>();
+        let mut columns = headers
+            .iter()
+            .map(|(_, name)| Column {
+                name: name.clone(),
+                data_type: ColumnType::Unknown,
+                nullable: false,
+                sample_values: Vec::new(),
+            })
+            .collect::<Vec<_>>();
+
+        for row in rows.iter().skip(1).take(100) {
+            for (index, value) in row.iter().enumerate().take(columns.len()) {
+                if columns[index].sample_values.len() < 10 {
+                    columns[index].sample_values.push(value.clone());
+                }
+                columns[index].nullable |= value.is_null();
+            }
+        }
+        for column in &mut columns {
+            column.data_type = infer_type(&column.sample_values);
+        }
+
+        Ok(Schema {
+            name: config.query.clone().unwrap_or_else(|| "worksheet".into()),
+            columns,
+            estimated_rows: Some(rows.len().saturating_sub(1) as u64),
+        })
+    }
+
+    fn pull(&self, config: &ConnectorConfig) -> ThingdResult<PullStream> {
+        let rows = Self::read_rows(config)?;
+        let Some(headers) = rows.first() else {
+            return Ok(Box::new(std::iter::empty()));
+        };
+        let headers = headers
+            .iter()
+            .enumerate()
+            .map(|(index, value)| {
+                value
+                    .as_str()
+                    .filter(|value| !value.is_empty())
+                    .map_or_else(|| format!("column_{}", index + 1), ToString::to_string)
+            })
+            .collect::<Vec<_>>();
+        let mapping = config.column_mapping.clone();
+        let rows = rows
+            .into_iter()
+            .skip(1)
+            .enumerate()
+            .map(move |(index, row)| {
+                let mut object = serde_json::Map::new();
+                object.insert("_row_index".into(), serde_json::json!(index));
+                for (column, value) in headers.iter().zip(row.iter()) {
+                    let mapped = mapping
+                        .as_ref()
+                        .and_then(|mapping| mapping.get(column))
+                        .unwrap_or(column);
+                    object.insert(mapped.clone(), value.clone());
+                }
+                Ok(serde_json::Value::Object(object))
+            });
+        Ok(Box::new(rows))
+    }
+}
+
+impl ExcelConnector {
+    fn read_rows(config: &ConnectorConfig) -> ThingdResult<Vec<Vec<serde_json::Value>>> {
+        use calamine::{Reader, open_workbook_auto};
+
+        let mut workbook = open_workbook_auto(&config.source)
+            .map_err(|e| ThingdError::Storage(format!("failed to read Excel workbook: {e}")))?;
+        let sheet = config
+            .query
+            .clone()
+            .or_else(|| workbook.sheet_names().first().cloned())
+            .ok_or_else(|| ThingdError::Storage("Excel workbook has no worksheets".into()))?;
+        let range = workbook
+            .worksheet_range(&sheet)
+            .map_err(|e| ThingdError::Storage(format!("failed to read worksheet {sheet}: {e}")))?;
+        Ok(range
+            .rows()
+            .map(|row| row.iter().map(excel_value_to_json).collect())
+            .collect())
+    }
+}
+
+impl Connector for GoogleSheetsConnector {
+    fn name(&self) -> &'static str {
+        "google-sheets"
+    }
+
+    fn descriptor(&self) -> ConnectorDescriptor {
+        ConnectorDescriptor {
+            id: "google-sheets".to_string(),
+            display_name: "Google Sheets".to_string(),
+            operations: vec![
+                ConnectorOperation::Validate,
+                ConnectorOperation::Discover,
+                ConnectorOperation::Preview,
+                ConnectorOperation::Pull,
+            ],
+            source_kinds: vec!["public_export_url".to_string()],
+            config_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "source": { "type": "string", "format": "uri", "description": "Public Google Sheets CSV export URL" },
+                    "columnMapping": { "type": "object", "additionalProperties": { "type": "string" } }
+                },
+                "required": ["source"]
+            }),
+            metadata: serde_json::json!({
+                "format": "csv_export",
+                "authentication": "public_url",
+                "oauth": false
+            }),
+        }
+    }
+
+    fn discover_schema(&self, config: &ConnectorConfig) -> ThingdResult<Schema> {
+        FileConnector.discover_schema(config)
+    }
+
+    fn pull(&self, config: &ConnectorConfig) -> ThingdResult<PullStream> {
+        FileConnector.pull(config)
+    }
+}
+
+fn excel_value_to_json(value: &calamine::Data) -> serde_json::Value {
+    use calamine::Data;
+
+    match value {
+        Data::Empty => serde_json::Value::Null,
+        Data::String(value) => serde_json::Value::String(value.clone()),
+        Data::Float(value) => serde_json::Number::from_f64(*value)
+            .map_or(serde_json::Value::Null, serde_json::Value::Number),
+        Data::Int(value) => serde_json::json!(value),
+        Data::Bool(value) => serde_json::json!(value),
+        Data::DateTime(value) => serde_json::Value::String(value.to_string()),
+        Data::DateTimeIso(value) | Data::DurationIso(value) => {
+            serde_json::Value::String(value.clone())
+        },
+        Data::Error(value) => serde_json::Value::String(value.to_string()),
     }
 }
 
@@ -737,6 +1037,19 @@ mod tests {
             std::any::TypeId::of::<FileConnector>(),
             std::any::TypeId::of::<()>()
         );
+    }
+
+    #[test]
+    fn built_in_descriptors_are_generic_client_ready() {
+        let excel = ExcelConnector.descriptor();
+        assert_eq!(excel.id, "excel");
+        assert!(excel.source_kinds.contains(&"file".to_string()));
+        assert!(excel.operations.contains(&ConnectorOperation::Preview));
+
+        let sheets = GoogleSheetsConnector.descriptor();
+        assert_eq!(sheets.id, "google-sheets");
+        assert_eq!(sheets.source_kinds, vec!["public_export_url"]);
+        assert_eq!(sheets.metadata["oauth"], false);
     }
 
     #[test]

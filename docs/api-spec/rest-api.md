@@ -961,21 +961,34 @@ curl -X POST http://localhost:8757/v1/aggregate/timeseries \
 
 ### `GET /v1/connectors` — List available connectors
 
-Returns the list of available connector types.
+Returns connector descriptors for the available connector types. Clients should
+render configuration from `configSchema` and use the advertised operations;
+they must not hardcode connector-specific forms.
 
 ```bash
 curl http://localhost:8757/v1/connectors
 ```
 
 ```json
-{ "data": ["file", "postgres", "mysql"] }
+{
+  "data": [
+    {
+      "id": "excel",
+      "displayName": "Excel workbook",
+      "operations": ["validate", "discover", "preview", "pull"],
+      "sourceKinds": ["file"],
+      "configSchema": { "type": "object", "properties": { "source": { "type": "string" } } },
+      "metadata": { "formats": ["xlsx", "xlsm", "xlsb", "ods"] }
+    }
+  ]
+}
 ```
 
 ### `POST /v1/connectors/{type}/tables` — List source tables
 
 List table names available to a database connector without importing rows.
 
-**Path parameter:** `type` — connector type (`"postgres"`, `"mysql"`)
+**Path parameter:** `type` — connector type advertised by `GET /v1/connectors`.
 
 **Body:**
 
@@ -1005,7 +1018,7 @@ curl -X POST http://localhost:8757/v1/connectors/postgres/tables \
 
 Test connectivity to an external database without importing data or discovering schema.
 
-**Path parameter:** `type` — connector type (`"postgres"`, `"mysql"`, `"file"`)
+**Path parameter:** `type` — connector type advertised by `GET /v1/connectors`.
 
 **Body:**
 
@@ -1033,21 +1046,31 @@ curl -X POST http://localhost:8757/v1/connectors/postgres/ping \
 
 On failure, returns a `400 Bad Request` with connection error details.
 
+### `POST /v1/connectors/{type}/preview` — Preview source rows
+
+Return up to 100 source rows without writing to Thingd. The optional `limit`
+field defaults to 25. This operation is advertised through the connector
+descriptor and is intended for generic mapping UIs.
+
+```json
+{ "data": { "rows": [{ "name": "Alice" }], "limit": 25 } }
+```
+
 ---
 
 ### `POST /v1/connectors/{type}/schema` — Discover schema
 
 Discover the schema of an external table or file source without importing data.
 
-**Path parameter:** `type` — connector type (`"postgres"`, `"mysql"`, `"file"`)
+**Path parameter:** `type` — connector type advertised by `GET /v1/connectors`.
 
 **Body:**
 
 | Field | Required | Description |
 |-------|----------|-------------|
 | `auth` | for db connectors | Database credentials (host, port, database, username, password, sslMode) |
-| `source` | for file connector | File path or connection string |
-| `query` | yes | Table name for DB connectors, or file path for file connector |
+| `source` | for file and URL connectors | Source path or URL |
+| `query` | connector-dependent | Table, worksheet, or other source selection |
 
 ```bash
 curl -X POST http://localhost:8757/v1/connectors/postgres/schema \
@@ -1082,16 +1105,16 @@ curl -X POST http://localhost:8757/v1/connectors/postgres/schema \
 
 Pull data from an external source into a thingd collection. Each row becomes an object in the specified collection.
 
-**Path parameter:** `type` — connector type (`"postgres"`, `"mysql"`, `"file"`)
+**Path parameter:** `type` — connector type advertised by `GET /v1/connectors`.
 
 **Body:**
 
 | Field | Required | Description |
 |-------|----------|-------------|
 | `auth` | for db connectors | Database credentials |
-| `source` | for file connector | File path |
+| `source` | for file and URL connectors | Source path or URL |
 | `collection` | yes | Target thingd collection name |
-| `query` | yes | SQL query (for DB) or table name. For files, the file path. |
+| `query` | connector-dependent | SQL query, table/worksheet name, or source selection |
 | `batchSize` | no | Rows per batch (default: 1000) |
 | `columnMapping` | no | Map external column names to thingd field names: `{ "old_name": "new_name" }` |
 | `syncStrategy` | no | `"full"` (default) or `"incremental"` |

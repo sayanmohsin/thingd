@@ -48,7 +48,9 @@ Starts on `http://0.0.0.0:7377` by default. Point your MCP client at `http://loc
 | **REST** | `GET /v1/collections/schema` | Reflect collection schemas |
 | **REST** | `GET /v1/connectors` | List available connectors |
 | **REST** | `POST /v1/connectors/{type}/ping` | Test connector connection |
+| **REST** | `POST /v1/connectors/{type}/tables` | List source tables or worksheets |
 | **REST** | `POST /v1/connectors/{type}/schema` | Discover external schema |
+| **REST** | `POST /v1/connectors/{type}/preview` | Preview source rows |
 | **REST** | `POST /v1/connectors/{type}/pull` | Import data from external source |
 | **REST** | `GET /metrics` | Prometheus metrics |
 | **Cluster** | `GET /cluster/status` | Cluster node status |

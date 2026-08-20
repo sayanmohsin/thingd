@@ -106,6 +106,7 @@ pub fn build_router(state: Arc<AppState>, config: &Config) -> Router {
         .route("/v1/connectors/{type}/ping", post(rest::ping_connector))
         .route("/v1/connectors/{type}/tables", post(rest::list_connector_tables))
         .route("/v1/connectors/{type}/schema", post(rest::discover_schema))
+        .route("/v1/connectors/{type}/preview", post(rest::preview_connector))
         .route("/v1/connectors/{type}/pull", post(rest::pull_data))
         // MCP
         .route("/mcp", post(crate::mcp::handle_mcp_request))
