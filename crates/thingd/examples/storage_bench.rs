@@ -611,6 +611,9 @@ fn bench_wal_workloads(
     let before_reopen = engine
         .wal_diagnostics()?
         .ok_or("ThingDB diagnostics unavailable")?;
+    let started = Instant::now();
+    engine.compact_storage()?;
+    report(name, "table-compaction", 1, started.elapsed());
     drop(engine);
     let started = Instant::now();
     let reopened = PersistentEngine::open_with_options(path, options)?;
