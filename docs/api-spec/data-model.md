@@ -252,7 +252,9 @@ Authentication credentials for external database connectors.
 
 ### ConnectorType
 
-Available connector types: `"file"`, `"postgres"`, `"mysql"`.
+Connector types are advertised dynamically by `GET /v1/connectors`; current
+built-ins include `file`, `excel`, `google-sheets`, `postgres`, and `mysql`.
+Clients must use the returned descriptors rather than hardcoding this list.
 
 ### ColumnAnnotation
 

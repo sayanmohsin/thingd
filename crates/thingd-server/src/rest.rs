@@ -8,6 +8,7 @@ use axum::{
 use bytes::Bytes;
 use futures_util::StreamExt;
 use serde_json::{Value, json};
+use std::path::PathBuf;
 use std::sync::{
     Arc, OnceLock,
     atomic::{AtomicU64, Ordering},
@@ -1604,7 +1605,18 @@ pub async fn delete_link(
 // ─── Connectors ─────────────────────────────────────────────────
 
 pub async fn list_connectors() -> Result<Json<Value>, AppError> {
-    Ok(Json(json!({ "data": ["file", "postgres", "mysql"] })))
+    let connectors: Vec<Value> = [
+        Box::new(FileConnector) as Box<dyn Connector>,
+        Box::new(ExcelConnector),
+        Box::new(GoogleSheetsConnector),
+        Box::new(PostgresConnector::new()),
+        Box::new(MysqlConnector::new()),
+    ]
+    .into_iter()
+    .map(|connector| serde_json::to_value(connector.descriptor()))
+    .collect::<Result<_, _>>()
+    .map_err(|e| AppError::internal(format!("failed to serialize connector descriptor: {e}")))?;
+    ok(json!(connectors))
 }
 
 fn build_connector_auth(body: &Value) -> Option<ConnectorAuth> {
@@ -1659,7 +1671,104 @@ fn build_connector_config(connector_type: &str, body: &Value) -> ConnectorConfig
             .get("batchSize")
             .and_then(|v| v.as_u64())
             .unwrap_or(1000) as usize,
+        source_options: body.get("sourceOptions").cloned(),
     }
+}
+
+fn url_host_allowed(url: &str, hardening: &crate::config::HardeningConfig) -> Result<(), AppError> {
+    let parsed = reqwest::Url::parse(url)
+        .map_err(|_| AppError::bad_request("Connector source must be a valid URL"))?;
+    if parsed.scheme() != "https" {
+        return Err(AppError::bad_request(
+            "Remote connector sources must use HTTPS",
+        ));
+    }
+    let host = parsed
+        .host_str()
+        .ok_or_else(|| AppError::bad_request("Connector source URL has no host"))?;
+    if !hardening
+        .connector_allowed_hosts
+        .iter()
+        .any(|allowed| allowed == "*" || allowed == host)
+    {
+        return Err(AppError::forbidden(
+            "Connector source host is not allowlisted",
+        ));
+    }
+    Ok(())
+}
+
+async fn prepare_remote_source(
+    connector_type: &str,
+    mut config: ConnectorConfig,
+    hardening: &crate::config::HardeningConfig,
+) -> Result<(ConnectorConfig, Option<PathBuf>), AppError> {
+    if connector_type != "google-sheets" {
+        return Ok((config, None));
+    }
+    url_host_allowed(&config.source, hardening)?;
+    let client = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .map_err(|e| AppError::internal(format!("failed to create connector client: {e}")))?;
+    let response = client
+        .get(&config.source)
+        .send()
+        .await
+        .map_err(|e| AppError::bad_request(format!("failed to fetch connector source: {e}")))?;
+    if !response.status().is_success() {
+        return Err(AppError::bad_request(format!(
+            "connector source returned HTTP {}",
+            response.status()
+        )));
+    }
+    if response
+        .content_length()
+        .is_some_and(|size| size > hardening.max_connector_file_bytes)
+    {
+        return Err(AppError::bad_request(
+            "Connector source exceeds the configured size limit",
+        ));
+    }
+    let bytes = response
+        .bytes()
+        .await
+        .map_err(|e| AppError::bad_request(format!("failed to read connector source: {e}")))?;
+    if bytes.len() as u64 > hardening.max_connector_file_bytes {
+        return Err(AppError::bad_request(
+            "Connector source exceeds the configured size limit",
+        ));
+    }
+    let path =
+        std::env::temp_dir().join(format!("thingd-google-sheets-{}.csv", uuid::Uuid::new_v4()));
+    std::fs::write(&path, bytes)
+        .map_err(|e| AppError::internal(format!("failed to stage connector source: {e}")))?;
+    config.source = path.to_string_lossy().into_owned();
+    Ok((config, Some(path)))
+}
+
+fn cleanup_remote_source(path: Option<PathBuf>) {
+    if let Some(path) = path {
+        let _ = std::fs::remove_file(path);
+    }
+}
+
+fn connector_row_id(
+    connector_type: &str,
+    source: &str,
+    query: Option<&str>,
+    row: &Value,
+) -> String {
+    let identity = row.get("id").or_else(|| row.get("_row_index")).map_or_else(
+        || serde_json::to_string(row).unwrap_or_else(|_| "row".to_string()),
+        Value::to_string,
+    );
+    let seed = format!(
+        "thingd:connector:{connector_type}:source:{source}:query:{}:row:{identity}",
+        query.unwrap_or_default()
+    );
+    uuid::Uuid::new_v5(&uuid::Uuid::NAMESPACE_URL, seed.as_bytes()).to_string()
 }
 
 fn validate_connector_access(
@@ -1668,7 +1777,7 @@ fn validate_connector_access(
     hardening: &crate::config::HardeningConfig,
 ) -> Result<(), AppError> {
     match connector_type {
-        "file" => {
+        "file" | "excel" => {
             let root = hardening
                 .connector_file_root
                 .as_deref()
@@ -1691,6 +1800,7 @@ fn validate_connector_access(
                 ));
             }
         },
+        "google-sheets" => url_host_allowed(&config.source, hardening)?,
         "postgres" | "mysql" => {
             let auth = config
                 .auth
@@ -1719,6 +1829,8 @@ fn get_connector(connector_type: &str) -> Result<Box<dyn Connector>, AppError> {
         "postgres" => Ok(Box::new(PostgresConnector::new())),
         "mysql" => Ok(Box::new(MysqlConnector::new())),
         "file" => Ok(Box::new(FileConnector)),
+        "excel" => Ok(Box::new(ExcelConnector)),
+        "google-sheets" => Ok(Box::new(GoogleSheetsConnector)),
         _ => Err(AppError::bad_request(format!(
             "Unknown connector type: {connector_type}"
         ))),
@@ -1733,10 +1845,13 @@ pub async fn discover_schema(
     let connector = get_connector(&connector_type)?;
     let config = build_connector_config(&connector_type, &body);
     validate_connector_access(&connector_type, &config, &state.hardening_config)?;
-    let schema = tokio::task::spawn_blocking(move || connector.discover_schema(&config))
+    let (config, cleanup) =
+        prepare_remote_source(&connector_type, config, &state.hardening_config).await?;
+    let schema_result = tokio::task::spawn_blocking(move || connector.discover_schema(&config))
         .await
-        .map_err(|e| AppError::internal(format!("Connector task failed: {e}")))?
-        .map_err(|e| AppError::internal(e.to_string()))?;
+        .map_err(|e| AppError::internal(format!("Connector task failed: {e}")))?;
+    cleanup_remote_source(cleanup);
+    let schema = schema_result.map_err(|e| AppError::internal(e.to_string()))?;
 
     let columns: Vec<Value> = schema
         .columns
@@ -1774,10 +1889,13 @@ pub async fn list_connector_tables(
     let connector = get_connector(&connector_type)?;
     let config = build_connector_config(&connector_type, &body);
     validate_connector_access(&connector_type, &config, &state.hardening_config)?;
-    let tables = tokio::task::spawn_blocking(move || connector.list_tables(&config))
+    let (config, cleanup) =
+        prepare_remote_source(&connector_type, config, &state.hardening_config).await?;
+    let tables_result = tokio::task::spawn_blocking(move || connector.list_tables(&config))
         .await
-        .map_err(|e| AppError::internal(format!("Connector task failed: {e}")))?
-        .map_err(|e| AppError::internal(e.to_string()))?;
+        .map_err(|e| AppError::internal(format!("Connector task failed: {e}")))?;
+    cleanup_remote_source(cleanup);
+    let tables = tables_result.map_err(|e| AppError::internal(e.to_string()))?;
 
     ok(json!({ "tables": tables }))
 }
@@ -1790,13 +1908,44 @@ pub async fn ping_connector(
     let connector = get_connector(&connector_type)?;
     let config = build_connector_config(&connector_type, &body);
     validate_connector_access(&connector_type, &config, &state.hardening_config)?;
+    let (config, cleanup) =
+        prepare_remote_source(&connector_type, config, &state.hardening_config).await?;
     let result = tokio::task::spawn_blocking(move || connector.list_tables(&config))
         .await
         .map_err(|e| AppError::internal(format!("Connector task failed: {e}")))?;
+    cleanup_remote_source(cleanup);
     match result {
         Ok(_tables) => ok(json!({ "ok": true, "connector": connector_type })),
         Err(e) => Err(AppError::bad_request(format!("Connection failed: {e}"))),
     }
+}
+
+/// Preview a bounded sample from a connector without writing to Thingd.
+pub async fn preview_connector(
+    State(state): State<Arc<AppState>>,
+    Path(connector_type): Path<String>,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, AppError> {
+    let connector = get_connector(&connector_type)?;
+    let config = build_connector_config(&connector_type, &body);
+    validate_connector_access(&connector_type, &config, &state.hardening_config)?;
+    let limit = body
+        .get("limit")
+        .and_then(Value::as_u64)
+        .unwrap_or(25)
+        .clamp(1, 100) as usize;
+    let (config, cleanup) =
+        prepare_remote_source(&connector_type, config, &state.hardening_config).await?;
+    let result = tokio::task::spawn_blocking(move || connector.pull(&config))
+        .await
+        .map_err(|e| AppError::internal(format!("Connector task failed: {e}")))?;
+    cleanup_remote_source(cleanup);
+    let stream = result.map_err(|e| AppError::bad_request(e.to_string()))?;
+    let rows = stream
+        .take(limit)
+        .map(|row| row.map_err(|e| AppError::bad_request(e.to_string())))
+        .collect::<Result<Vec<_>, _>>()?;
+    ok(json!({ "rows": rows, "limit": limit }))
 }
 
 pub async fn pull_data(
@@ -1809,6 +1958,10 @@ pub async fn pull_data(
     let connector = get_connector(&connector_type)?;
     let config = build_connector_config(&connector_type, &body);
     validate_connector_access(&connector_type, &config, &state.hardening_config)?;
+    let source_identity = config.source.clone();
+    let query_identity = config.query.clone();
+    let (config, cleanup) =
+        prepare_remote_source(&connector_type, config, &state.hardening_config).await?;
     let collection = config.collection.clone();
     let batch_size = config.batch_size;
     let return_objects = body
@@ -1820,6 +1973,7 @@ pub async fn pull_data(
         .await
         .map_err(|e| AppError::internal(format!("Connector task failed: {e}")))?
         .map_err(|e| AppError::internal(e.to_string()))?;
+    cleanup_remote_source(cleanup);
 
     let mut imported = 0u64;
     let mut batch: Vec<MemoryObject> = Vec::new();
@@ -1834,7 +1988,14 @@ pub async fn pull_data(
             .get("id")
             .and_then(|v| v.as_str())
             .map(|s| s.to_string())
-            .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+            .unwrap_or_else(|| {
+                connector_row_id(
+                    &connector_type,
+                    &source_identity,
+                    query_identity.as_deref(),
+                    &row,
+                )
+            });
         let body_str =
             serde_json::to_string(&row).map_err(|e| AppError::internal(e.to_string()))?;
         let obj = MemoryObject::new(&collection, &id, &body_str);
@@ -3640,7 +3801,12 @@ mod tests {
         let bytes = response.into_body().collect().await.unwrap().to_bytes();
         let json: Value = serde_json::from_slice(&bytes).unwrap();
         let arr = json["data"].as_array().unwrap();
-        assert!(arr.contains(&Value::String("file".to_string())));
+        assert!(arr.iter().any(|descriptor| descriptor["id"] == "file"));
+        assert!(arr.iter().any(|descriptor| descriptor["id"] == "excel"));
+        assert!(
+            arr.iter()
+                .any(|descriptor| descriptor["id"] == "google-sheets")
+        );
     }
 
     #[tokio::test]

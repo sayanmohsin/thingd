@@ -71,8 +71,9 @@ mod store;
 
 #[cfg(feature = "connectors")]
 pub use connector::{
-    Column, ColumnType, Connector, ConnectorAuth, ConnectorConfig, FileConnector, PullStream,
-    Schema, SslMode, SyncStrategy,
+    Column, ColumnType, Connector, ConnectorAuth, ConnectorConfig, ConnectorDescriptor,
+    ConnectorOperation, ExcelConnector, FileConnector, GoogleSheetsConnector, PullStream, Schema,
+    SslMode, SyncStrategy,
 };
 #[cfg(feature = "connectors")]
 pub use connectors::{MysqlConnector, PostgresConnector};
