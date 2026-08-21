@@ -21,12 +21,12 @@
     clippy::type_complexity
 )]
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::{Display, Formatter};
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, ErrorKind, Read, Seek, SeekFrom, Write};
 use std::ops::{Bound, RangeBounds};
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::sync::{
     Arc, Mutex, Weak,
     mpsc::{self, RecvTimeoutError, SyncSender},
@@ -43,6 +43,7 @@ const TABLE_MAGIC_V2: &[u8; 8] = b"TDBTAB02";
 const FORMAT_VERSION: u32 = 1;
 const WAL_FILE: &str = "WAL";
 const MANIFEST_FILE: &str = "MANIFEST.json";
+const MANIFEST_TEMP_FILE: &str = ".MANIFEST.json.tmp";
 const LOCK_FILE: &str = "LOCK";
 
 #[cfg(test)]
@@ -71,6 +72,52 @@ fn maybe_fail(point: &'static str, fault_point: Option<&'static str>) -> Result<
     } else {
         Ok(())
     }
+}
+
+fn validate_table_name(name: &str) -> Result<()> {
+    let path = Path::new(name);
+    if name.is_empty()
+        || path.is_absolute()
+        || path
+            .components()
+            .any(|component| !matches!(component, Component::Normal(_)))
+    {
+        return Err(Error::message("invalid ThingDB table filename"));
+    }
+    Ok(())
+}
+
+fn validate_manifest(manifest: &Manifest) -> Result<()> {
+    let mut files = BTreeSet::new();
+    for table_file in &manifest.table_files {
+        validate_table_name(table_file)?;
+        if !files.insert(table_file) {
+            return Err(Error::message("duplicate ThingDB table filename"));
+        }
+    }
+    if let Some(table_file) = &manifest.table_file {
+        validate_table_name(table_file)?;
+        if !manifest.table_files.is_empty() && manifest.table_files.last() != Some(table_file) {
+            return Err(Error::message(
+                "ThingDB manifest legacy table filename does not match table layers",
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn cleanup_temporary_files(path: &Path) -> Result<()> {
+    let entries = fs::read_dir(path)?;
+    for entry in entries {
+        let entry = entry?;
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if name == MANIFEST_TEMP_FILE || (name.starts_with(".table-") && name.ends_with(".tdb.tmp"))
+        {
+            fs::remove_file(entry.path())?;
+        }
+    }
+    Ok(())
 }
 
 /// Result type returned by ThingDB.
@@ -595,8 +642,12 @@ impl Database {
             );
             let table_path = inner.path.join(&table_name);
             let temp_path = inner.path.join(format!(".{table_name}.tmp"));
+            maybe_fail("before-table-write", current_fault_point())?;
             write_table(&temp_path, next_sequence, &updates, sync)?;
+            maybe_fail("after-table-sync-before-rename", current_fault_point())?;
+            maybe_fail("before-table-rename", current_fault_point())?;
             fs::rename(&temp_path, &table_path)?;
+            maybe_fail("after-table-rename-before-manifest", current_fault_point())?;
             let mut table_files = inner.table_files.clone();
             table_files.push(table_name.clone());
             let manifest = Manifest {
@@ -605,7 +656,12 @@ impl Database {
                 table_files: table_files.clone(),
                 table_sequence: next_sequence,
             };
+            maybe_fail("before-manifest-write", current_fault_point())?;
             write_manifest(&inner.path, &manifest, sync)?;
+            maybe_fail(
+                "after-manifest-rename-before-wal-truncate",
+                current_fault_point(),
+            )?;
             inner.table_files = table_files;
             inner.table_sequence = next_sequence;
             inner.wal.set_len(0)?;
@@ -643,15 +699,24 @@ impl Database {
             .iter()
             .map(|(key, value)| (key.clone(), Some(value.clone())))
             .collect();
+        maybe_fail("before-table-write", current_fault_point())?;
         write_table(&temp_path, next_sequence, &entries, sync)?;
+        maybe_fail("after-table-sync-before-rename", current_fault_point())?;
+        maybe_fail("before-table-rename", current_fault_point())?;
         fs::rename(&temp_path, &table_path)?;
+        maybe_fail("after-table-rename-before-manifest", current_fault_point())?;
         let manifest = Manifest {
             format_version: FORMAT_VERSION,
             table_file: Some(table_name.clone()),
             table_files: vec![table_name.clone()],
             table_sequence: next_sequence,
         };
+        maybe_fail("before-manifest-write", current_fault_point())?;
         write_manifest(&inner.path, &manifest, sync)?;
+        maybe_fail(
+            "after-manifest-rename-before-wal-truncate",
+            current_fault_point(),
+        )?;
         for old_table in &inner.table_files {
             if old_table != &table_name {
                 let _ = fs::remove_file(inner.path.join(old_table));
@@ -701,6 +766,7 @@ impl DatabaseBuilder {
     }
 
     fn open_locked(self, lock: File) -> Result<Database> {
+        cleanup_temporary_files(&self.path)?;
         let manifest_path = self.path.join(MANIFEST_FILE);
         let manifest = if manifest_path.exists() {
             let manifest: Manifest = serde_json::from_slice(&fs::read(&manifest_path)?)?;
@@ -710,6 +776,7 @@ impl DatabaseBuilder {
                     manifest.format_version
                 )));
             }
+            validate_manifest(&manifest)?;
             Some(manifest)
         } else {
             None
@@ -727,11 +794,18 @@ impl DatabaseBuilder {
             })
             .unwrap_or_default();
         if let Some(manifest) = &manifest {
+            let mut previous_sequence = 0;
             for table_file in &table_files {
                 let (sequence, table) = read_table(&self.path.join(table_file))?;
                 if sequence > manifest.table_sequence {
                     return Err(Error::message("table sequence exceeds manifest sequence"));
                 }
+                if sequence < previous_sequence {
+                    return Err(Error::message(
+                        "ThingDB table layers are not in sequence order",
+                    ));
+                }
+                previous_sequence = sequence;
                 for (key, value) in table {
                     if let Some(value) = value {
                         state.insert(key, value);
@@ -1258,14 +1332,29 @@ fn read_table(path: &Path) -> Result<(u64, BTreeMap<Vec<u8>, Option<Vec<u8>>>)> 
 
 fn write_manifest(path: &Path, manifest: &Manifest, sync: bool) -> Result<()> {
     let bytes = serde_json::to_vec_pretty(manifest)?;
-    let temp = path.join(".MANIFEST.json.tmp");
+    let temp = path.join(MANIFEST_TEMP_FILE);
     let final_path = path.join(MANIFEST_FILE);
     let mut file = File::create(&temp)?;
     file.write_all(&bytes)?;
     if sync {
         file.sync_all()?;
     }
+    maybe_fail("after-manifest-sync-before-rename", current_fault_point())?;
     fs::rename(temp, final_path)?;
+    if sync {
+        sync_directory(path)?;
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+fn sync_directory(path: &Path) -> Result<()> {
+    OpenOptions::new().read(true).open(path)?.sync_all()?;
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn sync_directory(_path: &Path) -> Result<()> {
     Ok(())
 }
 
@@ -1422,6 +1511,104 @@ mod tests {
             .unwrap();
         assert_eq!(objects.get(b"a").unwrap(), None);
         assert_eq!(objects.get(b"b").unwrap(), Some(b"two".to_vec()));
+    }
+
+    #[test]
+    fn interrupted_flush_recovers_from_previous_manifest_and_wal() {
+        for point in [
+            "before-table-write",
+            "after-table-sync-before-rename",
+            "before-table-rename",
+            "after-table-rename-before-manifest",
+            "before-manifest-write",
+            "after-manifest-sync-before-rename",
+            "after-manifest-rename-before-wal-truncate",
+        ] {
+            let directory = tempfile::tempdir().unwrap();
+            let db = Database::open(directory.path()).unwrap();
+            let objects = db
+                .keyspace("objects", KeyspaceCreateOptions::default)
+                .unwrap();
+            objects.insert(b"a", b"one").unwrap();
+            db.persist(PersistMode::SyncAll).unwrap();
+            objects.insert(b"b", b"two").unwrap();
+
+            set_fault_point(Some(point));
+            let result = db.persist(PersistMode::SyncAll);
+            set_fault_point(None);
+            assert!(result.is_err(), "fault point {point} did not fail");
+            drop(objects);
+            drop(db);
+
+            let db = Database::open(directory.path()).unwrap();
+            let objects = db
+                .keyspace("objects", KeyspaceCreateOptions::default)
+                .unwrap();
+            assert_eq!(objects.get(b"a").unwrap(), Some(b"one".to_vec()), "{point}");
+            assert_eq!(objects.get(b"b").unwrap(), Some(b"two".to_vec()), "{point}");
+            assert!(
+                !directory.path().join(MANIFEST_TEMP_FILE).exists(),
+                "temporary manifest remained after {point}"
+            );
+        }
+    }
+
+    #[test]
+    fn interrupted_compaction_recovers_from_old_or_new_manifest() {
+        for point in [
+            "before-table-write",
+            "after-table-sync-before-rename",
+            "before-table-rename",
+            "after-table-rename-before-manifest",
+            "before-manifest-write",
+            "after-manifest-sync-before-rename",
+            "after-manifest-rename-before-wal-truncate",
+        ] {
+            let directory = tempfile::tempdir().unwrap();
+            let db = Database::open(directory.path()).unwrap();
+            let objects = db
+                .keyspace("objects", KeyspaceCreateOptions::default)
+                .unwrap();
+            objects.insert(b"a", b"one").unwrap();
+            db.persist(PersistMode::SyncAll).unwrap();
+            objects.insert(b"b", b"two").unwrap();
+
+            set_fault_point(Some(point));
+            let result = db.compact();
+            set_fault_point(None);
+            assert!(result.is_err(), "fault point {point} did not fail");
+            drop(objects);
+            drop(db);
+
+            let db = Database::open(directory.path()).unwrap();
+            let objects = db
+                .keyspace("objects", KeyspaceCreateOptions::default)
+                .unwrap();
+            assert_eq!(objects.get(b"a").unwrap(), Some(b"one".to_vec()), "{point}");
+            assert_eq!(objects.get(b"b").unwrap(), Some(b"two".to_vec()), "{point}");
+            assert!(
+                !directory.path().join(MANIFEST_TEMP_FILE).exists(),
+                "temporary manifest remained after {point}"
+            );
+        }
+    }
+
+    #[test]
+    fn invalid_manifest_table_names_are_rejected() {
+        let directory = tempfile::tempdir().unwrap();
+        let db = Database::open(directory.path()).unwrap();
+        drop(db);
+        let manifest_path = directory.path().join(MANIFEST_FILE);
+        let mut manifest: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&manifest_path).unwrap()).unwrap();
+        manifest["table_file"] = serde_json::Value::String("../outside.tdb".to_string());
+        manifest["table_files"] = serde_json::json!(["../outside.tdb"]);
+        std::fs::write(&manifest_path, serde_json::to_vec(&manifest).unwrap()).unwrap();
+
+        let Err(error) = Database::open(directory.path()) else {
+            panic!("manifest with path traversal unexpectedly opened")
+        };
+        assert!(error.to_string().contains("invalid ThingDB table filename"));
     }
 
     #[test]

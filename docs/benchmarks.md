@@ -60,13 +60,17 @@ Structured JSON output includes grouped median, minimum, maximum, and spread
 throughput summaries in addition to each repetition's raw result.
 The WAL-hardening and group-commit phases additionally record
 `wal-single-write`, `wal-explicit-batch`, `wal-concurrent-write`, and
-`wal-recovery`, and `table-compaction` rows plus ThingDB WAL timing diagnostics. Single writes remain
+`wal-recovery` rows. The immutable-table and recovery phases additionally
+record `table-compaction` and `table-recovery` rows plus ThingDB WAL timing
+diagnostics. Single writes remain
 sync-before-ack; grouped writes reduce physical sync calls without trading
 durability for throughput. Group-commit diagnostics include logical commits,
 physical sync calls, average and maximum group size, and queue wait time.
 Phase 1C adds table-layer and compaction measurements; compare WAL growth,
-flush duration, table count, total disk usage, restart recovery, and compacted
-read correctness against the Phase 1B history.
+compaction duration, table count, total disk usage, restart recovery, and
+compacted read correctness against the Phase 1B history. Phase 2 adds
+interrupted-maintenance fault tests and compares recovery time and final
+logical state after each deterministic fault boundary.
 
 Each persistent run also reports a reopen/startup duration and first-search
 latency. To exercise the low-memory path on Linux/macOS, run the benchmark in
