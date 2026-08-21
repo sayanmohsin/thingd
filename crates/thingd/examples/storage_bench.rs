@@ -827,7 +827,7 @@ fn record_latency(driver: &str, operation: &str, mut samples: Vec<u128>) {
     results().lock().unwrap().results.push(result);
 }
 
-fn percentile(samples: &[u128], percentile: usize) -> u128 {
+const fn percentile(samples: &[u128], percentile: usize) -> u128 {
     let index = ((samples.len() - 1) * percentile).div_ceil(100);
     samples[index]
 }
