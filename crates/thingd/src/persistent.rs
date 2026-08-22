@@ -1414,31 +1414,41 @@ impl PersistentEngine {
 
         if self.search_rebuild.is_none() {
             if self.search_index.is_none() {
-                let generation = self.maintenance.generation.max(1);
-                let rebuild_path = if self.codec.encrypted() {
-                    None
+                let in_memory = self.is_in_memory();
+                let (index, rebuild_path) = if in_memory {
+                    (Self::create_search_index(true), None)
                 } else {
-                    let path = self.path.join(format!(".search-rebuild-{generation}"));
-                    if path.exists() {
-                        std::fs::remove_dir_all(&path).map_err(|error| {
-                            ThingdError::Storage(format!("remove stale search generation: {error}"))
-                        })?;
-                    }
-                    Some(path)
-                };
-                let index = match rebuild_path.as_ref() {
-                    Some(path) => Some(Self::create_search_index_at(path)?),
-                    None => Self::init_search_index(&self.path, true)?.0,
+                    let generation = self.maintenance.generation.max(1);
+                    let rebuild_path = if self.codec.encrypted() {
+                        None
+                    } else {
+                        let path = self.path.join(format!(".search-rebuild-{generation}"));
+                        if path.exists() {
+                            std::fs::remove_dir_all(&path).map_err(|error| {
+                                ThingdError::Storage(format!(
+                                    "remove stale search generation: {error}"
+                                ))
+                            })?;
+                        }
+                        Some(path)
+                    };
+                    let index = match rebuild_path.as_ref() {
+                        Some(path) => Some(Self::create_search_index_at(path)?),
+                        None => Self::init_search_index(&self.path, true)?.0,
+                    };
+                    (index, rebuild_path)
                 };
                 self.search_index = index;
                 self.search_rebuild_path = rebuild_path;
-                std::fs::write(
-                    self.path.join(".thingd-search-rebuild"),
-                    self.maintenance.generation.max(1).to_string(),
-                )
-                .map_err(|error| {
-                    ThingdError::Storage(format!("write search rebuild marker: {error}"))
-                })?;
+                if !in_memory {
+                    std::fs::write(
+                        self.path.join(".thingd-search-rebuild"),
+                        self.maintenance.generation.max(1).to_string(),
+                    )
+                    .map_err(|error| {
+                        ThingdError::Storage(format!("write search rebuild marker: {error}"))
+                    })?;
+                }
                 self.search_writer = self
                     .search_index
                     .as_ref()
@@ -1557,11 +1567,17 @@ impl PersistentEngine {
                         self.replay_search_mutation(&key, mutation)?;
                     }
                     self.commit_search_index();
-                    self.promote_search_generation()?;
+                    if self.is_in_memory() {
+                        self.search_rebuild_path = None;
+                    } else {
+                        self.promote_search_generation()?;
+                    }
                     self.search_rebuild_required = false;
                     self.search_rebuild = None;
                     self.start_search_worker();
-                    let _ = std::fs::remove_file(self.path.join(".thingd-search-rebuild"));
+                    if !self.is_in_memory() {
+                        let _ = std::fs::remove_file(self.path.join(".thingd-search-rebuild"));
+                    }
                     self.maintenance.generation = self.maintenance.generation.saturating_add(1);
                     self.maintenance.state = "idle".to_string();
                     self.maintenance.phase = "complete".to_string();
@@ -4637,6 +4653,7 @@ mod tests {
         Link, ListObjectsOptions, MemoryEvent, MemoryObject, QueueClaimOptions, QueueJob,
         QueueJobStatus, QueueNackOptions, SearchOptions, TimeBucket,
     };
+    use std::sync::{Mutex as TestMutex, OnceLock};
 
     /// Create a test engine with a temp directory that stays alive for the caller.
     fn setup() -> (PersistentEngine, tempfile::TempDir) {
@@ -6774,6 +6791,120 @@ mod tests {
         assert_eq!(engine.journal_bytes(), 0);
         assert_eq!(engine.journal_count(), 0);
         drop(engine);
+    }
+
+    #[cfg(feature = "search")]
+    #[test]
+    fn thingdb_memory_search_rebuild_is_filesystem_isolated() {
+        static CURRENT_DIR_LOCK: OnceLock<TestMutex<()>> = OnceLock::new();
+        let _lock = CURRENT_DIR_LOCK
+            .get_or_init(|| TestMutex::new(()))
+            .lock()
+            .unwrap();
+        let sandbox = tempfile::tempdir().unwrap();
+        let before = std::fs::read_dir(sandbox.path())
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name())
+            .collect::<Vec<_>>();
+        let original_dir = std::env::current_dir().unwrap();
+        std::env::set_current_dir(sandbox.path()).unwrap();
+
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let mut engine = setup_thingdb_memory();
+            assert!(engine.is_in_memory());
+            assert!(!engine.search_rebuild_required());
+            assert_eq!(engine.journal_bytes(), 0);
+            assert_eq!(engine.journal_count(), 0);
+
+            engine
+                .put_object(MemoryObject::new(
+                    "notes",
+                    "one",
+                    r#"{"text":"alpha only"}"#,
+                ))
+                .unwrap();
+            assert_eq!(
+                engine
+                    .search("alpha", SearchOptions::default())
+                    .unwrap()
+                    .len(),
+                1
+            );
+
+            engine
+                .put_object(MemoryObject::new("notes", "one", r#"{"text":"beta only"}"#))
+                .unwrap();
+            assert!(
+                engine
+                    .search("alpha", SearchOptions::default())
+                    .unwrap()
+                    .is_empty()
+            );
+            assert_eq!(
+                engine
+                    .search("beta", SearchOptions::default())
+                    .unwrap()
+                    .len(),
+                1
+            );
+
+            engine
+                .append_event(MemoryEvent::new(
+                    "audit",
+                    "indexed",
+                    r#"{"text":"event-term"}"#,
+                ))
+                .unwrap();
+            assert_eq!(
+                engine
+                    .search("event-term", SearchOptions::default())
+                    .unwrap()
+                    .len(),
+                1
+            );
+            engine
+                .create_link(Link::new("notes/one", "mentions", "notes/two"))
+                .unwrap();
+            engine.delete_object("notes", "one").unwrap();
+            assert!(
+                engine
+                    .search("beta", SearchOptions::default())
+                    .unwrap()
+                    .is_empty()
+            );
+
+            // Exercise the defensive rebuild path. It must create a RAM index
+            // and must not write a rebuild generation or marker.
+            engine.search_index = None;
+            engine.search_rebuild_required = true;
+            engine.search_rebuild = None;
+            let mut complete = false;
+            for _ in 0..64 {
+                complete = engine.search_rebuild_step(1).unwrap();
+                if complete {
+                    break;
+                }
+            }
+            assert!(complete, "in-memory search rebuild did not complete");
+            assert!(!engine.search_rebuild_required());
+            assert_eq!(
+                engine
+                    .search("event-term", SearchOptions::default())
+                    .unwrap()
+                    .len(),
+                1
+            );
+            drop(engine);
+        }));
+
+        std::env::set_current_dir(original_dir).unwrap();
+        result.unwrap();
+
+        let after = std::fs::read_dir(sandbox.path())
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name())
+            .collect::<Vec<_>>();
+        assert_eq!(before, after, "ThingDB RAM search created filesystem state");
     }
 
     #[test]
