@@ -108,6 +108,19 @@ pub(crate) struct Iter {
 }
 
 impl Database {
+    pub(crate) fn in_memory_thingdb() -> Result<Self, Error> {
+        Ok(Self {
+            db: Arc::new(Backend::ThingDb(
+                thingdb::Database::in_memory().map_err(|error| Error(error.to_string()))?,
+            )),
+            path: PathBuf::new(),
+        })
+    }
+
+    pub(crate) fn is_in_memory(&self) -> bool {
+        self.path.as_os_str().is_empty()
+    }
+
     pub(crate) fn builder_with_backend(
         path: impl AsRef<Path>,
         backend: StorageBackend,
@@ -166,6 +179,9 @@ impl Database {
     }
 
     pub(crate) fn journal_count(&self) -> usize {
+        if self.is_in_memory() {
+            return 0;
+        }
         if let Backend::ThingDb(_) = self.db.as_ref() {
             return 1;
         }

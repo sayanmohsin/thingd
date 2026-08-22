@@ -875,6 +875,25 @@ impl PersistentEngine {
         Self::open_with_options(path, PersistentOpenOptions::default())
     }
 
+    /// Create an in-memory ThingDB engine without touching the filesystem.
+    ///
+    /// This reuses the persistent semantic storage implementation, but all
+    /// primary and derived state lives in process memory and is lost when the
+    /// engine is dropped.
+    pub fn open_in_memory_with_backend(backend: PersistentBackend) -> ThingdResult<Self> {
+        if backend != PersistentBackend::ThingDb {
+            return Err(ThingdError::Storage(
+                "in-memory PersistentEngine requires the ThingDB backend".to_string(),
+            ));
+        }
+        let options = PersistentOpenOptions {
+            backend,
+            ..PersistentOpenOptions::default()
+        };
+        let db = Database::in_memory_thingdb()?;
+        Self::open_from_database(PathBuf::new(), options, db, make_codec(None), false, None)
+    }
+
     /// Open a persistent database with explicit options.
     pub fn open_with_options(
         path: impl AsRef<Path>,
@@ -905,6 +924,20 @@ impl PersistentEngine {
             .max_journaling_size(options.max_journal_bytes)
             .open()?;
 
+        Self::open_from_database(path, options, db, codec, encrypted, existing)
+    }
+
+    fn open_from_database(
+        path: impl AsRef<Path>,
+        options: PersistentOpenOptions,
+        db: Database,
+        codec: Box<dyn StorageCodec>,
+        encrypted: bool,
+        existing: Option<StorageValidationReport>,
+    ) -> ThingdResult<Self> {
+        let path = path.as_ref();
+        let in_memory = db.is_in_memory();
+
         let objects = db.keyspace("objects", KeyspaceCreateOptions::default)?;
         let events = db.keyspace("events", KeyspaceCreateOptions::default)?;
         let event_meta = db.keyspace("event_meta", KeyspaceCreateOptions::default)?;
@@ -920,7 +953,9 @@ impl PersistentEngine {
         #[cfg(feature = "vectors")]
         let vectors = db.keyspace("vectors", KeyspaceCreateOptions::default)?;
 
-        write_or_validate_manifest(path, existing.as_ref(), options.backend)?;
+        if !in_memory {
+            write_or_validate_manifest(path, existing.as_ref(), options.backend)?;
+        }
 
         let mut next_link_id = 0u64;
         for kv in links_by_id.iter() {
@@ -977,22 +1012,32 @@ impl PersistentEngine {
             Self::build_unique_index_cache(&objects, &indexes, codec.as_ref())?;
 
         #[cfg(feature = "search")]
-        let (search_index, rebuild_search_index) = match options.search_mode {
-            PersistentSearchMode::Disabled => (None, false),
-            PersistentSearchMode::Persistent | PersistentSearchMode::PersistentAsync
-                if encrypted =>
-            {
-                (Self::create_search_index(true), true)
-            },
-            PersistentSearchMode::PersistentNoRebuild if encrypted => (None, false),
-            PersistentSearchMode::Persistent => Self::init_search_index(path, true)?,
-            PersistentSearchMode::PersistentRecovery if encrypted => (None, true),
-            PersistentSearchMode::PersistentAsync | PersistentSearchMode::PersistentRecovery => {
-                let (index, _) = Self::init_search_index(path, false)?;
-                let rebuild = index.is_none();
-                (index, rebuild)
-            },
-            PersistentSearchMode::PersistentNoRebuild => Self::init_search_index(path, false)?,
+        let (search_index, rebuild_search_index) = if in_memory {
+            match options.search_mode {
+                PersistentSearchMode::Disabled | PersistentSearchMode::PersistentNoRebuild => {
+                    (None, false)
+                },
+                _ => (Self::create_search_index(true), true),
+            }
+        } else {
+            match options.search_mode {
+                PersistentSearchMode::Disabled => (None, false),
+                PersistentSearchMode::Persistent | PersistentSearchMode::PersistentAsync
+                    if encrypted =>
+                {
+                    (Self::create_search_index(true), true)
+                },
+                PersistentSearchMode::PersistentNoRebuild if encrypted => (None, false),
+                PersistentSearchMode::Persistent => Self::init_search_index(path, true)?,
+                PersistentSearchMode::PersistentRecovery if encrypted => (None, true),
+                PersistentSearchMode::PersistentAsync
+                | PersistentSearchMode::PersistentRecovery => {
+                    let (index, _) = Self::init_search_index(path, false)?;
+                    let rebuild = index.is_none();
+                    (index, rebuild)
+                },
+                PersistentSearchMode::PersistentNoRebuild => Self::init_search_index(path, false)?,
+            }
         };
 
         #[cfg(feature = "search")]
@@ -1233,6 +1278,11 @@ impl PersistentEngine {
         self.db.journal_count() as u64
     }
 
+    /// Return whether this engine stores all state in process memory.
+    pub fn is_in_memory(&self) -> bool {
+        self.db.is_in_memory()
+    }
+
     /// Return ThingDB WAL timings and recovery diagnostics when ThingDB is active.
     pub fn wal_diagnostics(&self) -> ThingdResult<Option<thingdb::WalDiagnostics>> {
         self.db
@@ -1242,6 +1292,11 @@ impl PersistentEngine {
 
     /// Persist and compact every primary keyspace.
     pub fn compact_storage(&mut self) -> ThingdResult<()> {
+        if self.db.is_in_memory() {
+            return Err(ThingdError::Storage(
+                "in-memory ThingDB does not support persistence or compaction".to_string(),
+            ));
+        }
         self.maintenance.state = "compacting".to_string();
         self.maintenance.phase = "primary".to_string();
         self.maintenance.processed = 0;
@@ -6629,6 +6684,10 @@ mod tests {
         (engine, dir)
     }
 
+    fn setup_thingdb_memory() -> PersistentEngine {
+        PersistentEngine::open_in_memory_with_backend(PersistentBackend::ThingDb).unwrap()
+    }
+
     #[test]
     fn thingdb_backend_runs_shared_contracts() {
         let (mut engine, _dir) = setup_thingdb();
@@ -6691,6 +6750,30 @@ mod tests {
     fn contract_nack_dead_letter() {
         let (mut engine, _dir) = setup_persistent();
         crate::contract_tests::test_contract_nack_dead_letter(&mut engine);
+    }
+
+    #[test]
+    fn thingdb_memory_runs_shared_contracts_without_filesystem_state() {
+        let mut engine = setup_thingdb_memory();
+        assert!(engine.is_in_memory());
+        assert_eq!(engine.journal_bytes(), 0);
+        assert_eq!(engine.journal_count(), 0);
+
+        crate::contract_tests::test_contract_object_lifecycle(&mut engine);
+        crate::contract_tests::test_contract_vector_lifecycle(&mut engine);
+        crate::contract_tests::test_contract_schema_store(&mut engine);
+        crate::contract_tests::test_contract_indexes(&mut engine);
+        crate::contract_tests::test_contract_event_idempotency(&mut engine);
+        crate::contract_tests::test_contract_queue_lifecycle(&mut engine);
+        crate::contract_tests::test_contract_delayed_job(&mut engine);
+        crate::contract_tests::test_contract_lease_expiration(&mut engine);
+        crate::contract_tests::test_contract_nack_dead_letter(&mut engine);
+        crate::contract_tests::test_contract_search(&mut engine);
+
+        assert!(engine.compact_storage().is_err());
+        assert_eq!(engine.journal_bytes(), 0);
+        assert_eq!(engine.journal_count(), 0);
+        drop(engine);
     }
 
     #[test]
