@@ -285,7 +285,8 @@ struct CommitRequest {
 }
 
 struct WriterCoordinator {
-    sender: SyncSender<CommitRequest>,
+    sender: Mutex<Option<SyncSender<CommitRequest>>>,
+    handle: Mutex<Option<thread::JoinHandle<()>>>,
 }
 
 const WRITER_QUEUE_CAPACITY: usize = 1024;
@@ -296,11 +297,26 @@ const MAX_GROUP_BYTES: usize = 4 * 1024 * 1024;
 impl WriterCoordinator {
     fn new(inner: Weak<Mutex<Inner>>) -> Result<Arc<Self>> {
         let (sender, receiver) = mpsc::sync_channel(WRITER_QUEUE_CAPACITY);
-        thread::Builder::new()
+        let handle = thread::Builder::new()
             .name("thingdb-writer".to_string())
             .spawn(move || writer_loop(inner, receiver))
             .map_err(Error::from)?;
-        Ok(Arc::new(Self { sender }))
+        Ok(Arc::new(Self {
+            sender: Mutex::new(Some(sender)),
+            handle: Mutex::new(Some(handle)),
+        }))
+    }
+}
+
+impl Drop for WriterCoordinator {
+    fn drop(&mut self) {
+        // Close the channel before joining so a writer waiting in recv() can
+        // observe disconnection and exit. Any queued requests are completed or
+        // rejected by the writer before it terminates.
+        let _ = self.sender.get_mut().ok().and_then(Option::take);
+        if let Some(handle) = self.handle.get_mut().ok().and_then(Option::take) {
+            let _ = handle.join();
+        }
     }
 }
 
@@ -1111,9 +1127,15 @@ impl Batch {
             fault_point: current_fault_point(),
             response,
         };
-        self.db
+        let sender = self
+            .db
             .writer
             .sender
+            .lock()
+            .map_err(|_| Error::message("ThingDB writer state poisoned"))?
+            .clone()
+            .ok_or_else(|| Error::message("ThingDB writer is unavailable"))?;
+        sender
             .send(request)
             .map_err(|_| Error::message("ThingDB writer is unavailable"))?;
         result

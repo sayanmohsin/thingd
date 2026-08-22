@@ -9,9 +9,12 @@ mod rate_limit;
 mod rest;
 mod server;
 
+use std::io::{Read, Write};
 use std::net::SocketAddr;
+use std::net::TcpStream;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 use tracing_subscriber::EnvFilter;
 
 #[cfg(unix)]
@@ -43,6 +46,60 @@ fn check_path_from_args() -> Option<PathBuf> {
 
 fn has_arg(flag: &str) -> bool {
     std::env::args().any(|arg| arg == flag)
+}
+
+fn healthcheck_url_from_args() -> Option<String> {
+    let mut args = std::env::args().skip(1);
+    while let Some(arg) = args.next() {
+        if arg == "--healthcheck" {
+            return args.next();
+        }
+        if let Some(url) = arg.strip_prefix("--healthcheck=") {
+            return Some(url.to_string());
+        }
+    }
+    None
+}
+
+fn run_healthcheck(url: &str) -> Result<(), String> {
+    let target = url
+        .strip_prefix("http://")
+        .ok_or_else(|| "healthcheck URL must use http://".to_string())?;
+    let (authority, path) = target.split_once('/').unwrap_or((target, "/"));
+    if authority.is_empty() {
+        return Err("healthcheck URL is missing a host".to_string());
+    }
+    let address = authority
+        .parse::<std::net::SocketAddr>()
+        .map_err(|_| format!("healthcheck URL must use a host:port address: {url}"))?;
+    let mut stream = TcpStream::connect_timeout(&address, Duration::from_secs(2))
+        .map_err(|error| format!("healthcheck connection failed: {error}"))?;
+    stream
+        .set_read_timeout(Some(Duration::from_secs(2)))
+        .map_err(|error| format!("healthcheck read timeout setup failed: {error}"))?;
+    stream
+        .set_write_timeout(Some(Duration::from_secs(2)))
+        .map_err(|error| format!("healthcheck write timeout setup failed: {error}"))?;
+    write!(
+        stream,
+        "GET /{path} HTTP/1.1\r\nHost: {authority}\r\nConnection: close\r\n\r\n"
+    )
+    .map_err(|error| format!("healthcheck request failed: {error}"))?;
+    let mut response = [0_u8; 64];
+    let bytes_read = stream
+        .read(&mut response)
+        .map_err(|error| format!("healthcheck response failed: {error}"))?;
+    let response = std::str::from_utf8(&response[..bytes_read])
+        .map_err(|_| "healthcheck returned an invalid HTTP response".to_string())?;
+    let status = response
+        .split_whitespace()
+        .nth(1)
+        .ok_or_else(|| "healthcheck returned an incomplete HTTP response".to_string())?;
+    if status == "200" {
+        Ok(())
+    } else {
+        Err(format!("healthcheck returned HTTP {status}"))
+    }
 }
 
 fn parse_storage_backend(value: &str) -> Result<thingd::PersistentBackend, String> {
@@ -149,6 +206,18 @@ async fn main() {
                 eprintln!("ERROR: {error}");
                 std::process::exit(1);
             },
+        }
+        return;
+    }
+
+    if has_arg("--healthcheck") || std::env::args().any(|arg| arg.starts_with("--healthcheck=")) {
+        let Some(url) = healthcheck_url_from_args() else {
+            eprintln!("Usage: thingd-server --healthcheck http://127.0.0.1:8757/healthz");
+            std::process::exit(2);
+        };
+        if let Err(error) = run_healthcheck(&url) {
+            eprintln!("Healthcheck failed: {error}");
+            std::process::exit(1);
         }
         return;
     }
@@ -340,4 +409,57 @@ async fn main() {
         });
 
     tracing::info!("Shutdown complete");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::run_healthcheck;
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+    use std::thread;
+
+    #[test]
+    fn healthcheck_accepts_success_response() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind test listener");
+        let address = listener.local_addr().expect("test listener address");
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept healthcheck");
+            let mut request = [0_u8; 256];
+            let _ = stream.read(&mut request).expect("read healthcheck");
+            stream
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n")
+                .expect("write healthcheck response");
+        });
+
+        let result = run_healthcheck(&format!("http://{address}/healthz"));
+        server.join().expect("join test server");
+        assert!(
+            result.is_ok(),
+            "expected successful healthcheck: {result:?}"
+        );
+    }
+
+    #[test]
+    fn healthcheck_rejects_non_success_response() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind test listener");
+        let address = listener.local_addr().expect("test listener address");
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept healthcheck");
+            let mut request = [0_u8; 256];
+            let _ = stream.read(&mut request).expect("read healthcheck");
+            stream
+                .write_all(b"HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\n\r\n")
+                .expect("write healthcheck response");
+        });
+
+        let result = run_healthcheck(&format!("http://{address}/healthz"));
+        server.join().expect("join test server");
+        assert!(result.is_err(), "expected failed healthcheck");
+    }
+
+    #[test]
+    fn healthcheck_requires_http_socket_url() {
+        assert!(run_healthcheck("https://127.0.0.1:8757/healthz").is_err());
+        assert!(run_healthcheck("http://127.0.0.1/healthz").is_err());
+    }
 }

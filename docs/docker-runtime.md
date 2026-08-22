@@ -193,6 +193,10 @@ checks `/cluster/status`, and uses an MCP client to list tools. It maps the
 container to host port `18757` by default to avoid clashing with a local dev
 runtime. Override with `THINGD_DOCKER_PORT`.
 
+The scratch image has no shell, Node.js, or curl. Container healthchecks use
+the built-in `thingd-server --healthcheck URL` command, which performs a small
+HTTP request using the standard library.
+
 ## Compose And Kubernetes
 
 - [deploy/docker-compose.yml](../deploy/docker-compose.yml) runs a local
