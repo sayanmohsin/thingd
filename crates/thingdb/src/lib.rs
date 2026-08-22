@@ -195,6 +195,16 @@ pub struct WalDiagnostics {
     pub recovery_required: bool,
     /// Whether the WAL is above the configured soft budget.
     pub wal_over_budget: bool,
+    /// Bytes held by the current mutable table delta.
+    pub memtable_bytes: u64,
+    /// Number of table flushes completed.
+    pub flush_count: u64,
+    /// Number of automatic bound-triggered flushes completed.
+    pub automatic_flush_count: u64,
+    /// Nanoseconds spent flushing table deltas.
+    pub flush_duration_ns: u64,
+    /// Whether the mutable table delta is above its configured bound.
+    pub memtable_over_budget: bool,
     /// Last WAL error observed after the database opened, if any.
     pub last_error: Option<String>,
 }
@@ -213,6 +223,7 @@ impl KeyspaceCreateOptions {
 pub struct DatabaseBuilder {
     path: PathBuf,
     max_journaling_size: u64,
+    max_memtable_bytes: u64,
 }
 
 /// A shared ThingDB database handle.
@@ -231,7 +242,9 @@ struct Inner {
     table_sequence: u64,
     table_files: Vec<String>,
     pending_table: BTreeMap<Vec<u8>, Option<Vec<u8>>>,
+    pending_table_bytes: u64,
     max_journaling_size: u64,
+    max_memtable_bytes: u64,
     diagnostics: WalDiagnostics,
     recovery_required: bool,
 }
@@ -272,7 +285,8 @@ struct CommitRequest {
 }
 
 struct WriterCoordinator {
-    sender: SyncSender<CommitRequest>,
+    sender: Mutex<Option<SyncSender<CommitRequest>>>,
+    handle: Mutex<Option<thread::JoinHandle<()>>>,
 }
 
 const WRITER_QUEUE_CAPACITY: usize = 1024;
@@ -283,11 +297,26 @@ const MAX_GROUP_BYTES: usize = 4 * 1024 * 1024;
 impl WriterCoordinator {
     fn new(inner: Weak<Mutex<Inner>>) -> Result<Arc<Self>> {
         let (sender, receiver) = mpsc::sync_channel(WRITER_QUEUE_CAPACITY);
-        thread::Builder::new()
+        let handle = thread::Builder::new()
             .name("thingdb-writer".to_string())
             .spawn(move || writer_loop(inner, receiver))
             .map_err(Error::from)?;
-        Ok(Arc::new(Self { sender }))
+        Ok(Arc::new(Self {
+            sender: Mutex::new(Some(sender)),
+            handle: Mutex::new(Some(handle)),
+        }))
+    }
+}
+
+impl Drop for WriterCoordinator {
+    fn drop(&mut self) {
+        // Close the channel before joining so a writer waiting in recv() can
+        // observe disconnection and exit. Any queued requests are completed or
+        // rejected by the writer before it terminates.
+        let _ = self.sender.get_mut().ok().and_then(Option::take);
+        if let Some(handle) = self.handle.get_mut().ok().and_then(Option::take) {
+            let _ = handle.join();
+        }
     }
 }
 
@@ -351,7 +380,7 @@ fn request_has_fault(requests: &[CommitRequest], point: &'static str) -> Option<
 
 fn process_group(inner: &Weak<Mutex<Inner>>, mut requests: Vec<CommitRequest>) {
     let Some(inner_arc) = inner.upgrade() else {
-        for request in requests {
+        for request in &mut *requests {
             let _ = request
                 .response
                 .send(Err(Error::message("ThingDB writer is unavailable")));
@@ -488,9 +517,14 @@ fn execute_group(
             maybe_fail(point, Some(point))?;
         }
         let started = Instant::now();
-        for request in requests {
+        for request in requests.iter_mut() {
             for operation in std::mem::take(&mut request.operations) {
-                apply_operation_with_pending(&mut inner.state, &mut inner.pending_table, operation);
+                apply_operation_with_pending(
+                    &mut inner.state,
+                    &mut inner.pending_table,
+                    &mut inner.pending_table_bytes,
+                    operation,
+                );
             }
         }
         inner.diagnostics.state_apply_duration_ns = inner
@@ -499,6 +533,18 @@ fn execute_group(
             .saturating_add(elapsed_nanos(started.elapsed()));
         inner.sequence = next_sequence.saturating_sub(1);
         inner.diagnostics.frame_count = inner.diagnostics.frame_count.saturating_add(group_size);
+        inner.diagnostics.memtable_bytes = inner.pending_table_bytes;
+        inner.diagnostics.memtable_over_budget =
+            inner.pending_table_bytes >= inner.max_memtable_bytes;
+        if inner.pending_table_bytes >= inner.max_memtable_bytes {
+            flush_table_locked(
+                inner,
+                true,
+                request_has_fault(requests, "before-table-write"),
+            )?;
+            inner.diagnostics.automatic_flush_count =
+                inner.diagnostics.automatic_flush_count.saturating_add(1);
+        }
         Ok(())
     })();
 
@@ -541,6 +587,7 @@ impl Database {
         DatabaseBuilder {
             path: path.as_ref().to_path_buf(),
             max_journaling_size: 32 * 1024 * 1024,
+            max_memtable_bytes: 64 * 1024 * 1024,
         }
     }
 
@@ -623,62 +670,80 @@ impl Database {
             .inner
             .lock()
             .map_err(|_| Error::message("database lock poisoned"))?;
-        if inner.recovery_required {
-            return Err(Error::message(
-                "ThingDB requires reopen and recovery before writing",
-            ));
-        }
-        if inner.pending_table.is_empty() {
-            inner.wal.sync_data()?;
-            return Ok(());
-        }
-        let updates = std::mem::take(&mut inner.pending_table);
-        let result = (|| {
-            inner.wal.sync_data()?;
-            let next_sequence = inner.sequence;
-            let table_name = format!(
-                "table-{next_sequence:020}-{:04}.tdb",
-                inner.table_files.len()
-            );
-            let table_path = inner.path.join(&table_name);
-            let temp_path = inner.path.join(format!(".{table_name}.tmp"));
-            maybe_fail("before-table-write", current_fault_point())?;
-            write_table(&temp_path, next_sequence, &updates, sync)?;
-            maybe_fail("after-table-sync-before-rename", current_fault_point())?;
-            maybe_fail("before-table-rename", current_fault_point())?;
-            fs::rename(&temp_path, &table_path)?;
-            maybe_fail("after-table-rename-before-manifest", current_fault_point())?;
-            let mut table_files = inner.table_files.clone();
-            table_files.push(table_name.clone());
-            let manifest = Manifest {
-                format_version: FORMAT_VERSION,
-                table_file: Some(table_name),
-                table_files: table_files.clone(),
-                table_sequence: next_sequence,
-            };
-            maybe_fail("before-manifest-write", current_fault_point())?;
-            write_manifest(&inner.path, &manifest, sync)?;
-            maybe_fail(
-                "after-manifest-rename-before-wal-truncate",
-                current_fault_point(),
-            )?;
-            inner.table_files = table_files;
-            inner.table_sequence = next_sequence;
-            inner.wal.set_len(0)?;
-            inner.wal.seek(SeekFrom::End(0))?;
-            if sync {
-                inner.wal.sync_data()?;
-            }
-            inner.diagnostics.journal_bytes = inner.wal.metadata()?.len();
-            inner.diagnostics.frame_count = 0;
-            Ok(())
-        })();
-        if result.is_err() {
-            inner.pending_table = updates;
-        }
-        result
+        flush_table_locked(&mut inner, sync, current_fault_point())
     }
+}
 
+fn flush_table_locked(
+    inner: &mut Inner,
+    sync: bool,
+    fault_point: Option<&'static str>,
+) -> Result<()> {
+    let started = Instant::now();
+    if inner.recovery_required {
+        return Err(Error::message(
+            "ThingDB requires reopen and recovery before writing",
+        ));
+    }
+    if inner.pending_table.is_empty() {
+        inner.wal.sync_data()?;
+        return Ok(());
+    }
+    let updates = std::mem::take(&mut inner.pending_table);
+    let update_bytes = inner.pending_table_bytes;
+    let result = (|| {
+        inner.wal.sync_data()?;
+        let next_sequence = inner.sequence;
+        let table_name = format!(
+            "table-{next_sequence:020}-{:04}.tdb",
+            inner.table_files.len()
+        );
+        let table_path = inner.path.join(&table_name);
+        let temp_path = inner.path.join(format!(".{table_name}.tmp"));
+        maybe_fail("before-table-write", fault_point)?;
+        write_table(&temp_path, next_sequence, &updates, sync)?;
+        maybe_fail("after-table-sync-before-rename", fault_point)?;
+        maybe_fail("before-table-rename", fault_point)?;
+        fs::rename(&temp_path, &table_path)?;
+        maybe_fail("after-table-rename-before-manifest", fault_point)?;
+        let mut table_files = inner.table_files.clone();
+        table_files.push(table_name.clone());
+        let manifest = Manifest {
+            format_version: FORMAT_VERSION,
+            table_file: Some(table_name),
+            table_files: table_files.clone(),
+            table_sequence: next_sequence,
+        };
+        maybe_fail("before-manifest-write", fault_point)?;
+        write_manifest(&inner.path, &manifest, sync)?;
+        maybe_fail("after-manifest-rename-before-wal-truncate", fault_point)?;
+        inner.table_files = table_files;
+        inner.table_sequence = next_sequence;
+        inner.pending_table_bytes = 0;
+        inner.wal.set_len(0)?;
+        inner.wal.seek(SeekFrom::End(0))?;
+        if sync {
+            inner.wal.sync_data()?;
+        }
+        inner.diagnostics.journal_bytes = inner.wal.metadata()?.len();
+        inner.diagnostics.frame_count = 0;
+        inner.diagnostics.memtable_bytes = 0;
+        inner.diagnostics.memtable_over_budget = false;
+        inner.diagnostics.flush_count = inner.diagnostics.flush_count.saturating_add(1);
+        Ok(())
+    })();
+    if result.is_err() {
+        inner.pending_table = updates;
+        inner.pending_table_bytes = update_bytes;
+    }
+    inner.diagnostics.flush_duration_ns = inner
+        .diagnostics
+        .flush_duration_ns
+        .saturating_add(elapsed_nanos(started.elapsed()));
+    result
+}
+
+impl Database {
     fn compact_tables(&self, sync: bool) -> Result<()> {
         let mut inner = self
             .inner
@@ -725,6 +790,7 @@ impl Database {
         inner.table_files = vec![table_name];
         inner.table_sequence = next_sequence;
         inner.pending_table.clear();
+        inner.pending_table_bytes = 0;
         inner.wal.set_len(0)?;
         inner.wal.seek(SeekFrom::End(0))?;
         if sync {
@@ -732,6 +798,8 @@ impl Database {
         }
         inner.diagnostics.journal_bytes = inner.wal.metadata()?.len();
         inner.diagnostics.frame_count = 0;
+        inner.diagnostics.memtable_bytes = 0;
+        inner.diagnostics.memtable_over_budget = false;
         Ok(())
     }
 }
@@ -740,6 +808,16 @@ impl DatabaseBuilder {
     /// Set the soft WAL budget used for diagnostics and future backpressure.
     pub fn max_journaling_size(mut self, bytes: u64) -> Self {
         self.max_journaling_size = bytes;
+        self
+    }
+
+    /// Set the maximum mutable table size before an automatic durable flush.
+    ///
+    /// A single commit may exceed this bound when its operation set is larger
+    /// than the configured limit. The bound is otherwise enforced after the
+    /// commit's WAL sync and before acknowledgement.
+    pub fn max_memtable_bytes(mut self, bytes: u64) -> Self {
+        self.max_memtable_bytes = bytes.max(1);
         self
     }
 
@@ -765,6 +843,7 @@ impl DatabaseBuilder {
         result
     }
 
+    #[allow(clippy::too_many_lines)]
     fn open_locked(self, lock: File) -> Result<Database> {
         cleanup_temporary_files(&self.path)?;
         let manifest_path = self.path.join(MANIFEST_FILE);
@@ -854,7 +933,9 @@ impl DatabaseBuilder {
             table_sequence,
             table_files,
             pending_table: BTreeMap::new(),
+            pending_table_bytes: 0,
             max_journaling_size: self.max_journaling_size,
+            max_memtable_bytes: self.max_memtable_bytes,
             diagnostics: WalDiagnostics {
                 journal_bytes,
                 frame_count,
@@ -1046,9 +1127,15 @@ impl Batch {
             fault_point: current_fault_point(),
             response,
         };
-        self.db
+        let sender = self
+            .db
             .writer
             .sender
+            .lock()
+            .map_err(|_| Error::message("ThingDB writer state poisoned"))?
+            .clone()
+            .ok_or_else(|| Error::message("ThingDB writer is unavailable"))?;
+        sender
             .send(request)
             .map_err(|_| Error::message("ThingDB writer is unavailable"))?;
         result
@@ -1240,18 +1327,33 @@ fn apply_operation(state: &mut BTreeMap<Vec<u8>, Vec<u8>>, operation: Operation)
 fn apply_operation_with_pending(
     state: &mut BTreeMap<Vec<u8>, Vec<u8>>,
     pending: &mut BTreeMap<Vec<u8>, Option<Vec<u8>>>,
+    pending_bytes: &mut u64,
     operation: Operation,
 ) {
     match operation {
         Operation::Put { key, value } => {
             state.insert(key.clone(), value.clone());
-            pending.insert(key, Some(value));
+            if let Some(previous) = pending.insert(key.clone(), Some(value.clone())) {
+                *pending_bytes =
+                    pending_bytes.saturating_sub(pending_entry_bytes(&key, previous.as_ref()));
+            }
+            *pending_bytes = pending_bytes.saturating_add(pending_entry_bytes(&key, Some(&value)));
         },
         Operation::Delete { key } => {
             state.remove(&key);
-            pending.insert(key, None);
+            if let Some(previous) = pending.insert(key.clone(), None) {
+                *pending_bytes =
+                    pending_bytes.saturating_sub(pending_entry_bytes(&key, previous.as_ref()));
+            }
+            *pending_bytes = pending_bytes.saturating_add(pending_entry_bytes(&key, None));
         },
     }
+}
+
+fn pending_entry_bytes(key: &[u8], value: Option<&Vec<u8>>) -> u64 {
+    (key.len() as u64)
+        .saturating_add(1)
+        .saturating_add(value.map_or(0, |value| value.len() as u64))
 }
 
 fn write_table(
@@ -1778,6 +1880,62 @@ mod tests {
         let diagnostics = db.wal_diagnostics().unwrap();
         assert!(diagnostics.recovery_bytes > 0);
         assert!(diagnostics.recovery_duration_ns > 0);
+    }
+
+    #[test]
+    fn bounded_memtable_flushes_before_acknowledgement() {
+        let directory = tempfile::tempdir().unwrap();
+        let db = Database::builder(directory.path())
+            .max_memtable_bytes(1)
+            .open()
+            .unwrap();
+        let objects = db
+            .keyspace("objects", KeyspaceCreateOptions::default)
+            .unwrap();
+
+        objects.insert(b"a", b"one").unwrap();
+
+        let diagnostics = db.wal_diagnostics().unwrap();
+        assert_eq!(diagnostics.memtable_bytes, 0);
+        assert!(!diagnostics.memtable_over_budget);
+        assert_eq!(diagnostics.flush_count, 1);
+        assert_eq!(diagnostics.automatic_flush_count, 1);
+        assert_eq!(diagnostics.journal_bytes, 0);
+
+        drop(objects);
+        drop(db);
+        let db = Database::open(directory.path()).unwrap();
+        let objects = db
+            .keyspace("objects", KeyspaceCreateOptions::default)
+            .unwrap();
+        assert_eq!(objects.get(b"a").unwrap(), Some(b"one".to_vec()));
+    }
+
+    #[test]
+    fn failed_bounded_memtable_flush_requires_reopen() {
+        let directory = tempfile::tempdir().unwrap();
+        let db = Database::builder(directory.path())
+            .max_memtable_bytes(1)
+            .open()
+            .unwrap();
+        let objects = db
+            .keyspace("objects", KeyspaceCreateOptions::default)
+            .unwrap();
+
+        set_fault_point(Some("before-table-write"));
+        let result = objects.insert(b"a", b"one");
+        set_fault_point(None);
+        assert!(result.is_err());
+        assert!(db.wal_diagnostics().unwrap().recovery_required);
+        assert!(objects.insert(b"b", b"two").is_err());
+
+        drop(objects);
+        drop(db);
+        let db = Database::open(directory.path()).unwrap();
+        let objects = db
+            .keyspace("objects", KeyspaceCreateOptions::default)
+            .unwrap();
+        assert_eq!(objects.get(b"a").unwrap(), Some(b"one".to_vec()));
     }
 
     #[test]

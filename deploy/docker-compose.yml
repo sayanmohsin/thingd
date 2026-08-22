@@ -19,7 +19,7 @@ services:
     volumes:
       - thingd-leader-data:/data
     healthcheck:
-      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8757/healthz').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      test: ["CMD", "/thingd-server", "--healthcheck", "http://127.0.0.1:8757/healthz"]
       interval: 10s
       timeout: 3s
       retries: 5
@@ -45,6 +45,11 @@ services:
       - "8758:8757"
     volumes:
       - thingd-follower-data:/data
+    healthcheck:
+      test: ["CMD", "/thingd-server", "--healthcheck", "http://127.0.0.1:8757/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
 
 volumes:
   thingd-leader-data:

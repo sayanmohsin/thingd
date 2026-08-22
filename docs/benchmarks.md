@@ -71,6 +71,20 @@ compaction duration, table count, total disk usage, restart recovery, and
 compacted read correctness against the Phase 1B history. Phase 2 adds
 interrupted-maintenance fault tests and compares recovery time and final
 logical state after each deterministic fault boundary.
+Phase 3 additionally records mutable-table bytes, automatic flush count, total
+flush time, and whether the configured mutable-table bound was exceeded. A
+bounded-memtable run must verify that acknowledged writes survive reopen and
+that an injected post-WAL flush failure blocks further writes until recovery.
+Use `--memtable-bytes <bytes>` (or `THINGD_BENCH_MEMTABLE_BYTES`) to make the
+bound explicit and reproducible. For example:
+
+```bash
+cargo run --release -p thingd --example storage_bench --features persistent,search -- \
+  --iterations 100000 --repetitions 5 --seed 42 --backend all \
+  --memtable-bytes 8388608 --phase phase-3-bounded-memtables \
+  --output target/phase-3-bounded-memtables.json \
+  --history target/storage-benchmark-history.jsonl
+```
 
 Each persistent run also reports a reopen/startup duration and first-search
 latency. To exercise the low-memory path on Linux/macOS, run the benchmark in

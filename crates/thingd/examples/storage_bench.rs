@@ -27,6 +27,7 @@ use thingd::{
 };
 
 const DEFAULT_ITERATIONS: usize = 5_000;
+const DEFAULT_MEMTABLE_BYTES: u64 = 8 * 1024 * 1024;
 const COLLECTION: &str = "bench_objects";
 const QUEUE: &str = "bench_queue";
 const STREAM: &str = "bench:events";
@@ -54,6 +55,7 @@ struct BenchConfig {
     output: Option<PathBuf>,
     history: PathBuf,
     phase: String,
+    memtable_bytes: u64,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -122,6 +124,7 @@ struct BenchMetadata {
     os: String,
     arch: String,
     parallelism: usize,
+    thingdb_memtable_bytes: u64,
 }
 
 static RESULTS: std::sync::OnceLock<Mutex<BenchOutput>> = std::sync::OnceLock::new();
@@ -145,6 +148,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 os: env::consts::OS.to_string(),
                 arch: env::consts::ARCH.to_string(),
                 parallelism: std::thread::available_parallelism().map_or(1, usize::from),
+                thingdb_memtable_bytes: config.memtable_bytes,
             },
             results: Vec::new(),
             summaries: Vec::new(),
@@ -160,6 +164,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     println!("seed: {}", config.seed);
     println!("backend: {}", config.backend.name());
     println!("repetitions: {}", config.repetitions);
+    println!(
+        "ThingDB benchmark memtable bound: {} bytes",
+        config.memtable_bytes
+    );
     println!();
     println!(
         "{:>13} | {:<22} | {:>7} | {:>12} | {:>12}",
@@ -223,6 +231,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 benchmark_persistent_options(thingd::PersistentBackend::ThingDb),
                 iterations,
                 config.seed,
+                config.memtable_bytes,
             )?;
         }
 
@@ -367,6 +376,10 @@ impl BenchConfig {
             PathBuf::from,
         );
         let mut phase = env::var("THINGD_BENCH_PHASE").unwrap_or_else(|_| "baseline".to_string());
+        let mut memtable_bytes = env::var("THINGD_BENCH_MEMTABLE_BYTES")
+            .ok()
+            .and_then(|value| value.parse().ok())
+            .unwrap_or(DEFAULT_MEMTABLE_BYTES);
         let mut positional_iterations = None;
         let mut args = env::args().skip(1);
         while let Some(argument) = args.next() {
@@ -381,6 +394,7 @@ impl BenchConfig {
                 "--output" => output = Some(PathBuf::from(value("--output")?)),
                 "--history" => history = PathBuf::from(value("--history")?),
                 "--phase" => phase = value("--phase")?,
+                "--memtable-bytes" => memtable_bytes = value("--memtable-bytes")?.parse()?,
                 "--backend" => {
                     backend = match value("--backend")?.as_str() {
                         "all" => BackendSelection::All,
@@ -407,6 +421,7 @@ impl BenchConfig {
             output,
             history,
             phase,
+            memtable_bytes: memtable_bytes.max(1),
         })
     }
 }
@@ -584,6 +599,7 @@ fn bench_wal_workloads(
     mut options: PersistentOpenOptions,
     iterations: usize,
     seed: u64,
+    memtable_bytes: u64,
 ) -> Result<(), Box<dyn Error>> {
     options.search_mode = thingd::PersistentSearchMode::Disabled;
     let mut engine = PersistentEngine::open_with_options(path, options.clone())?;
@@ -627,6 +643,46 @@ fn bench_wal_workloads(
     let after_reopen = reopened
         .wal_diagnostics()?
         .ok_or("ThingDB diagnostics unavailable after reopen")?;
+    results().lock().unwrap().wal.push(WalSnapshot {
+        driver: name.to_string(),
+        repetition: CURRENT_REPETITION.load(Ordering::Relaxed),
+        diagnostics: WalDiagnosticsSnapshot::merge(before_reopen, after_reopen),
+    });
+
+    let bounded_path = path.join("bounded-memtable");
+    let bounded_db = thingdb::Database::builder(&bounded_path)
+        .max_memtable_bytes(memtable_bytes)
+        .open()?;
+    let bounded_keyspace =
+        bounded_db.keyspace("objects", thingdb::KeyspaceCreateOptions::default)?;
+    let started = Instant::now();
+    for index in 0..iterations {
+        let key = format!("bounded-{seed}-{index}");
+        bounded_keyspace.insert(key.as_bytes(), OBJECT_BODY_ACTIVE.as_bytes())?;
+    }
+    report(
+        name,
+        "memtable-bounded-write",
+        iterations,
+        started.elapsed(),
+    );
+    let before_reopen = bounded_db.wal_diagnostics()?;
+    let expected = iterations;
+    drop(bounded_keyspace);
+    drop(bounded_db);
+    let started = Instant::now();
+    let bounded_reopened = thingdb::Database::open(&bounded_path)?;
+    report(name, "memtable-bounded-recovery", 1, started.elapsed());
+    let bounded_keyspace =
+        bounded_reopened.keyspace("objects", thingdb::KeyspaceCreateOptions::default)?;
+    let actual = bounded_keyspace.iter().count();
+    if actual != expected {
+        return Err(format!(
+            "bounded memtable correctness mismatch: expected {expected}, got {actual}"
+        )
+        .into());
+    }
+    let after_reopen = bounded_reopened.wal_diagnostics()?;
     results().lock().unwrap().wal.push(WalSnapshot {
         driver: name.to_string(),
         repetition: CURRENT_REPETITION.load(Ordering::Relaxed),
@@ -715,6 +771,13 @@ impl WalDiagnosticsSnapshot {
             queue_wait_duration_ns: before.queue_wait_duration_ns,
             recovery_required: after.recovery_required,
             wal_over_budget: before.wal_over_budget || after.wal_over_budget,
+            memtable_bytes: before.memtable_bytes.max(after.memtable_bytes),
+            flush_count: before.flush_count.max(after.flush_count),
+            automatic_flush_count: before
+                .automatic_flush_count
+                .max(after.automatic_flush_count),
+            flush_duration_ns: before.flush_duration_ns,
+            memtable_over_budget: before.memtable_over_budget || after.memtable_over_budget,
             last_error: after.last_error.or(before.last_error),
         }
     }
