@@ -241,12 +241,76 @@ struct Inner {
     sequence: u64,
     table_sequence: u64,
     table_files: Vec<String>,
+    table_layers: Vec<TableLayer>,
     pending_table: BTreeMap<Vec<u8>, Option<Vec<u8>>>,
     pending_table_bytes: u64,
     max_journaling_size: u64,
     max_memtable_bytes: u64,
     diagnostics: WalDiagnostics,
     recovery_required: bool,
+}
+
+struct TableLayer {
+    path: PathBuf,
+    entries: Vec<TableIndexEntry>,
+    is_v2: bool,
+}
+
+struct TableIndexEntry {
+    key: Vec<u8>,
+    offset: u64,
+    length: u64,
+}
+
+impl Inner {
+    fn get_value(&self, key: &[u8]) -> Result<Option<Vec<u8>>> {
+        if let Some(value) = self.pending_table.get(key) {
+            return Ok(value.clone());
+        }
+        if let Some(value) = self.state.get(key) {
+            return Ok(Some(value.clone()));
+        }
+        for layer in self.table_layers.iter().rev() {
+            let Ok(index) = layer
+                .entries
+                .binary_search_by(|entry| entry.key.as_slice().cmp(key))
+            else {
+                continue;
+            };
+            return read_table_value(&layer.path, &layer.entries[index], layer.is_v2);
+        }
+        Ok(None)
+    }
+
+    fn materialize_state(&self) -> Result<BTreeMap<Vec<u8>, Vec<u8>>> {
+        let mut state = BTreeMap::new();
+        for layer in &self.table_layers {
+            for entry in &layer.entries {
+                match read_table_value(&layer.path, entry, layer.is_v2)? {
+                    Some(value) => {
+                        state.insert(entry.key.clone(), value);
+                    },
+                    None => {
+                        state.remove(&entry.key);
+                    },
+                }
+            }
+        }
+        for (key, value) in &self.state {
+            state.insert(key.clone(), value.clone());
+        }
+        for (key, value) in &self.pending_table {
+            match value {
+                Some(value) => {
+                    state.insert(key.clone(), value.clone());
+                },
+                None => {
+                    state.remove(key);
+                },
+            }
+        }
+        Ok(state)
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -636,7 +700,7 @@ impl Database {
             .lock()
             .map_err(|_| Error::message("database lock poisoned"))?;
         Ok(Snapshot {
-            state: Arc::new(inner.state.clone()),
+            state: Arc::new(inner.materialize_state()?),
         })
     }
 
@@ -718,7 +782,14 @@ fn flush_table_locked(
         write_manifest(&inner.path, &manifest, sync)?;
         maybe_fail("after-manifest-rename-before-wal-truncate", fault_point)?;
         inner.table_files = table_files;
+        let (_, entries, is_v2) = read_table_index(&table_path)?;
+        inner.table_layers.push(TableLayer {
+            path: table_path,
+            entries,
+            is_v2,
+        });
         inner.table_sequence = next_sequence;
+        inner.state.clear();
         inner.pending_table_bytes = 0;
         inner.wal.set_len(0)?;
         inner.wal.seek(SeekFrom::End(0))?;
@@ -760,9 +831,9 @@ impl Database {
         let table_path = inner.path.join(&table_name);
         let temp_path = inner.path.join(format!(".{table_name}.tmp"));
         let entries: BTreeMap<_, _> = inner
-            .state
-            .iter()
-            .map(|(key, value)| (key.clone(), Some(value.clone())))
+            .materialize_state()?
+            .into_iter()
+            .map(|(key, value)| (key, Some(value)))
             .collect();
         maybe_fail("before-table-write", current_fault_point())?;
         write_table(&temp_path, next_sequence, &entries, sync)?;
@@ -788,7 +859,14 @@ impl Database {
             }
         }
         inner.table_files = vec![table_name];
+        let (_, entries, is_v2) = read_table_index(&table_path)?;
+        inner.table_layers = vec![TableLayer {
+            path: table_path,
+            entries,
+            is_v2,
+        }];
         inner.table_sequence = next_sequence;
+        inner.state.clear();
         inner.pending_table.clear();
         inner.pending_table_bytes = 0;
         inner.wal.set_len(0)?;
@@ -862,6 +940,7 @@ impl DatabaseBuilder {
         };
         let mut state = BTreeMap::new();
         let mut table_sequence = 0;
+        let mut table_layers = Vec::new();
         let table_files = manifest
             .as_ref()
             .map(|manifest| {
@@ -875,7 +954,8 @@ impl DatabaseBuilder {
         if let Some(manifest) = &manifest {
             let mut previous_sequence = 0;
             for table_file in &table_files {
-                let (sequence, table) = read_table(&self.path.join(table_file))?;
+                let table_path = self.path.join(table_file);
+                let (sequence, entries, is_v2) = read_table_index(&table_path)?;
                 if sequence > manifest.table_sequence {
                     return Err(Error::message("table sequence exceeds manifest sequence"));
                 }
@@ -885,13 +965,11 @@ impl DatabaseBuilder {
                     ));
                 }
                 previous_sequence = sequence;
-                for (key, value) in table {
-                    if let Some(value) = value {
-                        state.insert(key, value);
-                    } else {
-                        state.remove(&key);
-                    }
-                }
+                table_layers.push(TableLayer {
+                    path: table_path,
+                    entries,
+                    is_v2,
+                });
             }
             table_sequence = manifest.table_sequence;
         }
@@ -932,6 +1010,7 @@ impl DatabaseBuilder {
             sequence,
             table_sequence,
             table_files,
+            table_layers,
             pending_table: BTreeMap::new(),
             pending_table_bytes: 0,
             max_journaling_size: self.max_journaling_size,
@@ -965,10 +1044,7 @@ impl Keyspace {
             .inner
             .lock()
             .map_err(|_| Error::message("database lock poisoned"))?;
-        Ok(inner
-            .state
-            .get(&physical_key(&self.name, key.as_ref()))
-            .cloned())
+        inner.get_value(&physical_key(&self.name, key.as_ref()))
     }
 
     /// Insert or replace a value durably.
@@ -1048,9 +1124,10 @@ impl Keyspace {
             .and_then(|key| successor(&key))
             .or_else(|| successor(&namespace));
         let mut entries = Vec::new();
+        let state = inner.materialize_state().unwrap_or_default();
         let range = match upper {
-            Some(upper) => inner.state.range(lower..upper),
-            None => inner.state.range(lower..),
+            Some(upper) => state.range(lower..upper),
+            None => state.range(lower..),
         };
         for (key, value) in range {
             let Some(user_key) = key.strip_prefix(namespace.as_slice()) else {
@@ -1392,7 +1469,7 @@ fn write_table(
     Ok(())
 }
 
-fn read_table(path: &Path) -> Result<(u64, BTreeMap<Vec<u8>, Option<Vec<u8>>>)> {
+fn read_table_index(path: &Path) -> Result<(u64, Vec<TableIndexEntry>, bool)> {
     let bytes = fs::read(path)?;
     if bytes.len() < TABLE_MAGIC.len() + 16
         || (&bytes[..TABLE_MAGIC.len()] != TABLE_MAGIC
@@ -1405,7 +1482,7 @@ fn read_table(path: &Path) -> Result<(u64, BTreeMap<Vec<u8>, Option<Vec<u8>>>)> 
     let mut cursor = TABLE_MAGIC.len();
     let sequence = read_u64(&bytes, &mut cursor)?;
     let count = read_u64(&bytes, &mut cursor)? as usize;
-    let mut state = BTreeMap::new();
+    let mut entries = Vec::with_capacity(count);
     for _ in 0..count {
         let record_start = cursor;
         let key = read_bytes(&bytes, &mut cursor)?;
@@ -1424,12 +1501,53 @@ fn read_table(path: &Path) -> Result<(u64, BTreeMap<Vec<u8>, Option<Vec<u8>>>)> 
         if stored != actual {
             return Err(Error::message("ThingDB table checksum mismatch"));
         }
-        state.insert(key, value);
+        entries.push(TableIndexEntry {
+            key,
+            offset: record_start as u64,
+            length: (cursor - record_start) as u64,
+        });
+        let _ = value;
     }
     if cursor != bytes.len() {
         return Err(Error::message("trailing bytes in ThingDB table"));
     }
-    Ok((sequence, state))
+    Ok((sequence, entries, is_v2))
+}
+
+fn read_table_value(path: &Path, entry: &TableIndexEntry, is_v2: bool) -> Result<Option<Vec<u8>>> {
+    let mut file = File::open(path)?;
+    file.seek(SeekFrom::Start(entry.offset))?;
+    let length: usize = entry
+        .length
+        .try_into()
+        .map_err(|_| Error::message("ThingDB table record is too large"))?;
+    let mut bytes = vec![0; length];
+    file.read_exact(&mut bytes)?;
+    let mut cursor = 0;
+    let key = read_bytes(&bytes, &mut cursor)?;
+    if key != entry.key {
+        return Err(Error::message("ThingDB table index key mismatch"));
+    }
+    let value = if !is_v2 {
+        Some(read_bytes(&bytes, &mut cursor)?)
+    } else if bytes.get(cursor) == Some(&1) {
+        cursor += 1;
+        Some(read_bytes(&bytes, &mut cursor)?)
+    } else if bytes.get(cursor) == Some(&2) {
+        cursor += 1;
+        None
+    } else {
+        return Err(Error::message("invalid ThingDB table operation"));
+    };
+    let checksum_offset = cursor;
+    let stored = read_u32(&bytes, &mut cursor)?;
+    if stored != checksum(&bytes[..checksum_offset]) {
+        return Err(Error::message("ThingDB table checksum mismatch"));
+    }
+    if cursor != bytes.len() {
+        return Err(Error::message("trailing bytes in ThingDB table record"));
+    }
+    Ok(value)
 }
 
 fn write_manifest(path: &Path, manifest: &Manifest, sync: bool) -> Result<()> {

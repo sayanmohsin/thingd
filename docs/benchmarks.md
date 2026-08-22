@@ -86,6 +86,12 @@ cargo run --release -p thingd --example storage_bench --features persistent,sear
   --history target/storage-benchmark-history.jsonl
 ```
 
+Phase 4 adds table-layer point-read and restart measurements. Compare cold
+startup, post-reopen point reads, ordered scans, and memory/disk usage against
+the Phase 3 history. A passing result requires identical logical results after
+flush, restart, tombstone application, and compaction; it is not a promotion
+claim by itself.
+
 Each persistent run also reports a reopen/startup duration and first-search
 latency. To exercise the low-memory path on Linux/macOS, run the benchmark in
 an externally constrained process and record the platform's peak RSS:
