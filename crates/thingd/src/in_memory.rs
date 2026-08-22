@@ -659,7 +659,9 @@ impl QueueStore for MemoryEngine {
             .queues
             .values()
             .flat_map(|jobs| jobs.iter())
-            .filter(|job| job.status != QueueJobStatus::Dead)
+            .filter(|job| {
+                job.status == QueueJobStatus::Ready || job.status == QueueJobStatus::Leased
+            })
             .count();
         Ok(count as u64)
     }

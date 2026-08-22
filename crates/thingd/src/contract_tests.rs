@@ -6,7 +6,8 @@
 
 use crate::store::*;
 use crate::{
-    IndexDefinition, MemoryEvent, MemoryObject, MigrationRecord, QueueClaimOptions, QueueJob,
+    IndexDefinition, Link, LinkDirection, LinkQueryOptions, ListEventsOptions, ListObjectsOptions,
+    MemoryEvent, MemoryObject, MigrationRecord, PutObjectOptions, QueueClaimOptions, QueueJob,
     QueueJobStatus, QueueNackOptions, SearchOptions, StoredSchema,
 };
 #[cfg(feature = "vectors")]
@@ -146,6 +147,153 @@ pub fn test_contract_event_idempotency(engine: &mut impl ThingStore) {
         .append_event(MemoryEvent::new("s", "type-d", r#"{"n":4}"#))
         .unwrap();
     assert_eq!(e5.sequence, 4);
+}
+
+/// Run a deterministic cross-adapter scenario and return a logical digest.
+///
+/// Timestamps and backend-specific search scores are intentionally excluded so
+/// the digest compares semantics rather than clock or indexing implementation
+/// details.
+pub fn run_differential_scenario(
+    engine: &mut impl ThingStore,
+) -> crate::ThingdResult<serde_json::Value> {
+    engine.put_objects_batch(vec![
+        MemoryObject::new("docs", "a", r#"{"kind":"guide","rank":1}"#),
+        MemoryObject::new("docs", "b", r#"{"kind":"guide","rank":2}"#),
+    ])?;
+    let updated = engine.put_object_with_options(
+        MemoryObject::new("docs", "a", r#"{"kind":"guide","rank":3}"#),
+        PutObjectOptions {
+            expected_version: Some(1),
+            index: true,
+        },
+    )?;
+
+    let first_event = engine.append_event(MemoryEvent::new("audit", "created", r#"{"id":"a"}"#))?;
+    let second_event =
+        engine.append_event(MemoryEvent::new("audit", "updated", r#"{"id":"a"}"#))?;
+
+    engine.push_job(QueueJob::new("jobs", "job-1", r#"{"task":"index"}"#, 3))?;
+    let claimed = engine
+        .claim_job_with_options("jobs", QueueClaimOptions::new(60_000))?
+        .ok_or_else(|| crate::ThingdError::Storage("differential queue claim missing".into()))?;
+    let completed = engine
+        .ack_job("jobs", &claimed.id)?
+        .ok_or_else(|| crate::ThingdError::Storage("differential queue ack missing".into()))?;
+
+    let link = engine.create_link(
+        Link::new("docs/a", "supports", "docs/b")
+            .with_weight(0.5)
+            .with_metadata(r#"{"source":"test"}"#),
+    )?;
+    let neighbors = engine.get_neighbors(
+        "docs/a",
+        LinkDirection::Outgoing,
+        LinkQueryOptions::default(),
+    )?;
+
+    engine.put_schema_document(StoredSchema {
+        schema_json: r#"{"version":1}"#.to_string(),
+        hash: "schema-hash".to_string(),
+        updated_at: "2026-01-01T00:00:00Z".to_string(),
+    })?;
+    engine.record_migration(MigrationRecord {
+        id: "0001_test".to_string(),
+        hash: "schema-hash".to_string(),
+        applied_at: "2026-01-01T00:00:00Z".to_string(),
+    })?;
+    engine.create_index_definition(IndexDefinition {
+        collection: "docs".to_string(),
+        field: "kind".to_string(),
+        unique: false,
+    })?;
+
+    #[cfg(feature = "vectors")]
+    {
+        engine.add_vector("docs", "a", &[1.0, 0.0])?;
+    }
+
+    let objects = engine
+        .list_objects(None, &ListObjectsOptions::default())?
+        .into_iter()
+        .map(|object| {
+            serde_json::json!({
+                "collection": object.key.collection,
+                "id": object.key.id,
+                "body": object.body,
+                "version": object.version,
+            })
+        })
+        .collect::<Vec<_>>();
+    let events = engine
+        .list_events(Some("audit"), ListEventsOptions::default())?
+        .into_iter()
+        .map(|event| {
+            serde_json::json!({
+                "stream": event.stream,
+                "sequence": event.sequence,
+                "eventType": event.event_type,
+                "body": event.body,
+            })
+        })
+        .collect::<Vec<_>>();
+    let jobs = engine
+        .list_jobs("jobs")?
+        .into_iter()
+        .map(|job| {
+            serde_json::json!({
+                "queue": job.queue,
+                "id": job.id,
+                "body": job.body,
+                "attempts": job.attempts,
+                "maxAttempts": job.max_attempts,
+                "status": format!("{:?}", job.status),
+                "lastError": job.last_error,
+            })
+        })
+        .collect::<Vec<_>>();
+    let search_ids = engine
+        .search("guide", SearchOptions::default())?
+        .into_iter()
+        .map(|hit| format!("{}:{}/{}", hit.kind, hit.collection, hit.id))
+        .collect::<Vec<_>>();
+    let index_definitions = engine.list_index_definitions()?;
+    let schema_hash = engine.get_schema_document()?.map(|schema| schema.hash);
+    let migrations = engine
+        .list_migrations()?
+        .into_iter()
+        .map(|migration| migration.id)
+        .collect::<Vec<_>>();
+
+    Ok(serde_json::json!({
+        "objects": objects,
+        "updatedVersion": updated.version,
+        "events": events,
+        "eventSequences": [first_event.sequence, second_event.sequence],
+        "jobs": jobs,
+        "completedStatus": format!("{:?}", completed.status),
+        "link": {
+            "id": link.id,
+            "from": link.from_ref,
+            "type": link.link_type,
+            "to": link.to_ref,
+            "weight": link.weight,
+            "metadata": link.metadata_json,
+        },
+        "neighborIds": neighbors.into_iter().map(|link| link.id).collect::<Vec<_>>(),
+        "schemaHash": schema_hash,
+        "migrations": migrations,
+        "indexes": index_definitions,
+        "searchIds": search_ids,
+        "counts": {
+            "objects": engine.count_objects()?,
+            "events": engine.count_events()?,
+            "links": engine.count_links()?,
+            "queues": engine.list_queues()?.len(),
+            "activeJobs": engine.count_active_jobs()?,
+            "deadJobs": engine.count_dead_jobs()?,
+        },
+    }))
 }
 
 /// Verify queue push, claim, ack, nack lifecycle.
