@@ -633,6 +633,16 @@ fn bench_wal_workloads(
     report(name, "wal-recovery", 1, started.elapsed());
 
     let started = Instant::now();
+    for index in 0..iterations {
+        let id = format!(
+            "wal-single-{}",
+            deterministic_index(seed, index, iterations.max(1))
+        );
+        black_box(reopened.get_object(COLLECTION, &id)?);
+    }
+    report(name, "table-point-read", iterations, started.elapsed());
+
+    let started = Instant::now();
     reopened.compact_storage()?;
     report(name, "table-compaction", 1, started.elapsed());
     drop(reopened);
