@@ -30,7 +30,7 @@ large-store durability and performance gates.
 
 ## ThingDB development phase
 
-ThingDB is currently in **Phase 2: manifest and compaction recovery**. Phases 0
+ThingDB is currently in **Phase 3: bounded memtables and flush backpressure**. Phases 0
 through 1C are complete enough for opt-in development, differential testing,
 and safe logical repack, but ThingDB is not a production replacement for
 RocksDB.
@@ -41,10 +41,11 @@ RocksDB.
 | 1A. WAL hardening | Sync-before-ack writes, WAL timing diagnostics, batch-path measurement, deterministic WAL fault tests | Complete; no promotion claim |
 | 1B. Durable group commit | Bounded writer queue, one physical sync for nearby durable frames, grouped-write recovery and diagnostics | Complete; no promotion claim |
 | 1C. Immutable table layers | Incremental immutable tables, tombstones, multi-table manifests, bounded flushes, and safe full compaction | Complete; no promotion claim |
-| 2. Manifest and compaction recovery | Atomic manifest replacement, temporary-artifact cleanup, interrupted flush/compaction recovery, corruption validation, and fault-injection tests | Active |
-| 3. Scale and performance | Large-data benchmarks, memory/disk amplification limits, restart and recovery budgets | Planned |
-| 4. Controlled adoption | Soak testing, operational rollback, backup/restore validation, limited opt-in deployments | Planned |
-| 5. Default-candidate review | Compare against RocksDB gates and decide whether the default should change | Not scheduled |
+| 2. Manifest and compaction recovery | Atomic manifest replacement, temporary-artifact cleanup, interrupted flush/compaction recovery, corruption validation, and fault-injection tests | Complete; no promotion claim |
+| 3. Bounded memtables and flush backpressure | Bound mutable table memory, flush automatically after durable commits, preserve restart recovery, and measure flush cost | Active |
+| 4. Scale and performance | Large-data benchmarks, memory/disk amplification limits, restart and recovery budgets | Planned |
+| 5. Controlled adoption | Soak testing, operational rollback, backup/restore validation, limited opt-in deployments | Planned |
+| 6. Default-candidate review | Compare against RocksDB gates and decide whether the default should change | Not scheduled |
 
 Single writes remain synchronously WAL-backed before acknowledgement. Explicit
 multi-key batches share one WAL frame and one sync boundary. Phase 1B additionally
@@ -54,6 +55,10 @@ immutable table layers; explicit compaction merges those layers into one
 snapshot. The current implementation still keeps substantial state in memory.
 Phase 2 validates old-versus-new manifest recovery, table rename boundaries,
 temporary artifact cleanup, manifest path safety, and directory durability.
+Phase 3 adds explicit mutable-table byte accounting and a bounded automatic
+flush boundary. A successful write still waits for its WAL sync and any
+required flush before acknowledgement; a failed post-sync flush requires
+reopen and recovery rather than allowing ambiguous in-memory state.
 Until Phases 1A–4 pass, do not use
 ThingDB as the only copy of important production data. Keep the RocksDB source
 directory during repack and validate the destination before switching traffic.
