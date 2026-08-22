@@ -25,6 +25,7 @@ use thingd::{
     MemoryObject, ObjectStore, PersistentEngine, PersistentOpenOptions, QueueClaimOptions,
     QueueJob, QueueStore, SearchOptions, Searcher, VectorSearchOptions, VectorStore,
 };
+use thingdb::{CacheOptions, MemoryCache};
 
 const DEFAULT_ITERATIONS: usize = 5_000;
 const DEFAULT_MEMTABLE_BYTES: u64 = 8 * 1024 * 1024;
@@ -44,6 +45,7 @@ enum BackendSelection {
     InMemory,
     RocksDb,
     ThingDb,
+    Cache,
 }
 
 #[derive(Debug)]
@@ -182,6 +184,12 @@ fn main() -> Result<(), Box<dyn Error>> {
         if config.backend.includes(BackendSelection::InMemory) {
             bench_store("in-memory", MemoryEngine::new(), iterations, config.seed)?;
             bench_concurrent("in-memory", || Ok(MemoryEngine::new()), iterations)?;
+        }
+
+        if config.backend.includes(BackendSelection::ThingDb)
+            || config.backend.includes(BackendSelection::Cache)
+        {
+            bench_cache("thingdb-cache", iterations, config.seed)?;
         }
 
         if config.backend.includes(BackendSelection::RocksDb) {
@@ -331,6 +339,126 @@ fn benchmark_persistent_options(backend: thingd::PersistentBackend) -> Persisten
     }
 }
 
+#[allow(clippy::too_many_lines)]
+fn bench_cache(name: &str, iterations: usize, seed: u64) -> Result<(), Box<dyn Error>> {
+    let cache = MemoryCache::new(CacheOptions {
+        max_entries: iterations.max(1),
+        max_bytes: iterations.saturating_mul(256).max(256),
+        default_ttl: Duration::from_mins(1),
+    })?;
+    let value = b"{\"text\":\"thingdb cache benchmark\",\"kind\":\"catalog\"}";
+    let started = Instant::now();
+    for index in 0..iterations {
+        let key = cache_key(seed, index);
+        cache.insert(&key, value)?;
+    }
+    report(name, "cache_insert", iterations, started.elapsed());
+
+    let hot_keys = (0..iterations.clamp(1, 1_024))
+        .map(|index| cache_key(seed, index))
+        .collect::<Vec<_>>();
+    let started = Instant::now();
+    let mut hits = 0;
+    for index in 0..iterations {
+        if cache.get(&hot_keys[index % hot_keys.len()])?.is_some() {
+            hits += 1;
+        }
+    }
+    if hits != iterations {
+        return Err(format!(
+            "ThingDB cache hit benchmark lost {}/{} hits",
+            iterations - hits,
+            iterations
+        )
+        .into());
+    }
+    report(name, "cache_hot_get", iterations, started.elapsed());
+
+    let latency = measure_samples(iterations.clamp(1, 1_024), |index| {
+        let key = &hot_keys[index % hot_keys.len()];
+        black_box(cache.get(key)?);
+        Ok(())
+    })?;
+    record_latency(name, "cache_get_latency", latency);
+
+    let mixed_started = Instant::now();
+    for index in 0..iterations {
+        let key = cache_key(seed ^ 0x9e37_79b9, index);
+        if index % 4 == 0 {
+            cache.insert(&key, value)?;
+        } else {
+            black_box(cache.get(&key)?);
+        }
+    }
+    report(name, "cache_mixed", iterations, mixed_started.elapsed());
+
+    let stats = cache.stats()?;
+    if stats.current_bytes > stats.max_bytes || stats.current_entries > stats.max_entries {
+        return Err("ThingDB cache exceeded its configured bounds".into());
+    }
+    println!(
+        "{name} | stats hits={} misses={} evictions={} bytes={}",
+        stats.hits, stats.misses, stats.evictions, stats.current_bytes
+    );
+
+    let concurrent = Arc::new(MemoryCache::new(CacheOptions {
+        max_entries: 4_096,
+        max_bytes: 4 * 1024 * 1024,
+        default_ttl: Duration::from_mins(1),
+    })?);
+    for index in 0..512 {
+        concurrent.insert(&cache_key(seed, index), value)?;
+    }
+    let started = Instant::now();
+    let mut workers = Vec::new();
+    for thread in 0..4 {
+        let cache = Arc::clone(&concurrent);
+        workers.push(std::thread::spawn(move || -> Result<usize, String> {
+            let mut hits = 0;
+            for index in 0..iterations {
+                let key = cache_key(
+                    seed ^ u64::try_from(thread).unwrap_or(u64::MAX),
+                    index % 512,
+                );
+                if index % 8 == 0 {
+                    cache
+                        .insert(&key, value)
+                        .map_err(|error| error.to_string())?;
+                } else if cache
+                    .get(&key)
+                    .map_err(|error| error.to_string())?
+                    .is_some()
+                {
+                    hits += 1;
+                }
+            }
+            Ok(hits)
+        }));
+    }
+    let hits = workers
+        .into_iter()
+        .map(|worker| {
+            worker
+                .join()
+                .map_err(|_| "cache worker panicked".to_string())?
+        })
+        .collect::<Result<Vec<_>, _>>()?
+        .into_iter()
+        .sum::<usize>();
+    report(
+        name,
+        "cache_concurrent_4t",
+        iterations * 4,
+        started.elapsed(),
+    );
+    println!("{name} | concurrent_hits={hits}");
+    Ok(())
+}
+
+fn cache_key(seed: u64, index: usize) -> Vec<u8> {
+    format!("catalog:{seed}:{index}").into_bytes()
+}
+
 fn time_persistent_lifecycle(
     path: &std::path::Path,
     options: PersistentOpenOptions,
@@ -401,6 +529,7 @@ impl BenchConfig {
                         "memory" => BackendSelection::InMemory,
                         "rocksdb" => BackendSelection::RocksDb,
                         "thingdb" => BackendSelection::ThingDb,
+                        "cache" => BackendSelection::Cache,
                         other => return Err(format!("unknown backend {other:?}").into()),
                     };
                 },
@@ -437,6 +566,7 @@ impl BackendSelection {
             Self::InMemory => "memory",
             Self::RocksDb => "rocksdb",
             Self::ThingDb => "thingdb",
+            Self::Cache => "cache",
         }
     }
 }

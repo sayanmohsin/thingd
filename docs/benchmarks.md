@@ -50,10 +50,18 @@ branch, commit, environment, selected backend, and all measured RocksDB,
 ThingDB, or in-memory workload rows. This makes repeated runs comparable by
 phase and date without committing machine-specific results.
 
-The benchmark selects `--backend all|rocksdb|thingdb|memory`; `all` is the
+The benchmark selects `--backend all|rocksdb|thingdb|memory|cache`; `all` is the
 default and is the required comparison mode. It measures object, event, queue,
 search, vector search, batch, count, delete, concurrent-read, and
-lock-contention operations for the selected adapters.
+lock-contention operations for the selected adapters. `all` also includes the
+standalone ThingDB RAM cache as `thingdb-cache`.
+
+Use `--backend cache` for a focused ThingDB cache run. This measures byte
+key/value inserts, hot reads, mixed access, TTL/LRU bounds, latency
+percentiles, and four-thread contention. The cache is a separate process-local
+RAM primitive; its numbers must not be confused with Thingd semantic object
+storage or durable ThingDB. It creates no WAL, table, manifest, or temporary
+database files.
 
 Use `--repetitions 5` or `THINGD_BENCH_REPETITIONS=5` for phase comparisons.
 Structured JSON output includes grouped median, minimum, maximum, and spread
