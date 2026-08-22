@@ -21,6 +21,10 @@
     clippy::type_complexity
 )]
 
+mod cache;
+
+pub use cache::{CacheOptions, CacheStats, MemoryCache};
+
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::{Display, Formatter};
 use std::fs::{self, File, OpenOptions};
