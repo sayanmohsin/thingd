@@ -6777,6 +6777,42 @@ mod tests {
     }
 
     #[test]
+    fn differential_matrix_matches_memory_and_durable_backends() {
+        let memory =
+            crate::contract_tests::run_differential_scenario(&mut crate::MemoryEngine::new())
+                .unwrap();
+        let thingdb_memory =
+            crate::contract_tests::run_differential_scenario(&mut setup_thingdb_memory()).unwrap();
+
+        let rocksdb_dir = tempfile::tempdir().unwrap();
+        let mut rocksdb = PersistentEngine::open(rocksdb_dir.path()).unwrap();
+        let rocksdb_digest =
+            crate::contract_tests::run_differential_scenario(&mut rocksdb).unwrap();
+
+        let thingdb_dir = tempfile::tempdir().unwrap();
+        let mut thingdb = PersistentEngine::open_with_options(
+            thingdb_dir.path(),
+            PersistentOpenOptions {
+                backend: PersistentBackend::ThingDb,
+                ..PersistentOpenOptions::default()
+            },
+        )
+        .unwrap();
+        let thingdb_digest =
+            crate::contract_tests::run_differential_scenario(&mut thingdb).unwrap();
+
+        assert_eq!(
+            memory, thingdb_memory,
+            "MemoryEngine vs ThingDB RAM mismatch"
+        );
+        assert_eq!(memory, rocksdb_digest, "MemoryEngine vs RocksDB mismatch");
+        assert_eq!(
+            memory, thingdb_digest,
+            "MemoryEngine vs durable ThingDB mismatch"
+        );
+    }
+
+    #[test]
     fn contract_search() {
         let (mut engine, _dir) = setup_persistent();
         crate::contract_tests::test_contract_search(&mut engine);
