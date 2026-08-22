@@ -235,8 +235,9 @@ pub struct Database {
 
 struct Inner {
     path: PathBuf,
-    wal: File,
-    lock: File,
+    wal: Option<File>,
+    lock: Option<File>,
+    in_memory: bool,
     state: BTreeMap<Vec<u8>, Vec<u8>>,
     sequence: u64,
     table_sequence: u64,
@@ -492,16 +493,27 @@ fn process_group(inner: &Weak<Mutex<Inner>>, mut requests: Vec<CommitRequest>) {
         return;
     }
 
-    let wal_start = match inner.wal.metadata() {
-        Ok(metadata) => metadata.len(),
-        Err(error) => {
-            drop(inner);
-            drop(inner_arc);
-            finish_group_with_error(&mut requests, &error.to_string());
-            return;
-        },
+    let wal_start = if inner.in_memory {
+        0
+    } else if let Some(metadata) = inner.wal.as_ref().and_then(|wal| wal.metadata().ok()) {
+        metadata.len()
+    } else {
+        let message = "ThingDB WAL is unavailable";
+        inner.diagnostics.last_error = Some(message.to_string());
+        inner.diagnostics.lock_duration_ns = inner
+            .diagnostics
+            .lock_duration_ns
+            .saturating_add(elapsed_nanos(lock_started.elapsed()));
+        drop(inner);
+        drop(inner_arc);
+        finish_group_with_error(&mut requests, message);
+        return;
     };
-    let (result, synced) = execute_group(&mut inner, &mut requests, wal_start, group_size);
+    let (result, synced) = if inner.in_memory {
+        execute_memory_group(&mut inner, &mut requests, group_size)
+    } else {
+        execute_group(&mut inner, &mut requests, wal_start, group_size)
+    };
 
     if let Err(error) = &result {
         inner.diagnostics.last_error = Some(error.to_string());
@@ -510,7 +522,9 @@ fn process_group(inner: &Weak<Mutex<Inner>>, mut requests: Vec<CommitRequest>) {
             inner.diagnostics.recovery_required = true;
         }
     }
-    if let Ok(bytes) = inner.wal.metadata().map(|metadata| metadata.len()) {
+    if let Some(wal) = inner.wal.as_ref()
+        && let Ok(bytes) = wal.metadata().map(|metadata| metadata.len())
+    {
         inner.diagnostics.journal_bytes = bytes;
         inner.diagnostics.wal_over_budget = bytes > inner.max_journaling_size;
     }
@@ -529,6 +543,30 @@ fn process_group(inner: &Weak<Mutex<Inner>>, mut requests: Vec<CommitRequest>) {
         },
         Err(error) => finish_group_with_error(&mut requests, &error.to_string()),
     }
+}
+
+fn execute_memory_group(
+    inner: &mut Inner,
+    requests: &mut [CommitRequest],
+    group_size: u64,
+) -> (Result<()>, bool) {
+    let started = Instant::now();
+    for request in requests.iter_mut() {
+        for operation in std::mem::take(&mut request.operations) {
+            apply_operation(&mut inner.state, operation);
+        }
+    }
+    inner.sequence = inner.sequence.saturating_add(group_size);
+    inner.diagnostics.state_apply_duration_ns = inner
+        .diagnostics
+        .state_apply_duration_ns
+        .saturating_add(elapsed_nanos(started.elapsed()));
+    inner.diagnostics.journal_bytes = 0;
+    inner.diagnostics.frame_count = 0;
+    inner.diagnostics.wal_over_budget = false;
+    inner.diagnostics.memtable_bytes = 0;
+    inner.diagnostics.memtable_over_budget = false;
+    (Ok(()), false)
 }
 
 fn execute_group(
@@ -556,8 +594,13 @@ fn execute_group(
             maybe_fail(point, Some(point))?;
         }
         let started = Instant::now();
-        for frame in &frames {
-            inner.wal.write_all(frame)?;
+        {
+            let Some(wal) = inner.wal.as_mut() else {
+                return Err(Error::message("ThingDB WAL is unavailable"));
+            };
+            for frame in &frames {
+                wal.write_all(frame)?;
+            }
         }
         inner.diagnostics.append_duration_ns = inner
             .diagnostics
@@ -570,7 +613,12 @@ fn execute_group(
         let started = Instant::now();
         inner.diagnostics.physical_sync_count =
             inner.diagnostics.physical_sync_count.saturating_add(1);
-        inner.wal.sync_data()?;
+        {
+            let Some(wal) = inner.wal.as_mut() else {
+                return Err(Error::message("ThingDB WAL is unavailable"));
+            };
+            wal.sync_data()?;
+        }
         synced = true;
         inner.diagnostics.sync_duration_ns = inner
             .diagnostics
@@ -612,8 +660,12 @@ fn execute_group(
         Ok(())
     })();
 
-    if result.is_err() && !synced && inner.wal.set_len(wal_start).is_ok() {
-        let _ = inner.wal.seek(SeekFrom::End(0));
+    if result.is_err()
+        && !synced
+        && let Some(wal) = inner.wal.as_mut()
+        && wal.set_len(wal_start).is_ok()
+    {
+        let _ = wal.seek(SeekFrom::End(0));
         inner.diagnostics.journal_bytes = wal_start;
     }
     (result, synced)
@@ -646,6 +698,32 @@ pub struct Snapshot {
 }
 
 impl Database {
+    /// Create a true RAM-only ThingDB instance.
+    ///
+    /// This mode creates no files, WAL, manifest, table layers, or durable
+    /// recovery state. All data is lost when the returned instance is dropped.
+    pub fn in_memory() -> Result<Self> {
+        let inner = Arc::new(Mutex::new(Inner {
+            path: PathBuf::new(),
+            wal: None,
+            lock: None,
+            in_memory: true,
+            state: BTreeMap::new(),
+            sequence: 0,
+            table_sequence: 0,
+            table_files: Vec::new(),
+            table_layers: Vec::new(),
+            pending_table: BTreeMap::new(),
+            pending_table_bytes: 0,
+            max_journaling_size: 0,
+            max_memtable_bytes: 0,
+            diagnostics: WalDiagnostics::default(),
+            recovery_required: false,
+        }));
+        let writer = WriterCoordinator::new(Arc::downgrade(&inner))?;
+        Ok(Self { inner, writer })
+    }
+
     /// Start building a database at `path`.
     pub fn builder(path: impl AsRef<Path>) -> DatabaseBuilder {
         DatabaseBuilder {
@@ -683,6 +761,17 @@ impl Database {
 
     /// Flush durable state and compact the current state into one table.
     pub fn persist(&self, mode: PersistMode) -> Result<()> {
+        if self
+            .inner
+            .lock()
+            .map_err(|_| Error::message("database lock poisoned"))?
+            .in_memory
+        {
+            let _ = mode;
+            return Err(Error::message(
+                "ThingDB in-memory databases do not support persistence",
+            ));
+        }
         match mode {
             PersistMode::SyncAll => self.flush_table(true),
         }
@@ -690,6 +779,16 @@ impl Database {
 
     /// Compact the database into a new immutable table.
     pub fn compact(&self) -> Result<()> {
+        if self
+            .inner
+            .lock()
+            .map_err(|_| Error::message("database lock poisoned"))?
+            .in_memory
+        {
+            return Err(Error::message(
+                "ThingDB in-memory databases do not support compaction",
+            ));
+        }
         self.compact_tables(true)
     }
 
@@ -710,12 +809,25 @@ impl Database {
             .inner
             .lock()
             .map_err(|_| Error::message("database lock poisoned"))?;
-        Ok(inner.wal.metadata()?.len())
+        if inner.in_memory {
+            Ok(0)
+        } else {
+            inner
+                .wal
+                .as_ref()
+                .ok_or_else(|| Error::message("ThingDB WAL is unavailable"))?
+                .metadata()
+                .map(|metadata| metadata.len())
+                .map_err(Error::from)
+        }
     }
 
     /// Return the number of WAL files currently present.
     pub fn journal_count(&self) -> usize {
-        usize::from(self.inner.lock().is_ok())
+        self.inner
+            .lock()
+            .map(|inner| usize::from(!inner.in_memory))
+            .unwrap_or_default()
     }
 
     /// Return bounded WAL and recovery diagnostics.
@@ -725,7 +837,17 @@ impl Database {
             .lock()
             .map_err(|_| Error::message("database lock poisoned"))?;
         let mut diagnostics = inner.diagnostics.clone();
-        diagnostics.journal_bytes = inner.wal.metadata()?.len();
+        diagnostics.journal_bytes = if inner.in_memory {
+            0
+        } else {
+            inner
+                .wal
+                .as_ref()
+                .ok_or_else(|| Error::message("ThingDB WAL is unavailable"))?
+                .metadata()
+                .map_err(Error::from)?
+                .len()
+        };
         Ok(diagnostics)
     }
 
@@ -750,13 +872,21 @@ fn flush_table_locked(
         ));
     }
     if inner.pending_table.is_empty() {
-        inner.wal.sync_data()?;
+        let wal = inner
+            .wal
+            .as_mut()
+            .ok_or_else(|| Error::message("ThingDB WAL is unavailable"))?;
+        wal.sync_data()?;
         return Ok(());
     }
     let updates = std::mem::take(&mut inner.pending_table);
     let update_bytes = inner.pending_table_bytes;
     let result = (|| {
-        inner.wal.sync_data()?;
+        let wal = inner
+            .wal
+            .as_mut()
+            .ok_or_else(|| Error::message("ThingDB WAL is unavailable"))?;
+        wal.sync_data()?;
         let next_sequence = inner.sequence;
         let table_name = format!(
             "table-{next_sequence:020}-{:04}.tdb",
@@ -791,12 +921,16 @@ fn flush_table_locked(
         inner.table_sequence = next_sequence;
         inner.state.clear();
         inner.pending_table_bytes = 0;
-        inner.wal.set_len(0)?;
-        inner.wal.seek(SeekFrom::End(0))?;
+        let wal = inner
+            .wal
+            .as_mut()
+            .ok_or_else(|| Error::message("ThingDB WAL is unavailable"))?;
+        wal.set_len(0)?;
+        wal.seek(SeekFrom::End(0))?;
         if sync {
-            inner.wal.sync_data()?;
+            wal.sync_data()?;
         }
-        inner.diagnostics.journal_bytes = inner.wal.metadata()?.len();
+        inner.diagnostics.journal_bytes = wal.metadata()?.len();
         inner.diagnostics.frame_count = 0;
         inner.diagnostics.memtable_bytes = 0;
         inner.diagnostics.memtable_over_budget = false;
@@ -825,7 +959,11 @@ impl Database {
                 "ThingDB requires reopen and recovery before writing",
             ));
         }
-        inner.wal.sync_data()?;
+        let wal = inner
+            .wal
+            .as_mut()
+            .ok_or_else(|| Error::message("ThingDB WAL is unavailable"))?;
+        wal.sync_data()?;
         let next_sequence = inner.sequence;
         let table_name = format!("table-{next_sequence:020}-compact.tdb");
         let table_path = inner.path.join(&table_name);
@@ -869,12 +1007,16 @@ impl Database {
         inner.state.clear();
         inner.pending_table.clear();
         inner.pending_table_bytes = 0;
-        inner.wal.set_len(0)?;
-        inner.wal.seek(SeekFrom::End(0))?;
+        let wal = inner
+            .wal
+            .as_mut()
+            .ok_or_else(|| Error::message("ThingDB WAL is unavailable"))?;
+        wal.set_len(0)?;
+        wal.seek(SeekFrom::End(0))?;
         if sync {
-            inner.wal.sync_data()?;
+            wal.sync_data()?;
         }
-        inner.diagnostics.journal_bytes = inner.wal.metadata()?.len();
+        inner.diagnostics.journal_bytes = wal.metadata()?.len();
         inner.diagnostics.frame_count = 0;
         inner.diagnostics.memtable_bytes = 0;
         inner.diagnostics.memtable_over_budget = false;
@@ -1004,8 +1146,9 @@ impl DatabaseBuilder {
         }
         let inner = Arc::new(Mutex::new(Inner {
             path: self.path,
-            wal,
-            lock,
+            wal: Some(wal),
+            lock: Some(lock),
+            in_memory: false,
             state,
             sequence,
             table_sequence,
@@ -1031,8 +1174,10 @@ impl DatabaseBuilder {
 
 impl Drop for Inner {
     fn drop(&mut self) {
-        let _ = self.lock.sync_all();
-        let _ = fs::remove_file(self.path.join(LOCK_FILE));
+        if let Some(lock) = self.lock.as_ref() {
+            let _ = lock.sync_all();
+            let _ = fs::remove_file(self.path.join(LOCK_FILE));
+        }
     }
 }
 
@@ -1666,6 +1811,86 @@ fn read_bytes(bytes: &[u8], cursor: &mut usize) -> Result<Vec<u8>> {
 mod tests {
     use super::*;
     use std::fs::OpenOptions;
+
+    #[test]
+    fn in_memory_database_is_ordered_atomic_and_non_durable() {
+        let directory = tempfile::tempdir().unwrap();
+        let db = Database::in_memory().unwrap();
+        let objects = db
+            .keyspace("objects", KeyspaceCreateOptions::default)
+            .unwrap();
+        let events = db
+            .keyspace("events", KeyspaceCreateOptions::default)
+            .unwrap();
+
+        db.batch()
+            .put(&objects, b"b", b"two")
+            .put(&events, b"1", b"event")
+            .put(&objects, b"a", b"one")
+            .commit()
+            .unwrap();
+
+        let snapshot = db.snapshot().unwrap();
+        objects.insert(b"a", b"updated").unwrap();
+        assert_eq!(
+            snapshot.keyspace("objects").get(b"a"),
+            Some(b"one".to_vec())
+        );
+        assert_eq!(objects.get(b"a").unwrap(), Some(b"updated".to_vec()));
+        assert_eq!(
+            objects
+                .prefix(b"")
+                .map(|entry| entry.key)
+                .collect::<Vec<_>>(),
+            vec![b"a".to_vec(), b"b".to_vec()]
+        );
+        assert_eq!(
+            objects
+                .range_bounds(Some((b"a", true)), Some((b"a", true)))
+                .count(),
+            1
+        );
+        assert_eq!(events.get(b"1").unwrap(), Some(b"event".to_vec()));
+
+        let diagnostics = db.wal_diagnostics().unwrap();
+        assert_eq!(diagnostics.journal_bytes, 0);
+        assert_eq!(diagnostics.frame_count, 0);
+        assert_eq!(diagnostics.physical_sync_count, 0);
+        assert_eq!(diagnostics.recovery_bytes, 0);
+        assert_eq!(diagnostics.flush_count, 0);
+        assert_eq!(db.journal_disk_space().unwrap(), 0);
+        assert_eq!(db.journal_count(), 0);
+        assert!(db.persist(PersistMode::SyncAll).is_err());
+        assert!(db.compact().is_err());
+        assert!(directory.path().read_dir().unwrap().next().is_none());
+    }
+
+    #[test]
+    fn in_memory_instances_are_isolated_and_batches_share_one_state_boundary() {
+        let first = Database::in_memory().unwrap();
+        let second = Database::in_memory().unwrap();
+        let first_objects = first
+            .keyspace("objects", KeyspaceCreateOptions::default)
+            .unwrap();
+        let second_objects = second
+            .keyspace("objects", KeyspaceCreateOptions::default)
+            .unwrap();
+
+        first_objects.insert(b"only-first", b"value").unwrap();
+        first
+            .batch()
+            .put(&first_objects, b"a", b"one")
+            .put(&first_objects, b"b", b"two")
+            .commit()
+            .unwrap();
+
+        assert!(second_objects.get(b"only-first").unwrap().is_none());
+        assert_eq!(first_objects.iter().count(), 3);
+        let diagnostics = first.wal_diagnostics().unwrap();
+        assert_eq!(diagnostics.logical_commit_count, 2);
+        assert_eq!(diagnostics.total_group_size, 2);
+        assert_eq!(diagnostics.physical_sync_count, 0);
+    }
 
     #[test]
     fn persists_and_reopens() {
