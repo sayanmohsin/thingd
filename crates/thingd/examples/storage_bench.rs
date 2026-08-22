@@ -541,8 +541,7 @@ impl BenchConfig {
             .and_then(|value| value.parse().ok())
             .unwrap_or(DEFAULT_MEMTABLE_BYTES);
         let mut reliability = env::var("THINGD_BENCH_RELIABILITY")
-            .ok()
-            .is_some_and(|value| value == "1" || value.eq_ignore_ascii_case("true"));
+            .is_ok_and(|value| value == "1" || value.eq_ignore_ascii_case("true"));
         let mut positional_iterations = None;
         let mut args = env::args().skip(1);
         while let Some(argument) = args.next() {
