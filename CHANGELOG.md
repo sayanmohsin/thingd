@@ -13,6 +13,36 @@
 - server: harden security boundaries (0961ffe)
 - complete public SDK type exports (8a8889a)
 
+## [0.84.0](https://github.com/sayanmohsin/thingd/compare/thingd-v0.83.2...thingd-v0.84.0) (2026-08-23)
+
+
+### Features
+
+* add extensible data connectors ([#168](https://github.com/sayanmohsin/thingd/issues/168)) ([d9bdf1d](https://github.com/sayanmohsin/thingd/commit/d9bdf1daca428215fb61dbe67e7434a152edc3ea))
+* add ThingDB durable group commit ([#164](https://github.com/sayanmohsin/thingd/issues/164)) ([db48796](https://github.com/sayanmohsin/thingd/commit/db48796535970b700dfd89de141da97de4fd3524))
+* harden ThingDB WAL durability ([#163](https://github.com/sayanmohsin/thingd/issues/163)) ([f50b618](https://github.com/sayanmohsin/thingd/commit/f50b618cf19f18def01083cc632bb91e10a10341))
+* improve reliability-first ThingDB benchmarks ([#162](https://github.com/sayanmohsin/thingd/issues/162)) ([e232759](https://github.com/sayanmohsin/thingd/commit/e2327596a99215172a2e2475c4798e0134ea9ef2))
+* **storage:** add experimental ThingDB backend ([#160](https://github.com/sayanmohsin/thingd/issues/160)) ([59911de](https://github.com/sayanmohsin/thingd/commit/59911de5e2c8fcd1407c1a583ef212634329ff30))
+* **storage:** add ThingDB immutable table layers ([#167](https://github.com/sayanmohsin/thingd/issues/167)) ([b22594d](https://github.com/sayanmohsin/thingd/commit/b22594dc5ae871b1e7a27572567e7d80237e701b))
+* **storage:** remove legacy migration support ([#166](https://github.com/sayanmohsin/thingd/issues/166)) ([b84ea14](https://github.com/sayanmohsin/thingd/commit/b84ea145598134a1d4fa734eb2edffad43812e09))
+* **thingdb:** add bounded in-memory cache ([#177](https://github.com/sayanmohsin/thingd/issues/177)) ([16c4eb2](https://github.com/sayanmohsin/thingd/commit/16c4eb27b2ea47170bfd239242ed39ca61c7e1d9))
+* **thingdb:** add in-memory semantic adapter ([#173](https://github.com/sayanmohsin/thingd/issues/173)) ([0ae310b](https://github.com/sayanmohsin/thingd/commit/0ae310bbc1d7612d46dddc583146b64dbca63c5b))
+* **thingdb:** add layered table reads ([#171](https://github.com/sayanmohsin/thingd/issues/171)) ([756c4ef](https://github.com/sayanmohsin/thingd/commit/756c4efdb7261357e62e37d7e68a8b0746d02d07))
+* **thingdb:** add ram-only storage core ([#172](https://github.com/sayanmohsin/thingd/issues/172)) ([97aee14](https://github.com/sayanmohsin/thingd/commit/97aee14840cff8d75b89048b2ef3ad933a42a53b))
+* **thingdb:** bound mutable table memory ([#170](https://github.com/sayanmohsin/thingd/issues/170)) ([271870f](https://github.com/sayanmohsin/thingd/commit/271870f1897091195cac8957cc23a492e000fba9))
+* **thingdb:** harden manifest and compaction recovery ([#169](https://github.com/sayanmohsin/thingd/issues/169)) ([210ccce](https://github.com/sayanmohsin/thingd/commit/210cccebfea1bea9acbbe6c4c058f312635e83c6))
+* **thingdb:** make RAM mode the native default ([#178](https://github.com/sayanmohsin/thingd/issues/178)) ([2c04e22](https://github.com/sayanmohsin/thingd/commit/2c04e228cbc651ea95fc05aa203819b584045edb))
+
+
+### Bug Fixes
+
+* **thingdb:** isolate in-memory search rebuilds ([#175](https://github.com/sayanmohsin/thingd/issues/175)) ([2dd5ec2](https://github.com/sayanmohsin/thingd/commit/2dd5ec263703f8c8d29c5841a4a2022d90d77f80))
+
+
+### Performance Improvements
+
+* optimize ThingDB memory writes and refresh dependencies ([#179](https://github.com/sayanmohsin/thingd/issues/179)) ([ad8373d](https://github.com/sayanmohsin/thingd/commit/ad8373d8d9dea73380645b28b3e6f368c57e1b7c))
+
 ## [0.83.2](https://github.com/sayanmohsin/thingd/compare/thingd-v0.83.1...thingd-v0.83.2) (2026-08-15)
 
 
