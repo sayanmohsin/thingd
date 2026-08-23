@@ -26,8 +26,8 @@ use thingd::{
     MemoryObject, ObjectStore, PersistentEngine, PersistentOpenOptions, QueueClaimOptions,
     QueueJob, QueueStore, SearchOptions, Searcher, VectorSearchOptions, VectorStore,
 };
-use thingdb::{CacheOptions, MemoryCache};
 use thingd::{Link, LinkStore};
+use thingdb::{CacheOptions, MemoryCache};
 
 const DEFAULT_ITERATIONS: usize = 5_000;
 const DEFAULT_MEMTABLE_BYTES: u64 = 8 * 1024 * 1024;
