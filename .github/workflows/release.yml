@@ -426,5 +426,5 @@ jobs:
           if curl -fsS -A "thingd-release/${GITHUB_REPOSITORY} run/${GITHUB_RUN_ID}" "https://crates.io/api/v1/crates/thingd/${VERSION}" >/dev/null; then
             echo "thingd ${VERSION} already exists"
           else
-            cargo publish -p thingd --features persistent,search
+            cargo publish --allow-dirty -p thingd --features persistent,search
           fi

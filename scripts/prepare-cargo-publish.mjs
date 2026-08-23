@@ -8,17 +8,52 @@ if (!/^\d+\.\d+\.\d+$/.test(version ?? "")) {
 
 const root = process.cwd();
 const manifestPath = path.join(root, "crates/thingd/Cargo.toml");
-const manifest = fs.readFileSync(manifestPath, "utf8");
-const majorMinor = version.split(".").slice(0, 2).join(".");
-const workspaceDependency = `thingdb = { path = "../thingdb", version = "${majorMinor}", optional = true }`;
-const publishedDependency =
-  `thingdb = { git = "https://github.com/sayanmohsin/thingd", tag = "thingd-v${version}", package = "thingdb", optional = true }`;
+let manifest = fs.readFileSync(manifestPath, "utf8");
+const featureDependency = '    "dep:thingdb",\n';
+const sourceRoot = path.join(root, "crates/thingdb/src");
+const publishRoot = path.join(root, "crates/thingd/src");
+const workspaceDependency = manifest.match(
+  /thingdb = \{ path = "\.\.\/thingdb", version = "[^"]+", optional = true \}/,
+)?.[0];
 
-if (!manifest.includes(workspaceDependency)) {
-  throw new Error(
-    `Expected the workspace ThingDB dependency in ${path.relative(root, manifestPath)}`,
+if (!workspaceDependency || !manifest.includes(featureDependency)) {
+  throw new Error("Expected the workspace ThingDB dependency and persistent feature entry");
+}
+
+manifest = manifest.replace(`\n${featureDependency}`, "\n").replace(`\n${workspaceDependency}`, "");
+if (!manifest.includes('crc32fast = "1.4"')) {
+  manifest = manifest.replace(
+    "[dependencies]\n",
+    '[dependencies]\ncrc32fast = "1.4"\n',
+  );
+}
+fs.writeFileSync(manifestPath, manifest);
+
+const thingdLibPath = path.join(publishRoot, "lib.rs");
+const thingdLib = fs.readFileSync(thingdLibPath, "utf8");
+if (!thingdLib.includes("mod thingdb;")) {
+  fs.writeFileSync(
+    thingdLibPath,
+    thingdLib.replace(
+      "#[cfg(feature = \"persistent\")]\nmod storage_backend;",
+      "#[cfg(feature = \"persistent\")]\nmod storage_backend;\n#[cfg(feature = \"persistent\")]\nmod thingdb;",
+    ),
   );
 }
 
-fs.writeFileSync(manifestPath, manifest.replace(workspaceDependency, publishedDependency));
-console.log(`Prepared crates/thingd/Cargo.toml with ThingDB tag thingd-v${version}`);
+for (const file of ["persistent.rs", "storage_backend.rs"]) {
+  const filePath = path.join(publishRoot, file);
+  const source = fs.readFileSync(filePath, "utf8");
+  fs.writeFileSync(filePath, source.replaceAll("thingdb::", "crate::thingdb::"));
+}
+
+const thingdbLib = fs
+  .readFileSync(path.join(sourceRoot, "lib.rs"), "utf8")
+  .replace("mod cache;", '#[path = "thingdb_cache.rs"]\nmod cache;');
+const thingdbCache = fs
+  .readFileSync(path.join(sourceRoot, "cache.rs"), "utf8")
+  .replace("use crate::{Error, Result};", "use super::{Error, Result};");
+fs.writeFileSync(path.join(publishRoot, "thingdb.rs"), thingdbLib);
+fs.writeFileSync(path.join(publishRoot, "thingdb_cache.rs"), thingdbCache);
+
+console.log(`Prepared crates/thingd with private ThingDB sources for ${version}`);
