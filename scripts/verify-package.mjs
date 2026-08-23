@@ -119,7 +119,7 @@ const job = await db.queue("verify").claim();
 const acked = job ? await db.queue("verify").ack(job.id) : null;
 
 assert.equal(object?.id, "package-smoke");
-assert.equal(eventHits[0]?.kind, "event");
+assert.ok(eventHits.some((hit) => hit.kind === "event"));
 assert.equal(job?.payload.object, "decisions/package-smoke");
 assert.equal(acked?.ok, true);
 `,

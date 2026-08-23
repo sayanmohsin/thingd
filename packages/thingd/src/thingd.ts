@@ -516,8 +516,9 @@ async function openStore(path: string, options: ResolvedThingDOpenOptions): Prom
     });
   }
 
-  if (options.driver === "memory" && options.encryption) {
-    throw new Error("Encryption options are only supported by the native persistent driver");
+  const isMemoryPath = path === ":memory:" || path === "";
+  if (isMemoryPath && options.encryption) {
+    throw new Error("Encryption is not supported for non-durable memory storage");
   }
 
   const hasNative = await NativeThingStore.isAvailable();
@@ -533,6 +534,10 @@ async function openStore(path: string, options: ResolvedThingDOpenOptions): Prom
       );
     }
     return NativeThingStore.open(path, options.encryption?.key);
+  }
+
+  if (!options.driver && isMemoryPath && hasNative) {
+    return NativeThingStore.open(path);
   }
 
   // Auto-detect and promote file paths to native store when available, with a warning fallback to memory.

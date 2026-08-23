@@ -68,14 +68,13 @@ Until Phases 1A–4 pass, do not use
 ThingDB as the only copy of important production data. Keep the RocksDB source
 directory during repack and validate the destination before switching traffic.
 
-The separate in-memory qualification track is currently in **combined Phase
-5/6: benchmark, reliability, and soak validation**. The unified benchmark now
-includes `thingdb-memory`, and its reliability preflight covers semantic
-operations, search cleanup, concurrent access, repeated-instance isolation,
-and zero filesystem/journal usage. This work does not change the in-memory
-default: `MemoryEngine` remains the runtime default until repeatable
-five-run results, bounded memory behavior, and the complete reliability gates
-are reviewed. Phase 7 remains the separate default-adoption decision.
+The separate in-memory qualification track completed **combined Phase 5/6:
+benchmark, reliability, and soak validation**. The unified benchmark includes
+`thingdb-memory`, and its reliability preflight covers semantic operations,
+search cleanup, concurrent access, repeated-instance isolation, and zero
+filesystem/journal usage. Phase 7 now makes ThingDB RAM the default for native
+and server disposable memory mode. `MemoryEngine` remains available as a
+portable reference, cache, WASM, and differential-test implementation.
 
 See [Benchmarks](./benchmarks.md) for the workload matrix and promotion gates.
 

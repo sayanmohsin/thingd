@@ -36,6 +36,9 @@ THINGD_NATIVE_MAX_BATCH_ITEMS=<optional count>
 
 `THINGD_DRIVER` can be `memory` or `native`. Use `native` for the Rust-backed
 persistent store after the native package has been built into the runtime image.
+For native Node or server `:memory:` operation, ThingDB RAM is selected by
+default and creates no durable files. The explicit `memory` driver remains the
+portable TypeScript/reference implementation.
 
 `THINGD_STORAGE_BACKEND` defaults to `rocksdb`. Set it to `thingdb` only for
 the experimental Rust-native backend. ThingDB uses a separate on-disk format;
@@ -45,8 +48,9 @@ the environment variable in place.
 `THINGD_ENCRYPTION_KEY` is optional and applies only to native persistent
 storage. It must represent exactly 32 bytes as 64 hexadecimal characters. Do
 not put it in source control, container image layers, MCP configuration, URLs,
-or request payloads. Memory and cloud drivers reject this local option rather
-than ignoring it. Changing the value does not rotate an existing database.
+or request payloads. Disposable ThingDB RAM, explicit memory, and cloud drivers
+reject this local option rather than ignoring it. Changing the value does not
+rotate an existing database.
 
 `THINGD_SEARCH_MODE=persistent` uses staged startup: it opens primary storage
 without Tantivy, compacts primary storage, then rebuilds missing or incompatible
