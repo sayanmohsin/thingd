@@ -429,7 +429,7 @@ mod tests {
         let cache = Arc::new(cache(
             Arc::new(TestClock::new()),
             CacheOptions {
-                max_entries: 256,
+                max_entries: 1_024,
                 ..CacheOptions::default()
             },
         ));
@@ -448,6 +448,6 @@ mod tests {
         for thread in threads {
             thread.join().unwrap();
         }
-        assert!(cache.stats().unwrap().current_entries <= 256);
+        assert!(cache.stats().unwrap().current_entries <= 1_024);
     }
 }
