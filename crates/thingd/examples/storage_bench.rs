@@ -3,6 +3,7 @@
 //! Usage:
 //!   cargo run --example `storage_bench` --release --features persistent,search [<iterations>]
 //!   `THINGD_BENCH_ITERS=10000` cargo run --example `storage_bench` --release --features persistent,search
+//!   Add `--reliability` to run the correctness and isolation preflight.
 
 #![allow(unused_crate_dependencies)]
 
@@ -25,6 +26,7 @@ use thingd::{
     MemoryObject, ObjectStore, PersistentEngine, PersistentOpenOptions, QueueClaimOptions,
     QueueJob, QueueStore, SearchOptions, Searcher, VectorSearchOptions, VectorStore,
 };
+use thingd::{Link, LinkStore};
 use thingdb::{CacheOptions, MemoryCache};
 
 const DEFAULT_ITERATIONS: usize = 5_000;
@@ -58,6 +60,7 @@ struct BenchConfig {
     history: PathBuf,
     phase: String,
     memtable_bytes: u64,
+    reliability: bool,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -83,6 +86,8 @@ struct StorageSnapshot {
     path: String,
     bytes_on_disk: u64,
     file_count: usize,
+    filesystem_artifacts: usize,
+    in_memory: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -127,6 +132,7 @@ struct BenchMetadata {
     arch: String,
     parallelism: usize,
     thingdb_memtable_bytes: u64,
+    reliability_preflight: bool,
 }
 
 static RESULTS: std::sync::OnceLock<Mutex<BenchOutput>> = std::sync::OnceLock::new();
@@ -151,6 +157,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 arch: env::consts::ARCH.to_string(),
                 parallelism: std::thread::available_parallelism().map_or(1, usize::from),
                 thingdb_memtable_bytes: config.memtable_bytes,
+                reliability_preflight: config.reliability,
             },
             results: Vec::new(),
             summaries: Vec::new(),
@@ -182,8 +189,21 @@ fn main() -> Result<(), Box<dyn Error>> {
         println!("repetition: {}", repetition + 1);
 
         if config.backend.includes(BackendSelection::InMemory) {
-            bench_store("in-memory", MemoryEngine::new(), iterations, config.seed)?;
-            bench_concurrent("in-memory", || Ok(MemoryEngine::new()), iterations)?;
+            bench_store(
+                "memory-engine",
+                MemoryEngine::new(),
+                iterations,
+                config.seed,
+            )?;
+            bench_concurrent("memory-engine", || Ok(MemoryEngine::new()), iterations)?;
+        }
+
+        if config.backend.includes(BackendSelection::ThingDb) {
+            let thingdb_memory =
+                PersistentEngine::open_in_memory_with_backend(thingd::PersistentBackend::ThingDb)?;
+            bench_store("thingdb-memory", thingdb_memory, iterations, config.seed)?;
+            record_memory_storage("thingdb-memory");
+            bench_memory_latency_distribution("thingdb-memory", iterations.min(256), config.seed)?;
         }
 
         if config.backend.includes(BackendSelection::ThingDb)
@@ -274,6 +294,15 @@ fn main() -> Result<(), Box<dyn Error>> {
                 },
                 iterations,
             )?;
+            bench_concurrent(
+                "thingdb-memory",
+                || {
+                    Ok(PersistentEngine::open_in_memory_with_backend(
+                        thingd::PersistentBackend::ThingDb,
+                    )?)
+                },
+                iterations,
+            )?;
         }
 
         if config.backend.includes(BackendSelection::RocksDb) {
@@ -315,6 +344,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
 
     run_correctness_smoke(config.seed)?;
+    if config.reliability {
+        run_reliability_preflight(config.seed)?;
+    }
     update_summaries();
     if let Some(path) = config.output.as_deref() {
         write_output(path)?;
@@ -508,6 +540,8 @@ impl BenchConfig {
             .ok()
             .and_then(|value| value.parse().ok())
             .unwrap_or(DEFAULT_MEMTABLE_BYTES);
+        let mut reliability = env::var("THINGD_BENCH_RELIABILITY")
+            .is_ok_and(|value| value == "1" || value.eq_ignore_ascii_case("true"));
         let mut positional_iterations = None;
         let mut args = env::args().skip(1);
         while let Some(argument) = args.next() {
@@ -523,6 +557,7 @@ impl BenchConfig {
                 "--history" => history = PathBuf::from(value("--history")?),
                 "--phase" => phase = value("--phase")?,
                 "--memtable-bytes" => memtable_bytes = value("--memtable-bytes")?.parse()?,
+                "--reliability" => reliability = true,
                 "--backend" => {
                     backend = match value("--backend")?.as_str() {
                         "all" => BackendSelection::All,
@@ -551,6 +586,7 @@ impl BenchConfig {
             history,
             phase,
             memtable_bytes: memtable_bytes.max(1),
+            reliability,
         })
     }
 }
@@ -715,6 +751,47 @@ fn bench_latency_distribution(
             STREAM,
             "benchmark.latency",
             format!("{EVENT_BODY}:latency-{index}"),
+        );
+        black_box(store.append_event(event)?);
+        Ok(())
+    })?;
+    record_latency(name, "latency_event_append", event_latencies);
+    Ok(())
+}
+
+fn bench_memory_latency_distribution(
+    name: &str,
+    samples: usize,
+    seed: u64,
+) -> Result<(), Box<dyn Error>> {
+    let mut store =
+        PersistentEngine::open_in_memory_with_backend(thingd::PersistentBackend::ThingDb)?;
+    let samples = samples.max(1);
+    let put_latencies = measure_samples(samples, |index| {
+        let id = format!(
+            "memory-latency-{}",
+            deterministic_index(seed, index, samples)
+        );
+        store.put_object(MemoryObject::new(COLLECTION, id, OBJECT_BODY_ACTIVE))?;
+        Ok(())
+    })?;
+    record_latency(name, "latency_object_put", put_latencies);
+
+    let get_latencies = measure_samples(samples, |index| {
+        let id = format!(
+            "memory-latency-{}",
+            deterministic_index(seed, index, samples)
+        );
+        black_box(store.get_object(COLLECTION, &id)?);
+        Ok(())
+    })?;
+    record_latency(name, "latency_object_get", get_latencies);
+
+    let event_latencies = measure_samples(samples, |index| {
+        let event = MemoryEvent::new(
+            STREAM,
+            "benchmark.memory-latency",
+            format!("{EVENT_BODY}:memory-latency-{index}"),
         );
         black_box(store.append_event(event)?);
         Ok(())
@@ -985,6 +1062,171 @@ fn run_correctness_smoke(seed: u64) -> Result<(), Box<dyn Error>> {
             return Err(format!("{backend:?}: reopened batch/event mismatch").into());
         }
         println!("correctness | {backend:?} | passed");
+    }
+    Ok(())
+}
+
+fn run_reliability_preflight(seed: u64) -> Result<(), Box<dyn Error>> {
+    run_reliability_scenario("memory-engine", &mut MemoryEngine::new(), seed)?;
+    run_reliability_scenario(
+        "thingdb-memory",
+        &mut PersistentEngine::open_in_memory_with_backend(thingd::PersistentBackend::ThingDb)?,
+        seed,
+    )?;
+
+    run_concurrent_reliability("memory-engine", || Ok(MemoryEngine::new()), seed)?;
+    run_concurrent_reliability(
+        "thingdb-memory",
+        || {
+            Ok(PersistentEngine::open_in_memory_with_backend(
+                thingd::PersistentBackend::ThingDb,
+            )?)
+        },
+        seed,
+    )?;
+
+    for cycle in 0..3 {
+        let mut engine =
+            PersistentEngine::open_in_memory_with_backend(thingd::PersistentBackend::ThingDb)?;
+        if !engine.is_in_memory() || engine.count_objects()? != 0 || engine.count_events()? != 0 {
+            return Err(format!("thingdb-memory isolation failed at cycle {cycle}").into());
+        }
+        run_reliability_scenario("thingdb-memory-reopen", &mut engine, seed + cycle)?;
+    }
+
+    println!("reliability | memory backends | passed");
+    Ok(())
+}
+
+fn run_reliability_scenario<S>(name: &str, store: &mut S, seed: u64) -> Result<(), Box<dyn Error>>
+where
+    S: EventLog + LinkStore + ObjectStore + QueueStore + Searcher + VectorStore,
+{
+    let objects = (0..16)
+        .map(|index| {
+            MemoryObject::new(
+                "reliability",
+                format!("object-{seed}-{index}"),
+                if index % 2 == 0 {
+                    OBJECT_BODY_ACTIVE
+                } else {
+                    OBJECT_BODY_INACTIVE
+                },
+            )
+        })
+        .collect::<Vec<_>>();
+    let stored = store.put_objects_batch(objects)?;
+    if stored.len() != 16 {
+        return Err(format!("{name}: atomic object batch mismatch").into());
+    }
+
+    let first_id = format!("object-{seed}-0");
+    let updated = store.put_object(MemoryObject::new(
+        "reliability",
+        &first_id,
+        r#"{"text":"reliabilityupdated"}"#,
+    ))?;
+    if updated.version != 2 {
+        return Err(format!("{name}: object version mismatch").into());
+    }
+
+    let event = store.append_event(MemoryEvent::new(
+        "reliability",
+        "preflight",
+        format!("{{\"seed\":{seed}}}"),
+    ))?;
+    if event.sequence != 1 {
+        return Err(format!("{name}: event sequence mismatch").into());
+    }
+
+    let job_id = format!("job-{seed}");
+    store.push_job(QueueJob::new(
+        QUEUE,
+        &job_id,
+        r#"{"task":"reliability"}"#,
+        3,
+    ))?;
+    let claimed = store
+        .claim_job(QUEUE)?
+        .ok_or_else(|| format!("{name}: queue claim failed"))?;
+    store
+        .ack_job(QUEUE, &claimed.id)?
+        .ok_or_else(|| format!("{name}: queue ack failed"))?;
+
+    let link = store.create_link(Link::new(
+        format!("reliability/{first_id}"),
+        "preflight",
+        format!("reliability/object-{seed}-1"),
+    ))?;
+    if store.count_links()? != 1 || link.link_type != "preflight" {
+        return Err(format!("{name}: link state mismatch").into());
+    }
+
+    let search_hits = store.search("reliabilityupdated", SearchOptions::default())?;
+    if search_hits.len() != 1 {
+        return Err(format!("{name}: search update mismatch").into());
+    }
+    if !store.delete_object("reliability", &first_id)?
+        || !store
+            .search("reliabilityupdated", SearchOptions::default())?
+            .is_empty()
+    {
+        return Err(format!("{name}: search delete mismatch").into());
+    }
+    if store.count_objects()? != 15 || store.count_events()? != 1 {
+        return Err(format!("{name}: final count mismatch").into());
+    }
+    Ok(())
+}
+
+fn run_concurrent_reliability<S, F>(name: &str, factory: F, seed: u64) -> Result<(), Box<dyn Error>>
+where
+    S: ObjectStore + Send + 'static,
+    F: Fn() -> Result<S, Box<dyn Error>>,
+{
+    let store = Arc::new(Mutex::new(factory()?));
+    {
+        let mut guard = store.lock().unwrap();
+        for index in 0..32 {
+            guard.put_object(MemoryObject::new(
+                "concurrent",
+                format!("seed-{seed}-{index}"),
+                OBJECT_BODY_ACTIVE,
+            ))?;
+        }
+        drop(guard);
+    }
+
+    std::thread::scope(|scope| {
+        for reader in 0..4 {
+            let store = Arc::clone(&store);
+            scope.spawn(move || {
+                for index in 0..32 {
+                    let id = format!("seed-{seed}-{}", (index + reader) % 32);
+                    let object = store.lock().unwrap().get_object("concurrent", &id);
+                    assert!(object.unwrap().is_some());
+                }
+            });
+        }
+        let store = Arc::clone(&store);
+        scope.spawn(move || {
+            for index in 0..16 {
+                store
+                    .lock()
+                    .unwrap()
+                    .put_object(MemoryObject::new(
+                        "concurrent",
+                        format!("writer-{seed}-{index}"),
+                        OBJECT_BODY_INACTIVE,
+                    ))
+                    .unwrap();
+            }
+        });
+    });
+
+    let count = store.lock().unwrap().count_objects()?;
+    if count != 48 {
+        return Err(format!("{name}: concurrent count mismatch: {count}").into());
     }
     Ok(())
 }
@@ -1522,8 +1764,23 @@ fn record_storage(driver: &str, path: &Path) {
         path: path.display().to_string(),
         bytes_on_disk,
         file_count,
+        filesystem_artifacts: file_count,
+        in_memory: false,
     });
     println!("{driver:>13} | storage_snapshot       | bytes={bytes_on_disk} files={file_count}");
+}
+
+fn record_memory_storage(driver: &str) {
+    results().lock().unwrap().storage.push(StorageSnapshot {
+        driver: driver.to_string(),
+        repetition: CURRENT_REPETITION.load(Ordering::Relaxed),
+        path: "<memory>".to_string(),
+        bytes_on_disk: 0,
+        file_count: 0,
+        filesystem_artifacts: 0,
+        in_memory: true,
+    });
+    println!("{driver:>13} | storage_snapshot       | bytes=0 files=0 (in-memory)");
 }
 
 fn directory_stats(path: &Path) -> (u64, usize) {

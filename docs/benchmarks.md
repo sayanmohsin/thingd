@@ -31,7 +31,8 @@ For a reproducible RocksDB-vs-ThingDB run with structured output:
 
 ```bash
 cargo run --release -p thingd --example storage_bench --features persistent,search -- \
-  --iterations 1000 --seed 42 --backend all --output target/storage-benchmark.json
+  --iterations 1000 --seed 42 --backend all --reliability \
+  --output target/storage-benchmark.json
 ```
 
 Use `--output target/storage-benchmark.csv` for a flat CSV result. The output
@@ -62,6 +63,12 @@ percentiles, and four-thread contention. The cache is a separate process-local
 RAM primitive; its numbers must not be confused with Thingd semantic object
 storage or durable ThingDB. It creates no WAL, table, manifest, or temporary
 database files.
+Use `--reliability` (or `THINGD_BENCH_RELIABILITY=1`) to run the deterministic
+preflight before recording benchmark results. The preflight checks object
+updates/deletes, events, queues, links, search cleanup, atomic batches,
+concurrent readers/writers, repeated ThingDB RAM instances, and zero journal
+usage. A failed preflight exits non-zero; its throughput results must not be
+used as a passing performance datapoint.
 
 Use `--repetitions 5` or `THINGD_BENCH_REPETITIONS=5` for phase comparisons.
 Structured JSON output includes grouped median, minimum, maximum, and spread
@@ -174,8 +181,11 @@ Before moving beyond the experimental phase:
 - repack, encryption, backup/restore, rollback, and derived-search rebuilds
   must pass with the source database preserved.
 
-These are provisional promotion targets for Phase 3/4, not current claims.
-The current ThingDB implementation is expected to miss some of them.
+These are provisional promotion targets for the combined benchmark and
+reliability gate, not current claims. The current ThingDB implementation is
+expected to miss some durable targets. ThingDB RAM must first demonstrate
+semantic parity, bounded memory behavior, and no filesystem artifacts before
+it can be considered for the separate default-adoption phase.
 
 ## Latest smoke run
 
