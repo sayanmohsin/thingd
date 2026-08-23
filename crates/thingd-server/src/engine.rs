@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use parking_lot::{Mutex, RwLock};
 use thingd::{
-    EncryptionConfig, MemoryEngine, PersistentBackend, PersistentEngine, PersistentOpenOptions,
+    EncryptionConfig, PersistentBackend, PersistentEngine, PersistentOpenOptions,
     PersistentSearchMode, ThingStore,
 };
 
@@ -117,7 +117,9 @@ pub fn create_engine(
     options: &PersistentOpenOptions,
 ) -> Result<Box<dyn ThingStore + Send>, Box<dyn std::error::Error>> {
     if db_path == ":memory:" || db_path.is_empty() {
-        return Ok(Box::new(MemoryEngine::new()));
+        return Ok(Box::new(PersistentEngine::open_in_memory_with_backend(
+            PersistentBackend::ThingDb,
+        )?));
     }
 
     if let Some(parent) = Path::new(db_path).parent()
@@ -368,6 +370,9 @@ mod tests {
     #[tokio::test]
     async fn creates_in_memory_engine() {
         let mut engine = create_engine(":memory:", &PersistentOpenOptions::default()).unwrap();
+        let diagnostics = engine.storage_diagnostics().unwrap();
+        assert_eq!(diagnostics.journal_bytes, 0);
+        assert_eq!(diagnostics.journal_count, 0);
         let obj = MemoryObject::new("test", "1", r#"{"hello":"world"}"#);
         let stored = engine.put_object(obj).unwrap();
         assert_eq!(stored.key.id, "1");

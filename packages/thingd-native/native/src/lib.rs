@@ -1,6 +1,5 @@
 #![allow(clippy::too_many_arguments)]
 use std::ops::{Deref, DerefMut};
-use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use napi::bindgen_prelude::{Error, Result};
@@ -68,7 +67,6 @@ impl<'a> DerefMut for EngineGuard<'a> {
 #[derive(Clone)]
 pub struct NativeThingStore {
     store: Arc<Mutex<Option<PersistentEngine>>>,
-    temp_path: Arc<Mutex<Option<PathBuf>>>,
 }
 
 /// Parse a `schema.thingd` source document and return its canonical JSON.
@@ -133,6 +131,7 @@ impl NativeThingStore {
             .map(|key| EncryptionConfig::from_key(&key))
             .transpose()
             .map_err(napi_error)?;
+        let has_encryption = encryption.is_some();
         let options = PersistentOpenOptions {
             backend: match std::env::var("THINGD_STORAGE_BACKEND").as_deref() {
                 Ok("thingdb") => PersistentBackend::ThingDb,
@@ -141,30 +140,20 @@ impl NativeThingStore {
             encryption,
             ..PersistentOpenOptions::default()
         };
-        let temp_path = if path == ":memory:" || path.is_empty() {
-            let tmp = std::env::temp_dir().join(format!("thingd-native-{}", std::process::id()));
-            let unique = tmp.join(uuid::Uuid::new_v4().to_string());
-            std::fs::create_dir_all(&unique).map_err(|e| Error::from_reason(format!("{e}")))?;
-            Some(unique)
+        let store = if path == ":memory:" || path.is_empty() {
+            if has_encryption {
+                return Err(Error::from_reason(
+                    "encryption is not supported for non-durable memory storage",
+                ));
+            }
+            PersistentEngine::open_in_memory_with_backend(PersistentBackend::ThingDb)
+                .map_err(napi_error)?
         } else {
-            None
+            PersistentEngine::open_with_options(&path, options).map_err(napi_error)?
         };
-        let store_path = temp_path
-            .as_deref()
-            .unwrap_or_else(|| std::path::Path::new(&path));
-        let store = PersistentEngine::open_with_options(
-            store_path,
-            if temp_path.is_some() {
-                PersistentOpenOptions::default()
-            } else {
-                options
-            },
-        )
-        .map_err(napi_error)?;
 
         Ok(Self {
             store: Arc::new(Mutex::new(Some(store))),
-            temp_path: Arc::new(Mutex::new(temp_path)),
         })
     }
 
@@ -805,19 +794,6 @@ impl NativeThingStore {
     pub fn close(&self) {
         if let Ok(mut guard) = self.store.lock() {
             *guard = None;
-        }
-    }
-}
-
-impl Drop for NativeThingStore {
-    fn drop(&mut self) {
-        if Arc::strong_count(&self.temp_path) != 1 {
-            return;
-        }
-        if let Ok(mut temp_path) = self.temp_path.lock()
-            && let Some(path) = temp_path.take()
-        {
-            let _ = std::fs::remove_dir_all(path);
         }
     }
 }

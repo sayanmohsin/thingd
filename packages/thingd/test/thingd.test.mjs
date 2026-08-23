@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
-import { mkdtemp } from "node:fs/promises";
+import { mkdtemp, readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -21,6 +21,40 @@ if (nativeAvailable) {
       driver: "native",
     }),
   );
+
+  test("native: memory mode does not create temporary storage", async () => {
+    const temporaryRoot = join(tmpdir(), `thingd-native-${process.pid}`);
+    let before = [];
+    try {
+      before = await readdir(temporaryRoot);
+    } catch (error) {
+      assert.equal(error.code, "ENOENT");
+    }
+
+    const db = await ThingD.open({ path: ":memory:", driver: "native" });
+    await db.put("memory", { id: "ram-only", text: "not durable" });
+    await db.close();
+
+    let after = [];
+    try {
+      after = await readdir(temporaryRoot);
+    } catch (error) {
+      assert.equal(error.code, "ENOENT");
+    }
+    assert.deepEqual(after, before);
+  });
+
+  test("native: memory mode rejects encryption", async () => {
+    await assert.rejects(
+      () =>
+        ThingD.open({
+          path: ":memory:",
+          driver: "native",
+          encryption: { key: "11".repeat(32) },
+        }),
+      /not supported for non-durable memory storage/i,
+    );
+  });
 
   test("native: persists objects across reopen", async () => {
     const directory = await mkdtemp(join(tmpdir(), "thingd-native-"));

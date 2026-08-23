@@ -6,7 +6,11 @@ Read this file before making integration changes. It explains the current projec
 
 ## Current State
 
-`thingd` is an open source project. The public Node.js API is real enough to test locally, and the default path still uses the TypeScript in-memory store. The Rust core has durable persistent storage for objects, events, queues, search, and vectors.
+`thingd` is an open source project. The public Node.js API is real enough to
+test locally. When the native addon is available, the default disposable path
+uses the Rust ThingDB RAM engine; browser/edge runtimes and Node without the
+addon use the portable TypeScript in-memory store. The Rust core also has
+durable persistent storage for objects, events, queues, search, and vectors.
 
 Current implementation:
 
@@ -47,9 +51,10 @@ cluster sidecar mode:
   Node.js app -> localhost thingd sidecar -> leader/follower thingd cluster
 ```
 
-Current Node.js code uses the TypeScript in-memory store by default. Durable
-local persistence uses the native persistent adapter through `driver: "native"`
-after `thingd-native` is built locally. The deprecated SQLite adapter remains
+The Node.js default uses native ThingDB RAM for `:memory:` when the addon is
+available. Explicit `driver: "memory"` selects the TypeScript reference store.
+Durable local persistence uses the native persistent adapter through
+`driver: "native"` after `thingd-native` is built locally. The deprecated SQLite adapter remains
 available only for historical compatibility and is not the current runtime
 model.
 The SDK can opt into sidecar mode with `driver: "cloud"` or automatically when

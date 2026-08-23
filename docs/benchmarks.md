@@ -223,12 +223,10 @@ pnpm bench:node
 node packages/thingd/bench/node-bench.mjs 20000
 ```
 
-This exercises the public SDK through the native driver when available and
-through the in-memory fallback. Latest bounded run: 2026-08-06, commit
-`a8ab14c`, macOS 26.6 arm64, Node.js 24.18.0, 10 iterations. The native
-driver is intentionally measured through the existing `:memory:` native path,
-which uses the persistent implementation; larger runs are consequently slow
-on this workload.
+This exercises the public SDK through ThingDB RAM when the native driver is
+available and through the portable in-memory fallback otherwise. Existing
+machine-specific historical results may refer to the previous temporary native
+path and are not directly comparable to current ThingDB RAM results.
 
 | Driver | Representative operation | Ops/sec |
 | --- | --- | ---: |

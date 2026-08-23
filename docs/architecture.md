@@ -22,7 +22,9 @@ pub type SharedEngine = Arc<Mutex<Box<dyn ThingStore + Send>>>;
 
 pub fn create_engine(db_path: &str) -> Result<Box<dyn ThingStore + Send>> {
     if db_path == ":memory:" || db_path.is_empty() {
-        return Ok(Box::new(MemoryEngine::new()));
+        return Ok(Box::new(
+            PersistentEngine::open_in_memory_with_backend(PersistentBackend::ThingDb)?,
+        ));
     }
     Ok(Box::new(PersistentEngine::open_with_options(db_path, options)?))
 }
@@ -36,13 +38,14 @@ RocksDB as the default implementation and ThingDB as an experimental opt-in.
 Adding another durable backend means implementing the same storage boundary:
 
 ```
-Native binary:    PersistentEngine (durable local storage) + MemoryEngine (cache/warm)
-WASM binary:      InMemory (browser/edge, no file I/O available)
+Native/server:    ThingDB RAM (default disposable mode) + PersistentEngine (durable local storage)
+Reference/WASM:   MemoryEngine (portable reference, browser/edge, no file I/O)
 ```
 
 | Backend | Type | Persist | WASM | Use case |
 |---------|------|---------|------|----------|
-| **MemoryEngine** | `BTreeMap` + `Vec` | No | Yes | Cache, WASM, testing ~675K ops/s |
+| **ThingDB RAM** | ordered in-process keyspaces | No | No | Default native/server memory mode |
+| **MemoryEngine** | `BTreeMap` + `Vec` | No | Yes | Reference, cache, WASM, testing |
 | **PersistentEngine + RocksDB** | durable local storage | Yes | No | Default production and single-node deployments |
 | **PersistentEngine + ThingDB** | experimental Rust-native local storage | Yes | No | Opt-in testing and development |
 
@@ -122,11 +125,11 @@ Vector search is additive — it doesn't replace keyword FTS. Search queries can
 
 ## WASM/browser target
 
-thingd compiles to `wasm32-unknown-unknown` with the **InMemoryEngine** backend. No file I/O is available in WASM — all data lives in memory for the session duration.
+thingd compiles to `wasm32-unknown-unknown` with the **MemoryEngine** backend. No file I/O is available in WASM — all data lives in memory for the session duration.
 
 ```
 Target:       wasm32-unknown-unknown
-Backend:      InMemoryEngine (HashMap + Vec)
+Backend:      MemoryEngine (HashMap + Vec)
 Transport:    MCP over stdio, or embedded as a JS module
 Use cases:    Browser agent clients, state cache, edge workers
 ```

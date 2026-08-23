@@ -32,7 +32,7 @@ See the [public documentation index](https://github.com/sayanmohsin/thingd/blob/
 ### Shipped
 
 - **Rust engine** (`thingd` — crates.io) — memory + persistent adapters, opt-in authenticated persistent encryption, Tantivy FTS, cosine vector search, queue lifecycle, graph links, aggregate analytics, NLQ
-- **Node.js SDK** (`@thingd/sdk`) — three drivers: memory (default in-memory TS store), native (napi-rs Rust persistent engine), cloud (remote HTTP REST)
+- **Node.js SDK** (`@thingd/sdk`) — three drivers: memory (explicit pure-TS reference store), native (napi-rs Rust engine with ThingDB RAM for `:memory:` and RocksDB durable storage by default), cloud (remote HTTP REST)
 - **Browser/Edge client** (`@thingd/client`) — zero-dependency REST client for browsers, Cloudflare Workers, AWS Lambda, Bun, Deno
 - **App backend client** (`createThingdAppClient`) — project-user auth and named actions for hosted mobile/web apps
 - **CLI** (`@thingd/cli`) — TUI dashboard, 30+ subcommands (search, objects, events, queues, export/import/snapshot/backup, doctor, bench, db maintenance). Support for importing from Postgres/MySQL via sidecar REST.
@@ -48,10 +48,12 @@ See the [public documentation index](https://github.com/sayanmohsin/thingd/blob/
 - Additional deployment integrations and operational hardening
 - Browser and edge runtime packaging via WASM
 
-The default public Node.js SDK path uses the TypeScript in-memory store for
-API exploration and local integration tests. The Rust core has persistent
-object, event, and queue storage. Node apps can
-use the cloud driver to talk to a `thingd` sidecar through `THINGD_URL`.
+The default public Node.js SDK path uses the Rust ThingDB RAM engine when the
+native addon is available. It is process-local and non-durable. If the native
+addon is unavailable, Node uses the TypeScript in-memory implementation; the
+browser and edge runtimes always use that portable implementation. The Rust
+core also has persistent object, event, and queue storage. Node apps can use
+the cloud driver to talk to a `thingd` sidecar through `THINGD_URL`.
 
 For browsers, edge runtimes, and non-Node.js environments, use the standalone
 `@thingd/client` package — a zero-dependency REST client.
@@ -584,7 +586,8 @@ Rust core (crates/thingd)
   |-- queue engine
   |-- search indexes (Tantivy FTS + vector index)
   |-- storage adapters
-      |-- MemoryEngine (cache, WASM)
+      |-- ThingDB RAM (default native/server memory mode)
+      |-- MemoryEngine (reference, cache, WASM)
       |-- PersistentEngine (durable local storage)
 ```
 
