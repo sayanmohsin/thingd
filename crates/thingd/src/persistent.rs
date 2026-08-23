@@ -2555,6 +2555,58 @@ impl ObjectStore for PersistentEngine {
         self.put_object(object)
     }
 
+    fn put_object_with_source_metadata(
+        &mut self,
+        object: MemoryObject,
+        options: PutObjectOptions,
+    ) -> ThingdResult<MemoryObject> {
+        let key = self.make_object_key(&object.key.collection, &object.key.id);
+
+        if let Some(expected_version) = options.expected_version {
+            match value_to_vec(self.objects.get(&key)?) {
+                Some(existing) => {
+                    let existing_obj: MemoryObject = self.deserialize(&existing)?;
+                    if existing_obj.version != expected_version {
+                        return Err(ThingdError::Conflict(format!(
+                            "expected version {} but current version is {}",
+                            expected_version, existing_obj.version
+                        )));
+                    }
+                },
+                None => {
+                    return Err(ThingdError::Conflict(format!(
+                        "object '{}/{}' does not exist",
+                        object.key.collection, object.key.id
+                    )));
+                },
+            }
+        }
+
+        // Use the normal write path for validation, vectors, indexes, and
+        // derived search state, then restore the metadata supplied by the
+        // replication source without changing local write semantics.
+        let stored = self.put_object(object.clone())?;
+        let mut replicated = stored;
+        if object.version > 0 {
+            replicated.version = object.version;
+        }
+        if !object.created_at.is_empty() {
+            replicated.created_at = object.created_at;
+        }
+        if !object.updated_at.is_empty() {
+            replicated.updated_at = object.updated_at;
+        }
+
+        let data = self.serialize(&replicated)?;
+        let mut batch = self.db.batch();
+        batch.insert(&self.objects, &key, &data);
+        batch
+            .commit()
+            .map_err(|error| ThingdError::Storage(error.to_string()))?;
+
+        Ok(replicated)
+    }
+
     fn retain(&mut self, options: RetentionOptions) -> ThingdResult<RetentionReport> {
         let safe_replication_cursor = if options.include_replication {
             self.safe_replication_cursor()?
