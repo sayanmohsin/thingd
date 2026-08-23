@@ -40,6 +40,11 @@ For native Node or server `:memory:` operation, ThingDB RAM is selected by
 default and creates no durable files. The explicit `memory` driver remains the
 portable TypeScript/reference implementation.
 
+Use `ThingD.open(":memory:")` when the application needs the full Thingd
+in-memory database contract. For a bounded transient key/value cache with TTL
+and LRU behavior, use the ThingDB cache API instead; neither mode survives
+process exit or replaces durable storage.
+
 `THINGD_STORAGE_BACKEND` defaults to `rocksdb`. Set it to `thingdb` only for
 the experimental Rust-native backend. ThingDB uses a separate on-disk format;
 switching an existing directory requires logical repack rather than changing

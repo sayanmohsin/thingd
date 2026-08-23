@@ -43,6 +43,11 @@ or MCP APIs.
 Native persistence uses RocksDB by default. The experimental Rust-native
 ThingDB backend can be selected with `THINGD_STORAGE_BACKEND=thingdb`; it uses
 a separate format and requires logical repack when changing an existing store.
+For disposable Node.js memory mode, `ThingD.open(":memory:")` uses ThingDB RAM
+when the native addon is available; the explicit `memory` subpath remains the
+portable TypeScript/reference implementation. ThingDB RAM is the full
+process-local Thingd database; for a smaller TTL/LRU key/value cache, use the
+separate ThingDB cache API. Both modes lose data when the process exits.
 
 ## Subpath imports
 

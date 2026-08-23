@@ -25,6 +25,7 @@ mod cache;
 
 pub use cache::{CacheOptions, CacheStats, MemoryCache};
 
+use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::{Display, Formatter};
 use std::fs::{self, File, OpenOptions};
@@ -33,7 +34,7 @@ use std::ops::{Bound, RangeBounds};
 use std::path::{Component, Path, PathBuf};
 use std::sync::{
     Arc, Mutex, Weak,
-    mpsc::{self, RecvTimeoutError, SyncSender},
+    mpsc::{self, RecvTimeoutError, SyncSender, TryRecvError},
 };
 use std::thread;
 use std::time::{Duration, Instant};
@@ -398,32 +399,54 @@ fn writer_loop(inner: Weak<Mutex<Inner>>, receiver: mpsc::Receiver<CommitRequest
         let mut group = vec![first];
         let mut operation_count = group[0].operations.len();
         let mut operation_bytes = operations_bytes(&group[0].operations);
-        let deadline = Instant::now() + GROUP_COMMIT_WINDOW;
-
-        loop {
-            if operation_count >= MAX_GROUP_OPERATIONS || operation_bytes >= MAX_GROUP_BYTES {
-                break;
-            }
-            let remaining = deadline.saturating_duration_since(Instant::now());
-            if remaining.is_zero() {
-                break;
-            }
-            match receiver.recv_timeout(remaining) {
-                Ok(request) => {
-                    let request_operations = request.operations.len();
-                    let request_bytes = operations_bytes(&request.operations);
-                    if !group.is_empty()
-                        && (operation_count + request_operations > MAX_GROUP_OPERATIONS
-                            || operation_bytes + request_bytes > MAX_GROUP_BYTES)
-                    {
-                        pending = Some(request);
-                        break;
-                    }
+        // An isolated durable write should not pay the group-commit window.
+        // Once another request is already queued, retain the bounded window
+        // so concurrent writers can still share one WAL sync.
+        let deadline = match receiver.try_recv() {
+            Ok(request) => {
+                let request_operations = request.operations.len();
+                let request_bytes = operations_bytes(&request.operations);
+                if operation_count + request_operations <= MAX_GROUP_OPERATIONS
+                    && operation_bytes + request_bytes <= MAX_GROUP_BYTES
+                {
                     operation_count += request_operations;
                     operation_bytes += request_bytes;
                     group.push(request);
-                },
-                Err(RecvTimeoutError::Timeout | RecvTimeoutError::Disconnected) => break,
+                    Some(Instant::now() + GROUP_COMMIT_WINDOW)
+                } else {
+                    pending = Some(request);
+                    None
+                }
+            },
+            Err(TryRecvError::Empty | TryRecvError::Disconnected) => None,
+        };
+
+        if let Some(deadline) = deadline {
+            loop {
+                if operation_count >= MAX_GROUP_OPERATIONS || operation_bytes >= MAX_GROUP_BYTES {
+                    break;
+                }
+                let remaining = deadline.saturating_duration_since(Instant::now());
+                if remaining.is_zero() {
+                    break;
+                }
+                match receiver.recv_timeout(remaining) {
+                    Ok(request) => {
+                        let request_operations = request.operations.len();
+                        let request_bytes = operations_bytes(&request.operations);
+                        if !group.is_empty()
+                            && (operation_count + request_operations > MAX_GROUP_OPERATIONS
+                                || operation_bytes + request_bytes > MAX_GROUP_BYTES)
+                        {
+                            pending = Some(request);
+                            break;
+                        }
+                        operation_count += request_operations;
+                        operation_bytes += request_bytes;
+                        group.push(request);
+                    },
+                    Err(RecvTimeoutError::Timeout | RecvTimeoutError::Disconnected) => break,
+                }
             }
         }
 
@@ -862,6 +885,65 @@ impl Database {
             .map_err(|_| Error::message("database lock poisoned"))?;
         flush_table_locked(&mut inner, sync, current_fault_point())
     }
+
+    fn commit_operations(&self, operations: Vec<Operation>) -> Result<()> {
+        if operations.is_empty() {
+            return Ok(());
+        }
+
+        let in_memory = self
+            .inner
+            .lock()
+            .map_err(|_| Error::message("database lock poisoned"))?
+            .in_memory;
+        if in_memory {
+            let mut inner = self
+                .inner
+                .lock()
+                .map_err(|_| Error::message("database lock poisoned"))?;
+            if inner.recovery_required {
+                return Err(Error::message(
+                    "ThingDB requires reopen and recovery before writing",
+                ));
+            }
+            let started = Instant::now();
+            for operation in operations {
+                apply_operation(&mut inner.state, operation);
+            }
+            inner.sequence = inner.sequence.saturating_add(1);
+            inner.diagnostics.logical_commit_count =
+                inner.diagnostics.logical_commit_count.saturating_add(1);
+            inner.diagnostics.total_group_size =
+                inner.diagnostics.total_group_size.saturating_add(1);
+            inner.diagnostics.max_group_size = inner.diagnostics.max_group_size.max(1);
+            inner.diagnostics.state_apply_duration_ns = inner
+                .diagnostics
+                .state_apply_duration_ns
+                .saturating_add(elapsed_nanos(started.elapsed()));
+            return Ok(());
+        }
+
+        let (response, result) = mpsc::channel();
+        let request = CommitRequest {
+            operations,
+            submitted_at: Instant::now(),
+            fault_point: current_fault_point(),
+            response,
+        };
+        let sender = self
+            .writer
+            .sender
+            .lock()
+            .map_err(|_| Error::message("ThingDB writer state poisoned"))?
+            .clone()
+            .ok_or_else(|| Error::message("ThingDB writer is unavailable"))?;
+        sender
+            .send(request)
+            .map_err(|_| Error::message("ThingDB writer is unavailable"))?;
+        result
+            .recv()
+            .map_err(|_| Error::message("ThingDB writer stopped unexpectedly"))?
+    }
 }
 
 fn flush_table_locked(
@@ -1273,7 +1355,11 @@ impl Keyspace {
             .and_then(|key| successor(&key))
             .or_else(|| successor(&namespace));
         let mut entries = Vec::new();
-        let state = inner.materialize_state().unwrap_or_default();
+        let state = if inner.in_memory {
+            Cow::Borrowed(&inner.state)
+        } else {
+            Cow::Owned(inner.materialize_state().unwrap_or_default())
+        };
         let range = match upper {
             Some(upper) => state.range(lower..upper),
             None => state.range(lower..),
@@ -1343,30 +1429,7 @@ impl Batch {
 
     /// Commit all operations atomically and durably.
     pub fn commit(self) -> Result<()> {
-        if self.operations.is_empty() {
-            return Ok(());
-        }
-        let (response, result) = mpsc::channel();
-        let request = CommitRequest {
-            operations: self.operations,
-            submitted_at: Instant::now(),
-            fault_point: current_fault_point(),
-            response,
-        };
-        let sender = self
-            .db
-            .writer
-            .sender
-            .lock()
-            .map_err(|_| Error::message("ThingDB writer state poisoned"))?
-            .clone()
-            .ok_or_else(|| Error::message("ThingDB writer is unavailable"))?;
-        sender
-            .send(request)
-            .map_err(|_| Error::message("ThingDB writer is unavailable"))?;
-        result
-            .recv()
-            .map_err(|_| Error::message("ThingDB writer stopped unexpectedly"))?
+        self.db.commit_operations(self.operations)
     }
 }
 
@@ -1894,6 +1957,27 @@ mod tests {
         assert_eq!(diagnostics.logical_commit_count, 2);
         assert_eq!(diagnostics.total_group_size, 2);
         assert_eq!(diagnostics.physical_sync_count, 0);
+    }
+
+    #[test]
+    fn in_memory_commits_bypass_durable_coordination() {
+        let db = Database::in_memory().unwrap();
+        let objects = db
+            .keyspace("objects", KeyspaceCreateOptions::default)
+            .unwrap();
+
+        for index in 0..128u16 {
+            objects
+                .insert(index.to_be_bytes(), index.to_be_bytes())
+                .unwrap();
+        }
+
+        let diagnostics = db.wal_diagnostics().unwrap();
+        assert_eq!(diagnostics.physical_sync_count, 0);
+        assert_eq!(diagnostics.queue_wait_duration_ns, 0);
+        assert_eq!(diagnostics.journal_bytes, 0);
+        assert_eq!(diagnostics.frame_count, 0);
+        assert_eq!(objects.iter().count(), 128);
     }
 
     #[test]

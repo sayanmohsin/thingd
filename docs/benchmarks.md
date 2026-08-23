@@ -54,8 +54,10 @@ phase and date without committing machine-specific results.
 The benchmark selects `--backend all|rocksdb|thingdb|memory|cache`; `all` is the
 default and is the required comparison mode. It measures object, event, queue,
 search, vector search, batch, count, delete, concurrent-read, and
-lock-contention operations for the selected adapters. `all` also includes the
-standalone ThingDB RAM cache as `thingdb-cache`.
+lock-contention operations for the selected adapters. In comparison mode, `all`
+includes the reference memory engine, ThingDB RAM mode, durable RocksDB, and
+durable ThingDB. It also includes the standalone ThingDB RAM cache as
+`thingdb-cache`.
 
 Use `--backend cache` for a focused ThingDB cache run. This measures byte
 key/value inserts, hot reads, mixed access, TTL/LRU bounds, latency

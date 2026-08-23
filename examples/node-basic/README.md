@@ -2,7 +2,10 @@
 
 A runnable, clean demonstration of how you can treat `thingd` as a local, fully-featured application memory layer for Node.js apps.
 
-This example runs in **in-memory mode** by default, but it can also be configured to run with the **native Rust driver** or in **remote sidecar mode**.
+This example runs in disposable **in-memory mode** by default. When the native
+addon is available, that mode uses ThingDB RAM storage; otherwise the SDK uses
+its portable TypeScript reference store. It can also be configured to run with
+the native Rust durable driver or in remote sidecar mode.
 
 ---
 
@@ -38,7 +41,7 @@ pnpm dev
 The [`index.ts`](./index.ts) script takes you step-by-step through the core features of `thingd`:
 
 ### 1. Unified Client Open
-Instantiates the database client. By default, it runs as a pure in-memory store:
+Instantiates the database client. By default, it runs in process-local memory:
 ```ts
 import { ThingD } from "@thingd/sdk";
 const db = await ThingD.open();
@@ -113,7 +116,8 @@ To use `thingd` running as a background service or remote instance, set the foll
 export THINGD_URL="http://127.0.0.1:8757"
 export THINGD_AUTH_TOKEN="your-secret-token"
 ```
-And initialize standard in-memory:
+Then initialize the SDK; with `THINGD_URL` set this connects to the sidecar,
+otherwise it uses the local in-memory mode described above:
 ```ts
 const db = await ThingD.open();
 ```

@@ -7,7 +7,7 @@ import { ThingdClient } from "@thingd/client";
 
 const client = new ThingdClient({
   url: "https://api.thingd.cloud",
-  authToken: "sk-...",
+  authToken: "md_pk_...",
 });
 
 await client.put("notes", { id: "1", text: "Hello world" });
@@ -26,7 +26,9 @@ npm install @thingd/client
 
 ## Usage
 
-Connect to any thingd instance — local sidecar, Docker, or thingd.cloud:
+Connect to any thingd instance — local sidecar, Docker, or thingd.cloud. A
+local runtime token and a Cloud project API key are both sent as Bearer
+credentials, but they are issued and managed by different systems:
 
 ```ts
 const client = new ThingdClient({
@@ -160,7 +162,7 @@ Connect to thingd Cloud using a project-scoped API key:
 ```ts
 const client = new ThingdClient({
   url: "https://api.thingd.cloud",
-  authToken: "md_live_xxx",
+  authToken: "md_pk_...",
 });
 ```
 

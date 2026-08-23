@@ -24,7 +24,7 @@ Starts on `http://0.0.0.0:7377` by default. Point your MCP client at `http://loc
 
 | Protocol | Endpoint | Purpose |
 |---|---|---|
-| **MCP** | `POST /mcp` | Model Context Protocol — 36 core tools (search, put, get, delete, events, queues, links, aggregate, timeseries, schema, NLQ, indexes) |
+| **MCP** | `POST /mcp` | Model Context Protocol — 39 core tools (search, put, get, delete, events, queues, links, aggregate, timeseries, schema, NLQ, indexes) |
 | **REST** | `GET /healthz` | Health check (unauthenticated) |
 | **REST** | `GET /ready` | Readiness and search rebuild status (unauthenticated) |
 | **REST** | `GET /v1/health` | Same as `/healthz` |
@@ -144,7 +144,7 @@ thingd-server binary
   ├── config.rs        — YAML + env config loader
   ├── server.rs        — axum router, middleware stack (CORS, timeout, auth, rate limit)
   ├── rest.rs          — REST API handlers
-  ├── mcp.rs           — MCP handler (36 core tools via registry dispatch)
+  ├── mcp.rs           — MCP handler (39 core tools via registry dispatch)
   ├── engine.rs        — EnginePool: shared database connections
   ├── auth.rs          — Bearer token auth middleware
   ├── rate_limit.rs    — Token bucket rate limiter
@@ -167,7 +167,7 @@ memory use.
 |---|---|---|
 | Runtime | Standalone binary | Node.js (embedded or subprocess) |
 | Size | ~15 MB static binary | ~50 MB with Node + native addon |
-| MCP | 36 core tools native | 46 tools via TypeScript, including scheduler tools |
+| MCP | 39 core tools native | 49 tools via TypeScript, including scheduler tools |
 | REST | Yes (axum) | Yes (Express) |
 | Cluster | Status + peer discovery | Full leader election + forwarding |
 | Write approval | Not implemented | Available |

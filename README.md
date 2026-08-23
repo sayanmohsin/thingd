@@ -55,6 +55,11 @@ browser and edge runtimes always use that portable implementation. The Rust
 core also has persistent object, event, and queue storage. Node apps can use
 the cloud driver to talk to a `thingd` sidecar through `THINGD_URL`.
 
+Use ThingDB RAM when you need the full in-memory Thingd contract. Use the
+separate ThingDB cache primitive when you only need a bounded TTL/LRU key/value
+cache. Neither mode writes durable files or survives process exit. See
+[Storage backends](./docs/storage-backends.md) for the complete mode matrix.
+
 For browsers, edge runtimes, and non-Node.js environments, use the standalone
 `@thingd/client` package — a zero-dependency REST client.
 
