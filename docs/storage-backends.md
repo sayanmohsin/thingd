@@ -16,6 +16,27 @@ The `ThingStore` contract is shared by the memory and durable engines. REST,
 MCP, the Node SDK, the browser client, and Thingd Cloud use the same public
 object, event, queue, link, schema, search, vector, and replication contracts.
 
+## In-memory modes
+
+Thingd has two process-local RAM use cases:
+
+| Use case | Entry point | Provides | Lifetime |
+| --- | --- | --- | --- |
+| Thingd RAM database | `ThingD.open(":memory:")` | Objects, events, queues, links, schemas, vectors, snapshots, and search | Lost when the process exits |
+| ThingDB cache | `MemoryCache` / cache API | Bounded key/value cache with TTL, LRU eviction, and cache diagnostics | Lost when the process exits |
+
+Thingd RAM is a full semantic database mode. It creates no WAL, manifest,
+table, lock, search, or temporary database files. It is intended for disposable
+runtime state, development, tests, and process-local application memory; it is
+not a backup or durable storage mode. The standalone cache is a lighter and
+faster primitive for transient key/value caching and should be preferred when
+the full Thingd object, event, queue, or search contract is not required.
+
+The portable `memory` SDK subpath and browser/edge runtimes use the
+TypeScript/reference in-memory implementation where the native Rust addon is
+not available. This has the same public semantic contract and is also
+non-durable.
+
 RocksDB is statically built into the native addon and server artifact by
 default. Set `THINGD_STORAGE_BACKEND=thingdb` to opt into the experimental
 Rust-native ThingDB backend. A sidecar deployment may still use a separate
@@ -30,8 +51,8 @@ large-store durability and performance gates.
 
 ## ThingDB development phase
 
-ThingDB is currently in **Phase 4: layered table reads**. Phases 0
-through 1C are complete enough for opt-in development, differential testing,
+ThingDB is entering **Phase 5: scale and performance validation**. Phases 0
+through 4 are complete enough for opt-in development, differential testing,
 and safe logical repack, but ThingDB is not a production replacement for
 RocksDB.
 
@@ -43,8 +64,8 @@ RocksDB.
 | 1C. Immutable table layers | Incremental immutable tables, tombstones, multi-table manifests, bounded flushes, and safe full compaction | Complete; no promotion claim |
 | 2. Manifest and compaction recovery | Atomic manifest replacement, temporary-artifact cleanup, interrupted flush/compaction recovery, corruption validation, and fault-injection tests | Complete; no promotion claim |
 | 3. Bounded memtables and flush backpressure | Bound mutable table memory, flush automatically after durable commits, preserve restart recovery, and measure flush cost | Complete; no promotion claim |
-| 4. Layered table reads | Retain immutable table indexes, seek point reads by key, merge layers for scans, and reduce startup resident state | Active |
-| 5. Scale and performance | Large-data benchmarks, memory/disk amplification limits, restart and recovery budgets | Planned |
+| 4. Layered table reads | Retain immutable table indexes, seek point reads by key, merge layers for scans, and reduce startup resident state | Complete; no promotion claim |
+| 5. Scale and performance | Large-data benchmarks, memory/disk amplification limits, restart and recovery budgets | Next; active validation |
 | 6. Controlled adoption | Soak testing, operational rollback, backup/restore validation, limited opt-in deployments | Planned |
 | 7. Default-candidate review | Compare against RocksDB gates and decide whether the default should change | Not scheduled |
 
@@ -60,11 +81,12 @@ Phase 3 added explicit mutable-table byte accounting and a bounded automatic
 flush boundary. A successful write still waits for its WAL sync and any
 required flush before acknowledgement; a failed post-sync flush requires
 reopen and recovery rather than allowing ambiguous in-memory state.
-Phase 4 retains table paths and sorted key indexes instead of loading table
+Phase 4 retained table paths and sorted key indexes instead of loading table
 values into the active write state during open. Point reads seek the newest
 matching layer first; scans and compaction materialize a merged view with
-tombstone precedence. This phase does not yet claim full memory qualification.
-Until Phases 1A–4 pass, do not use
+tombstone precedence. This phase does not claim full production qualification.
+The next phase measures large-data behavior before any durable-backend adoption
+decision. Until Phases 1A–5 pass, do not use
 ThingDB as the only copy of important production data. Keep the RocksDB source
 directory during repack and validate the destination before switching traffic.
 

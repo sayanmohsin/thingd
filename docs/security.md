@@ -52,6 +52,11 @@ Or via environment variable:
 export THINGD_AUTH_TOKEN="your-secure-token-here-min-16-chars"
 ```
 
+Static documentation and GitHub Pages are public and never receive runtime
+tokens, Cloud project API keys, or encryption keys. The examples in this
+repository use placeholders; create and inject real credentials through the
+deployment environment or the Cloud dashboard.
+
 **Token requirements:**
 - Minimum 16 characters when `allow_unauthenticated` is `false`
 - Empty token = no auth (allowed when `allow_unauthenticated` is `true`)

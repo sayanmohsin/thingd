@@ -60,6 +60,10 @@ await db.close();
 ```
 
 That's it — object storage, search, events, and queues in a dozen lines.
+The explicit `memory` driver is the portable TypeScript/reference store. In
+Node.js, `ThingD.open(":memory:")` uses the ThingDB RAM engine when the native
+addon is available and never creates durable files; data is lost on process
+exit.
 
 ### Optional encrypted native database
 
