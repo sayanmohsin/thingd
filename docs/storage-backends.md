@@ -51,10 +51,12 @@ large-store durability and performance gates.
 
 ## ThingDB development phase
 
-ThingDB is entering **Phase 5: scale and performance validation**. Phases 0
+Durable ThingDB is in **Phase 5: scale and performance validation**. Phases 0
 through 4 are complete enough for opt-in development, differential testing,
 and safe logical repack, but ThingDB is not a production replacement for
-RocksDB.
+RocksDB. The separate ThingDB RAM path is being optimized and benchmarked for
+process-local workloads; that work does not change durable backend selection or
+make a performance claim against Redis or another cache product.
 
 | Phase | Goal | Status |
 | --- | --- | --- |
