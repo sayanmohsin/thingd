@@ -52,7 +52,7 @@ test("Dashboard - serves static assets and REST API endpoints", async () => {
     assert.equal(getResult.length, 1);
     assert.equal(getResult[0].id, "diagnostic-job");
 
-    // 5. Test FTS5 Stemming Search endpoint
+    // 5. Test Tantivy stemming search endpoint
     const searchResponse = await fetch(
       `${url}/api/search?query=dashboard&collections=memories`
     );

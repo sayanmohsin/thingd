@@ -185,10 +185,10 @@ pub trait ObjectStore {
     /// This is significantly faster than calling `put_object` in a loop
     /// because it avoids per-object transaction overhead.
     ///
-    /// **Atomicity:** The `SQLite` adapter wraps all writes in a single
-    /// transaction — a failure rolls back all changes. The in-memory
-    /// default implementation loops calling `put_object` without a
-    /// transaction, so a partial failure may leave some objects written.
+    /// **Atomicity:** Durable adapters should wrap all writes in one atomic
+    /// batch. The in-memory default implementation loops calling `put_object`
+    /// without a transaction, so a partial failure may leave some objects
+    /// written.
     ///
     /// # Errors
     ///
@@ -251,8 +251,8 @@ pub trait ObjectStore {
     /// Returns objects in the same order as the input keys. Missing IDs
     /// produce `None` entries, preserving the order of the request.
     ///
-    /// The default implementation loops calling `get_object`. The `SQLite`
-    /// adapter overrides this with a single `WHERE id IN (...)` query.
+    /// The default implementation loops calling `get_object`. Durable
+    /// adapters may override this with a batched point-read implementation.
     ///
     /// # Errors
     ///
@@ -291,15 +291,14 @@ pub trait ObjectStore {
 
     /// Delete multiple objects in a single transaction.
     ///
-    /// Returns the number of deleted objects. The `SQLite` adapter emits a bulk
-    /// `DELETE` statement in one transaction. The default implementation loops
-    /// calling `delete_object`.
+    /// Returns the number of deleted objects. Durable adapters may execute the
+    /// deletion as one atomic batch. The default implementation loops calling
+    /// `delete_object`.
     ///
-    /// **Atomicity:** The `SQLite` adapter wraps all deletes in a single
-    /// transaction — a failure rolls back all deletions. The in-memory
-    /// default implementation loops calling `delete_object` without a
-    /// transaction, so a partial failure may leave some objects deleted
-    /// and others not.
+    /// **Atomicity:** Durable adapters should wrap all deletes in one atomic
+    /// batch. The in-memory default implementation loops calling
+    /// `delete_object` without a transaction, so a partial failure may leave
+    /// some objects deleted and others not.
     ///
     /// # Errors
     ///
@@ -355,10 +354,9 @@ pub trait ObjectStore {
 
     /// Create a functional index on a JSON body field for a collection.
     ///
-    /// Creates a `SQLite` expression index on `json_extract(body, '$.field')`
-    /// filtered to the given collection. Subsequent `list_objects` calls with
-    /// `filter: { field: value }` will use this index for O(log n) lookups
-    /// instead of full table scans.
+    /// Creates a backend-specific expression index for the requested field and
+    /// collection. Subsequent filtered `list_objects` calls may use this index
+    /// instead of full scans.
     ///
     /// This is a no-op for in-memory stores (they already scan in-memory maps).
     ///

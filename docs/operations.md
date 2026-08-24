@@ -3,8 +3,7 @@
 thingd's native persistent backends store a database as a directory. RocksDB is
 the default; ThingDB is experimental and opt-in through
 `THINGD_STORAGE_BACKEND=thingdb`.
-The procedures below distinguish opaque filesystem backups from logical exports;
-deprecated SQLite compatibility commands are retained only for older installs.
+The procedures below distinguish opaque filesystem backups from logical exports.
 
 Each current native directory contains a Thingd-owned `.thingd-storage.json`
 manifest. It records the storage contract and required keyspaces. Directories
@@ -48,7 +47,7 @@ remains unchanged if the copy fails.
 ### Creating a Backup
 
 ```bash
-thingd backup --out /path/to/backup.db
+thingd db backup --path /path/to/thingd.db --out /backups/thingd.tar
 ```
 
 For the current native backend, a filesystem backup is an opaque database
@@ -77,7 +76,7 @@ JSONL snapshots for that migration boundary.
 
 **Output:**
 ```
-Backup created: /path/to/backup.db (1.25 MB)
+Backup created: /backups/thingd.tar
 ```
 
 ### Restoring from Backup
@@ -110,7 +109,7 @@ thingd snapshot restore --in /path/to/snapshot.json
 ```
 
 > **Warning:** The restore is not atomic. If it fails mid-way, data may be partially restored.
-> Create a backup first: `thingd backup --out pre-restore.db`
+> Create a backup first: `thingd db backup --out pre-restore.tar`
 
 ## Export / Import
 
@@ -313,26 +312,6 @@ The current native backend does not expose manual SQL schema migrations.
 Persistent format changes are versioned by the engine and encrypted databases
 also validate their storage manifest and envelope version during open. Key
 rotation is never automatic; use `db reencrypt`.
-
-### Legacy SQLite migration history
-
-> Note: These SQLite schema versions apply to the deprecated SQLite backend.
-> The current persistent backend has no manual schema management — schema is defined
-> by the Rust struct layout and evolved through code changes.
-
-| Version | Name | Changes |
-|---------|------|---------|
-| 1 | `initial_objects_events_queues` | Creates `objects`, `events`, `queue_jobs` tables |
-| 2 | `fts5_search_index` | Adds FTS5 full-text search virtual table (replaced by Tantivy) |
-| 3 | `queue_jobs_last_error` | Adds `last_error` column to `queue_jobs` |
-| 4 | `graph_links` | Creates `links` table with graph relationship support |
-
-### Legacy SQLite safety
-
-- All migrations run inside transactions
-- A backup is automatically created before any migration (file-based databases only)
-- `PRAGMA integrity_check` runs after all migrations complete
-- If a migration fails, the backup at `{path}.pre-v{version}` can be used for recovery
 
 ## Doctor Command
 

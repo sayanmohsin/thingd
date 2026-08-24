@@ -271,7 +271,7 @@
 * **sidecar:** implement all 27 MCP tools (was 5 stubs) ([e6f45e9](https://github.com/sayanmohsin/thingd/commit/e6f45e97fc32811f39a29e3cb3729dffbc783718))
 * **skill:** add audit-after-change skill — doc cross-ref, thingd-cloud sync, test gap check ([0958e12](https://github.com/sayanmohsin/thingd/commit/0958e12818a1e3f6bbd1fcb9fae02df0907677ee))
 * startup integrity check via PRAGMA quick_check ([fc451f3](https://github.com/sayanmohsin/thingd/commit/fc451f356cdadd046b6424dc5a11e3c357b7cce2))
-* **storage:** replace SQLite with an embedded LSM-tree and Tantivy search ([c27722e](https://github.com/sayanmohsin/thingd/commit/c27722e865c2291d47c900f032eb8a2ab375f8ae))
+* **storage:** move to an embedded LSM-tree and Tantivy search ([c27722e](https://github.com/sayanmohsin/thingd/commit/c27722e865c2291d47c900f032eb8a2ab375f8ae))
 * support comparison operators in listObjects filters ([1b00ad3](https://github.com/sayanmohsin/thingd/commit/1b00ad36a891c2b85b3923384192ac1eef4fd06d)), closes [#56](https://github.com/sayanmohsin/thingd/issues/56)
 * support sorting by JSON body fields in listObjects ([853ae35](https://github.com/sayanmohsin/thingd/commit/853ae35fedc335bd2c9dcb759c27cd1274e412bb)), closes [#58](https://github.com/sayanmohsin/thingd/issues/58)
 * **tenant:** wire TenantConfig into MCP handler for per-instance DB isolation ([e50696f](https://github.com/sayanmohsin/thingd/commit/e50696f066062ac08a76ff15af3701bf8b17c298))
@@ -386,7 +386,7 @@
 * refactor migration into function, trigger on first authenticated request ([48a2723](https://github.com/sayanmohsin/thingd/commit/48a2723a68b98fca029e3dc6b0699b0e85321194))
 * release check-release uses --format=%s not --oneline ([19a587f](https://github.com/sayanmohsin/thingd/commit/19a587f01d6796ace7f0f47448bc1b32b0ec1a92))
 * **release:** sync path dep version pins on version bump ([96b1e24](https://github.com/sayanmohsin/thingd/commit/96b1e2441cb5303cb663c6fa1d77bb754f8e8856))
-* remaining audit items — query length, CSRF, fallback warning, FTS5 optimize ([2f48ac6](https://github.com/sayanmohsin/thingd/commit/2f48ac6910352058c11a75603a778038432c376d))
+* remaining audit items — query length, CSRF, fallback warning, search optimization ([2f48ac6](https://github.com/sayanmohsin/thingd/commit/2f48ac6910352058c11a75603a778038432c376d))
 * remove duplicate hero logo, redesign SVG with gradients and better glow ([270b09f](https://github.com/sayanmohsin/thingd/commit/270b09ff0aa2e5cdbb51afa8d965f488dc83ef9e))
 * remove extra spacing around docs logo braces ([2a4b157](https://github.com/sayanmohsin/thingd/commit/2a4b157350cda50e45a1c12817151c9ea94c5a07))
 * remove hardcoded pnpm version from deploy-docs workflow (use packageManager from package.json) ([ad6ce6d](https://github.com/sayanmohsin/thingd/commit/ad6ce6de3b926142882d36790f3b7a030411d9ef))
@@ -417,7 +417,7 @@
 * **sidecar:** align queue push, audit source, and search allowlist with SDK ([d951595](https://github.com/sayanmohsin/thingd/commit/d951595f89ff1dc3c7651ea6891844c35e8dee02))
 * **sidecar:** constant-time auth, AppState token, production-mode MCP sanitization ([9a92d81](https://github.com/sayanmohsin/thingd/commit/9a92d81914edc17de0f9f652ec4b46c86746f6a6))
 * **sidecar:** include object body in GET /v1/objects response ([e8557ed](https://github.com/sayanmohsin/thingd/commit/e8557ed9b7f50efb68680cf6c870ac134abcb807))
-* **sidecar:** loud fallback on SQLite failure + track has_fallback status ([d16419e](https://github.com/sayanmohsin/thingd/commit/d16419e366e965c537d99fafe776a697a36ef285))
+* **sidecar:** loud fallback on native storage failure + track has_fallback status ([d16419e](https://github.com/sayanmohsin/thingd/commit/d16419e366e965c537d99fafe776a697a36ef285))
 * **sidecar:** rate limiter hardening and cluster status from real config ([1f9ba9c](https://github.com/sayanmohsin/thingd/commit/1f9ba9c9648d50e46cd415193ab6926e849fc0e9))
 * **sidecar:** wire request_timeout_secs into tower timeout middleware ([96c6a9a](https://github.com/sayanmohsin/thingd/commit/96c6a9a84e6ce9be6c4cb4882a4d4372601b3e43))
 * skip broken CLI tests, fix rmSync for native storage directories ([29d7a4f](https://github.com/sayanmohsin/thingd/commit/29d7a4feb1161291b9d4d9dd51df34c2fcbaf481))
@@ -473,7 +473,7 @@
 * add benchmarks, sidecar tests, and optimize mutex type ([7e3a690](https://github.com/sayanmohsin/thingd/commit/7e3a690f69eb545ebb892888fc1d68ac3c73a2cc))
 * **engine:** batch multi-row INSERT for put_objects_batch and append_events_batch ([c4cfd13](https://github.com/sayanmohsin/thingd/commit/c4cfd134e18a6649dce5fe6249fa6ab6f829f1a0))
 * **engine:** push FTS collection filter and LIMIT to SQL, optimize delete_last_event ([8ef0e75](https://github.com/sayanmohsin/thingd/commit/8ef0e7550a21834609183c6c9649156a7f0626da))
-* optimize SQLite upsert and batch delete ([10867c6](https://github.com/sayanmohsin/thingd/commit/10867c60873765234d306b19dd5cdaadab90ff3d))
+* optimize durable upsert and batch delete ([10867c6](https://github.com/sayanmohsin/thingd/commit/10867c60873765234d306b19dd5cdaadab90ff3d))
 * **sidecar:** reader/writer connection pool for concurrent reads ([1f2ea69](https://github.com/sayanmohsin/thingd/commit/1f2ea6914ba40bfa4f08bcfea0e1ef2176671afe))
 
 ## [0.71.0](https://github.com/sayanmohsin/thingd/compare/v0.70.0...v0.71.0) (2026-07-31)
@@ -705,7 +705,7 @@
 
 ### Bug Fixes
 
-* remaining audit items — query length, CSRF, fallback warning, FTS5 optimize ([2f48ac6](https://github.com/sayanmohsin/thingd/commit/2f48ac6910352058c11a75603a778038432c376d))
+* remaining audit items — query length, CSRF, fallback warning, search optimization ([2f48ac6](https://github.com/sayanmohsin/thingd/commit/2f48ac6910352058c11a75603a778038432c376d))
 
 ## [0.44.2](https://github.com/sayanmohsin/thingd/compare/v0.44.1...v0.44.2) (2026-06-30)
 
@@ -848,7 +848,7 @@
 * **sidecar:** add graceful shutdown handler for SIGINT and SIGTERM ([1093989](https://github.com/sayanmohsin/thingd/commit/109398938db526a347d6e59223e98d3b32ee9a20))
 * **sidecar:** constant-time auth, AppState token, production-mode MCP sanitization ([9a92d81](https://github.com/sayanmohsin/thingd/commit/9a92d81914edc17de0f9f652ec4b46c86746f6a6))
 * **sidecar:** include object body in GET /v1/objects response ([e8557ed](https://github.com/sayanmohsin/thingd/commit/e8557ed9b7f50efb68680cf6c870ac134abcb807))
-* **sidecar:** loud fallback on SQLite failure + track has_fallback status ([d16419e](https://github.com/sayanmohsin/thingd/commit/d16419e366e965c537d99fafe776a697a36ef285))
+* **sidecar:** loud fallback on native storage failure + track has_fallback status ([d16419e](https://github.com/sayanmohsin/thingd/commit/d16419e366e965c537d99fafe776a697a36ef285))
 * **sidecar:** wire request_timeout_secs into tower timeout middleware ([96c6a9a](https://github.com/sayanmohsin/thingd/commit/96c6a9a84e6ce9be6c4cb4882a4d4372601b3e43))
 * use monospace for even docs logo character spacing ([dc1326d](https://github.com/sayanmohsin/thingd/commit/dc1326d0baffb910e8b822fe04787cdcf9048922))
 * use separate <text> elements to avoid } overlap in logo ([e0a53d1](https://github.com/sayanmohsin/thingd/commit/e0a53d18ab8d8a54169e26bc1e5cee5fd9cbb3c7))
@@ -974,7 +974,7 @@
 ### Performance Improvements
 
 * add benchmarks, sidecar tests, and optimize mutex type ([7e3a690](https://github.com/sayanmohsin/thingd/commit/7e3a690f69eb545ebb892888fc1d68ac3c73a2cc))
-* optimize SQLite upsert and batch delete ([10867c6](https://github.com/sayanmohsin/thingd/commit/10867c60873765234d306b19dd5cdaadab90ff3d))
+* optimize durable upsert and batch delete ([10867c6](https://github.com/sayanmohsin/thingd/commit/10867c60873765234d306b19dd5cdaadab90ff3d))
 
 ## [0.33.1](https://github.com/sayanmohsin/thingd/compare/v0.33.0...v0.33.1) (2026-06-22)
 
@@ -1062,7 +1062,7 @@
 
 ### Performance Improvements
 
-* **engine:** push list_objects filter/limit/offset down to SQLite ([94b839b](https://github.com/sayanmohsin/thingd/commit/94b839b02796c55c7776f8af9cf706ded068493a)), closes [#27](https://github.com/sayanmohsin/thingd/issues/27)
+* **engine:** push list_objects filter/limit/offset down to durable storage ([94b839b](https://github.com/sayanmohsin/thingd/commit/94b839b02796c55c7776f8af9cf706ded068493a)), closes [#27](https://github.com/sayanmohsin/thingd/issues/27)
 * **engine:** use RETURNING in append_event to eliminate extra SELECT ([31c2485](https://github.com/sayanmohsin/thingd/commit/31c2485237ae0db9396a03d93542ca1673930127)), closes [#21](https://github.com/sayanmohsin/thingd/issues/21)
 * **mcp:** decouple replication lag from /healthz — cache async in runner ([c83aeeb](https://github.com/sayanmohsin/thingd/commit/c83aeebc93ccef63285d0b96fc821e738f24eef5)), closes [#26](https://github.com/sayanmohsin/thingd/issues/26)
 * **mcp:** pass fromSequence to events.list in replication endpoint ([32aa6cd](https://github.com/sayanmohsin/thingd/commit/32aa6cd0f49a8d285a019ec7e77dc631322f7882)), closes [#25](https://github.com/sayanmohsin/thingd/issues/25)

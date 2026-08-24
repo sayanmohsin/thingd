@@ -47,7 +47,7 @@ not add Cloud tenancy or authentication to the open-source engine.
           ▼            ▼            ▼            ▼            ▼
     ┌─────────────────────────────────────────────────────────────┐
     │           Protocol Adapters (per-language)                   │
-    │  REST API (/v1/*)  │  MCP Server (36 tools)                 │
+    │  REST API (/v1/*)  │  MCP Server (39 Rust / 49 SDK tools)   │
     └─────────────────────────┬───────────────────────────────────┘
                               │
                   ┌───────────┼───────────┐

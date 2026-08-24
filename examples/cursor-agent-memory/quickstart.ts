@@ -54,7 +54,7 @@ async function main() {
   const resultsStemming = await db.search(query);
   log(
     "3. Full-Text Stemming Search",
-    `Searched for the word "${query}". Notice how the FTS5 Porter Stemmer successfully matched both "learn-rust" and "learn-typescript":`,
+    `Searched for the word "${query}". Notice how Tantivy stemming successfully matched both "learn-rust" and "learn-typescript":`,
     resultsStemming.map((r) => ({
       id: r.id,
       score: r.score,

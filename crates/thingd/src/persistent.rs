@@ -121,8 +121,8 @@ const STORAGE_CONTRACT: &str = "rocksdb-tantivy-v1";
 const STORAGE_MANIFEST_FILE: &str = ".thingd-storage.json";
 const STORAGE_LOCK_FILE: &str = "lock";
 const STORAGE_KEYSPACES_DIR: &str = "keyspaces";
-// Tantivy requires at least 15 MB per writer thread; this is lower than the
-// previous 50 MB budget while remaining valid for the current Tantivy release.
+// Tantivy requires a minimum memory budget per writer thread; keep this below
+// the previous allocation while remaining valid for the current release.
 const SEARCH_WRITER_MEMORY_BYTES: usize = 15_000_000;
 const DEFAULT_MAX_JOURNAL_BYTES: u64 = 32 * 1024 * 1024;
 const MAX_SEARCH_REBUILD_RETRIES: u64 = 3;

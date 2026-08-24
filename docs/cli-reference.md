@@ -147,14 +147,14 @@ implementation in the current release.
 ### Backup
 
 ```txt
-thingd backup --out backup.db
-thingd backup --in backup.db
+thingd db backup --out backup.tar
+thingd db restore --in backup.tar --destination /path/to/thingd.db
 ```
 
-The file backup form is for the deprecated SQLite compatibility backend. For
-current native runtimes, stop or checkpoint the engine and back up the whole
-database directory. Encrypted directory backups remain opaque and require the
-same key to restore. JSON snapshots and logical exports are decrypted data.
+For current native runtimes, stop or checkpoint the engine and back up the whole
+database directory, or use the database archive commands above. Encrypted
+backups remain opaque and require the same key to restore. JSON snapshots and
+logical exports are decrypted data.
 
 ### Database Maintenance
 

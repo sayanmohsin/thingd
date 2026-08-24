@@ -125,7 +125,7 @@ The `filter` parameter matches against top-level fields in the object body:
 }
 ```
 
-This uses JSON equality matching (not FTS5). The persistent implementation is
+This uses JSON equality matching rather than full-text search. The persistent implementation is
 being hardened to apply this filter before satisfying the requested result
 limit.
 
