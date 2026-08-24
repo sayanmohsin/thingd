@@ -231,9 +231,6 @@ impl SearchMutationQueue {
     }
 
     fn take_batch(&self, batch_size: usize, interval: Duration) -> Vec<SearchIndexMutation> {
-        if self.shutdown.load(Ordering::Acquire) {
-            return Vec::new();
-        }
         let Ok(mut state) = self.state.lock() else {
             return Vec::new();
         };
@@ -259,6 +256,19 @@ impl SearchMutationQueue {
             }
         }
         if state.pending.len() < batch_size.max(1) {
+            if self.shutdown.load(Ordering::Acquire) {
+                let keys = state
+                    .pending
+                    .keys()
+                    .take(batch_size.max(1))
+                    .cloned()
+                    .collect::<Vec<_>>();
+                state.in_flight = !keys.is_empty();
+                return keys
+                    .into_iter()
+                    .filter_map(|key| state.pending.remove(&key))
+                    .collect();
+            }
             let Ok((next, _)) = self.wake.wait_timeout(state, interval) else {
                 return Vec::new();
             };
