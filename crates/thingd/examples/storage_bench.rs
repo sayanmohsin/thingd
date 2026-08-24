@@ -97,6 +97,7 @@ struct BenchOutput {
     summaries: Vec<BenchSummary>,
     storage: Vec<StorageSnapshot>,
     wal: Vec<WalSnapshot>,
+    ram: Vec<RamSnapshot>,
 }
 
 #[derive(Debug, Serialize)]
@@ -115,6 +116,13 @@ struct WalSnapshot {
     driver: String,
     repetition: usize,
     diagnostics: thingdb::WalDiagnostics,
+}
+
+#[derive(Debug, Serialize)]
+struct RamSnapshot {
+    driver: String,
+    repetition: usize,
+    diagnostics: thingdb::RamDiagnostics,
 }
 
 #[derive(Debug, Serialize)]
@@ -163,6 +171,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             summaries: Vec::new(),
             storage: Vec::new(),
             wal: Vec::new(),
+            ram: Vec::new(),
         }))
         .map_err(|_| "benchmark output was initialized more than once")?;
 
@@ -797,6 +806,14 @@ fn bench_memory_latency_distribution(
         Ok(())
     })?;
     record_latency(name, "latency_event_append", event_latencies);
+    black_box(store.search("benchmark", SearchOptions::default())?);
+    if let Some(diagnostics) = store.ram_diagnostics()? {
+        results().lock().unwrap().ram.push(RamSnapshot {
+            driver: name.to_string(),
+            repetition: CURRENT_REPETITION.load(Ordering::Relaxed),
+            diagnostics,
+        });
+    }
     Ok(())
 }
 

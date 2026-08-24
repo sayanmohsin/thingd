@@ -1300,6 +1300,17 @@ impl PersistentEngine {
             .map_err(|error| ThingdError::Storage(error.to_string()))
     }
 
+    /// Return RAM-only ThingDB lookup and pipeline diagnostics.
+    pub fn ram_diagnostics(&self) -> ThingdResult<Option<thingdb::RamDiagnostics>> {
+        if !self.is_in_memory() {
+            return Ok(None);
+        }
+        self.db
+            .ram_diagnostics()
+            .map(Some)
+            .map_err(|error| ThingdError::Storage(error.to_string()))
+    }
+
     /// Persist and compact every primary keyspace.
     pub fn compact_storage(&mut self) -> ThingdResult<()> {
         if self.db.is_in_memory() {
@@ -2725,7 +2736,14 @@ impl ObjectStore for PersistentEngine {
     fn get_object(&self, collection: &str, id: &str) -> ThingdResult<Option<MemoryObject>> {
         let key = self.make_object_key(collection, id);
         match value_to_vec(self.objects.get(&key)?) {
-            Some(data) => Ok(Some(self.deserialize(&data)?)),
+            Some(data) => {
+                let started = std::time::Instant::now();
+                let result = self.deserialize(&data);
+                self.db.record_ram_deserialization(
+                    u64::try_from(started.elapsed().as_nanos()).unwrap_or(u64::MAX),
+                );
+                Ok(Some(result?))
+            },
             None => Ok(None),
         }
     }
@@ -3584,25 +3602,31 @@ impl QueueStore for PersistentEngine {
 
 impl Searcher for PersistentEngine {
     fn search(&self, query: &str, options: SearchOptions) -> ThingdResult<Vec<SearchHit>> {
-        #[cfg(feature = "search")]
-        if self.maintenance.state != "idle"
-            || self.search_rebuild.is_some()
-            || self.search_mode == PersistentSearchMode::PersistentNoRebuild
-            || self
-                .search_queue
-                .as_ref()
-                .is_some_and(|queue| queue.needs_fallback())
-        {
-            return self.search_naive(query, options);
-        }
-        // Try Tantivy search first
-        #[cfg(feature = "search")]
-        if let (Some(index), Some(reader)) = (&self.search_index, &self.search_reader) {
-            return self.search_tantivy(index, reader, query, options);
-        }
+        let started = std::time::Instant::now();
+        let result = (|| {
+            #[cfg(feature = "search")]
+            if self.maintenance.state != "idle"
+                || self.search_rebuild.is_some()
+                || self.search_mode == PersistentSearchMode::PersistentNoRebuild
+                || self
+                    .search_queue
+                    .as_ref()
+                    .is_some_and(|queue| queue.needs_fallback())
+            {
+                return self.search_naive(query, options);
+            }
+            // Try Tantivy search first
+            #[cfg(feature = "search")]
+            if let (Some(index), Some(reader)) = (&self.search_index, &self.search_reader) {
+                return self.search_tantivy(index, reader, query, options);
+            }
 
-        // Fallback: naive substring search (same as MemoryEngine)
-        self.search_naive(query, options)
+            // Fallback: naive substring search (same as MemoryEngine)
+            self.search_naive(query, options)
+        })();
+        self.db
+            .record_ram_search(u64::try_from(started.elapsed().as_nanos()).unwrap_or(u64::MAX));
+        result
     }
 }
 
