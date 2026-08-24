@@ -178,7 +178,7 @@
     try {
       const res = await request('/api/status');
       dbStatus = 'Active (Localhost)';
-      dbDriver = res.driver === 'memory' ? 'In-Memory Store' : res.driver === 'native' ? 'Native SQLite (FTS5)' : 'Cloud Endpoint';
+      dbDriver = res.driver === 'memory' ? 'In-Memory Store' : res.driver === 'native' ? 'Native RocksDB (Tantivy)' : 'Cloud Endpoint';
       dbPath = res.path;
       dbSize = res.metrics.dbSize || 'N/A';
       metrics = res.metrics;
@@ -612,7 +612,7 @@
     }
   }
 
-  // FTS5 Search Sandbox
+  // Tantivy Search Sandbox
   async function runSearch() {
     const query = searchQuery.trim();
     if (!query) {
@@ -754,7 +754,7 @@
 
   // Connection settings
   function openConnSettingsModal() {
-    connDriver = dbDriver.includes('In-Memory') ? 'memory' : dbDriver.includes('FTS5') ? 'native' : 'cloud';
+    connDriver = dbDriver.includes('In-Memory') ? 'memory' : dbDriver.includes('Tantivy') ? 'native' : 'cloud';
     connPath = dbPath;
     connToken = authToken;
     modalConnVisible = true;
@@ -801,7 +801,7 @@
 
   onMount(() => {
     fetchStatus();
-    logDiagnostic('DB Connection resolved: Active local SQLite stemming context.', 'success');
+    logDiagnostic('DB Connection resolved: Active local Tantivy search context.', 'success');
     pollingInterval = setInterval(fetchStatus, 4000);
     
     // Auto-polling for active lists
@@ -876,7 +876,7 @@
       </button>
       <button class="nav-item {currentTab === 'search' ? 'active' : ''}" on:click={() => selectTab('search')}>
         <svg class="nav-icon" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
-        Stemming FTS5 Tester
+        Tantivy Search Tester
       </button>
       <button class="nav-item {currentTab === 'nlq' ? 'active' : ''}" on:click={() => selectTab('nlq')}>
         <svg class="nav-icon" viewBox="0 0 24 24"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H5.17L4 17.17V4h16v12z"/></svg>
@@ -914,7 +914,7 @@
           {#if currentTab === 'schema'}Schema Inspector{/if}
           {#if currentTab === 'events'}Event Log Stream{/if}
           {#if currentTab === 'queues'}Queues & Background Jobs{/if}
-          {#if currentTab === 'search'}Stemming FTS5 Tester{/if}
+          {#if currentTab === 'search'}Tantivy Search Tester{/if}
           {#if currentTab === 'nlq'}NLQ Query{/if}
           {#if currentTab === 'health'}Database Health{/if}
           {#if currentTab === 'replication'}Replication & Authority{/if}
@@ -1384,7 +1384,7 @@
         <div class="tab-panel active">
           <div class="card glass fill-height flex-column">
             <div class="card-header">
-              <h2>Stemming Search Tester (FTS5 Engine)</h2>
+              <h2>Stemming Search Tester (Tantivy Engine)</h2>
             </div>
             <div class="card-body flex-column scroll-y">
               
@@ -1432,7 +1432,7 @@
                     <tbody>
                       {#if searchResults.length === 0}
                         <tr>
-                          <td colspan="5" class="text-center text-muted">Enter a search query above and click 'Run Search' to inspect FTS5 matching.</td>
+                          <td colspan="5" class="text-center text-muted">Enter a search query above and click 'Run Search' to inspect Tantivy matching.</td>
                         </tr>
                       {:else}
                         {#each searchResults as res (res.id)}
@@ -1872,7 +1872,7 @@
             <label for="conn-drv">Storage Driver *</label>
             <select id="conn-drv" bind:value={connDriver} class="form-input" style="background: rgba(0, 0, 0, 0.4);">
               <option value="memory">In-Memory Store</option>
-              <option value="native">Native SQLite (FTS5)</option>
+              <option value="native">Native RocksDB (Tantivy)</option>
               <option value="cloud">Cloud Endpoint</option>
             </select>
           </div>

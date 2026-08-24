@@ -336,7 +336,7 @@ impl EnginePool {
             {
                 return Err(format!("Failed to delete database at {path}: {e}"));
             }
-            // Delete legacy single-file SQLite compat path
+            // Delete any legacy single-file compatibility path
             let _ = std::fs::remove_file(&path);
         }
 

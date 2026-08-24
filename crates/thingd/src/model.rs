@@ -561,7 +561,7 @@ pub enum TimeBucket {
 }
 
 impl TimeBucket {
-    /// Return the `SQLite` strftime format for this bucket.
+    /// Return the canonical time format for this bucket.
     pub const fn strftime_format(&self) -> &str {
         match self {
             Self::Hour => "%Y-%m-%dT%H:00:00Z",

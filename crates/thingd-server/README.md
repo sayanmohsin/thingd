@@ -166,7 +166,7 @@ memory use.
 | | thingd-server | @thingd/sdk |
 |---|---|---|
 | Runtime | Standalone binary | Node.js (embedded or subprocess) |
-| Size | ~15 MB static binary | ~50 MB with Node + native addon |
+| Size | Platform-dependent static binary | Node.js with optional native addon |
 | MCP | 39 core tools native | 49 tools via TypeScript, including scheduler tools |
 | REST | Yes (axum) | Yes (Express) |
 | Cluster | Status + peer discovery | Full leader election + forwarding |

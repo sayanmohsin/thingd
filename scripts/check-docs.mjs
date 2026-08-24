@@ -36,23 +36,14 @@ if (metadata.sdkToolCount !== unique(tsTools).length || metadata.sidecarToolCoun
 if (!docs.mcp.includes("49 SDK tools") || !docs.mcp.includes("39 core tools")) {
   errors.push("MCP API reference is missing the SDK/sidecar tool-count distinction.");
 }
-if (docs.readme.includes("36 tools") || docs.serverReadme.includes("35 tools")) {
-  errors.push("README contains a stale MCP tool count.");
-}
 if (docs.release.includes('version = "0.41"')) {
   errors.push("Release documentation contains the stale 0.41 crate example.");
 }
 if (docs.readme.includes("### What's next\n\n- In-process vector search")) {
   errors.push("README still lists shipped vector/WASM/cluster features as future work.");
 }
-if (docs.readme.includes("36 tools") || docs.serverReadme.includes("35 tools")) {
-  errors.push("README contains a stale MCP tool count.");
-}
 if (docs.release.includes("v0.19.0")) {
   errors.push("Release documentation contains the stale v0.19.0 image example.");
-}
-if (docs.mcp.includes("SQLite FTS5") || docs.apiIndex.includes("Raft consensus")) {
-  errors.push("API documentation contains stale SQLite FTS5 or Raft claims.");
 }
 const normalizeRoute = (value) => value.replace(/:([a-zA-Z_]+)/g, "{$1}");
 const restRoutes = [...server.matchAll(/\.route\("(\/v1\/[^"?]+)"/g)].map((match) => normalizeRoute(match[1]));

@@ -121,8 +121,8 @@ const STORAGE_CONTRACT: &str = "rocksdb-tantivy-v1";
 const STORAGE_MANIFEST_FILE: &str = ".thingd-storage.json";
 const STORAGE_LOCK_FILE: &str = "lock";
 const STORAGE_KEYSPACES_DIR: &str = "keyspaces";
-// Tantivy requires at least 15 MB per writer thread; this is lower than the
-// previous 50 MB budget while remaining valid for the current Tantivy release.
+// Tantivy requires a minimum memory budget per writer thread; keep this below
+// the previous allocation while remaining valid for the current release.
 const SEARCH_WRITER_MEMORY_BYTES: usize = 15_000_000;
 const DEFAULT_MAX_JOURNAL_BYTES: u64 = 32 * 1024 * 1024;
 const MAX_SEARCH_REBUILD_RETRIES: u64 = 3;
@@ -231,9 +231,6 @@ impl SearchMutationQueue {
     }
 
     fn take_batch(&self, batch_size: usize, interval: Duration) -> Vec<SearchIndexMutation> {
-        if self.shutdown.load(Ordering::Acquire) {
-            return Vec::new();
-        }
         let Ok(mut state) = self.state.lock() else {
             return Vec::new();
         };
@@ -259,6 +256,19 @@ impl SearchMutationQueue {
             }
         }
         if state.pending.len() < batch_size.max(1) {
+            if self.shutdown.load(Ordering::Acquire) {
+                let keys = state
+                    .pending
+                    .keys()
+                    .take(batch_size.max(1))
+                    .cloned()
+                    .collect::<Vec<_>>();
+                state.in_flight = !keys.is_empty();
+                return keys
+                    .into_iter()
+                    .filter_map(|key| state.pending.remove(&key))
+                    .collect();
+            }
             let Ok((next, _)) = self.wake.wait_timeout(state, interval) else {
                 return Vec::new();
             };

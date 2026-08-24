@@ -49,7 +49,7 @@ thingd doctor
 thingd dashboard
 ```
 
-Opens `http://localhost:8758` — browse collections, event streams, queue jobs, and run FTS5 search queries interactively.
+Opens `http://localhost:8758` — browse collections, event streams, queue jobs, and run Tantivy full-text search queries interactively.
 
 ---
 
@@ -76,7 +76,7 @@ Expected output:
 Opened persistent thingd instance using native driver.
 
 === [Step 3: Full-Text Stemming Search] ===
-Searched for "learning". FTS5 Porter Stemmer matched both "learn-rust" and "learn-typescript".
+Searched for "learning". Tantivy stemming matched both "learn-rust" and "learn-typescript".
 
 === [Step 4: Search with Metadata Filters] ===
 Searched for "learning" with filter { status: "active" }. Only "learn-typescript" returned.

@@ -461,7 +461,7 @@ async function fetchResources(): Promise<void> {
       streams = nativeStreams.length > 0 ? nativeStreams : [];
       queues = nativeQueues.length > 0 ? nativeQueues : [];
     } catch {
-      // Fallback if sqlite3 fails
+      // Fall back if the native status request fails
       await fetchResourcesFallback();
     }
   } else {

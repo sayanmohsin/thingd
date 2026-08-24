@@ -87,7 +87,7 @@ thingd runs everywhere with the same API:
 |---|---|
 | **In-memory** | Zero setup, fast tests, REPL-style exploration, WASM target |
 | **PersistentEngine** | Durable local persistence for objects, events, queues, search, and vectors |
-| **Docker** | Sidecar server, ~15MB image, instant startup |
+| **Docker** | Sidecar server in a self-contained image |
 | **Embedded** | In-process with your Node.js app, zero network calls |
 
 No cluster to configure. No cloud to sign up for. Just `npm install` and go.

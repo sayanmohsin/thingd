@@ -69,9 +69,18 @@ For browsers, edge runtimes, and non-Node.js environments, use the standalone
 | `@thingd/client` (browser/edge) | cloud | HTTP REST |
 | `thingd mcp` / `mcp-http` | native | stdio MCP / Streamable HTTP |
 
+## Technology stack
+
+- **Rust** — core engine, durable runtime, and sidecar server
+- **TypeScript / Node.js** — SDK, browser client, and CLI
+- **RocksDB** — default durable storage backend
+- **Tantivy** — persistent full-text search with BM25 ranking
+- **MCP** — agent-facing tools over stdio and Streamable HTTP
+- **CLI** — dashboard, administration, diagnostics, and database operations
+
 ## Why thingd?
 
-SQLite is excellent. It is small, fast, local, durable, and easy to deploy. But modern apps often need a friendlier layer above raw SQL.
+Traditional relational databases are excellent at relational workloads. Thingd provides a friendlier object-first layer for applications that need storage, search, queues, events, and MCP access together.
 
 Modern app workflows commonly need to:
 
@@ -109,7 +118,7 @@ cases, and when to skip.
 It is not:
 
 - a full Postgres replacement
-- a magic multi-primary SQLite clone
+- a magic multi-primary relational database clone
 - a Redis replacement for massive distributed workloads
 - a hosted vector database
 - a finished production system today
@@ -728,7 +737,6 @@ pnpm test:publish-manifests
 
 | Tool | Great at | Why thingd is different |
 | --- | --- | --- |
-| SQLite | local relational storage | object API, MCP tools, events, queues, FTS + vector search, graph |
 | MongoDB | flexible documents | local-first tiny binary, Rust core, MCP-native, built-in queues |
 | Redis / BullMQ | fast queues and workers | durable local engine with persist, same API for queues + storage |
 | Postgres job queues | reliable jobs on Postgres | lighter local deployment, no connection pool needed |

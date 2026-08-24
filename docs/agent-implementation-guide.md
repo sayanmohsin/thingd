@@ -54,7 +54,7 @@ cluster sidecar mode:
 The Node.js default uses native ThingDB RAM for `:memory:` when the addon is
 available. Explicit `driver: "memory"` selects the TypeScript reference store.
 Durable local persistence uses the native persistent adapter through
-`driver: "native"` after `thingd-native` is built locally. The deprecated SQLite adapter remains
+`driver: "native"` after `thingd-native` is built locally. The durable backend remains
 available only for historical compatibility and is not the current runtime
 model.
 The SDK can opt into sidecar mode with `driver: "cloud"` or automatically when

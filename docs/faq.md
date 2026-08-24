@@ -341,7 +341,6 @@ Integration and design. thingd is not a novel storage engine — it's a novel co
 - Multi-primary geo-distributed workloads.
 - Strict exactly-once queue delivery.
 - Datasets requiring relational joins or complex queries.
-- High-throughput write workloads (>10k writes/sec on a single node).
 - Use cases requiring per-collection schema enforcement.
 - Production clusters requiring automatic failover.
 
@@ -379,9 +378,8 @@ Yes. Set `server.production_mode: true` to strip internal details from 500 respo
 thingd backup --out /path/to/backup.db
 ```
 
-That command applies to the deprecated SQLite compatibility backend. For the
-current native backend, use `thingd db backup --out /path/to/backup.tar` and
-`thingd db restore --in /path/to/backup.tar --destination /path/to/thingd.db`.
+For the current native backend, use `thingd db backup --out /path/to/backup.tar`
+and `thingd db restore --in /path/to/backup.tar --destination /path/to/thingd.db`.
 The native archive remains encrypted when the source is encrypted and requires
 exclusive access during checkpoint/backup. See [Operations](../operations.md).
 
@@ -408,9 +406,9 @@ an offline migration or key rotation. Encrypted-to-plaintext output requires
 
 ### Are schema migrations safe?
 
-Current native persistence does not use the old SQLite schema migration flow.
-Format versions are validated at open, and key rotation is always an explicit
-offline copy into a new destination.
+Current native persistence has no manual SQL schema migration flow. Format
+versions are validated at open, and key rotation is always an explicit offline
+copy into a new destination.
 
 ## Hosted version
 
