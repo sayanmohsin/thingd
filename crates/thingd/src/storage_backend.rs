@@ -206,6 +206,27 @@ impl Database {
                 .map_err(|error| Error(error.to_string())),
         }
     }
+
+    pub(crate) fn ram_diagnostics(&self) -> Result<thingdb::RamDiagnostics, Error> {
+        match self.db.as_ref() {
+            Backend::RocksDb(_) => Ok(thingdb::RamDiagnostics::default()),
+            Backend::ThingDb(db) => db
+                .ram_diagnostics()
+                .map_err(|error| Error(error.to_string())),
+        }
+    }
+
+    pub(crate) fn record_ram_deserialization(&self, duration_ns: u64) {
+        if let Backend::ThingDb(db) = self.db.as_ref() {
+            db.record_ram_deserialization(duration_ns);
+        }
+    }
+
+    pub(crate) fn record_ram_search(&self, duration_ns: u64) {
+        if let Backend::ThingDb(db) = self.db.as_ref() {
+            db.record_ram_search(duration_ns);
+        }
+    }
 }
 
 impl DatabaseBuilder {

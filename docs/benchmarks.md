@@ -59,6 +59,24 @@ includes the reference memory engine, ThingDB RAM mode, durable RocksDB, and
 durable ThingDB. It also includes the standalone ThingDB RAM cache as
 `thingdb-cache`.
 
+ThingDB RAM runs also record internal pipeline diagnostics in the structured
+output: keyspace lookup, lock wait/hold time, value cloning, mutation,
+iteration, Thingd-layer deserialization, and search timing. These diagnostics
+explain a result but are not themselves performance guarantees. A focused
+repeatable smoke run is:
+
+```bash
+cargo run --release -p thingd --example storage_bench --features persistent,search -- \
+  --iterations 100 --repetitions 5 --seed 42 --backend thingdb \
+  --phase thingdb-ram-performance-smoke \
+  --output target/thingdb-ram-performance.json \
+  --history target/thingdb-ram-performance.jsonl
+```
+
+Use larger 50K and 100K runs only after the smoke run passes correctness and
+filesystem isolation. Do not compare these results with Redis or treat them as
+production claims.
+
 Use `--backend cache` for a focused ThingDB cache run. This measures byte
 key/value inserts, hot reads, mixed access, TTL/LRU bounds, latency
 percentiles, and four-thread contention. The cache is a separate process-local

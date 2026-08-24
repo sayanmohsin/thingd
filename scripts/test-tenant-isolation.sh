@@ -80,6 +80,7 @@ echo "       Engine ready"
 
 # ── Run tests ──────────────────────────────────────────────────
 MCP_URL="http://127.0.0.1:$ENGINE_PORT/mcp"
+READY_URL="http://127.0.0.1:$ENGINE_PORT/ready"
 CT="Content-Type: application/json"
 
 mcpcall() {
@@ -93,6 +94,30 @@ mcpcall() {
     -H "$CT" \
     -d "$@" 2>/dev/null
 }
+
+wait_for_tenant_ready() {
+  local tenant="$1"
+  local token="$ALICE_TOKEN"
+  [ "$tenant" = "bob" ] && token="$BOB_TOKEN"
+  for _ in $(seq 1 40); do
+    if curl -sf "$READY_URL" \
+      -H "X-Tenant-Id: $tenant" \
+      -H "Authorization: Bearer $token" >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 0.5
+  done
+  return 1
+}
+
+echo "       Waiting for tenant storage recovery"
+for tenant in alice bob; do
+  if ! wait_for_tenant_ready "$tenant"; then
+    echo "ERROR: $tenant tenant storage did not become ready"
+    exit 1
+  fi
+done
+echo "       Tenant storage ready"
 
 echo ""
 echo "==> Test 1: Write same object ID to two tenants"

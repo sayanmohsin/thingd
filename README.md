@@ -45,6 +45,7 @@ See the [public documentation index](https://github.com/sayanmohsin/thingd/blob/
 ### What's next
 
 - HNSW/ANN vector indexing for larger datasets; durable vector search is currently a brute-force cosine scan
+- Continued ThingDB RAM performance and memory validation; the RAM path remains experimental and does not change the RocksDB durable default
 - Additional deployment integrations and operational hardening
 - Browser and edge runtime packaging via WASM
 

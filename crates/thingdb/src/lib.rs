@@ -214,6 +214,41 @@ pub struct WalDiagnostics {
     pub last_error: Option<String>,
 }
 
+/// Timing and allocation-adjacent counters for the RAM-only keyspace path.
+///
+/// These values are intentionally diagnostic rather than a performance
+/// contract. Durable databases return zeroes because they use the existing
+/// WAL/table path instead of this process-local layout.
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize)]
+pub struct RamDiagnostics {
+    /// Number of point lookups.
+    pub lookup_count: u64,
+    /// Nanoseconds spent constructing lookup keys.
+    pub key_encode_duration_ns: u64,
+    /// Nanoseconds spent waiting for the RAM state lock.
+    pub lock_wait_duration_ns: u64,
+    /// Nanoseconds spent holding the RAM state lock.
+    pub lock_held_duration_ns: u64,
+    /// Nanoseconds spent locating values in the ordered map.
+    pub lookup_duration_ns: u64,
+    /// Nanoseconds spent cloning returned values.
+    pub value_clone_duration_ns: u64,
+    /// Number of RAM mutations.
+    pub mutation_count: u64,
+    /// Nanoseconds spent applying RAM mutations.
+    pub mutation_duration_ns: u64,
+    /// Number of RAM iteration requests.
+    pub iteration_count: u64,
+    /// Nanoseconds spent materializing RAM iteration results.
+    pub iteration_duration_ns: u64,
+    /// Nanoseconds spent deserializing Thingd objects from RAM values.
+    pub deserialization_duration_ns: u64,
+    /// Number of RAM search operations.
+    pub search_count: u64,
+    /// Nanoseconds spent executing RAM searches.
+    pub search_duration_ns: u64,
+}
+
 /// Keyspace creation options reserved for future per-keyspace tuning.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct KeyspaceCreateOptions;
@@ -244,6 +279,7 @@ struct Inner {
     lock: Option<File>,
     in_memory: bool,
     state: BTreeMap<Vec<u8>, Vec<u8>>,
+    memory_keyspaces: Option<BTreeMap<String, BTreeMap<Vec<u8>, Vec<u8>>>>,
     sequence: u64,
     table_sequence: u64,
     table_files: Vec<String>,
@@ -253,6 +289,7 @@ struct Inner {
     max_journaling_size: u64,
     max_memtable_bytes: u64,
     diagnostics: WalDiagnostics,
+    ram_diagnostics: RamDiagnostics,
     recovery_required: bool,
 }
 
@@ -289,6 +326,18 @@ impl Inner {
     }
 
     fn materialize_state(&self) -> Result<BTreeMap<Vec<u8>, Vec<u8>>> {
+        if let Some(keyspaces) = &self.memory_keyspaces {
+            let mut state = BTreeMap::new();
+            for (name, entries) in keyspaces {
+                let namespace = namespace(name);
+                for (key, value) in entries {
+                    let mut physical = namespace.clone();
+                    physical.extend_from_slice(key);
+                    state.insert(physical, value.clone());
+                }
+            }
+            return Ok(state);
+        }
         let mut state = BTreeMap::new();
         for layer in &self.table_layers {
             for entry in &layer.entries {
@@ -333,6 +382,7 @@ struct Manifest {
 pub struct Keyspace {
     db: Database,
     name: String,
+    namespace: Vec<u8>,
 }
 
 /// A write batch applied atomically to all included keyspaces.
@@ -736,6 +786,7 @@ impl Database {
             lock: None,
             in_memory: true,
             state: BTreeMap::new(),
+            memory_keyspaces: Some(BTreeMap::new()),
             sequence: 0,
             table_sequence: 0,
             table_files: Vec::new(),
@@ -745,6 +796,7 @@ impl Database {
             max_journaling_size: 0,
             max_memtable_bytes: 0,
             diagnostics: WalDiagnostics::default(),
+            ram_diagnostics: RamDiagnostics::default(),
             recovery_required: false,
         }));
         let writer = WriterCoordinator::new(Arc::downgrade(&inner))?;
@@ -775,6 +827,7 @@ impl Database {
         Ok(Keyspace {
             db: self.clone(),
             name: name.to_string(),
+            namespace: namespace(name),
         })
     }
 
@@ -878,6 +931,45 @@ impl Database {
         Ok(diagnostics)
     }
 
+    /// Return RAM-only lookup and mutation timings.
+    pub fn ram_diagnostics(&self) -> Result<RamDiagnostics> {
+        let inner = self
+            .inner
+            .lock()
+            .map_err(|_| Error::message("database lock poisoned"))?;
+        if inner.in_memory {
+            Ok(inner.ram_diagnostics.clone())
+        } else {
+            Ok(RamDiagnostics::default())
+        }
+    }
+
+    /// Record Thingd-layer deserialization time for RAM diagnostics.
+    pub fn record_ram_deserialization(&self, duration_ns: u64) {
+        if let Ok(mut inner) = self.inner.lock()
+            && inner.in_memory
+        {
+            inner.ram_diagnostics.deserialization_duration_ns = inner
+                .ram_diagnostics
+                .deserialization_duration_ns
+                .saturating_add(duration_ns);
+        }
+    }
+
+    /// Record Thingd-layer search time for RAM diagnostics.
+    pub fn record_ram_search(&self, duration_ns: u64) {
+        if let Ok(mut inner) = self.inner.lock()
+            && inner.in_memory
+        {
+            inner.ram_diagnostics.search_count =
+                inner.ram_diagnostics.search_count.saturating_add(1);
+            inner.ram_diagnostics.search_duration_ns = inner
+                .ram_diagnostics
+                .search_duration_ns
+                .saturating_add(duration_ns);
+        }
+    }
+
     fn flush_table(&self, sync: bool) -> Result<()> {
         let mut inner = self
             .inner
@@ -907,9 +999,26 @@ impl Database {
                 ));
             }
             let started = Instant::now();
-            for operation in operations {
-                apply_operation(&mut inner.state, operation);
+            let keyspaces = inner
+                .memory_keyspaces
+                .as_mut()
+                .ok_or_else(|| Error::message("ThingDB RAM state is unavailable"))?;
+            for operation in &operations {
+                validate_memory_operation(operation)?;
             }
+            let operation_count = operations.len() as u64;
+            for operation in operations {
+                apply_memory_operation(keyspaces, operation)?;
+            }
+            let elapsed = elapsed_nanos(started.elapsed());
+            inner.ram_diagnostics.mutation_count = inner
+                .ram_diagnostics
+                .mutation_count
+                .saturating_add(operation_count);
+            inner.ram_diagnostics.mutation_duration_ns = inner
+                .ram_diagnostics
+                .mutation_duration_ns
+                .saturating_add(elapsed);
             inner.sequence = inner.sequence.saturating_add(1);
             inner.diagnostics.logical_commit_count =
                 inner.diagnostics.logical_commit_count.saturating_add(1);
@@ -1236,6 +1345,7 @@ impl DatabaseBuilder {
             lock: Some(lock),
             in_memory: false,
             state,
+            memory_keyspaces: None,
             sequence,
             table_sequence,
             table_files,
@@ -1251,6 +1361,7 @@ impl DatabaseBuilder {
                 recovery_duration_ns,
                 ..WalDiagnostics::default()
             },
+            ram_diagnostics: RamDiagnostics::default(),
             recovery_required: false,
         }));
         let writer = WriterCoordinator::new(Arc::downgrade(&inner))?;
@@ -1270,12 +1381,50 @@ impl Drop for Inner {
 impl Keyspace {
     /// Read a value by user key.
     pub fn get(&self, key: impl AsRef<[u8]>) -> Result<Option<Vec<u8>>> {
-        let inner = self
+        let key = key.as_ref();
+        let lock_started = Instant::now();
+        let mut inner = self
             .db
             .inner
             .lock()
             .map_err(|_| Error::message("database lock poisoned"))?;
-        inner.get_value(&physical_key(&self.name, key.as_ref()))
+        let lock_wait = elapsed_nanos(lock_started.elapsed());
+        if inner.in_memory {
+            let lookup_started = Instant::now();
+            let value = inner
+                .memory_keyspaces
+                .as_ref()
+                .and_then(|keyspaces| keyspaces.get(&self.name))
+                .and_then(|keyspace| keyspace.get(key));
+            let lookup_duration = elapsed_nanos(lookup_started.elapsed());
+            let clone_started = Instant::now();
+            let value = value.cloned();
+            let clone_duration = elapsed_nanos(clone_started.elapsed());
+            let held_duration = elapsed_nanos(lock_started.elapsed());
+            let diagnostics = &mut inner.ram_diagnostics;
+            diagnostics.lookup_count = diagnostics.lookup_count.saturating_add(1);
+            diagnostics.lock_wait_duration_ns =
+                diagnostics.lock_wait_duration_ns.saturating_add(lock_wait);
+            diagnostics.lock_held_duration_ns = diagnostics
+                .lock_held_duration_ns
+                .saturating_add(held_duration);
+            diagnostics.lookup_duration_ns = diagnostics
+                .lookup_duration_ns
+                .saturating_add(lookup_duration);
+            diagnostics.value_clone_duration_ns = diagnostics
+                .value_clone_duration_ns
+                .saturating_add(clone_duration);
+            return Ok(value);
+        }
+        let key_started = Instant::now();
+        let physical = physical_key_from_namespace(&self.namespace, key);
+        let key_duration = elapsed_nanos(key_started.elapsed());
+        let result = inner.get_value(&physical);
+        inner.ram_diagnostics.key_encode_duration_ns = inner
+            .ram_diagnostics
+            .key_encode_duration_ns
+            .saturating_add(key_duration);
+        result
     }
 
     /// Insert or replace a value durably.
@@ -1339,19 +1488,22 @@ impl Keyspace {
         start: Option<(Vec<u8>, bool)>,
         end: Option<(Vec<u8>, bool)>,
     ) -> Iter {
-        let Ok(inner) = self.db.inner.lock() else {
+        let Ok(mut inner) = self.db.inner.lock() else {
             return Iter {
                 entries: Vec::new().into_iter(),
             };
         };
-        let namespace = namespace(&self.name);
+        if inner.in_memory {
+            return iter_memory_bounds(&mut inner, &self.name, prefix, start, end);
+        }
+        let namespace = self.namespace.clone();
         let lower = start
             .as_ref()
-            .map(|(key, _)| physical_key(&self.name, key))
+            .map(|(key, _)| physical_key_from_namespace(&namespace, key))
             .unwrap_or_else(|| namespace.clone());
         let upper = end
             .as_ref()
-            .map(|(key, _)| physical_key(&self.name, key))
+            .map(|(key, _)| physical_key_from_namespace(&namespace, key))
             .and_then(|key| successor(&key))
             .or_else(|| successor(&namespace));
         let mut entries = Vec::new();
@@ -1404,6 +1556,60 @@ impl Keyspace {
     }
 }
 
+fn iter_memory_bounds(
+    inner: &mut Inner,
+    name: &str,
+    prefix: Option<&[u8]>,
+    start: Option<(Vec<u8>, bool)>,
+    end: Option<(Vec<u8>, bool)>,
+) -> Iter {
+    let iteration_started = Instant::now();
+    let mut entries = Vec::new();
+    if let Some(keyspace) = inner
+        .memory_keyspaces
+        .as_ref()
+        .and_then(|keyspaces| keyspaces.get(name))
+    {
+        for (key, value) in keyspace {
+            if let Some(prefix) = prefix
+                && !key.starts_with(prefix)
+            {
+                continue;
+            }
+            if let Some((start, inclusive)) = &start
+                && if *inclusive {
+                    key.as_slice() < start.as_slice()
+                } else {
+                    key.as_slice() <= start.as_slice()
+                }
+            {
+                continue;
+            }
+            if let Some((end, inclusive)) = &end
+                && if *inclusive {
+                    key.as_slice() > end.as_slice()
+                } else {
+                    key.as_slice() >= end.as_slice()
+                }
+            {
+                continue;
+            }
+            entries.push(Entry {
+                key: key.clone(),
+                value: value.clone(),
+            });
+        }
+    }
+    inner.ram_diagnostics.iteration_count = inner.ram_diagnostics.iteration_count.saturating_add(1);
+    inner.ram_diagnostics.iteration_duration_ns = inner
+        .ram_diagnostics
+        .iteration_duration_ns
+        .saturating_add(elapsed_nanos(iteration_started.elapsed()));
+    Iter {
+        entries: entries.into_iter(),
+    }
+}
+
 impl Batch {
     /// Add an insertion to the batch.
     pub fn put(
@@ -1413,7 +1619,7 @@ impl Batch {
         value: impl AsRef<[u8]>,
     ) -> Self {
         self.operations.push(Operation::Put {
-            key: physical_key(&keyspace.name, key.as_ref()),
+            key: physical_key_from_namespace(&keyspace.namespace, key.as_ref()),
             value: value.as_ref().to_vec(),
         });
         self
@@ -1422,7 +1628,7 @@ impl Batch {
     /// Add a deletion to the batch.
     pub fn delete(mut self, keyspace: &Keyspace, key: impl AsRef<[u8]>) -> Self {
         self.operations.push(Operation::Delete {
-            key: physical_key(&keyspace.name, key.as_ref()),
+            key: physical_key_from_namespace(&keyspace.namespace, key.as_ref()),
         });
         self
     }
@@ -1473,7 +1679,11 @@ fn namespace(name: &str) -> Vec<u8> {
 }
 
 fn physical_key(name: &str, key: &[u8]) -> Vec<u8> {
-    let mut physical = namespace(name);
+    physical_key_from_namespace(&namespace(name), key)
+}
+
+fn physical_key_from_namespace(namespace: &[u8], key: &[u8]) -> Vec<u8> {
+    let mut physical = namespace.to_vec();
     physical.extend_from_slice(key);
     physical
 }
@@ -1611,6 +1821,46 @@ fn apply_operation(state: &mut BTreeMap<Vec<u8>, Vec<u8>>, operation: Operation)
             state.remove(&key);
         },
     }
+}
+
+fn apply_memory_operation(
+    keyspaces: &mut BTreeMap<String, BTreeMap<Vec<u8>, Vec<u8>>>,
+    operation: Operation,
+) -> Result<()> {
+    let (key, value) = match operation {
+        Operation::Put { key, value } => (key, Some(value)),
+        Operation::Delete { key } => (key, None),
+    };
+    let separator = key
+        .iter()
+        .position(|byte| *byte == 0)
+        .ok_or_else(|| Error::message("invalid ThingDB in-memory key"))?;
+    let name = std::str::from_utf8(&key[..separator])
+        .map_err(|_| Error::message("invalid ThingDB in-memory keyspace"))?;
+    let user_key = &key[separator + 1..];
+    let entries = keyspaces.entry(name.to_string()).or_default();
+    match value {
+        Some(value) => {
+            entries.insert(user_key.to_vec(), value);
+        },
+        None => {
+            entries.remove(user_key);
+        },
+    }
+    Ok(())
+}
+
+fn validate_memory_operation(operation: &Operation) -> Result<()> {
+    let key = match operation {
+        Operation::Put { key, .. } | Operation::Delete { key } => key,
+    };
+    let separator = key
+        .iter()
+        .position(|byte| *byte == 0)
+        .ok_or_else(|| Error::message("invalid ThingDB in-memory key"))?;
+    std::str::from_utf8(&key[..separator])
+        .map_err(|_| Error::message("invalid ThingDB in-memory keyspace"))?;
+    Ok(())
 }
 
 fn apply_operation_with_pending(
@@ -1978,6 +2228,35 @@ mod tests {
         assert_eq!(diagnostics.journal_bytes, 0);
         assert_eq!(diagnostics.frame_count, 0);
         assert_eq!(objects.iter().count(), 128);
+    }
+
+    #[test]
+    fn in_memory_keyspaces_use_isolated_fast_lookup_state() {
+        let db = Database::in_memory().unwrap();
+        let objects = db
+            .keyspace("objects", KeyspaceCreateOptions::default)
+            .unwrap();
+        let events = db
+            .keyspace("events", KeyspaceCreateOptions::default)
+            .unwrap();
+
+        objects.insert(b"same-key", b"object").unwrap();
+        events.insert(b"same-key", b"event").unwrap();
+        assert_eq!(objects.get(b"same-key").unwrap(), Some(b"object".to_vec()));
+        assert_eq!(events.get(b"same-key").unwrap(), Some(b"event".to_vec()));
+
+        let diagnostics = db.ram_diagnostics().unwrap();
+        assert_eq!(diagnostics.lookup_count, 2);
+        assert!(diagnostics.lock_held_duration_ns > 0);
+        assert_eq!(db.journal_disk_space().unwrap(), 0);
+        assert_eq!(db.journal_count(), 0);
+    }
+
+    #[test]
+    fn in_memory_diagnostics_are_zero_for_durable_databases() {
+        let directory = tempfile::tempdir().unwrap();
+        let db = Database::builder(directory.path()).open().unwrap();
+        assert_eq!(db.ram_diagnostics().unwrap(), RamDiagnostics::default());
     }
 
     #[test]
