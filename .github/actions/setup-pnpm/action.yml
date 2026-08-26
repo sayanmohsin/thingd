@@ -1,0 +1,83 @@
+name: Set up pnpm workspace
+description: Install Node and pnpm, restore the pnpm store, and install locked dependencies
+
+inputs:
+  lockfile:
+    description: Workspace lockfile used to identify the dependency cache
+    required: true
+  cache-scope:
+    description: Stable namespace for the dependency cache
+    required: true
+  working-directory:
+    description: Directory containing the lockfile and package.json
+    required: false
+    default: .
+  node-version:
+    description: Node.js version to install
+    required: false
+    default: '24'
+  registry-url:
+    description: Optional npm registry URL for publish jobs
+    required: false
+    default: ''
+
+runs:
+  using: composite
+  steps:
+    - uses: pnpm/action-setup@v6
+
+    - uses: actions/setup-node@v6
+      with:
+        node-version: ${{ inputs.node-version }}
+        registry-url: ${{ inputs.registry-url }}
+
+    - name: Locate pnpm store
+      id: pnpm-store
+      shell: bash
+      run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+
+    - name: Restore pnpm store
+      id: pnpm-cache
+      uses: actions/cache/restore@v4
+      with:
+        path: ${{ steps.pnpm-store.outputs.path }}
+        key: pnpm-store-${{ inputs.cache-scope }}-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles(inputs.lockfile) }}
+        restore-keys: |
+          pnpm-store-${{ inputs.cache-scope }}-${{ runner.os }}-${{ runner.arch }}-
+
+    - name: Report pnpm cache status
+      shell: bash
+      env:
+        CACHE_HIT: ${{ steps.pnpm-cache.outputs.cache-hit }}
+        MATCHED_KEY: ${{ steps.pnpm-cache.outputs.cache-matched-key }}
+      run: |
+        if [ "$CACHE_HIT" = "true" ]; then
+          status="exact hit"
+        elif [ -n "$MATCHED_KEY" ]; then
+          status="fallback hit"
+        else
+          status="cold miss"
+        fi
+        echo "pnpm cache: $status"
+        {
+          echo "### Dependency cache"
+          echo "- pnpm store: **$status**"
+          if [ -n "$MATCHED_KEY" ]; then
+            echo "- Restored key: `$MATCHED_KEY`"
+          fi
+        } >> "$GITHUB_STEP_SUMMARY"
+
+    - name: Install dependencies
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: |
+        started=$SECONDS
+        pnpm install --frozen-lockfile --prefer-offline
+        echo "- pnpm install: $((SECONDS - started))s" >> "$GITHUB_STEP_SUMMARY"
+
+    - name: Save pnpm store
+      if: steps.pnpm-cache.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v4
+      with:
+        path: ${{ steps.pnpm-store.outputs.path }}
+        key: pnpm-store-${{ inputs.cache-scope }}-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles(inputs.lockfile) }}
