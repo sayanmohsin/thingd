@@ -13,6 +13,13 @@
 - server: harden security boundaries (0961ffe)
 - complete public SDK type exports (8a8889a)
 
+## [0.84.6](https://github.com/sayanmohsin/thingd/compare/thingd-v0.84.5...thingd-v0.84.6) (2026-08-26)
+
+
+### Bug Fixes
+
+* run MCP smoke in Docker release CI ([#198](https://github.com/sayanmohsin/thingd/issues/198)) ([c235f05](https://github.com/sayanmohsin/thingd/commit/c235f05e669388e824aba54f27c2057c44facc9d))
+
 ## [0.84.5](https://github.com/sayanmohsin/thingd/compare/thingd-v0.84.4...thingd-v0.84.5) (2026-08-26)
 
 
