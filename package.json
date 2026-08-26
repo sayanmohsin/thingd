@@ -46,7 +46,7 @@
     "test:publish-manifests": "node --test scripts/publish-manifest.test.mjs",
     "examples": "pnpm --filter \"thingd-node-basic-example\" start && pnpm --filter \"thingd-node-stream-example\" start && pnpm --filter \"thingd-node-queue-example\" start",
     "examples:load": "pnpm --filter \"thingd-node-load-example\" start",
-    "examples:check": "pnpm --filter thingd-node-basic-example build && pnpm --filter thingd-node-load-example build && pnpm --filter thingd-node-queue-example build && pnpm --filter thingd-node-stream-example build && pnpm --filter thingd-cursor-agent-memory-example build && pnpm --filter thingd-nestjs-basic-example build && pnpm --filter thingd-bun-hono-example exec tsc --noEmit && node scripts/check-examples.mjs",
+    "examples:check": "pnpm --filter @thingd/sdk build && pnpm --filter thingd-node-basic-example build && pnpm --filter thingd-node-load-example build && pnpm --filter thingd-node-queue-example build && pnpm --filter thingd-node-stream-example build && pnpm --filter thingd-cursor-agent-memory-example build && pnpm --filter thingd-nestjs-basic-example build && pnpm --filter thingd-bun-hono-example exec tsc --noEmit && node scripts/check-examples.mjs",
     "test:package": "pnpm --filter @thingd/sdk build && pnpm test:package:built",
     "test:rust": "cargo test --workspace --all-targets --all-features",
     "test:rust:full": "cargo test --workspace --all-targets --all-features",
