@@ -13,6 +13,13 @@ cleanup() {
 
 trap cleanup EXIT
 
+fail_endpoint() {
+  local endpoint="$1"
+  echo "thingd endpoint check failed: $endpoint" >&2
+  docker logs "$CONTAINER" >&2 || true
+  exit 1
+}
+
 build_args=()
 if [[ -n "$PLATFORM" ]]; then
   build_args+=(--platform "$PLATFORM")
@@ -45,22 +52,25 @@ for _ in {1..30}; do
 done
 
 if [[ "$ready" != "1" ]]; then
-  echo "thingd container did not become healthy on port $PORT" >&2
-  docker logs "$CONTAINER" >&2 || true
-  exit 1
+  fail_endpoint "/healthz (startup)"
 fi
 
-if ! curl -fsS "http://127.0.0.1:$PORT/ready" >/dev/null 2>&1; then
-  echo "thingd container did not become ready on port $PORT" >&2
-  docker logs "$CONTAINER" >&2 || true
-  exit 1
+curl -fsS "http://127.0.0.1:$PORT/healthz" || fail_endpoint "/healthz"
+printf "\n"
+curl -fsS "http://127.0.0.1:$PORT/ready" || fail_endpoint "/ready"
+printf "\n"
+
+if curl -fsS "http://127.0.0.1:$PORT/cluster/status" >/dev/null 2>&1; then
+  fail_endpoint "/cluster/status (unauthenticated request was accepted)"
 fi
 
-curl -fsS "http://127.0.0.1:$PORT/healthz"
-printf "\n"
-curl -fsS "http://127.0.0.1:$PORT/cluster/status"
+curl -fsS \
+  -H "Authorization: Bearer $TOKEN" \
+  "http://127.0.0.1:$PORT/cluster/status" || fail_endpoint "/cluster/status (authenticated)"
 printf "\n"
 
-THINGD_MCP_URL="http://127.0.0.1:$PORT/mcp" \
-THINGD_AUTH_TOKEN="$TOKEN" \
-node scripts/smoke-mcp-http.mjs
+if ! THINGD_MCP_URL="http://127.0.0.1:$PORT/mcp" \
+  THINGD_AUTH_TOKEN="$TOKEN" \
+  node scripts/smoke-mcp-http.mjs; then
+  fail_endpoint "/mcp (authenticated)"
+fi
