@@ -25,7 +25,6 @@ mod cache;
 
 pub use cache::{CacheOptions, CacheStats, MemoryCache};
 
-use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::{Display, Formatter};
 use std::fs::{self, File, OpenOptions};
@@ -227,6 +226,28 @@ pub struct WalDiagnostics {
     pub memtable_over_budget: bool,
     /// Last WAL error observed after the database opened, if any.
     pub last_error: Option<String>,
+    /// Number of durable point lookups that consulted table layers.
+    pub table_lookup_count: u64,
+    /// Number of point lookups checking the mutable state.
+    pub mutable_state_lookup_count: u64,
+    /// Number of point lookups checking the pending table.
+    pub pending_table_lookup_count: u64,
+    /// Number of point lookups checking immutable table layers.
+    pub immutable_layer_lookup_count: u64,
+    /// Number of table layers inspected by point lookups.
+    pub table_layers_consulted: u64,
+    /// Bytes read from table records.
+    pub table_bytes_read: u64,
+    /// Nanoseconds spent reading table records.
+    pub table_read_duration_ns: u64,
+    /// Nanoseconds spent opening table files during database open.
+    pub table_open_duration_ns: u64,
+    /// Nanoseconds spent materializing or merging durable scans.
+    pub scan_duration_ns: u64,
+    /// Number of durable scans completed.
+    pub scan_count: u64,
+    /// Number of table layers currently open for reads.
+    pub table_layer_count: u64,
 }
 
 /// Timing and allocation-adjacent counters for the RAM-only keyspace path.
@@ -309,7 +330,7 @@ struct Inner {
 }
 
 struct TableLayer {
-    path: PathBuf,
+    file: File,
     entries: Vec<TableIndexEntry>,
     is_v2: bool,
 }
@@ -321,26 +342,51 @@ struct TableIndexEntry {
 }
 
 impl Inner {
-    fn get_value(&self, key: &[u8]) -> Result<Option<Vec<u8>>> {
+    fn get_value(&mut self, key: &[u8]) -> Result<Option<Vec<u8>>> {
+        self.diagnostics.pending_table_lookup_count = self
+            .diagnostics
+            .pending_table_lookup_count
+            .saturating_add(1);
         if let Some(value) = self.pending_table.get(key) {
             return Ok(value.clone());
         }
+        self.diagnostics.mutable_state_lookup_count = self
+            .diagnostics
+            .mutable_state_lookup_count
+            .saturating_add(1);
         if let Some(value) = self.state.get(key) {
             return Ok(Some(value.clone()));
         }
-        for layer in self.table_layers.iter().rev() {
+        self.diagnostics.table_lookup_count = self.diagnostics.table_lookup_count.saturating_add(1);
+        for layer in self.table_layers.iter_mut().rev() {
+            self.diagnostics.immutable_layer_lookup_count = self
+                .diagnostics
+                .immutable_layer_lookup_count
+                .saturating_add(1);
+            self.diagnostics.table_layers_consulted =
+                self.diagnostics.table_layers_consulted.saturating_add(1);
             let Ok(index) = layer
                 .entries
                 .binary_search_by(|entry| entry.key.as_slice().cmp(key))
             else {
                 continue;
             };
-            return read_table_value(&layer.path, &layer.entries[index], layer.is_v2);
+            let started = Instant::now();
+            let result = read_table_value(&mut layer.file, &layer.entries[index], layer.is_v2);
+            self.diagnostics.table_bytes_read = self
+                .diagnostics
+                .table_bytes_read
+                .saturating_add(layer.entries[index].length);
+            self.diagnostics.table_read_duration_ns = self
+                .diagnostics
+                .table_read_duration_ns
+                .saturating_add(elapsed_nanos(started.elapsed()));
+            return result;
         }
         Ok(None)
     }
 
-    fn materialize_state(&self) -> Result<BTreeMap<Vec<u8>, Vec<u8>>> {
+    fn materialize_state(&mut self) -> Result<BTreeMap<Vec<u8>, Vec<u8>>> {
         if let Some(keyspaces) = &self.memory_keyspaces {
             let mut state = BTreeMap::new();
             for (name, entries) in keyspaces {
@@ -354,9 +400,9 @@ impl Inner {
             return Ok(state);
         }
         let mut state = BTreeMap::new();
-        for layer in &self.table_layers {
+        for layer in &mut self.table_layers {
             for entry in &layer.entries {
-                match read_table_value(&layer.path, entry, layer.is_v2)? {
+                match read_table_value(&mut layer.file, entry, layer.is_v2)? {
                     Some(value) => {
                         state.insert(entry.key.clone(), value);
                     },
@@ -889,7 +935,7 @@ impl Database {
 
     /// Return a consistent snapshot of all keyspaces.
     pub fn snapshot(&self) -> Result<Snapshot> {
-        let inner = self
+        let mut inner = self
             .inner
             .lock()
             .map_err(|_| Error::message("database lock poisoned"))?;
@@ -1124,10 +1170,11 @@ fn flush_table_locked(
         inner.table_files = table_files;
         let (_, entries, is_v2) = read_table_index(&table_path)?;
         inner.table_layers.push(TableLayer {
-            path: table_path,
+            file: File::open(&table_path)?,
             entries,
             is_v2,
         });
+        inner.diagnostics.table_layer_count = inner.table_layers.len() as u64;
         inner.table_sequence = next_sequence;
         inner.state.clear();
         inner.pending_table_bytes = 0;
@@ -1209,10 +1256,11 @@ impl Database {
         inner.table_files = vec![table_name];
         let (_, entries, is_v2) = read_table_index(&table_path)?;
         inner.table_layers = vec![TableLayer {
-            path: table_path,
+            file: File::open(&table_path)?,
             entries,
             is_v2,
         }];
+        inner.diagnostics.table_layer_count = 1;
         inner.table_sequence = next_sequence;
         inner.state.clear();
         inner.pending_table.clear();
@@ -1293,6 +1341,7 @@ impl DatabaseBuilder {
         let mut state = BTreeMap::new();
         let mut table_sequence = 0;
         let mut table_layers = Vec::new();
+        let mut table_open_duration_ns: u64 = 0;
         let table_files = manifest
             .as_ref()
             .map(|manifest| {
@@ -1322,8 +1371,12 @@ impl DatabaseBuilder {
                     ));
                 }
                 previous_sequence = sequence;
+                let open_started = Instant::now();
+                let file = File::open(&table_path)?;
+                table_open_duration_ns =
+                    table_open_duration_ns.saturating_add(elapsed_nanos(open_started.elapsed()));
                 table_layers.push(TableLayer {
-                    path: table_path,
+                    file,
                     entries,
                     is_v2,
                 });
@@ -1347,6 +1400,7 @@ impl DatabaseBuilder {
         }
         let journal_bytes = wal.metadata()?.len();
         let sequence = last_sequence.max(table_sequence);
+        let table_layer_count = table_layers.len() as u64;
         if manifest.is_none() {
             write_manifest(
                 &self.path,
@@ -1379,6 +1433,8 @@ impl DatabaseBuilder {
                 frame_count,
                 recovery_bytes: valid_offset,
                 recovery_duration_ns,
+                table_layer_count,
+                table_open_duration_ns,
                 ..WalDiagnostics::default()
             },
             ram_diagnostics: RamDiagnostics::default(),
@@ -1517,6 +1573,7 @@ impl Keyspace {
             return iter_memory_bounds(&mut inner, &self.name, prefix, start, end);
         }
         let namespace = self.namespace.clone();
+        let scan_started = Instant::now();
         let lower = start
             .as_ref()
             .map(|(key, _)| physical_key_from_namespace(&namespace, key))
@@ -1527,16 +1584,37 @@ impl Keyspace {
             .and_then(|key| successor(&key))
             .or_else(|| successor(&namespace));
         let mut entries = Vec::new();
-        let state = if inner.in_memory {
-            Cow::Borrowed(&inner.state)
-        } else {
-            Cow::Owned(inner.materialize_state().unwrap_or_default())
+        let mut keys = BTreeSet::new();
+        let key_in_bounds = |key: &[u8]| {
+            key >= lower.as_slice()
+                && upper
+                    .as_ref()
+                    .map(|upper| key < upper.as_slice())
+                    .unwrap_or(true)
         };
-        let range = match upper {
-            Some(upper) => state.range(lower..upper),
-            None => state.range(lower..),
-        };
-        for (key, value) in range {
+        for key in inner.state.keys().chain(inner.pending_table.keys()) {
+            if key_in_bounds(key) {
+                keys.insert(key.clone());
+            }
+        }
+        for layer in &inner.table_layers {
+            let start_index = layer
+                .entries
+                .binary_search_by(|entry| entry.key.as_slice().cmp(lower.as_slice()))
+                .unwrap_or_else(|index| index);
+            for entry in &layer.entries[start_index..] {
+                if let Some(upper) = &upper
+                    && entry.key.as_slice() >= upper.as_slice()
+                {
+                    break;
+                }
+                keys.insert(entry.key.clone());
+            }
+        }
+        for key in keys {
+            let Some(value) = inner.get_value(&key).unwrap_or(None) else {
+                continue;
+            };
             let Some(user_key) = key.strip_prefix(namespace.as_slice()) else {
                 continue;
             };
@@ -1567,9 +1645,14 @@ impl Keyspace {
             }
             entries.push(Entry {
                 key: user_key.to_vec(),
-                value: value.clone(),
+                value,
             });
         }
+        inner.diagnostics.scan_count = inner.diagnostics.scan_count.saturating_add(1);
+        inner.diagnostics.scan_duration_ns = inner
+            .diagnostics
+            .scan_duration_ns
+            .saturating_add(elapsed_nanos(scan_started.elapsed()));
         Iter {
             entries: entries.into_iter(),
         }
@@ -2004,8 +2087,11 @@ fn read_table_index(path: &Path) -> Result<(u64, Vec<TableIndexEntry>, bool)> {
     Ok((sequence, entries, is_v2))
 }
 
-fn read_table_value(path: &Path, entry: &TableIndexEntry, is_v2: bool) -> Result<Option<Vec<u8>>> {
-    let mut file = File::open(path)?;
+fn read_table_value(
+    file: &mut File,
+    entry: &TableIndexEntry,
+    is_v2: bool,
+) -> Result<Option<Vec<u8>>> {
     file.seek(SeekFrom::Start(entry.offset))?;
     let length: usize = entry
         .length
@@ -2351,6 +2437,44 @@ mod tests {
             .unwrap();
         assert_eq!(objects.get(b"a").unwrap(), None);
         assert_eq!(objects.get(b"b").unwrap(), Some(b"two".to_vec()));
+    }
+
+    #[test]
+    fn layered_reads_and_scans_use_newest_values_and_report_table_work() {
+        let directory = tempfile::tempdir().unwrap();
+        let db = Database::open(directory.path()).unwrap();
+        let objects = db
+            .keyspace("objects", KeyspaceCreateOptions::default)
+            .unwrap();
+
+        objects.insert(b"a", b"old").unwrap();
+        objects.insert(b"b", b"two").unwrap();
+        db.persist(PersistMode::SyncAll).unwrap();
+        objects.insert(b"a", b"new").unwrap();
+        objects.remove(b"b").unwrap();
+        db.persist(PersistMode::SyncAll).unwrap();
+
+        assert_eq!(objects.get(b"a").unwrap(), Some(b"new".to_vec()));
+        assert_eq!(objects.get(b"b").unwrap(), None);
+        let entries: Vec<_> = objects
+            .range_bounds(Some((b"a", true)), Some((b"z", true)))
+            .collect();
+        assert_eq!(
+            entries,
+            vec![Entry {
+                key: b"a".to_vec(),
+                value: b"new".to_vec()
+            }]
+        );
+
+        let diagnostics = db.wal_diagnostics().unwrap();
+        assert_eq!(diagnostics.table_layer_count, 2);
+        assert!(diagnostics.table_lookup_count >= 2);
+        assert!(diagnostics.table_layers_consulted >= 2);
+        assert!(diagnostics.table_bytes_read > 0);
+        assert!(diagnostics.table_read_duration_ns > 0);
+        assert_eq!(diagnostics.scan_count, 1);
+        assert!(diagnostics.scan_duration_ns > 0);
     }
 
     #[test]

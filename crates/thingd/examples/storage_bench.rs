@@ -1013,6 +1013,17 @@ impl WalDiagnosticsSnapshot {
             flush_duration_ns: before.flush_duration_ns,
             memtable_over_budget: before.memtable_over_budget || after.memtable_over_budget,
             last_error: after.last_error.or(before.last_error),
+            table_lookup_count: before.table_lookup_count,
+            mutable_state_lookup_count: before.mutable_state_lookup_count,
+            pending_table_lookup_count: before.pending_table_lookup_count,
+            immutable_layer_lookup_count: before.immutable_layer_lookup_count,
+            table_layers_consulted: before.table_layers_consulted,
+            table_bytes_read: before.table_bytes_read,
+            table_read_duration_ns: before.table_read_duration_ns,
+            table_open_duration_ns: before.table_open_duration_ns,
+            scan_duration_ns: before.scan_duration_ns,
+            scan_count: before.scan_count,
+            table_layer_count: before.table_layer_count.max(after.table_layer_count),
         }
     }
 }
