@@ -418,14 +418,22 @@ mod tests {
     use std::net::TcpListener;
     use std::thread;
 
+    fn read_http_request(stream: &mut std::net::TcpStream) {
+        let mut request = Vec::new();
+        let mut byte = [0_u8; 1];
+        while !request.ends_with(b"\r\n\r\n") {
+            stream.read_exact(&mut byte).expect("read healthcheck");
+            request.push(byte[0]);
+        }
+    }
+
     #[test]
     fn healthcheck_accepts_success_response() {
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind test listener");
         let address = listener.local_addr().expect("test listener address");
         let server = thread::spawn(move || {
             let (mut stream, _) = listener.accept().expect("accept healthcheck");
-            let mut request = [0_u8; 256];
-            let _ = stream.read(&mut request).expect("read healthcheck");
+            read_http_request(&mut stream);
             stream
                 .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n")
                 .expect("write healthcheck response");
@@ -445,8 +453,7 @@ mod tests {
         let address = listener.local_addr().expect("test listener address");
         let server = thread::spawn(move || {
             let (mut stream, _) = listener.accept().expect("accept healthcheck");
-            let mut request = [0_u8; 256];
-            let _ = stream.read(&mut request).expect("read healthcheck");
+            read_http_request(&mut stream);
             stream
                 .write_all(b"HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\n\r\n")
                 .expect("write healthcheck response");
