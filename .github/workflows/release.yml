@@ -22,6 +22,7 @@ permissions:
   id-token: write
 
 env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
   LEFTHOOK: "0"
   NPM_CONFIG_AUDIT: "false"
   NPM_CONFIG_FUND: "false"
@@ -363,7 +364,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y cmake musl-tools pipx
       - name: Restore cargo-zigbuild download cache
         id: cargo-zigbuild-cache
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v5
         with:
           path: ~/.cache/pip
           key: cargo-zigbuild-${{ runner.os }}-${{ runner.arch }}-v1
@@ -379,7 +380,7 @@ jobs:
           echo "- cargo-zigbuild download cache: **$status**" >> "$GITHUB_STEP_SUMMARY"
       - name: Restore Zig toolchain
         id: zig-cache
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v5
         with:
           path: ${{ runner.temp }}/zig-0.14.0
           key: zig-${{ runner.os }}-${{ runner.arch }}-0.14.0
@@ -421,7 +422,7 @@ jobs:
           mv "${{ runner.temp }}/zig-linux-x86_64-0.14.0" "${{ runner.temp }}/zig-0.14.0"
       - name: Save Zig toolchain cache
         if: steps.zig-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v5
         with:
           path: ${{ runner.temp }}/zig-0.14.0
           key: zig-${{ runner.os }}-${{ runner.arch }}-0.14.0
@@ -433,7 +434,7 @@ jobs:
       - run: pipx install cargo-zigbuild
       - name: Save cargo-zigbuild download cache
         if: steps.cargo-zigbuild-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v5
         with:
           path: ~/.cache/pip
           key: cargo-zigbuild-${{ runner.os }}-${{ runner.arch }}-v1
@@ -457,7 +458,7 @@ jobs:
           tar -czf "docker-context/thingd-server-${{ matrix.arch }}.tar.gz" \
             -C docker-context "thingd-server-${{ matrix.arch }}"
           rm "docker-context/thingd-server-${{ matrix.arch }}"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: thingd-server-${{ matrix.arch }}
           path: docker-context/thingd-server-${{ matrix.arch }}.tar.gz
