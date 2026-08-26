@@ -108,6 +108,21 @@ fn validate_manifest(manifest: &Manifest) -> Result<()> {
             ));
         }
     }
+    let table_files = if manifest.table_files.is_empty() {
+        manifest.table_file.iter().collect::<Vec<_>>()
+    } else {
+        manifest.table_files.iter().collect::<Vec<_>>()
+    };
+    if table_files.is_empty() && manifest.table_sequence != 0 {
+        return Err(Error::message(
+            "ThingDB manifest has a table sequence without a table",
+        ));
+    }
+    if table_files.windows(2).any(|files| files[0] >= files[1]) {
+        return Err(Error::message(
+            "ThingDB manifest table layers are not in filename order",
+        ));
+    }
     Ok(())
 }
 
@@ -1292,6 +1307,11 @@ impl DatabaseBuilder {
             let mut previous_sequence = 0;
             for table_file in &table_files {
                 let table_path = self.path.join(table_file);
+                if !table_path.is_file() {
+                    return Err(Error::message(format!(
+                        "ThingDB manifest references missing table: {table_file}"
+                    )));
+                }
                 let (sequence, entries, is_v2) = read_table_index(&table_path)?;
                 if sequence > manifest.table_sequence {
                     return Err(Error::message("table sequence exceeds manifest sequence"));
@@ -1970,6 +1990,14 @@ fn read_table_index(path: &Path) -> Result<(u64, Vec<TableIndexEntry>, bool)> {
         });
         let _ = value;
     }
+    if entries
+        .windows(2)
+        .any(|entries| entries[0].key >= entries[1].key)
+    {
+        return Err(Error::message(
+            "ThingDB table keys are not strictly ordered",
+        ));
+    }
     if cursor != bytes.len() {
         return Err(Error::message("trailing bytes in ThingDB table"));
     }
@@ -2424,6 +2452,100 @@ mod tests {
     }
 
     #[test]
+    fn invalid_manifest_state_is_rejected_before_recovery() {
+        let directory = tempfile::tempdir().unwrap();
+        let db = Database::open(directory.path()).unwrap();
+        drop(db);
+        let manifest_path = directory.path().join(MANIFEST_FILE);
+
+        let mut manifest: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&manifest_path).unwrap()).unwrap();
+        manifest["table_sequence"] = serde_json::json!(1);
+        std::fs::write(&manifest_path, serde_json::to_vec(&manifest).unwrap()).unwrap();
+        let Err(error) = Database::open(directory.path()) else {
+            panic!("manifest without a table unexpectedly opened")
+        };
+        assert!(error.to_string().contains("table sequence without a table"));
+
+        let directory = tempfile::tempdir().unwrap();
+        let db = Database::open(directory.path()).unwrap();
+        let objects = db
+            .keyspace("objects", KeyspaceCreateOptions::default)
+            .unwrap();
+        objects.insert(b"a", b"one").unwrap();
+        db.compact().unwrap();
+        drop(objects);
+        drop(db);
+
+        let manifest_path = directory.path().join(MANIFEST_FILE);
+        let mut manifest: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&manifest_path).unwrap()).unwrap();
+        manifest["table_files"] = serde_json::json!(["table-99999999999999999999-missing.tdb"]);
+        manifest["table_file"] = serde_json::Value::Null;
+        std::fs::write(&manifest_path, serde_json::to_vec(&manifest).unwrap()).unwrap();
+        let Err(error) = Database::open(directory.path()) else {
+            panic!("manifest with a missing table unexpectedly opened")
+        };
+        assert!(
+            error
+                .to_string()
+                .contains("manifest references missing table")
+        );
+    }
+
+    #[test]
+    fn table_key_order_corruption_is_reported() {
+        let directory = tempfile::tempdir().unwrap();
+        let db = Database::open(directory.path()).unwrap();
+        let objects = db
+            .keyspace("objects", KeyspaceCreateOptions::default)
+            .unwrap();
+        objects.insert(b"a", b"one").unwrap();
+        objects.insert(b"b", b"two").unwrap();
+        db.compact().unwrap();
+        drop(objects);
+        drop(db);
+
+        let manifest: Manifest =
+            serde_json::from_slice(&std::fs::read(directory.path().join(MANIFEST_FILE)).unwrap())
+                .unwrap();
+        let table_path = directory.path().join(manifest.table_file.unwrap());
+        let mut bytes = std::fs::read(&table_path).unwrap();
+        let first_record_start = TABLE_MAGIC.len() + 16;
+        let key_length = usize::try_from(u64::from_be_bytes(
+            bytes[first_record_start..first_record_start + 8]
+                .try_into()
+                .unwrap(),
+        ))
+        .unwrap();
+        let first_key_offset = first_record_start + 8;
+        bytes[first_key_offset] = b'z';
+        // Keep the first record internally valid so recovery reaches the
+        // sorted-key invariant instead of stopping at its checksum.
+        let value_length_offset = first_key_offset + key_length + 1;
+        let value_length = usize::try_from(u64::from_be_bytes(
+            bytes[value_length_offset..value_length_offset + 8]
+                .try_into()
+                .unwrap(),
+        ))
+        .unwrap();
+        let first_record_end = value_length_offset + 8 + value_length;
+        let record_checksum = checksum(&bytes[first_record_start..first_record_end]);
+        bytes[first_record_end..first_record_end + 4]
+            .copy_from_slice(&record_checksum.to_be_bytes());
+        std::fs::write(&table_path, bytes).unwrap();
+
+        let Err(error) = Database::open(directory.path()) else {
+            panic!("table with unsorted keys unexpectedly opened")
+        };
+        assert!(
+            error
+                .to_string()
+                .contains("table keys are not strictly ordered")
+        );
+    }
+
+    #[test]
     fn batch_is_atomic_after_reopen() {
         let directory = tempfile::tempdir().unwrap();
         let db = Database::open(directory.path()).unwrap();
@@ -2443,6 +2565,75 @@ mod tests {
             .unwrap();
         assert_eq!(objects.get(b"a").unwrap(), Some(b"one".to_vec()));
         assert_eq!(objects.get(b"b").unwrap(), Some(b"two".to_vec()));
+    }
+
+    #[test]
+    fn cross_keyspace_batch_is_atomic_after_reopen() {
+        let directory = tempfile::tempdir().unwrap();
+        let db = Database::open(directory.path()).unwrap();
+        let objects = db
+            .keyspace("objects", KeyspaceCreateOptions::default)
+            .unwrap();
+        let events = db
+            .keyspace("events", KeyspaceCreateOptions::default)
+            .unwrap();
+        db.batch()
+            .put(&objects, b"a", b"one")
+            .put(&events, b"1", b"created")
+            .commit()
+            .unwrap();
+        drop(events);
+        drop(objects);
+        drop(db);
+
+        let db = Database::open(directory.path()).unwrap();
+        let objects = db
+            .keyspace("objects", KeyspaceCreateOptions::default)
+            .unwrap();
+        let events = db
+            .keyspace("events", KeyspaceCreateOptions::default)
+            .unwrap();
+        assert_eq!(objects.get(b"a").unwrap(), Some(b"one".to_vec()));
+        assert_eq!(events.get(b"1").unwrap(), Some(b"created".to_vec()));
+    }
+
+    #[test]
+    fn grouped_writes_replay_completely_after_reopen() {
+        let directory = tempfile::tempdir().unwrap();
+        let db = Database::open(directory.path()).unwrap();
+        let objects = db
+            .keyspace("objects", KeyspaceCreateOptions::default)
+            .unwrap();
+        let writers = 16;
+        let barrier = Arc::new(std::sync::Barrier::new(writers));
+        let handles: Vec<_> = (0..writers)
+            .map(|index| {
+                let objects = objects.clone();
+                let barrier = Arc::clone(&barrier);
+                std::thread::spawn(move || {
+                    barrier.wait();
+                    objects
+                        .insert(format!("key-{index}").as_bytes(), b"value")
+                        .unwrap();
+                })
+            })
+            .collect();
+        for handle in handles {
+            handle.join().unwrap();
+        }
+        drop(objects);
+        drop(db);
+
+        let db = Database::open(directory.path()).unwrap();
+        let objects = db
+            .keyspace("objects", KeyspaceCreateOptions::default)
+            .unwrap();
+        for index in 0..writers {
+            assert_eq!(
+                objects.get(format!("key-{index}").as_bytes()).unwrap(),
+                Some(b"value".to_vec())
+            );
+        }
     }
 
     #[test]
