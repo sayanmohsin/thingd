@@ -8,7 +8,7 @@
     "start": "bun run src/index.ts"
   },
   "dependencies": {
-    "@thingd/sdk": "file:../../packages/thingd",
+    "@thingd/sdk": "workspace:*",
     "hono": "^4.7.6"
   },
   "devDependencies": {

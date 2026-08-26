@@ -9,7 +9,7 @@
     "dev": "tsx watch index.ts"
   },
   "dependencies": {
-    "@thingd/sdk": "file:../../packages/thingd"
+    "@thingd/sdk": "workspace:*"
   },
   "devDependencies": {
     "typescript": "7.0.2",
