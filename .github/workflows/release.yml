@@ -489,6 +489,15 @@ jobs:
         with:
           name: thingd-server-${{ matrix.arch }}
           path: docker-context/artifact
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.12.4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
+      - name: Install MCP smoke dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
       - name: Restore and validate binary permissions
         run: |
           set -eu
@@ -501,7 +510,6 @@ jobs:
           THINGD_DOCKER_IMAGE: thingd-release-validation-${{ matrix.arch }}
           THINGD_DOCKER_PLATFORM: ${{ matrix.platform }}
           THINGD_DOCKER_PORT: 18757
-          THINGD_SMOKE_MCP: "0"
         run: |
           started=$(date +%s)
           bash scripts/smoke-docker.sh
