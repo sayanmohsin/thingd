@@ -1,14 +1,13 @@
-import os from "node:os";
 import path from "node:path";
 import { ThingD } from "@thingd/sdk";
 
 async function run() {
   const db = await ThingD.open({
-    path: path.join(os.homedir(), "Downloads", "data.db"),
+    path: process.env.THINGD_EXAMPLE_DATA_PATH ?? path.join(process.cwd(), "data.db"),
     driver: "native",
   });
 
-  console.log("Generating continuous load to root data.db... Press Ctrl+C to stop.");
+  console.log("Generating continuous load to data.db... Press Ctrl+C to stop.");
 
   const queue = db.queue("load-queue");
 

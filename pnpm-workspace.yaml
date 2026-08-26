@@ -1,6 +1,7 @@
 packages:
   - packages/*
   - packages/thingd-cli/src/dashboard/frontend
+  - examples/*
 
 allowBuilds:
   '@nestjs/core': false

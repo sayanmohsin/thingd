@@ -112,6 +112,7 @@ jobs:
           save-if: ${{ runner.os == 'Linux' }}
       - run: pnpm install --frozen-lockfile
       - run: pnpm build:node
+      - run: pnpm examples:check
       - run: pnpm test:node:built
       - run: pnpm test:package:built
       - run: pnpm test:cli:built

@@ -355,16 +355,62 @@ jobs:
         run: |
           mkdir -p docker-context
           cp "target/${{ matrix.target }}/release/thingd-server" "docker-context/thingd-server-${{ matrix.arch }}"
+          chmod 755 "docker-context/thingd-server-${{ matrix.arch }}"
+          test -x "docker-context/thingd-server-${{ matrix.arch }}"
+          # GitHub artifact archives do not reliably preserve executable bits.
+          # Store the binary in a tar archive so Docker assembly gets the mode
+          # that was validated in this job.
+          tar -czf "docker-context/thingd-server-${{ matrix.arch }}.tar.gz" \
+            -C docker-context "thingd-server-${{ matrix.arch }}"
+          rm "docker-context/thingd-server-${{ matrix.arch }}"
       - uses: actions/upload-artifact@v4
         with:
           name: thingd-server-${{ matrix.arch }}
-          path: docker-context/thingd-server-${{ matrix.arch }}
+          path: docker-context/thingd-server-${{ matrix.arch }}.tar.gz
           if-no-files-found: error
           retention-days: 1
 
+  docker-validate:
+    name: Validate Docker image (${{ matrix.arch }})
+    needs: [release-please, docker-binary]
+    if: ${{ needs.release-please.outputs.release_created == 'true' || needs.release-please.outputs.retry == 'true' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+            platform: linux/amd64
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+            platform: linux/arm64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+          ref: ${{ needs.release-please.outputs.tag_name }}
+      - uses: actions/download-artifact@v8
+        with:
+          name: thingd-server-${{ matrix.arch }}
+          path: docker-context/artifact
+      - name: Restore and validate binary permissions
+        run: |
+          set -eu
+          archive="docker-context/artifact/thingd-server-${{ matrix.arch }}.tar.gz"
+          test -f "$archive"
+          tar -xzf "$archive" -C docker-context
+          test -x "docker-context/thingd-server-${{ matrix.arch }}"
+      - name: Build and smoke-test image
+        env:
+          THINGD_DOCKER_IMAGE: thingd-release-validation-${{ matrix.arch }}
+          THINGD_DOCKER_PLATFORM: ${{ matrix.platform }}
+          THINGD_DOCKER_PORT: 18757
+        run: bash scripts/smoke-docker.sh
+
   docker:
     name: Publish Docker image
-    needs: [release-please, docker-binary]
+    needs: [release-please, docker-binary, docker-validate]
     if: ${{ needs.release-please.outputs.release_created == 'true' || needs.release-please.outputs.retry == 'true' }}
     runs-on: ubuntu-latest
     steps:
@@ -378,6 +424,14 @@ jobs:
           pattern: thingd-server-*
           path: docker-context
           merge-multiple: true
+      - name: Restore Docker binaries
+        run: |
+          set -eu
+          for archive in docker-context/thingd-server-*.tar.gz; do
+            tar -xzf "$archive" -C docker-context
+          done
+          test -x docker-context/thingd-server-amd64
+          test -x docker-context/thingd-server-arm64
       - uses: docker/setup-buildx-action@v4
       - uses: docker/login-action@v4
         with:

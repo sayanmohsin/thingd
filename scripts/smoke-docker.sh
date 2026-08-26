@@ -5,6 +5,7 @@ IMAGE="${THINGD_DOCKER_IMAGE:-thingd:local}"
 CONTAINER="${THINGD_DOCKER_CONTAINER:-thingd-smoke}"
 PORT="${THINGD_DOCKER_PORT:-18757}"
 TOKEN="${THINGD_AUTH_TOKEN:-thingd-smoke-token}"
+PLATFORM="${THINGD_DOCKER_PLATFORM:-}"
 
 cleanup() {
   docker rm -f "$CONTAINER" >/dev/null 2>&1 || true
@@ -12,7 +13,16 @@ cleanup() {
 
 trap cleanup EXIT
 
-docker build -f docker-context/Dockerfile -t "$IMAGE" docker-context
+build_args=()
+if [[ -n "$PLATFORM" ]]; then
+  build_args+=(--platform "$PLATFORM")
+fi
+docker build "${build_args[@]}" -f docker-context/Dockerfile -t "$IMAGE" docker-context
+entrypoint="$(docker image inspect "$IMAGE" --format '{{json .Config.Entrypoint}}')"
+if [[ "$entrypoint" != '["/thingd-server"]' ]]; then
+  echo "unexpected Docker entrypoint: $entrypoint" >&2
+  exit 1
+fi
 cleanup
 
 docker run -d \
@@ -33,6 +43,12 @@ done
 
 if [[ "$ready" != "1" ]]; then
   echo "thingd container did not become healthy on port $PORT" >&2
+  docker logs "$CONTAINER" >&2 || true
+  exit 1
+fi
+
+if ! curl -fsS "http://127.0.0.1:$PORT/ready" >/dev/null 2>&1; then
+  echo "thingd container did not become ready on port $PORT" >&2
   docker logs "$CONTAINER" >&2 || true
   exit 1
 fi

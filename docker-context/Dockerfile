@@ -5,7 +5,7 @@
 FROM scratch
 
 ARG TARGETARCH
-COPY thingd-server-${TARGETARCH} /thingd-server
+COPY --chmod=755 thingd-server-${TARGETARCH} /thingd-server
 COPY config.example.yaml /etc/thingd/config.yaml
 
 EXPOSE 8757
