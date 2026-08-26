@@ -49,7 +49,7 @@ The release workflow runs on pushes to `main`. Release Please creates or updates
 the release PR; native artifacts and publishing run only after a release is
 created or a manual retry is requested with `publish_version`.
 
-It validates the same checks, then publishes to npm when the `NPM_TOKEN` repository secret exists.
+It validates the release artifacts, then publishes to npm through trusted publishing or the configured `NPM_TOKEN` repository secret.
 
 ## Branch and pull request workflow
 
