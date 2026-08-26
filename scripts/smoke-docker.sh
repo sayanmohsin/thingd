@@ -25,9 +25,12 @@ if [[ "$entrypoint" != '["/thingd-server"]' ]]; then
 fi
 cleanup
 
+# Published-port validation requires the server to listen on the container
+# network interface, while the token keeps the non-loopback bind safe.
 docker run -d \
   --name "$CONTAINER" \
   -p "$PORT:8757" \
+  -e THINGD_HOST=0.0.0.0 \
   -e THINGD_AUTH_TOKEN="$TOKEN" \
   "$IMAGE" >/dev/null
 
