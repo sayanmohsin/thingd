@@ -99,6 +99,13 @@ The publish runs in parallel with npm and Docker publishing.
 
 On every release, the workflow builds and pushes a Docker image to [Docker Hub](https://hub.docker.com/r/sayanmohsin/thingd). The `amd64` and `arm64` static server binaries build in parallel after the release tag is created; the image assembly runs after both binaries are uploaded and does not wait for npm publication.
 
+Docker publication is gated by architecture-specific validation. Each binary is
+checked for executable permissions before artifact upload, transferred in a
+mode-preserving archive, assembled with an explicit `755` mode in the `scratch`
+image, and started using the production `/thingd-server` entrypoint. Both
+`/healthz` and `/ready` must pass on `amd64` and `arm64` before Docker Hub
+publication is allowed.
+
 - `sayanmohsin/thingd:<version>` — tagged with the exact SemVer (e.g., `v0.71.0`)
 - `sayanmohsin/thingd:latest` — always points to the latest release
 
