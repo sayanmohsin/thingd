@@ -29,6 +29,9 @@ concurrency:
 permissions:
   contents: read
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
 jobs:
 
   # ── Fast gate: lint + typecheck (30s) ─────────────────
@@ -42,6 +45,7 @@ jobs:
           lockfile: pnpm-lock.yaml
           cache-scope: root
       - run: pnpm check
+      - run: pnpm check:actions
       - run: pnpm check:docs
       - run: pnpm check:cargo-versions
       - run: pnpm test:publish-manifests

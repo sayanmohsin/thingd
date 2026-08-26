@@ -38,7 +38,7 @@ runs:
 
     - name: Restore pnpm store
       id: pnpm-cache
-      uses: actions/cache/restore@v4
+      uses: actions/cache/restore@v5
       with:
         path: ${{ steps.pnpm-store.outputs.path }}
         key: pnpm-store-${{ inputs.cache-scope }}-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles(inputs.lockfile) }}
@@ -77,7 +77,7 @@ runs:
 
     - name: Save pnpm store
       if: steps.pnpm-cache.outputs.cache-hit != 'true'
-      uses: actions/cache/save@v4
+      uses: actions/cache/save@v5
       with:
         path: ${{ steps.pnpm-store.outputs.path }}
         key: pnpm-store-${{ inputs.cache-scope }}-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles(inputs.lockfile) }}
