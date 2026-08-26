@@ -13,6 +13,18 @@
 - server: harden security boundaries (0961ffe)
 - complete public SDK type exports (8a8889a)
 
+## [0.84.3](https://github.com/sayanmohsin/thingd/compare/thingd-v0.84.2...thingd-v0.84.3) (2026-08-26)
+
+
+### Bug Fixes
+
+* gate Docker releases on runtime smoke tests ([#187](https://github.com/sayanmohsin/thingd/issues/187)) ([396699a](https://github.com/sayanmohsin/thingd/commit/396699ad7a781141d00faef092da592202c503bc))
+
+
+### Performance Improvements
+
+* improve ThingDB RAM performance ([#185](https://github.com/sayanmohsin/thingd/issues/185)) ([6c3f412](https://github.com/sayanmohsin/thingd/commit/6c3f412d358bded52e92fa6f6a758327950fecd7))
+
 ## [0.84.2](https://github.com/sayanmohsin/thingd/compare/thingd-v0.84.1...thingd-v0.84.2) (2026-08-23)
 
 
