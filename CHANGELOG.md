@@ -13,6 +13,13 @@
 - server: harden security boundaries (0961ffe)
 - complete public SDK type exports (8a8889a)
 
+## [0.84.4](https://github.com/sayanmohsin/thingd/compare/thingd-v0.84.3...thingd-v0.84.4) (2026-08-26)
+
+
+### Bug Fixes
+
+* document npm trusted publishing ([#190](https://github.com/sayanmohsin/thingd/issues/190)) ([7bfc921](https://github.com/sayanmohsin/thingd/commit/7bfc9216ed4fd67c18245f862b08c17711719496))
+
 ## [0.84.3](https://github.com/sayanmohsin/thingd/compare/thingd-v0.84.2...thingd-v0.84.3) (2026-08-26)
 
 
