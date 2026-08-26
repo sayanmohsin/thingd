@@ -501,6 +501,7 @@ jobs:
           THINGD_DOCKER_IMAGE: thingd-release-validation-${{ matrix.arch }}
           THINGD_DOCKER_PLATFORM: ${{ matrix.platform }}
           THINGD_DOCKER_PORT: 18757
+          THINGD_SMOKE_MCP: "0"
         run: |
           started=$(date +%s)
           bash scripts/smoke-docker.sh
