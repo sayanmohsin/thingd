@@ -24,7 +24,7 @@ Then, navigate to this directory, install dependencies, and run the script:
 # Navigate to the example
 cd examples/node-basic
 
-# Install dependencies (links local package)
+# Install dependencies (links local packages through pnpm)
 pnpm install
 
 # Run the example in production mode

@@ -15,7 +15,7 @@ function log(step: string, message: string, data?: unknown) {
 
 async function main() {
   console.log("\n🚀 Starting thingd Node.js Queue Example...");
-  const db = await ThingD.open({ path: "../../data.db", driver: "native" });
+  const db = await ThingD.open({ path: "./data.db", driver: "native" });
 
   const queue = db.queue("worker-queue");
 

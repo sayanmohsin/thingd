@@ -21,7 +21,7 @@ You run the sidecar separately. Your Bun app connects to it via `HttpThingStore`
 
 ```bash
 # Install the CLI (any runtime)
-npm install -g @thingd/cli
+pnpm add --global @thingd/cli
 
 # Start the sidecar on port 8757
 thingd serve --http :8757
@@ -30,7 +30,7 @@ thingd serve --http :8757
 Or via Docker:
 
 ```bash
-docker run -p 8757:8757 thingd/thingd
+docker run -p 8757:8757 sayanmohsin/thingd
 ```
 
 ### 2. Run the Bun app

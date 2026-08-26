@@ -8,14 +8,13 @@
  *   bun run src/index.ts
  */
 
-import { ThingD } from "@thingd/sdk/client";
+import { HttpThingStore } from "@thingd/sdk/client";
 import { Hono } from "hono";
 
 // ── Connect to thingd sidecar over HTTP ──────────────────────
-const thingd = await ThingD.open({
-  driver: "cloud",
-  databaseUrl: process.env.THINGD_URL ?? "http://localhost:8757",
-  authToken: process.env.THINGD_AUTH_TOKEN,
+const thingd = await HttpThingStore.open({
+  url: Bun.env.THINGD_URL ?? "http://localhost:8757",
+  authToken: Bun.env.THINGD_AUTH_TOKEN,
 });
 
 const app = new Hono();
@@ -81,7 +80,7 @@ app.post("/queues/:name/push", async (c) => {
 app.post("/queues/:name/claim", async (c) => {
   const job = await thingd.claimJob(c.req.param("name"));
   if (!job) {
-    return c.json({ message: "no jobs available" }, 204);
+    return c.body(null, 204);
   }
   return c.json(job);
 });
@@ -108,7 +107,7 @@ app.get("/health", (c) => c.json({ ok: true }));
 
 // ── Start ───────────────────────────────────────────────────
 
-const port = Number(process.env.PORT) || 3000;
+const port = Number(Bun.env.PORT) || 3000;
 console.log(`Listening on http://localhost:${port}`);
 
 export default {
