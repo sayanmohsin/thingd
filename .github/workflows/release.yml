@@ -225,13 +225,11 @@ jobs:
           fetch-depth: 0
           fetch-tags: true
           ref: ${{ needs.release-please.outputs.tag_name }}
-      - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v6
+      - uses: ./.github/actions/setup-pnpm
         with:
-          node-version: 24
+          lockfile: pnpm-lock.yaml
+          cache-scope: root
           registry-url: https://registry.npmjs.org
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
       - name: Prepare publish manifests
         env:
           VERSION: ${{ needs.release-please.outputs.version }}
