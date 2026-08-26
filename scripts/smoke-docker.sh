@@ -6,6 +6,7 @@ CONTAINER="${THINGD_DOCKER_CONTAINER:-thingd-smoke}"
 PORT="${THINGD_DOCKER_PORT:-18757}"
 TOKEN="${THINGD_AUTH_TOKEN:-thingd-smoke-token}"
 PLATFORM="${THINGD_DOCKER_PLATFORM:-}"
+RUN_MCP_SMOKE="${THINGD_SMOKE_MCP:-1}"
 
 cleanup() {
   docker rm -f "$CONTAINER" >/dev/null 2>&1 || true
@@ -69,8 +70,12 @@ curl -fsS \
   "http://127.0.0.1:$PORT/cluster/status" || fail_endpoint "/cluster/status (authenticated)"
 printf "\n"
 
-if ! THINGD_MCP_URL="http://127.0.0.1:$PORT/mcp" \
-  THINGD_AUTH_TOKEN="$TOKEN" \
-  node scripts/smoke-mcp-http.mjs; then
-  fail_endpoint "/mcp (authenticated)"
+if [[ "$RUN_MCP_SMOKE" == "1" ]]; then
+  if ! THINGD_MCP_URL="http://127.0.0.1:$PORT/mcp" \
+    THINGD_AUTH_TOKEN="$TOKEN" \
+    node scripts/smoke-mcp-http.mjs; then
+    fail_endpoint "/mcp (authenticated)"
+  fi
+else
+  echo "Skipping MCP smoke test (THINGD_SMOKE_MCP=$RUN_MCP_SMOKE); run pnpm smoke:docker locally for MCP validation."
 fi

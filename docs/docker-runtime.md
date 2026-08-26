@@ -193,6 +193,12 @@ checks `/cluster/status`, and uses an MCP client to list tools. It maps the
 container to host port `18757` by default to avoid clashing with a local dev
 runtime. Override with `THINGD_DOCKER_PORT`.
 
+Release CI validates the image entrypoint, health, readiness, and authenticated
+cluster status without installing the Node MCP client dependencies. The local
+`pnpm smoke:docker` command keeps the MCP tool-list check enabled; use
+`THINGD_SMOKE_MCP=0` only when intentionally running the lower-level container
+checks without MCP.
+
 The scratch image has no shell, Node.js, or curl. Container healthchecks use
 the built-in `thingd-server --healthcheck URL` command, which performs a small
 HTTP request using the standard library.
