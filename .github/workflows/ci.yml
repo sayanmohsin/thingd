@@ -41,7 +41,7 @@ jobs:
   # ── Fast gate: lint + typecheck (30s) ─────────────────
   lint:
     name: Lint (biome)
-    if: ${{ github.event_name != 'push' || github.ref != 'refs/heads/main' || !startsWith(github.event.head_commit.message, 'chore(main): release') }}
+    if: "${{ github.event_name != 'push' || github.ref != 'refs/heads/main' || !startsWith(github.event.head_commit.message, 'chore(main): release') }}"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -72,7 +72,7 @@ jobs:
   # ── Rust runtime: fmt + clippy + test (parallel to node) ─
   rust:
     name: Rust (fmt, clippy, test)
-    if: ${{ github.event_name != 'push' || github.ref != 'refs/heads/main' || !startsWith(github.event.head_commit.message, 'chore(main): release') }}
+    if: "${{ github.event_name != 'push' || github.ref != 'refs/heads/main' || !startsWith(github.event.head_commit.message, 'chore(main): release') }}"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -119,7 +119,7 @@ jobs:
   # ── Node tests (linux) — no `needs: [rust]` ──────────
   node:
     name: Node SDK, package, CLI, and native tests
-    if: ${{ github.event_name != 'push' || github.ref != 'refs/heads/main' || !startsWith(github.event.head_commit.message, 'chore(main): release') }}
+    if: "${{ github.event_name != 'push' || github.ref != 'refs/heads/main' || !startsWith(github.event.head_commit.message, 'chore(main): release') }}"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -191,7 +191,7 @@ jobs:
 
   # ── Cross-platform (push to main only) ───────────────
   platform-test:
-    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && !startsWith(github.event.head_commit.message, 'chore(main): release') }}
+    if: "${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && !startsWith(github.event.head_commit.message, 'chore(main): release') }}"
     needs: [lint, rust, node]
     strategy:
       fail-fast: true
