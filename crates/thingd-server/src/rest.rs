@@ -2444,6 +2444,24 @@ mod tests {
         assert_eq!(value["data"]["status"], "ready");
     }
 
+    #[tokio::test]
+    async fn public_health_endpoints_bypass_configured_authentication() {
+        let mut config = Config::default();
+        config.auth.token = "server-token-that-is-long-enough".to_string();
+        config.auth.allow_unauthenticated = false;
+        let state = state_for_config(&config);
+        let app = crate::server::build_router(state, &config);
+
+        for path in ["/healthz", "/ready"] {
+            let response = app
+                .clone()
+                .oneshot(Request::builder().uri(path).body(Body::empty()).unwrap())
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::OK, "{path} should be public");
+        }
+    }
+
     #[test]
     fn saturated_worker_response_includes_retry_after() {
         let response = crate::error::AppError::overloaded("busy").into_response();
