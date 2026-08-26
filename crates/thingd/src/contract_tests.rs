@@ -32,6 +32,121 @@ pub fn test_contract_object_lifecycle(engine: &mut impl ThingStore) {
     assert!(engine.get_object("col", "a").unwrap().is_none());
 }
 
+/// Verify optimistic locking, batch writes, batched reads, and deterministic
+/// ordered scans shared by all storage adapters.
+pub fn test_contract_object_batches_and_ordering(engine: &mut impl ThingStore) {
+    let stored = engine
+        .put_objects_batch(vec![
+            MemoryObject::new("ordered", "b", r#"{"rank":2}"#),
+            MemoryObject::new("ordered", "a", r#"{"rank":1}"#),
+            MemoryObject::new("ordered", "c", r#"{"rank":3}"#),
+        ])
+        .unwrap();
+    assert_eq!(stored.len(), 3);
+
+    let ids = vec!["c".to_string(), "missing".to_string(), "a".to_string()];
+    let batch = engine.get_objects_batch("ordered", &ids).unwrap();
+    assert_eq!(batch.len(), 3);
+    assert_eq!(
+        batch[0].as_ref().map(|object| object.key.id.as_str()),
+        Some("c")
+    );
+    assert!(batch[1].is_none());
+    assert_eq!(
+        batch[2].as_ref().map(|object| object.key.id.as_str()),
+        Some("a")
+    );
+
+    let ordered = engine
+        .list_objects(
+            Some(&["ordered".to_string()]),
+            &ListObjectsOptions {
+                sort_by: Some(crate::model::SortBy::asc("id")),
+                ..ListObjectsOptions::default()
+            },
+        )
+        .unwrap();
+    assert_eq!(
+        ordered
+            .iter()
+            .map(|object| object.key.id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["a", "b", "c"]
+    );
+
+    let conflict = engine.put_object_with_options(
+        MemoryObject::new("ordered", "a", r#"{"rank":10}"#),
+        PutObjectOptions {
+            expected_version: Some(99),
+            index: true,
+        },
+    );
+    assert!(matches!(conflict, Err(crate::ThingdError::Conflict(_))));
+    assert_eq!(
+        engine.get_object("ordered", "a").unwrap().unwrap().body,
+        r#"{"rank":1}"#
+    );
+
+    let updated = engine
+        .put_object_with_options(
+            MemoryObject::new("ordered", "a", r#"{"rank":10}"#),
+            PutObjectOptions {
+                expected_version: Some(1),
+                index: true,
+            },
+        )
+        .unwrap();
+    assert_eq!(updated.version, 2);
+}
+
+/// Verify that link records and both directional indexes stay consistent.
+pub fn test_contract_link_consistency(engine: &mut impl ThingStore) {
+    let first = engine
+        .create_link(Link::new("nodes/a", "connects", "nodes/b"))
+        .unwrap();
+    let second = engine
+        .create_link(Link::new("nodes/a", "supports", "nodes/c"))
+        .unwrap();
+
+    let outgoing = engine
+        .get_neighbors(
+            "nodes/a",
+            LinkDirection::Outgoing,
+            LinkQueryOptions::default(),
+        )
+        .unwrap();
+    assert_eq!(outgoing.len(), 2);
+    assert_eq!(outgoing[0].id, first.id);
+    assert_eq!(outgoing[1].id, second.id);
+
+    let filtered = engine
+        .get_neighbors(
+            "nodes/a",
+            LinkDirection::Outgoing,
+            LinkQueryOptions {
+                link_type: Some("supports".to_string()),
+                limit: None,
+            },
+        )
+        .unwrap();
+    assert_eq!(filtered, vec![second]);
+    assert_eq!(engine.get_link(&first.id).unwrap(), Some(first.clone()));
+
+    assert!(engine.delete_link(&first.id).unwrap());
+    assert!(engine.get_link(&first.id).unwrap().is_none());
+    assert_eq!(engine.count_links().unwrap(), 1);
+    assert!(
+        engine
+            .get_neighbors(
+                "nodes/b",
+                LinkDirection::Incoming,
+                LinkQueryOptions::default()
+            )
+            .unwrap()
+            .is_empty()
+    );
+}
+
 /// Verify vector lifecycle: add, update (preserves), remove on update to None.
 pub fn test_contract_vector_lifecycle(engine: &mut impl ThingStore) {
     engine
