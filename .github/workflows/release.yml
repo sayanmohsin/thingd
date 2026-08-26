@@ -35,10 +35,14 @@ jobs:
       retry: ${{ steps.manual.outputs.retry }}
       version: ${{ steps.release.outputs.version || steps.manual.outputs.version }}
       tag_name: ${{ steps.release.outputs.tag_name || steps.manual.outputs.tag_name }}
+      started_at: ${{ steps.release-start.outputs.epoch }}
     steps:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
+      - name: Start release timer
+        id: release-start
+        run: echo "epoch=$(date +%s)" >> "$GITHUB_OUTPUT"
       - name: Create release App token
         id: app-token
         if: ${{ inputs.publish_version == '' }}
@@ -56,6 +60,14 @@ jobs:
           token: ${{ steps.app-token.outputs.token }}
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
+      - name: Summarize Release Please timing
+        if: ${{ always() }}
+        env:
+          STARTED_AT: ${{ steps.release-start.outputs.epoch }}
+        run: |
+          elapsed=$(( $(date +%s) - STARTED_AT ))
+          echo "### Release Please" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Decision elapsed: ${elapsed}s" >> "$GITHUB_STEP_SUMMARY"
       - name: Synchronize local Cargo dependency versions on release PR
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
@@ -168,7 +180,8 @@ jobs:
           "LIBCLANG_PATH=C:\\Program Files\\LLVM\\bin" >> $env:GITHUB_ENV
       - uses: Swatinem/rust-cache@v2
         with:
-          key: native-${{ hashFiles('packages/thingd-native/**/*.rs', 'crates/thingd/src/**/*.rs') }}
+          shared-key: native-${{ runner.os }}-${{ runner.arch }}-${{ matrix.platform }}-${{ matrix.arch }}-${{ matrix.rust_target || 'native' }}-release
+          key: ${{ hashFiles('**/Cargo.lock', 'packages/thingd-native/**/*.rs', 'crates/**/*.rs') }}
       - name: Remove stale native prebuilds
         run: >-
           node -e "require('node:fs').rmSync('packages/thingd-native/prebuilds', { recursive: true, force: true })"
@@ -180,11 +193,17 @@ jobs:
         env:
           RUST_TARGET: ${{ matrix.rust_target }}
         run: |
+          started=$(date +%s)
           if [ -n "$RUST_TARGET" ]; then
             cargo build -p thingd-native --release --target "$RUST_TARGET"
           else
             cargo build -p thingd-native --release
           fi
+          elapsed=$(( $(date +%s) - started ))
+          echo "### Native build" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Platform: `${{ matrix.platform }}` / `${{ matrix.arch }}`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Target: `${RUST_TARGET:-host}`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Elapsed: ${elapsed}s" >> "$GITHUB_STEP_SUMMARY"
       - name: Copy native prebuild
         env:
           NATIVE_PLATFORM: ${{ matrix.platform }}
@@ -249,6 +268,9 @@ jobs:
         run: |
           pnpm --filter @thingd/sdk --filter @thingd/cli --filter @thingd/client build
           pnpm verify:publish
+      - name: Start npm publication timer
+        id: npm-start
+        run: echo "epoch=$(date +%s)" >> "$GITHUB_OUTPUT"
       - name: Publish packages if missing
         env:
           VERSION: ${{ needs.release-please.outputs.version }}
@@ -278,20 +300,35 @@ jobs:
         run: |
           SMOKE_DIR=$(mktemp -d)
           trap 'rm -rf "$SMOKE_DIR"' EXIT
-          for attempt in $(seq 1 18); do
+          delay=2
+          for attempt in $(seq 1 8); do
             if npm view "@thingd/cli@$VERSION" version --registry=https://registry.npmjs.org 2>/dev/null | grep -qx "$VERSION"; then
               break
             fi
-            if [ "$attempt" -eq 18 ]; then
-              echo "@thingd/cli@$VERSION was not visible on npm after 3 minutes" >&2
+            if [ "$attempt" -eq 8 ]; then
+              echo "@thingd/cli@$VERSION was not visible on npm within the bounded propagation window" >&2
               exit 1
             fi
-            echo "Waiting for @thingd/cli@$VERSION to propagate on npm (attempt $attempt/18)"
-            sleep 10
+            echo "Waiting for @thingd/cli@$VERSION to propagate on npm (attempt $attempt/8; next wait ${delay}s)"
+            sleep "$delay"
+            delay=$(( delay * 2 ))
+            if [ "$delay" -gt 30 ]; then
+              delay=30
+            fi
           done
           npm init -y --prefix "$SMOKE_DIR" >/dev/null
           npm install --prefix "$SMOKE_DIR" --prefer-online --no-audit --no-fund "@thingd/cli@$VERSION"
           (cd "$SMOKE_DIR" && node --input-type=module -e "await import('@thingd/cli')")
+      - name: Summarize npm publication timing
+        if: ${{ always() }}
+        env:
+          STARTED_AT: ${{ steps.npm-start.outputs.epoch }}
+        run: |
+          if [ -n "$STARTED_AT" ]; then
+            elapsed=$(( $(date +%s) - STARTED_AT ))
+            echo "### npm publication" >> "$GITHUB_STEP_SUMMARY"
+            echo "- Publish and propagation verification elapsed: ${elapsed}s" >> "$GITHUB_STEP_SUMMARY"
+          fi
 
   docker-binary:
     name: Build Docker binary (${{ matrix.arch }})
@@ -318,29 +355,88 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y clang libclang-dev
       - uses: Swatinem/rust-cache@v2
         with:
-          shared-key: docker-${{ matrix.target }}-${{ hashFiles('**/Cargo.lock') }}
+          shared-key: docker-${{ runner.os }}-${{ runner.arch }}-${{ matrix.target }}-release
+          key: ${{ hashFiles('**/Cargo.lock', 'crates/**/*.rs') }}
           cache-all-crates: true
           cache-on-failure: true
       - name: Install cross-compilation dependencies
         run: sudo apt-get update && sudo apt-get install -y cmake musl-tools pipx
+      - name: Restore cargo-zigbuild download cache
+        id: cargo-zigbuild-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.cache/pip
+          key: cargo-zigbuild-${{ runner.os }}-${{ runner.arch }}-v1
+          restore-keys: |
+            cargo-zigbuild-${{ runner.os }}-${{ runner.arch }}-
+      - name: Report cargo-zigbuild cache
+        env:
+          CACHE_HIT: ${{ steps.cargo-zigbuild-cache.outputs.cache-hit }}
+          MATCHED_KEY: ${{ steps.cargo-zigbuild-cache.outputs.cache-matched-key }}
+        run: |
+          if [[ "$CACHE_HIT" == "true" ]]; then status="exact hit"; elif [[ -n "$MATCHED_KEY" ]]; then status="fallback hit"; else status="cold miss"; fi
+          echo "cargo-zigbuild download cache: $status"
+          echo "- cargo-zigbuild download cache: **$status**" >> "$GITHUB_STEP_SUMMARY"
       - name: Restore Zig toolchain
         id: zig-cache
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: ${{ runner.temp }}/zig-0.14.0
           key: zig-${{ runner.os }}-${{ runner.arch }}-0.14.0
+          restore-keys: |
+            zig-${{ runner.os }}-${{ runner.arch }}-
+      - name: Validate Zig cache
+        id: zig-cache-status
+        shell: bash
+        env:
+          ZIG_DIR: ${{ runner.temp }}/zig-0.14.0
+          CACHE_HIT: ${{ steps.zig-cache.outputs.cache-hit }}
+          MATCHED_KEY: ${{ steps.zig-cache.outputs.cache-matched-key }}
+        run: |
+          status="cold miss"
+          valid=false
+          if [[ -x "$ZIG_DIR/zig" ]] && [[ "$("$ZIG_DIR/zig" version 2>/dev/null)" == "0.14.0" ]]; then
+            valid=true
+            if [[ "$CACHE_HIT" == "true" ]]; then
+              status="exact hit"
+            else
+              status="fallback hit"
+            fi
+          else
+            rm -rf "$ZIG_DIR"
+          fi
+          echo "valid=$valid" >> "$GITHUB_OUTPUT"
+          {
+            echo "### Docker toolchain cache"
+            echo "- Zig 0.14.0: **$status**"
+            if [[ -n "$MATCHED_KEY" ]]; then
+              echo "- Restored key: `$MATCHED_KEY`"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
       - name: Install Zig
-        if: steps.zig-cache.outputs.cache-hit != 'true'
+        if: steps.zig-cache-status.outputs.valid != 'true'
         run: |
           mkdir -p "${{ runner.temp }}"
           curl -sL https://ziglang.org/download/0.14.0/zig-linux-x86_64-0.14.0.tar.xz | tar xJ -C "${{ runner.temp }}"
           mv "${{ runner.temp }}/zig-linux-x86_64-0.14.0" "${{ runner.temp }}/zig-0.14.0"
+      - name: Save Zig toolchain cache
+        if: steps.zig-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/zig-0.14.0
+          key: zig-${{ runner.os }}-${{ runner.arch }}-0.14.0
       - name: Add Zig to PATH
         run: |
           mkdir -p "$HOME/.local/bin"
           ln -sf "${{ runner.temp }}/zig-0.14.0/zig" "$HOME/.local/bin/zig"
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
       - run: pipx install cargo-zigbuild
+      - name: Save cargo-zigbuild download cache
+        if: steps.cargo-zigbuild-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.cache/pip
+          key: cargo-zigbuild-${{ runner.os }}-${{ runner.arch }}-v1
       - name: Build static server
         run: |
           started=$(date +%s)
@@ -404,7 +500,13 @@ jobs:
           THINGD_DOCKER_IMAGE: thingd-release-validation-${{ matrix.arch }}
           THINGD_DOCKER_PLATFORM: ${{ matrix.platform }}
           THINGD_DOCKER_PORT: 18757
-        run: bash scripts/smoke-docker.sh
+        run: |
+          started=$(date +%s)
+          bash scripts/smoke-docker.sh
+          elapsed=$(( $(date +%s) - started ))
+          echo "### Docker validation" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Architecture: `${{ matrix.arch }}`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Elapsed: ${elapsed}s" >> "$GITHUB_STEP_SUMMARY"
 
   docker:
     name: Publish Docker image
@@ -450,7 +552,7 @@ jobs:
 
   crates-publish:
     name: Publish crates.io package
-    needs: [release-please, publish-npm]
+    needs: [release-please]
     if: ${{ needs.release-please.outputs.release_created == 'true' || needs.release-please.outputs.retry == 'true' }}
     runs-on: ubuntu-latest
     steps:
@@ -462,6 +564,11 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - name: Install RocksDB bindgen dependencies
         run: sudo apt-get update && sudo apt-get install -y clang libclang-dev llvm-dev
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: crates-${{ runner.os }}-${{ runner.arch }}-release
+          key: ${{ hashFiles('**/Cargo.lock', 'crates/**/*.rs', 'packages/**/*.rs') }}
+          cache-all-crates: true
       - name: Configure libclang
         run: |
           echo "LLVM_CONFIG_PATH=$(command -v llvm-config)" >> "$GITHUB_ENV"
@@ -475,8 +582,28 @@ jobs:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
           VERSION: ${{ needs.release-please.outputs.version }}
         run: |
+          started=$(date +%s)
+          trap 'elapsed=$(( $(date +%s) - started )); echo "### crates.io publication" >> "$GITHUB_STEP_SUMMARY"; echo "- Elapsed: ${elapsed}s" >> "$GITHUB_STEP_SUMMARY"' EXIT
           if curl -fsS -A "thingd-release/${GITHUB_REPOSITORY} run/${GITHUB_RUN_ID}" "https://crates.io/api/v1/crates/thingd/${VERSION}" >/dev/null; then
             echo "thingd ${VERSION} already exists"
           else
             cargo publish --allow-dirty -p thingd --features persistent,search
           fi
+
+  release-timing:
+    name: Summarize release timing
+    needs: [release-please, publish-npm, docker, crates-publish]
+    if: ${{ always() && (needs.release-please.outputs.release_created == 'true' || needs.release-please.outputs.retry == 'true') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Write total release duration
+        env:
+          STARTED_AT: ${{ needs.release-please.outputs.started_at }}
+        run: |
+          if [ -z "$STARTED_AT" ]; then
+            echo "Release start timestamp was unavailable" >&2
+            exit 1
+          fi
+          elapsed=$(( $(date +%s) - STARTED_AT ))
+          echo "### Total release path" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Elapsed through publication jobs: ${elapsed}s" >> "$GITHUB_STEP_SUMMARY"
