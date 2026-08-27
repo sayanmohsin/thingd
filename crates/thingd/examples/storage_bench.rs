@@ -1024,6 +1024,10 @@ impl WalDiagnosticsSnapshot {
             scan_duration_ns: before.scan_duration_ns,
             scan_count: before.scan_count,
             table_layer_count: before.table_layer_count.max(after.table_layer_count),
+            compaction_count: before.compaction_count.max(after.compaction_count),
+            compaction_duration_ns: before.compaction_duration_ns,
+            compaction_input_bytes: before.compaction_input_bytes,
+            compaction_output_bytes: before.compaction_output_bytes,
         }
     }
 }
