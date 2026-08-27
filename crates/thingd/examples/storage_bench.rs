@@ -4,6 +4,7 @@
 //!   cargo run --example `storage_bench` --release --features persistent,search [<iterations>]
 //!   `THINGD_BENCH_ITERS=10000` cargo run --example `storage_bench` --release --features persistent,search
 //!   Add `--reliability` to run the correctness and isolation preflight.
+//!   Add `--qualification` to run durable reopen, compaction, repack, and validation checks.
 
 #![allow(unused_crate_dependencies)]
 
@@ -45,6 +46,7 @@ const EVENT_BODY: &str = r#"{"text":"benchmark event","project":"thingd","actor"
 enum BackendSelection {
     All,
     InMemory,
+    ThingDbMemory,
     RocksDb,
     ThingDb,
     Cache,
@@ -61,6 +63,7 @@ struct BenchConfig {
     phase: String,
     memtable_bytes: u64,
     reliability: bool,
+    qualification: bool,
     queue_iterations: Option<usize>,
 }
 
@@ -99,6 +102,25 @@ struct BenchOutput {
     storage: Vec<StorageSnapshot>,
     wal: Vec<WalSnapshot>,
     ram: Vec<RamSnapshot>,
+    qualification: Vec<QualificationSnapshot>,
+    queue: Vec<QueueSnapshot>,
+}
+
+#[derive(Debug, Serialize)]
+struct QueueSnapshot {
+    driver: String,
+    repetition: usize,
+    diagnostics: thingd::QueueDiagnostics,
+}
+
+#[derive(Debug, Serialize)]
+struct QualificationSnapshot {
+    driver: String,
+    repetition: usize,
+    operation: String,
+    duration_ns: u128,
+    passed: bool,
+    error: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -142,6 +164,7 @@ struct BenchMetadata {
     parallelism: usize,
     thingdb_memtable_bytes: u64,
     reliability_preflight: bool,
+    qualification_preflight: bool,
     queue_iterations: Option<usize>,
     peak_rss_bytes: Option<u64>,
 }
@@ -170,6 +193,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 parallelism: std::thread::available_parallelism().map_or(1, usize::from),
                 thingdb_memtable_bytes: config.memtable_bytes,
                 reliability_preflight: config.reliability,
+                qualification_preflight: config.qualification,
                 queue_iterations: config.queue_iterations,
                 peak_rss_bytes: None,
             },
@@ -178,6 +202,8 @@ fn main() -> Result<(), Box<dyn Error>> {
             storage: Vec::new(),
             wal: Vec::new(),
             ram: Vec::new(),
+            qualification: Vec::new(),
+            queue: Vec::new(),
         }))
         .map_err(|_| "benchmark output was initialized more than once")?;
 
@@ -221,7 +247,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             bench_concurrent("memory-engine", || Ok(MemoryEngine::new()), iterations)?;
         }
 
-        if config.backend.includes(BackendSelection::ThingDb) {
+        if config.backend.includes_thingdb_memory() {
             let thingdb_memory =
                 PersistentEngine::open_in_memory_with_backend(thingd::PersistentBackend::ThingDb)?;
             bench_store(
@@ -233,9 +259,11 @@ fn main() -> Result<(), Box<dyn Error>> {
             )?;
             record_memory_storage("thingdb-memory");
             bench_memory_latency_distribution("thingdb-memory", iterations.min(256), config.seed)?;
+            bench_queue_diagnostics("thingdb-memory", None, config.seed)?;
         }
 
         if config.backend.includes(BackendSelection::ThingDb)
+            || config.backend.includes(BackendSelection::ThingDbMemory)
             || config.backend.includes(BackendSelection::Cache)
         {
             bench_cache("thingdb-cache", iterations, config.seed)?;
@@ -280,6 +308,11 @@ fn main() -> Result<(), Box<dyn Error>> {
                 config.queue_iterations,
             )?;
             record_storage("thingdb-experimental", thingdb_dir.path());
+            bench_queue_diagnostics(
+                "thingdb-experimental",
+                Some(thingdb_dir.path()),
+                config.seed,
+            )?;
             let latency_dir = tempfile::tempdir()?;
             bench_latency_distribution(
                 "thingdb-experimental",
@@ -377,6 +410,22 @@ fn main() -> Result<(), Box<dyn Error>> {
                 },
                 iterations,
             )?;
+        }
+
+        if config.backend == BackendSelection::ThingDbMemory {
+            bench_concurrent(
+                "thingdb-memory",
+                || {
+                    Ok(PersistentEngine::open_in_memory_with_backend(
+                        thingd::PersistentBackend::ThingDb,
+                    )?)
+                },
+                iterations,
+            )?;
+        }
+
+        if config.qualification {
+            run_durable_qualification(config.seed.saturating_add(repetition as u64))?;
         }
     }
 
@@ -579,6 +628,8 @@ impl BenchConfig {
             .unwrap_or(DEFAULT_MEMTABLE_BYTES);
         let mut reliability = env::var("THINGD_BENCH_RELIABILITY")
             .is_ok_and(|value| value == "1" || value.eq_ignore_ascii_case("true"));
+        let mut qualification = env::var("THINGD_BENCH_QUALIFICATION")
+            .is_ok_and(|value| value == "1" || value.eq_ignore_ascii_case("true"));
         let mut queue_iterations: Option<usize> = env::var("THINGD_BENCH_QUEUE_ITERS")
             .ok()
             .and_then(|value| value.parse().ok());
@@ -598,6 +649,7 @@ impl BenchConfig {
                 "--phase" => phase = value("--phase")?,
                 "--memtable-bytes" => memtable_bytes = value("--memtable-bytes")?.parse()?,
                 "--reliability" => reliability = true,
+                "--qualification" => qualification = true,
                 "--queue-iterations" => {
                     queue_iterations = Some(value("--queue-iterations")?.parse()?);
                 },
@@ -607,6 +659,7 @@ impl BenchConfig {
                         "memory" => BackendSelection::InMemory,
                         "rocksdb" => BackendSelection::RocksDb,
                         "thingdb" => BackendSelection::ThingDb,
+                        "thingdb-memory" => BackendSelection::ThingDbMemory,
                         "cache" => BackendSelection::Cache,
                         other => return Err(format!("unknown backend {other:?}").into()),
                     };
@@ -630,6 +683,7 @@ impl BenchConfig {
             phase,
             memtable_bytes: memtable_bytes.max(1),
             reliability,
+            qualification,
             queue_iterations: queue_iterations.map(|value| value.max(1)),
         })
     }
@@ -640,10 +694,15 @@ impl BackendSelection {
         self == Self::All || self == backend
     }
 
+    fn includes_thingdb_memory(self) -> bool {
+        self.includes(Self::ThingDb) || self.includes(Self::ThingDbMemory)
+    }
+
     const fn name(self) -> &'static str {
         match self {
             Self::All => "all",
             Self::InMemory => "memory",
+            Self::ThingDbMemory => "thingdb-memory",
             Self::RocksDb => "rocksdb",
             Self::ThingDb => "thingdb",
             Self::Cache => "cache",
@@ -1164,6 +1223,154 @@ fn run_reliability_preflight(seed: u64) -> Result<(), Box<dyn Error>> {
     }
 
     println!("reliability | memory backends | passed");
+    Ok(())
+}
+
+#[allow(clippy::too_many_lines)]
+fn run_durable_qualification(seed: u64) -> Result<(), Box<dyn Error>> {
+    for (source_backend, destination_backend) in [
+        (
+            thingd::PersistentBackend::RocksDb,
+            thingd::PersistentBackend::ThingDb,
+        ),
+        (
+            thingd::PersistentBackend::ThingDb,
+            thingd::PersistentBackend::RocksDb,
+        ),
+    ] {
+        let source_dir = tempfile::tempdir()?;
+        let source_options = PersistentOpenOptions {
+            backend: source_backend,
+            search_mode: thingd::PersistentSearchMode::Disabled,
+            ..PersistentOpenOptions::default()
+        };
+        let object_id = format!("qualification-{seed}");
+        let started = Instant::now();
+        {
+            let mut source =
+                PersistentEngine::open_with_options(source_dir.path(), source_options.clone())?;
+            source.put_object(MemoryObject::new(
+                "qualification",
+                &object_id,
+                OBJECT_BODY_ACTIVE,
+            ))?;
+            source.put_objects_batch(vec![MemoryObject::new(
+                "qualification",
+                format!("{object_id}-batch"),
+                OBJECT_BODY_INACTIVE,
+            )])?;
+            source.append_event(MemoryEvent::new(
+                "qualification",
+                "qualification",
+                format!("{{\"seed\":{seed}}}"),
+            ))?;
+            source.push_job(QueueJob::new(
+                "qualification-queue",
+                &object_id,
+                r#"{"task":"qualification"}"#,
+                3,
+            ))?;
+            let claimed = source
+                .claim_job("qualification-queue")?
+                .ok_or("qualification queue claim returned no job")?;
+            source
+                .ack_job("qualification-queue", &claimed.id)?
+                .ok_or("qualification queue ack returned no job")?;
+            source.compact_storage()?;
+        }
+        let reopened = PersistentEngine::open_with_options(source_dir.path(), source_options)?;
+        let object = reopened
+            .get_object("qualification", &object_id)?
+            .ok_or("qualification source object missing after reopen")?;
+        if object.body != OBJECT_BODY_ACTIVE || reopened.count_events()? != 1 {
+            return Err("qualification source logical verification failed".into());
+        }
+        PersistentEngine::validate_path_with_backend(source_dir.path(), source_backend)?;
+        drop(reopened);
+
+        let destination_parent = tempfile::tempdir()?;
+        let destination = destination_parent.path().join("repacked");
+        PersistentEngine::repack_to_with_backends(
+            source_dir.path(),
+            &destination,
+            source_backend,
+            destination_backend,
+            None,
+        )?;
+        PersistentEngine::validate_path_with_backend(&destination, destination_backend)?;
+        let destination_options = PersistentOpenOptions {
+            backend: destination_backend,
+            search_mode: thingd::PersistentSearchMode::Disabled,
+            ..PersistentOpenOptions::default()
+        };
+        let repacked = PersistentEngine::open_with_options(&destination, destination_options)?;
+        let repacked_object = repacked
+            .get_object("qualification", &object_id)?
+            .ok_or("repacked qualification object missing")?;
+        if repacked_object.body != OBJECT_BODY_ACTIVE || repacked.count_events()? != 1 {
+            return Err("qualification repack logical verification failed".into());
+        }
+        if !source_dir.path().exists() {
+            return Err("qualification repack removed the source directory".into());
+        }
+        let duration_ns = started.elapsed().as_nanos();
+        let driver = format!("{source_backend:?}-to-{destination_backend:?}");
+        results()
+            .lock()
+            .unwrap()
+            .qualification
+            .push(QualificationSnapshot {
+                driver: driver.clone(),
+                repetition: CURRENT_REPETITION.load(Ordering::Relaxed),
+                operation: "reopen-compact-repack-validate".to_string(),
+                duration_ns,
+                passed: true,
+                error: None,
+            });
+        println!(
+            "qualification | {driver} | passed ({:?})",
+            nanos_duration(duration_ns)
+        );
+    }
+    Ok(())
+}
+
+fn bench_queue_diagnostics(
+    name: &str,
+    path: Option<&Path>,
+    seed: u64,
+) -> Result<(), Box<dyn Error>> {
+    let mut engine = match path {
+        Some(path) => PersistentEngine::open_with_options(
+            path,
+            benchmark_persistent_options(thingd::PersistentBackend::ThingDb),
+        )?,
+        None => PersistentEngine::open_in_memory_with_backend(thingd::PersistentBackend::ThingDb)?,
+    };
+    let jobs = (0..64)
+        .map(|index| {
+            QueueJob::new(
+                "diagnostics",
+                format!("{seed}-{index}"),
+                r#"{"task":"diagnostics"}"#,
+                3,
+            )
+        })
+        .collect();
+    engine.push_jobs_batch(jobs)?;
+    for _ in 0..64 {
+        let Some(job) = engine.claim_job("diagnostics")? else {
+            return Err("queue diagnostics could not claim all jobs".into());
+        };
+        engine
+            .ack_job("diagnostics", &job.id)?
+            .ok_or("queue diagnostics acknowledgement failed")?;
+    }
+    results().lock().unwrap().queue.push(QueueSnapshot {
+        driver: name.to_string(),
+        repetition: CURRENT_REPETITION.load(Ordering::Relaxed),
+        diagnostics: engine.queue_diagnostics(),
+    });
     Ok(())
 }
 

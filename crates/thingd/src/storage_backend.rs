@@ -16,7 +16,9 @@ use std::ops::{Bound, RangeBounds};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use rocksdb::{ColumnFamilyDescriptor, DB, FlushOptions, Options, WriteBatch, WriteOptions};
+use rocksdb::{
+    ColumnFamilyDescriptor, DB, FlushOptions, IteratorMode, Options, WriteBatch, WriteOptions,
+};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum StorageBackend {
@@ -250,6 +252,7 @@ impl DatabaseBuilder {
                     "event_meta",
                     "queue_jobs",
                     "ready_jobs",
+                    "lease_jobs",
                     "links_by_id",
                     "links_from",
                     "links_to",
@@ -330,6 +333,55 @@ impl Keyspace {
 
     pub(crate) fn prefix(&self, prefix: impl AsRef<[u8]>) -> Iter {
         self.collect(Some(prefix.as_ref().to_vec()))
+    }
+
+    pub(crate) fn first_prefix_after(
+        &self,
+        prefix: impl AsRef<[u8]>,
+        after: Option<&[u8]>,
+    ) -> Result<Option<Guard>, Error> {
+        let prefix = prefix.as_ref();
+        match self.db.as_ref() {
+            Backend::RocksDb(db) => {
+                let cf = db.cf_handle(&self.name).ok_or_else(|| {
+                    Error(format!("missing RocksDB column family: {}", self.name))
+                })?;
+                let start = after.unwrap_or(prefix);
+                let iterator =
+                    db.iterator_cf(cf, IteratorMode::From(start, rocksdb::Direction::Forward));
+                for entry in iterator {
+                    match entry {
+                        Ok((key, value))
+                            if key.starts_with(prefix) && after != Some(key.as_ref()) =>
+                        {
+                            return Ok(Some(Guard {
+                                key: key.to_vec(),
+                                value: value.to_vec(),
+                                error: None,
+                            }));
+                        },
+                        Ok((key, _)) if !key.starts_with(prefix) => return Ok(None),
+                        Ok(_) => {},
+                        Err(error) => return Err(Error::from(error)),
+                    }
+                }
+                Ok(None)
+            },
+            Backend::ThingDb(db) => {
+                let keyspace = db
+                    .keyspace(&self.name, thingdb::KeyspaceCreateOptions::default)
+                    .map_err(|error| Error(error.to_string()))?;
+                let entry = keyspace
+                    .first_prefix_after(prefix, after)
+                    .map_err(|error| Error(error.to_string()))?
+                    .map(|entry| Guard {
+                        key: entry.key,
+                        value: entry.value,
+                        error: None,
+                    });
+                Ok(entry)
+            },
+        }
     }
 
     pub(crate) fn range<K, R>(&self, range: R) -> Iter

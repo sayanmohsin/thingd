@@ -151,6 +151,19 @@ without opening a persistent search index. Use `persistent` for the normal
 Tantivy path and `persistent-no-rebuild` for the no-startup-rebuild path.
 It uses temporary databases and does not leave benchmark data in the repo.
 
+For controlled durable qualification, add `--qualification` (or set
+`THINGD_BENCH_QUALIFICATION=1`). This runs the existing unified benchmark's
+deterministic reopen, compaction, cross-backend logical repack, source
+preservation, and destination validation checks for RocksDB and ThingDB. The
+checks use fresh temporary directories and are recorded in the structured
+output under `qualification`; a failure stops the run. This is operational
+evidence only and does not make ThingDB production-ready or change the
+RocksDB default.
+
+Use `--backend thingdb-memory` for a RAM-only ThingDB run without the durable
+WAL workloads. This is useful for isolating process-local queue and object
+performance; it does not qualify durable ThingDB.
+
 ## ThingDB benchmark plan
 
 ThingDB benchmarking is a promotion gate, not a marketing benchmark. Every
