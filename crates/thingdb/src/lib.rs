@@ -1599,6 +1599,7 @@ impl Keyspace {
         )
     }
 
+    #[allow(clippy::too_many_lines)]
     fn iter_bounds(
         &self,
         prefix: Option<&[u8]>,
@@ -1625,34 +1626,59 @@ impl Keyspace {
             .and_then(|key| successor(&key))
             .or_else(|| successor(&namespace));
         let mut entries = Vec::new();
-        let mut keys = BTreeSet::new();
-        let key_in_bounds = |key: &[u8]| {
-            key >= lower.as_slice()
-                && upper
-                    .as_ref()
-                    .map(|upper| key < upper.as_slice())
-                    .unwrap_or(true)
-        };
-        for key in inner.state.keys().chain(inner.pending_table.keys()) {
-            if key_in_bounds(key) {
-                keys.insert(key.clone());
+        let mut state_key = next_map_key(&inner.state, &lower, upper.as_deref(), None);
+        let mut pending_key = next_map_key(&inner.pending_table, &lower, upper.as_deref(), None);
+        let mut layer_indices = inner
+            .table_layers
+            .iter()
+            .map(|layer| {
+                layer
+                    .entries
+                    .binary_search_by(|entry| entry.key.as_slice().cmp(lower.as_slice()))
+                    .unwrap_or_else(|index| index)
+            })
+            .collect::<Vec<_>>();
+
+        loop {
+            let mut next_key = state_key.clone();
+            if pending_key.as_deref().is_some_and(|candidate| {
+                next_key
+                    .as_deref()
+                    .is_none_or(|current| candidate < current)
+            }) {
+                next_key.clone_from(&pending_key);
             }
-        }
-        for layer in &inner.table_layers {
-            let start_index = layer
-                .entries
-                .binary_search_by(|entry| entry.key.as_slice().cmp(lower.as_slice()))
-                .unwrap_or_else(|index| index);
-            for entry in &layer.entries[start_index..] {
-                if let Some(upper) = &upper
-                    && entry.key.as_slice() >= upper.as_slice()
+            for (layer, index) in inner.table_layers.iter().zip(&layer_indices) {
+                if let Some(candidate) = layer.entries.get(*index).map(|entry| &entry.key)
+                    && next_key
+                        .as_deref()
+                        .is_none_or(|current| candidate.as_slice() < current)
                 {
-                    break;
+                    next_key = Some(candidate.clone());
                 }
-                keys.insert(entry.key.clone());
             }
-        }
-        for key in keys {
+            let Some(key) = next_key else {
+                break;
+            };
+            if upper.as_ref().is_some_and(|upper| key >= *upper) {
+                break;
+            }
+            if state_key.as_deref() == Some(key.as_slice()) {
+                state_key = next_map_key(&inner.state, &lower, upper.as_deref(), Some(&key));
+            }
+            if pending_key.as_deref() == Some(key.as_slice()) {
+                pending_key =
+                    next_map_key(&inner.pending_table, &lower, upper.as_deref(), Some(&key));
+            }
+            for (layer, index) in inner.table_layers.iter().zip(&mut layer_indices) {
+                if layer
+                    .entries
+                    .get(*index)
+                    .is_some_and(|entry| entry.key == key)
+                {
+                    *index += 1;
+                }
+            }
             let Some(value) = inner.get_value(&key).unwrap_or(None) else {
                 continue;
             };
@@ -1698,6 +1724,20 @@ impl Keyspace {
             entries: entries.into_iter(),
         }
     }
+}
+
+fn next_map_key<V>(
+    map: &BTreeMap<Vec<u8>, V>,
+    lower: &[u8],
+    upper: Option<&[u8]>,
+    after: Option<&[u8]>,
+) -> Option<Vec<u8>> {
+    let start = after.map_or_else(
+        || Bound::Included(lower.to_vec()),
+        |key| Bound::Excluded(key.to_vec()),
+    );
+    let end = upper.map_or(Bound::Unbounded, |key| Bound::Excluded(key.to_vec()));
+    map.range((start, end)).next().map(|(key, _)| key.clone())
 }
 
 fn iter_memory_bounds(
