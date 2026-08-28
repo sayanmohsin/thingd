@@ -6795,6 +6795,8 @@ mod tests {
     fn thingdb_backend_runs_shared_contracts() {
         let (mut engine, _dir) = setup_thingdb();
         crate::contract_tests::test_contract_object_lifecycle(&mut engine);
+        crate::contract_tests::test_contract_object_batches_and_ordering(&mut engine);
+        crate::contract_tests::test_contract_link_consistency(&mut engine);
         crate::contract_tests::test_contract_vector_lifecycle(&mut engine);
         crate::contract_tests::test_contract_schema_store(&mut engine);
         crate::contract_tests::test_contract_indexes(&mut engine);
@@ -6810,6 +6812,8 @@ mod tests {
     fn contract_object_lifecycle() {
         let (mut engine, _dir) = setup_persistent();
         crate::contract_tests::test_contract_object_lifecycle(&mut engine);
+        crate::contract_tests::test_contract_object_batches_and_ordering(&mut engine);
+        crate::contract_tests::test_contract_link_consistency(&mut engine);
     }
 
     #[test]
@@ -6863,6 +6867,8 @@ mod tests {
         assert_eq!(engine.journal_count(), 0);
 
         crate::contract_tests::test_contract_object_lifecycle(&mut engine);
+        crate::contract_tests::test_contract_object_batches_and_ordering(&mut engine);
+        crate::contract_tests::test_contract_link_consistency(&mut engine);
         crate::contract_tests::test_contract_vector_lifecycle(&mut engine);
         crate::contract_tests::test_contract_schema_store(&mut engine);
         crate::contract_tests::test_contract_indexes(&mut engine);
