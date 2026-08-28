@@ -393,7 +393,11 @@ mod tests {
         {
             let mut embedded = PersistentEngine::open(&dir).unwrap();
             embedded
-                .put_object(MemoryObject::new("compat", "object", r#"{"ok":true}"#))
+                .put_object(MemoryObject::new(
+                    "compat",
+                    "object",
+                    r#"{"text":"compatibility-search-token"}"#,
+                ))
                 .unwrap();
             let mut event = MemoryEvent::new("compat", "created", r#"{"id":"object"}"#);
             event.idempotency_key = "compat-1".to_string();
@@ -414,7 +418,7 @@ mod tests {
         );
         assert!(
             !standalone
-                .search("true", Default::default())
+                .search("compatibility-search-token", Default::default())
                 .unwrap()
                 .is_empty()
         );
