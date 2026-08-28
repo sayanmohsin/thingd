@@ -1,0 +1,94 @@
+name: Nice Code
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: nice-code-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  security-events: write
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+jobs:
+  review:
+    name: Advisory engineering review
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out Thingd
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Check out pinned Nice Code
+        uses: actions/checkout@v6
+        with:
+          repository: sayanmohsin/nice-code
+          ref: f3c15e364919969c9c1b9e2f11b837ca4d8f4fb3
+          path: .nice-code
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Generate JSON review report
+        id: json-report
+        continue-on-error: true
+        env:
+          NICE_CODE_DIR: ${{ github.workspace }}/.nice-code
+          NICE_CODE_FORMAT: json
+        run: |
+          mkdir -p artifacts
+          node scripts/check-nice-code.mjs > artifacts/nice-code.json
+          echo "Nice Code JSON exit status: $?"
+
+      - name: Generate SARIF review report
+        id: sarif-report
+        continue-on-error: true
+        env:
+          NICE_CODE_DIR: ${{ github.workspace }}/.nice-code
+          NICE_CODE_FORMAT: sarif
+        run: |
+          mkdir -p artifacts
+          node scripts/check-nice-code.mjs > artifacts/nice-code.sarif
+          echo "Nice Code SARIF exit status: $?"
+
+      - name: Validate report files
+        if: always()
+        run: |
+          node --input-type=module <<'NODE'
+          import { readFileSync } from "node:fs";
+          const json = JSON.parse(readFileSync("artifacts/nice-code.json", "utf8"));
+          const sarif = JSON.parse(readFileSync("artifacts/nice-code.sarif", "utf8"));
+          if (json.schemaVersion !== 1 || !Array.isArray(json.findings)) {
+            throw new Error("Nice Code JSON report has an unexpected schema");
+          }
+          if (sarif.version !== "2.1.0" || !Array.isArray(sarif.runs)) {
+            throw new Error("Nice Code SARIF report has an unexpected schema");
+          }
+          console.log(`Validated ${json.findings.length} Nice Code findings.`);
+          NODE
+
+      - name: Upload SARIF results
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: artifacts/nice-code.sarif
+
+      - name: Upload JSON report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: nice-code-report-${{ github.run_id }}
+          path: artifacts/nice-code.json
+          if-no-files-found: error

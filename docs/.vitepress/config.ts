@@ -125,6 +125,7 @@ export default defineConfig({
         items: [
           { text: "Agent Setup", link: "/agent-setup" },
           { text: "Implementation Guide", link: "/agent-implementation-guide" },
+          { text: "Nice Code Review", link: "/nice-code" },
           { text: "Agent Patterns", link: "/agent-patterns" },
           { text: "Why Agents?", link: "/why-agents" },
         ],
