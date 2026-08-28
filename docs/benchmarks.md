@@ -93,6 +93,12 @@ used as a passing performance datapoint.
 Use `--repetitions 5` or `THINGD_BENCH_REPETITIONS=5` for phase comparisons.
 Structured JSON output includes grouped median, minimum, maximum, and spread
 throughput summaries in addition to each repetition's raw result.
+For exploratory large-record runs whose queue transitions would otherwise
+dominate local runtime, use `--queue-iterations <n>` or
+`THINGD_BENCH_QUEUE_ITERS=<n>`. The limit is recorded in benchmark metadata and
+does not reduce object, event, scan, or maintenance workloads. It is not valid
+for a full qualification claim; qualification runs must omit it and exercise
+the complete queue workload at the declared dataset size.
 The WAL-hardening and group-commit phases additionally record
 `wal-single-write`, `wal-explicit-batch`, `wal-concurrent-write`, and
 `wal-recovery` rows. The immutable-table and recovery phases additionally

@@ -25,7 +25,6 @@ mod cache;
 
 pub use cache::{CacheOptions, CacheStats, MemoryCache};
 
-use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::{Display, Formatter};
 use std::fs::{self, File, OpenOptions};
@@ -107,6 +106,21 @@ fn validate_manifest(manifest: &Manifest) -> Result<()> {
                 "ThingDB manifest legacy table filename does not match table layers",
             ));
         }
+    }
+    let table_files = if manifest.table_files.is_empty() {
+        manifest.table_file.iter().collect::<Vec<_>>()
+    } else {
+        manifest.table_files.iter().collect::<Vec<_>>()
+    };
+    if table_files.is_empty() && manifest.table_sequence != 0 {
+        return Err(Error::message(
+            "ThingDB manifest has a table sequence without a table",
+        ));
+    }
+    if table_files.windows(2).any(|files| files[0] >= files[1]) {
+        return Err(Error::message(
+            "ThingDB manifest table layers are not in filename order",
+        ));
     }
     Ok(())
 }
@@ -212,6 +226,36 @@ pub struct WalDiagnostics {
     pub memtable_over_budget: bool,
     /// Last WAL error observed after the database opened, if any.
     pub last_error: Option<String>,
+    /// Number of durable point lookups that consulted table layers.
+    pub table_lookup_count: u64,
+    /// Number of point lookups checking the mutable state.
+    pub mutable_state_lookup_count: u64,
+    /// Number of point lookups checking the pending table.
+    pub pending_table_lookup_count: u64,
+    /// Number of point lookups checking immutable table layers.
+    pub immutable_layer_lookup_count: u64,
+    /// Number of table layers inspected by point lookups.
+    pub table_layers_consulted: u64,
+    /// Bytes read from table records.
+    pub table_bytes_read: u64,
+    /// Nanoseconds spent reading table records.
+    pub table_read_duration_ns: u64,
+    /// Nanoseconds spent opening table files during database open.
+    pub table_open_duration_ns: u64,
+    /// Nanoseconds spent materializing or merging durable scans.
+    pub scan_duration_ns: u64,
+    /// Number of durable scans completed.
+    pub scan_count: u64,
+    /// Number of table layers currently open for reads.
+    pub table_layer_count: u64,
+    /// Number of completed table compactions.
+    pub compaction_count: u64,
+    /// Nanoseconds spent compacting immutable table layers.
+    pub compaction_duration_ns: u64,
+    /// Bytes represented by the last compacted table layers.
+    pub compaction_input_bytes: u64,
+    /// Bytes written by completed compacted tables.
+    pub compaction_output_bytes: u64,
 }
 
 /// Timing and allocation-adjacent counters for the RAM-only keyspace path.
@@ -264,6 +308,7 @@ pub struct DatabaseBuilder {
     path: PathBuf,
     max_journaling_size: u64,
     max_memtable_bytes: u64,
+    max_table_layers: usize,
 }
 
 /// A shared ThingDB database handle.
@@ -288,13 +333,14 @@ struct Inner {
     pending_table_bytes: u64,
     max_journaling_size: u64,
     max_memtable_bytes: u64,
+    max_table_layers: usize,
     diagnostics: WalDiagnostics,
     ram_diagnostics: RamDiagnostics,
     recovery_required: bool,
 }
 
 struct TableLayer {
-    path: PathBuf,
+    file: File,
     entries: Vec<TableIndexEntry>,
     is_v2: bool,
 }
@@ -306,26 +352,51 @@ struct TableIndexEntry {
 }
 
 impl Inner {
-    fn get_value(&self, key: &[u8]) -> Result<Option<Vec<u8>>> {
+    fn get_value(&mut self, key: &[u8]) -> Result<Option<Vec<u8>>> {
+        self.diagnostics.pending_table_lookup_count = self
+            .diagnostics
+            .pending_table_lookup_count
+            .saturating_add(1);
         if let Some(value) = self.pending_table.get(key) {
             return Ok(value.clone());
         }
+        self.diagnostics.mutable_state_lookup_count = self
+            .diagnostics
+            .mutable_state_lookup_count
+            .saturating_add(1);
         if let Some(value) = self.state.get(key) {
             return Ok(Some(value.clone()));
         }
-        for layer in self.table_layers.iter().rev() {
+        self.diagnostics.table_lookup_count = self.diagnostics.table_lookup_count.saturating_add(1);
+        for layer in self.table_layers.iter_mut().rev() {
+            self.diagnostics.immutable_layer_lookup_count = self
+                .diagnostics
+                .immutable_layer_lookup_count
+                .saturating_add(1);
+            self.diagnostics.table_layers_consulted =
+                self.diagnostics.table_layers_consulted.saturating_add(1);
             let Ok(index) = layer
                 .entries
                 .binary_search_by(|entry| entry.key.as_slice().cmp(key))
             else {
                 continue;
             };
-            return read_table_value(&layer.path, &layer.entries[index], layer.is_v2);
+            let started = Instant::now();
+            let result = read_table_value(&mut layer.file, &layer.entries[index], layer.is_v2);
+            self.diagnostics.table_bytes_read = self
+                .diagnostics
+                .table_bytes_read
+                .saturating_add(layer.entries[index].length);
+            self.diagnostics.table_read_duration_ns = self
+                .diagnostics
+                .table_read_duration_ns
+                .saturating_add(elapsed_nanos(started.elapsed()));
+            return result;
         }
         Ok(None)
     }
 
-    fn materialize_state(&self) -> Result<BTreeMap<Vec<u8>, Vec<u8>>> {
+    fn materialize_state(&mut self) -> Result<BTreeMap<Vec<u8>, Vec<u8>>> {
         if let Some(keyspaces) = &self.memory_keyspaces {
             let mut state = BTreeMap::new();
             for (name, entries) in keyspaces {
@@ -339,9 +410,9 @@ impl Inner {
             return Ok(state);
         }
         let mut state = BTreeMap::new();
-        for layer in &self.table_layers {
+        for layer in &mut self.table_layers {
             for entry in &layer.entries {
-                match read_table_value(&layer.path, entry, layer.is_v2)? {
+                match read_table_value(&mut layer.file, entry, layer.is_v2)? {
                     Some(value) => {
                         state.insert(entry.key.clone(), value);
                     },
@@ -733,6 +804,9 @@ fn execute_group(
             )?;
             inner.diagnostics.automatic_flush_count =
                 inner.diagnostics.automatic_flush_count.saturating_add(1);
+            if inner.table_layers.len() >= inner.max_table_layers {
+                compact_tables_locked(inner, true, current_fault_point())?;
+            }
         }
         Ok(())
     })();
@@ -795,6 +869,7 @@ impl Database {
             pending_table_bytes: 0,
             max_journaling_size: 0,
             max_memtable_bytes: 0,
+            max_table_layers: 0,
             diagnostics: WalDiagnostics::default(),
             ram_diagnostics: RamDiagnostics::default(),
             recovery_required: false,
@@ -809,6 +884,7 @@ impl Database {
             path: path.as_ref().to_path_buf(),
             max_journaling_size: 32 * 1024 * 1024,
             max_memtable_bytes: 64 * 1024 * 1024,
+            max_table_layers: 8,
         }
     }
 
@@ -874,7 +950,7 @@ impl Database {
 
     /// Return a consistent snapshot of all keyspaces.
     pub fn snapshot(&self) -> Result<Snapshot> {
-        let inner = self
+        let mut inner = self
             .inner
             .lock()
             .map_err(|_| Error::message("database lock poisoned"))?;
@@ -1109,10 +1185,11 @@ fn flush_table_locked(
         inner.table_files = table_files;
         let (_, entries, is_v2) = read_table_index(&table_path)?;
         inner.table_layers.push(TableLayer {
-            path: table_path,
+            file: File::open(&table_path)?,
             entries,
             is_v2,
         });
+        inner.diagnostics.table_layer_count = inner.table_layers.len() as u64;
         inner.table_sequence = next_sequence;
         inner.state.clear();
         inner.pending_table_bytes = 0;
@@ -1149,74 +1226,94 @@ impl Database {
             .inner
             .lock()
             .map_err(|_| Error::message("database lock poisoned"))?;
-        if inner.recovery_required {
-            return Err(Error::message(
-                "ThingDB requires reopen and recovery before writing",
-            ));
-        }
-        let wal = inner
-            .wal
-            .as_mut()
-            .ok_or_else(|| Error::message("ThingDB WAL is unavailable"))?;
-        wal.sync_data()?;
-        let next_sequence = inner.sequence;
-        let table_name = format!("table-{next_sequence:020}-compact.tdb");
-        let table_path = inner.path.join(&table_name);
-        let temp_path = inner.path.join(format!(".{table_name}.tmp"));
-        let entries: BTreeMap<_, _> = inner
-            .materialize_state()?
-            .into_iter()
-            .map(|(key, value)| (key, Some(value)))
-            .collect();
-        maybe_fail("before-table-write", current_fault_point())?;
-        write_table(&temp_path, next_sequence, &entries, sync)?;
-        maybe_fail("after-table-sync-before-rename", current_fault_point())?;
-        maybe_fail("before-table-rename", current_fault_point())?;
-        fs::rename(&temp_path, &table_path)?;
-        maybe_fail("after-table-rename-before-manifest", current_fault_point())?;
-        let manifest = Manifest {
-            format_version: FORMAT_VERSION,
-            table_file: Some(table_name.clone()),
-            table_files: vec![table_name.clone()],
-            table_sequence: next_sequence,
-        };
-        maybe_fail("before-manifest-write", current_fault_point())?;
-        write_manifest(&inner.path, &manifest, sync)?;
-        maybe_fail(
-            "after-manifest-rename-before-wal-truncate",
-            current_fault_point(),
-        )?;
-        for old_table in &inner.table_files {
-            if old_table != &table_name {
-                let _ = fs::remove_file(inner.path.join(old_table));
-            }
-        }
-        inner.table_files = vec![table_name];
-        let (_, entries, is_v2) = read_table_index(&table_path)?;
-        inner.table_layers = vec![TableLayer {
-            path: table_path,
-            entries,
-            is_v2,
-        }];
-        inner.table_sequence = next_sequence;
-        inner.state.clear();
-        inner.pending_table.clear();
-        inner.pending_table_bytes = 0;
-        let wal = inner
-            .wal
-            .as_mut()
-            .ok_or_else(|| Error::message("ThingDB WAL is unavailable"))?;
-        wal.set_len(0)?;
-        wal.seek(SeekFrom::End(0))?;
-        if sync {
-            wal.sync_data()?;
-        }
-        inner.diagnostics.journal_bytes = wal.metadata()?.len();
-        inner.diagnostics.frame_count = 0;
-        inner.diagnostics.memtable_bytes = 0;
-        inner.diagnostics.memtable_over_budget = false;
-        Ok(())
+        compact_tables_locked(&mut inner, sync, current_fault_point())
     }
+}
+
+fn compact_tables_locked(
+    inner: &mut Inner,
+    sync: bool,
+    fault_point: Option<&'static str>,
+) -> Result<()> {
+    let started = Instant::now();
+    if inner.recovery_required {
+        return Err(Error::message(
+            "ThingDB requires reopen and recovery before writing",
+        ));
+    }
+    let wal = inner
+        .wal
+        .as_mut()
+        .ok_or_else(|| Error::message("ThingDB WAL is unavailable"))?;
+    wal.sync_data()?;
+    let next_sequence = inner.sequence;
+    let table_name = format!("table-{next_sequence:020}-compact.tdb");
+    let table_path = inner.path.join(&table_name);
+    let temp_path = inner.path.join(format!(".{table_name}.tmp"));
+    let input_bytes = inner
+        .table_layers
+        .iter()
+        .flat_map(|layer| layer.entries.iter())
+        .map(|entry| entry.length)
+        .sum();
+    let entries: BTreeMap<_, _> = inner
+        .materialize_state()?
+        .into_iter()
+        .map(|(key, value)| (key, Some(value)))
+        .collect();
+    maybe_fail("before-table-write", fault_point)?;
+    write_table(&temp_path, next_sequence, &entries, sync)?;
+    maybe_fail("after-table-sync-before-rename", fault_point)?;
+    maybe_fail("before-table-rename", fault_point)?;
+    fs::rename(&temp_path, &table_path)?;
+    maybe_fail("after-table-rename-before-manifest", fault_point)?;
+    let manifest = Manifest {
+        format_version: FORMAT_VERSION,
+        table_file: Some(table_name.clone()),
+        table_files: vec![table_name.clone()],
+        table_sequence: next_sequence,
+    };
+    maybe_fail("before-manifest-write", fault_point)?;
+    write_manifest(&inner.path, &manifest, sync)?;
+    maybe_fail("after-manifest-rename-before-wal-truncate", fault_point)?;
+    for old_table in &inner.table_files {
+        if old_table != &table_name {
+            let _ = fs::remove_file(inner.path.join(old_table));
+        }
+    }
+    inner.table_files = vec![table_name];
+    let (_, entries, is_v2) = read_table_index(&table_path)?;
+    inner.table_layers = vec![TableLayer {
+        file: File::open(&table_path)?,
+        entries,
+        is_v2,
+    }];
+    inner.diagnostics.table_layer_count = 1;
+    inner.table_sequence = next_sequence;
+    inner.state.clear();
+    inner.pending_table.clear();
+    inner.pending_table_bytes = 0;
+    let wal = inner
+        .wal
+        .as_mut()
+        .ok_or_else(|| Error::message("ThingDB WAL is unavailable"))?;
+    wal.set_len(0)?;
+    wal.seek(SeekFrom::End(0))?;
+    if sync {
+        wal.sync_data()?;
+    }
+    inner.diagnostics.journal_bytes = wal.metadata()?.len();
+    inner.diagnostics.frame_count = 0;
+    inner.diagnostics.memtable_bytes = 0;
+    inner.diagnostics.memtable_over_budget = false;
+    inner.diagnostics.compaction_count = inner.diagnostics.compaction_count.saturating_add(1);
+    inner.diagnostics.compaction_duration_ns = inner
+        .diagnostics
+        .compaction_duration_ns
+        .saturating_add(elapsed_nanos(started.elapsed()));
+    inner.diagnostics.compaction_input_bytes = input_bytes;
+    inner.diagnostics.compaction_output_bytes = fs::metadata(&table_path)?.len();
+    Ok(())
 }
 
 impl DatabaseBuilder {
@@ -1233,6 +1330,12 @@ impl DatabaseBuilder {
     /// commit's WAL sync and before acknowledgement.
     pub fn max_memtable_bytes(mut self, bytes: u64) -> Self {
         self.max_memtable_bytes = bytes.max(1);
+        self
+    }
+
+    /// Set the maximum number of immutable table layers before compaction.
+    pub fn max_table_layers(mut self, layers: usize) -> Self {
+        self.max_table_layers = layers.max(1);
         self
     }
 
@@ -1278,6 +1381,7 @@ impl DatabaseBuilder {
         let mut state = BTreeMap::new();
         let mut table_sequence = 0;
         let mut table_layers = Vec::new();
+        let mut table_open_duration_ns: u64 = 0;
         let table_files = manifest
             .as_ref()
             .map(|manifest| {
@@ -1292,6 +1396,11 @@ impl DatabaseBuilder {
             let mut previous_sequence = 0;
             for table_file in &table_files {
                 let table_path = self.path.join(table_file);
+                if !table_path.is_file() {
+                    return Err(Error::message(format!(
+                        "ThingDB manifest references missing table: {table_file}"
+                    )));
+                }
                 let (sequence, entries, is_v2) = read_table_index(&table_path)?;
                 if sequence > manifest.table_sequence {
                     return Err(Error::message("table sequence exceeds manifest sequence"));
@@ -1302,8 +1411,12 @@ impl DatabaseBuilder {
                     ));
                 }
                 previous_sequence = sequence;
+                let open_started = Instant::now();
+                let file = File::open(&table_path)?;
+                table_open_duration_ns =
+                    table_open_duration_ns.saturating_add(elapsed_nanos(open_started.elapsed()));
                 table_layers.push(TableLayer {
-                    path: table_path,
+                    file,
                     entries,
                     is_v2,
                 });
@@ -1327,6 +1440,7 @@ impl DatabaseBuilder {
         }
         let journal_bytes = wal.metadata()?.len();
         let sequence = last_sequence.max(table_sequence);
+        let table_layer_count = table_layers.len() as u64;
         if manifest.is_none() {
             write_manifest(
                 &self.path,
@@ -1354,11 +1468,14 @@ impl DatabaseBuilder {
             pending_table_bytes: 0,
             max_journaling_size: self.max_journaling_size,
             max_memtable_bytes: self.max_memtable_bytes,
+            max_table_layers: self.max_table_layers,
             diagnostics: WalDiagnostics {
                 journal_bytes,
                 frame_count,
                 recovery_bytes: valid_offset,
                 recovery_duration_ns,
+                table_layer_count,
+                table_open_duration_ns,
                 ..WalDiagnostics::default()
             },
             ram_diagnostics: RamDiagnostics::default(),
@@ -1482,6 +1599,7 @@ impl Keyspace {
         )
     }
 
+    #[allow(clippy::too_many_lines)]
     fn iter_bounds(
         &self,
         prefix: Option<&[u8]>,
@@ -1497,6 +1615,7 @@ impl Keyspace {
             return iter_memory_bounds(&mut inner, &self.name, prefix, start, end);
         }
         let namespace = self.namespace.clone();
+        let scan_started = Instant::now();
         let lower = start
             .as_ref()
             .map(|(key, _)| physical_key_from_namespace(&namespace, key))
@@ -1507,16 +1626,62 @@ impl Keyspace {
             .and_then(|key| successor(&key))
             .or_else(|| successor(&namespace));
         let mut entries = Vec::new();
-        let state = if inner.in_memory {
-            Cow::Borrowed(&inner.state)
-        } else {
-            Cow::Owned(inner.materialize_state().unwrap_or_default())
-        };
-        let range = match upper {
-            Some(upper) => state.range(lower..upper),
-            None => state.range(lower..),
-        };
-        for (key, value) in range {
+        let mut state_key = next_map_key(&inner.state, &lower, upper.as_deref(), None);
+        let mut pending_key = next_map_key(&inner.pending_table, &lower, upper.as_deref(), None);
+        let mut layer_indices = inner
+            .table_layers
+            .iter()
+            .map(|layer| {
+                layer
+                    .entries
+                    .binary_search_by(|entry| entry.key.as_slice().cmp(lower.as_slice()))
+                    .unwrap_or_else(|index| index)
+            })
+            .collect::<Vec<_>>();
+
+        loop {
+            let mut next_key = state_key.clone();
+            if pending_key.as_deref().is_some_and(|candidate| {
+                next_key
+                    .as_deref()
+                    .is_none_or(|current| candidate < current)
+            }) {
+                next_key.clone_from(&pending_key);
+            }
+            for (layer, index) in inner.table_layers.iter().zip(&layer_indices) {
+                if let Some(candidate) = layer.entries.get(*index).map(|entry| &entry.key)
+                    && next_key
+                        .as_deref()
+                        .is_none_or(|current| candidate.as_slice() < current)
+                {
+                    next_key = Some(candidate.clone());
+                }
+            }
+            let Some(key) = next_key else {
+                break;
+            };
+            if upper.as_ref().is_some_and(|upper| key >= *upper) {
+                break;
+            }
+            if state_key.as_deref() == Some(key.as_slice()) {
+                state_key = next_map_key(&inner.state, &lower, upper.as_deref(), Some(&key));
+            }
+            if pending_key.as_deref() == Some(key.as_slice()) {
+                pending_key =
+                    next_map_key(&inner.pending_table, &lower, upper.as_deref(), Some(&key));
+            }
+            for (layer, index) in inner.table_layers.iter().zip(&mut layer_indices) {
+                if layer
+                    .entries
+                    .get(*index)
+                    .is_some_and(|entry| entry.key == key)
+                {
+                    *index += 1;
+                }
+            }
+            let Some(value) = inner.get_value(&key).unwrap_or(None) else {
+                continue;
+            };
             let Some(user_key) = key.strip_prefix(namespace.as_slice()) else {
                 continue;
             };
@@ -1547,13 +1712,32 @@ impl Keyspace {
             }
             entries.push(Entry {
                 key: user_key.to_vec(),
-                value: value.clone(),
+                value,
             });
         }
+        inner.diagnostics.scan_count = inner.diagnostics.scan_count.saturating_add(1);
+        inner.diagnostics.scan_duration_ns = inner
+            .diagnostics
+            .scan_duration_ns
+            .saturating_add(elapsed_nanos(scan_started.elapsed()));
         Iter {
             entries: entries.into_iter(),
         }
     }
+}
+
+fn next_map_key<V>(
+    map: &BTreeMap<Vec<u8>, V>,
+    lower: &[u8],
+    upper: Option<&[u8]>,
+    after: Option<&[u8]>,
+) -> Option<Vec<u8>> {
+    let start = after.map_or_else(
+        || Bound::Included(lower.to_vec()),
+        |key| Bound::Excluded(key.to_vec()),
+    );
+    let end = upper.map_or(Bound::Unbounded, |key| Bound::Excluded(key.to_vec()));
+    map.range((start, end)).next().map(|(key, _)| key.clone())
 }
 
 fn iter_memory_bounds(
@@ -1970,14 +2154,25 @@ fn read_table_index(path: &Path) -> Result<(u64, Vec<TableIndexEntry>, bool)> {
         });
         let _ = value;
     }
+    if entries
+        .windows(2)
+        .any(|entries| entries[0].key >= entries[1].key)
+    {
+        return Err(Error::message(
+            "ThingDB table keys are not strictly ordered",
+        ));
+    }
     if cursor != bytes.len() {
         return Err(Error::message("trailing bytes in ThingDB table"));
     }
     Ok((sequence, entries, is_v2))
 }
 
-fn read_table_value(path: &Path, entry: &TableIndexEntry, is_v2: bool) -> Result<Option<Vec<u8>>> {
-    let mut file = File::open(path)?;
+fn read_table_value(
+    file: &mut File,
+    entry: &TableIndexEntry,
+    is_v2: bool,
+) -> Result<Option<Vec<u8>>> {
     file.seek(SeekFrom::Start(entry.offset))?;
     let length: usize = entry
         .length
@@ -2326,6 +2521,68 @@ mod tests {
     }
 
     #[test]
+    fn layered_reads_and_scans_use_newest_values_and_report_table_work() {
+        let directory = tempfile::tempdir().unwrap();
+        let db = Database::open(directory.path()).unwrap();
+        let objects = db
+            .keyspace("objects", KeyspaceCreateOptions::default)
+            .unwrap();
+
+        objects.insert(b"a", b"old").unwrap();
+        objects.insert(b"b", b"two").unwrap();
+        db.persist(PersistMode::SyncAll).unwrap();
+        objects.insert(b"a", b"new").unwrap();
+        objects.remove(b"b").unwrap();
+        db.persist(PersistMode::SyncAll).unwrap();
+
+        assert_eq!(objects.get(b"a").unwrap(), Some(b"new".to_vec()));
+        assert_eq!(objects.get(b"b").unwrap(), None);
+        let entries: Vec<_> = objects
+            .range_bounds(Some((b"a", true)), Some((b"z", true)))
+            .collect();
+        assert_eq!(
+            entries,
+            vec![Entry {
+                key: b"a".to_vec(),
+                value: b"new".to_vec()
+            }]
+        );
+
+        let diagnostics = db.wal_diagnostics().unwrap();
+        assert_eq!(diagnostics.table_layer_count, 2);
+        assert!(diagnostics.table_lookup_count >= 2);
+        assert!(diagnostics.table_layers_consulted >= 2);
+        assert!(diagnostics.table_bytes_read > 0);
+        assert!(diagnostics.table_read_duration_ns > 0);
+        assert_eq!(diagnostics.scan_count, 1);
+        assert!(diagnostics.scan_duration_ns > 0);
+    }
+
+    #[test]
+    fn automatic_layer_threshold_compacts_after_bounded_flush() {
+        let directory = tempfile::tempdir().unwrap();
+        let db = Database::builder(directory.path())
+            .max_memtable_bytes(1)
+            .max_table_layers(2)
+            .open()
+            .unwrap();
+        let objects = db
+            .keyspace("objects", KeyspaceCreateOptions::default)
+            .unwrap();
+
+        objects.insert(b"a", b"one").unwrap();
+        objects.insert(b"b", b"two").unwrap();
+
+        assert_eq!(objects.get(b"a").unwrap(), Some(b"one".to_vec()));
+        assert_eq!(objects.get(b"b").unwrap(), Some(b"two".to_vec()));
+        assert_eq!(objects.iter().count(), 2);
+        let manifest: Manifest =
+            serde_json::from_slice(&std::fs::read(directory.path().join(MANIFEST_FILE)).unwrap())
+                .unwrap();
+        assert_eq!(manifest.table_files.len(), 1);
+    }
+
+    #[test]
     fn interrupted_flush_recovers_from_previous_manifest_and_wal() {
         for point in [
             "before-table-write",
@@ -2424,6 +2681,100 @@ mod tests {
     }
 
     #[test]
+    fn invalid_manifest_state_is_rejected_before_recovery() {
+        let directory = tempfile::tempdir().unwrap();
+        let db = Database::open(directory.path()).unwrap();
+        drop(db);
+        let manifest_path = directory.path().join(MANIFEST_FILE);
+
+        let mut manifest: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&manifest_path).unwrap()).unwrap();
+        manifest["table_sequence"] = serde_json::json!(1);
+        std::fs::write(&manifest_path, serde_json::to_vec(&manifest).unwrap()).unwrap();
+        let Err(error) = Database::open(directory.path()) else {
+            panic!("manifest without a table unexpectedly opened")
+        };
+        assert!(error.to_string().contains("table sequence without a table"));
+
+        let directory = tempfile::tempdir().unwrap();
+        let db = Database::open(directory.path()).unwrap();
+        let objects = db
+            .keyspace("objects", KeyspaceCreateOptions::default)
+            .unwrap();
+        objects.insert(b"a", b"one").unwrap();
+        db.compact().unwrap();
+        drop(objects);
+        drop(db);
+
+        let manifest_path = directory.path().join(MANIFEST_FILE);
+        let mut manifest: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&manifest_path).unwrap()).unwrap();
+        manifest["table_files"] = serde_json::json!(["table-99999999999999999999-missing.tdb"]);
+        manifest["table_file"] = serde_json::Value::Null;
+        std::fs::write(&manifest_path, serde_json::to_vec(&manifest).unwrap()).unwrap();
+        let Err(error) = Database::open(directory.path()) else {
+            panic!("manifest with a missing table unexpectedly opened")
+        };
+        assert!(
+            error
+                .to_string()
+                .contains("manifest references missing table")
+        );
+    }
+
+    #[test]
+    fn table_key_order_corruption_is_reported() {
+        let directory = tempfile::tempdir().unwrap();
+        let db = Database::open(directory.path()).unwrap();
+        let objects = db
+            .keyspace("objects", KeyspaceCreateOptions::default)
+            .unwrap();
+        objects.insert(b"a", b"one").unwrap();
+        objects.insert(b"b", b"two").unwrap();
+        db.compact().unwrap();
+        drop(objects);
+        drop(db);
+
+        let manifest: Manifest =
+            serde_json::from_slice(&std::fs::read(directory.path().join(MANIFEST_FILE)).unwrap())
+                .unwrap();
+        let table_path = directory.path().join(manifest.table_file.unwrap());
+        let mut bytes = std::fs::read(&table_path).unwrap();
+        let first_record_start = TABLE_MAGIC.len() + 16;
+        let key_length = usize::try_from(u64::from_be_bytes(
+            bytes[first_record_start..first_record_start + 8]
+                .try_into()
+                .unwrap(),
+        ))
+        .unwrap();
+        let first_key_offset = first_record_start + 8;
+        bytes[first_key_offset] = b'z';
+        // Keep the first record internally valid so recovery reaches the
+        // sorted-key invariant instead of stopping at its checksum.
+        let value_length_offset = first_key_offset + key_length + 1;
+        let value_length = usize::try_from(u64::from_be_bytes(
+            bytes[value_length_offset..value_length_offset + 8]
+                .try_into()
+                .unwrap(),
+        ))
+        .unwrap();
+        let first_record_end = value_length_offset + 8 + value_length;
+        let record_checksum = checksum(&bytes[first_record_start..first_record_end]);
+        bytes[first_record_end..first_record_end + 4]
+            .copy_from_slice(&record_checksum.to_be_bytes());
+        std::fs::write(&table_path, bytes).unwrap();
+
+        let Err(error) = Database::open(directory.path()) else {
+            panic!("table with unsorted keys unexpectedly opened")
+        };
+        assert!(
+            error
+                .to_string()
+                .contains("table keys are not strictly ordered")
+        );
+    }
+
+    #[test]
     fn batch_is_atomic_after_reopen() {
         let directory = tempfile::tempdir().unwrap();
         let db = Database::open(directory.path()).unwrap();
@@ -2443,6 +2794,75 @@ mod tests {
             .unwrap();
         assert_eq!(objects.get(b"a").unwrap(), Some(b"one".to_vec()));
         assert_eq!(objects.get(b"b").unwrap(), Some(b"two".to_vec()));
+    }
+
+    #[test]
+    fn cross_keyspace_batch_is_atomic_after_reopen() {
+        let directory = tempfile::tempdir().unwrap();
+        let db = Database::open(directory.path()).unwrap();
+        let objects = db
+            .keyspace("objects", KeyspaceCreateOptions::default)
+            .unwrap();
+        let events = db
+            .keyspace("events", KeyspaceCreateOptions::default)
+            .unwrap();
+        db.batch()
+            .put(&objects, b"a", b"one")
+            .put(&events, b"1", b"created")
+            .commit()
+            .unwrap();
+        drop(events);
+        drop(objects);
+        drop(db);
+
+        let db = Database::open(directory.path()).unwrap();
+        let objects = db
+            .keyspace("objects", KeyspaceCreateOptions::default)
+            .unwrap();
+        let events = db
+            .keyspace("events", KeyspaceCreateOptions::default)
+            .unwrap();
+        assert_eq!(objects.get(b"a").unwrap(), Some(b"one".to_vec()));
+        assert_eq!(events.get(b"1").unwrap(), Some(b"created".to_vec()));
+    }
+
+    #[test]
+    fn grouped_writes_replay_completely_after_reopen() {
+        let directory = tempfile::tempdir().unwrap();
+        let db = Database::open(directory.path()).unwrap();
+        let objects = db
+            .keyspace("objects", KeyspaceCreateOptions::default)
+            .unwrap();
+        let writers = 16;
+        let barrier = Arc::new(std::sync::Barrier::new(writers));
+        let handles: Vec<_> = (0..writers)
+            .map(|index| {
+                let objects = objects.clone();
+                let barrier = Arc::clone(&barrier);
+                std::thread::spawn(move || {
+                    barrier.wait();
+                    objects
+                        .insert(format!("key-{index}").as_bytes(), b"value")
+                        .unwrap();
+                })
+            })
+            .collect();
+        for handle in handles {
+            handle.join().unwrap();
+        }
+        drop(objects);
+        drop(db);
+
+        let db = Database::open(directory.path()).unwrap();
+        let objects = db
+            .keyspace("objects", KeyspaceCreateOptions::default)
+            .unwrap();
+        for index in 0..writers {
+            assert_eq!(
+                objects.get(format!("key-{index}").as_bytes()).unwrap(),
+                Some(b"value".to_vec())
+            );
+        }
     }
 
     #[test]
