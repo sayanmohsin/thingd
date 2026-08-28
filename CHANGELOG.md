@@ -13,6 +13,13 @@
 - server: harden security boundaries (0961ffe)
 - complete public SDK type exports (8a8889a)
 
+## [0.85.0](https://github.com/sayanmohsin/thingd/compare/thingd-v0.84.6...thingd-v0.85.0) (2026-08-28)
+
+
+### Features
+
+* optimize ThingDB queue transitions ([#206](https://github.com/sayanmohsin/thingd/issues/206)) ([f689934](https://github.com/sayanmohsin/thingd/commit/f68993433e1f21dd8fe35495c0398c88b40f9f18))
+
 ## [0.84.6](https://github.com/sayanmohsin/thingd/compare/thingd-v0.84.5...thingd-v0.84.6) (2026-08-26)
 
 
