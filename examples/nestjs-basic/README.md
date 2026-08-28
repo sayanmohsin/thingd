@@ -1,5 +1,7 @@
 # NestJS Basic Example
 
+This example targets NestJS 12.
+
 This example shows how a NestJS app can treat `thingd` as a local application memory layer for objects, events, and background jobs.
 
 This example currently uses a small in-memory NestJS adapter with the same shape
