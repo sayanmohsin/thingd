@@ -248,6 +248,14 @@ pub struct WalDiagnostics {
     pub scan_count: u64,
     /// Number of table layers currently open for reads.
     pub table_layer_count: u64,
+    /// Number of completed table compactions.
+    pub compaction_count: u64,
+    /// Nanoseconds spent compacting immutable table layers.
+    pub compaction_duration_ns: u64,
+    /// Bytes represented by the last compacted table layers.
+    pub compaction_input_bytes: u64,
+    /// Bytes written by completed compacted tables.
+    pub compaction_output_bytes: u64,
 }
 
 /// Timing and allocation-adjacent counters for the RAM-only keyspace path.
@@ -300,6 +308,7 @@ pub struct DatabaseBuilder {
     path: PathBuf,
     max_journaling_size: u64,
     max_memtable_bytes: u64,
+    max_table_layers: usize,
 }
 
 /// A shared ThingDB database handle.
@@ -324,6 +333,7 @@ struct Inner {
     pending_table_bytes: u64,
     max_journaling_size: u64,
     max_memtable_bytes: u64,
+    max_table_layers: usize,
     diagnostics: WalDiagnostics,
     ram_diagnostics: RamDiagnostics,
     recovery_required: bool,
@@ -794,6 +804,9 @@ fn execute_group(
             )?;
             inner.diagnostics.automatic_flush_count =
                 inner.diagnostics.automatic_flush_count.saturating_add(1);
+            if inner.table_layers.len() >= inner.max_table_layers {
+                compact_tables_locked(inner, true, current_fault_point())?;
+            }
         }
         Ok(())
     })();
@@ -856,6 +869,7 @@ impl Database {
             pending_table_bytes: 0,
             max_journaling_size: 0,
             max_memtable_bytes: 0,
+            max_table_layers: 0,
             diagnostics: WalDiagnostics::default(),
             ram_diagnostics: RamDiagnostics::default(),
             recovery_required: false,
@@ -870,6 +884,7 @@ impl Database {
             path: path.as_ref().to_path_buf(),
             max_journaling_size: 32 * 1024 * 1024,
             max_memtable_bytes: 64 * 1024 * 1024,
+            max_table_layers: 8,
         }
     }
 
@@ -1211,75 +1226,94 @@ impl Database {
             .inner
             .lock()
             .map_err(|_| Error::message("database lock poisoned"))?;
-        if inner.recovery_required {
-            return Err(Error::message(
-                "ThingDB requires reopen and recovery before writing",
-            ));
-        }
-        let wal = inner
-            .wal
-            .as_mut()
-            .ok_or_else(|| Error::message("ThingDB WAL is unavailable"))?;
-        wal.sync_data()?;
-        let next_sequence = inner.sequence;
-        let table_name = format!("table-{next_sequence:020}-compact.tdb");
-        let table_path = inner.path.join(&table_name);
-        let temp_path = inner.path.join(format!(".{table_name}.tmp"));
-        let entries: BTreeMap<_, _> = inner
-            .materialize_state()?
-            .into_iter()
-            .map(|(key, value)| (key, Some(value)))
-            .collect();
-        maybe_fail("before-table-write", current_fault_point())?;
-        write_table(&temp_path, next_sequence, &entries, sync)?;
-        maybe_fail("after-table-sync-before-rename", current_fault_point())?;
-        maybe_fail("before-table-rename", current_fault_point())?;
-        fs::rename(&temp_path, &table_path)?;
-        maybe_fail("after-table-rename-before-manifest", current_fault_point())?;
-        let manifest = Manifest {
-            format_version: FORMAT_VERSION,
-            table_file: Some(table_name.clone()),
-            table_files: vec![table_name.clone()],
-            table_sequence: next_sequence,
-        };
-        maybe_fail("before-manifest-write", current_fault_point())?;
-        write_manifest(&inner.path, &manifest, sync)?;
-        maybe_fail(
-            "after-manifest-rename-before-wal-truncate",
-            current_fault_point(),
-        )?;
-        for old_table in &inner.table_files {
-            if old_table != &table_name {
-                let _ = fs::remove_file(inner.path.join(old_table));
-            }
-        }
-        inner.table_files = vec![table_name];
-        let (_, entries, is_v2) = read_table_index(&table_path)?;
-        inner.table_layers = vec![TableLayer {
-            file: File::open(&table_path)?,
-            entries,
-            is_v2,
-        }];
-        inner.diagnostics.table_layer_count = 1;
-        inner.table_sequence = next_sequence;
-        inner.state.clear();
-        inner.pending_table.clear();
-        inner.pending_table_bytes = 0;
-        let wal = inner
-            .wal
-            .as_mut()
-            .ok_or_else(|| Error::message("ThingDB WAL is unavailable"))?;
-        wal.set_len(0)?;
-        wal.seek(SeekFrom::End(0))?;
-        if sync {
-            wal.sync_data()?;
-        }
-        inner.diagnostics.journal_bytes = wal.metadata()?.len();
-        inner.diagnostics.frame_count = 0;
-        inner.diagnostics.memtable_bytes = 0;
-        inner.diagnostics.memtable_over_budget = false;
-        Ok(())
+        compact_tables_locked(&mut inner, sync, current_fault_point())
     }
+}
+
+fn compact_tables_locked(
+    inner: &mut Inner,
+    sync: bool,
+    fault_point: Option<&'static str>,
+) -> Result<()> {
+    let started = Instant::now();
+    if inner.recovery_required {
+        return Err(Error::message(
+            "ThingDB requires reopen and recovery before writing",
+        ));
+    }
+    let wal = inner
+        .wal
+        .as_mut()
+        .ok_or_else(|| Error::message("ThingDB WAL is unavailable"))?;
+    wal.sync_data()?;
+    let next_sequence = inner.sequence;
+    let table_name = format!("table-{next_sequence:020}-compact.tdb");
+    let table_path = inner.path.join(&table_name);
+    let temp_path = inner.path.join(format!(".{table_name}.tmp"));
+    let input_bytes = inner
+        .table_layers
+        .iter()
+        .flat_map(|layer| layer.entries.iter())
+        .map(|entry| entry.length)
+        .sum();
+    let entries: BTreeMap<_, _> = inner
+        .materialize_state()?
+        .into_iter()
+        .map(|(key, value)| (key, Some(value)))
+        .collect();
+    maybe_fail("before-table-write", fault_point)?;
+    write_table(&temp_path, next_sequence, &entries, sync)?;
+    maybe_fail("after-table-sync-before-rename", fault_point)?;
+    maybe_fail("before-table-rename", fault_point)?;
+    fs::rename(&temp_path, &table_path)?;
+    maybe_fail("after-table-rename-before-manifest", fault_point)?;
+    let manifest = Manifest {
+        format_version: FORMAT_VERSION,
+        table_file: Some(table_name.clone()),
+        table_files: vec![table_name.clone()],
+        table_sequence: next_sequence,
+    };
+    maybe_fail("before-manifest-write", fault_point)?;
+    write_manifest(&inner.path, &manifest, sync)?;
+    maybe_fail("after-manifest-rename-before-wal-truncate", fault_point)?;
+    for old_table in &inner.table_files {
+        if old_table != &table_name {
+            let _ = fs::remove_file(inner.path.join(old_table));
+        }
+    }
+    inner.table_files = vec![table_name];
+    let (_, entries, is_v2) = read_table_index(&table_path)?;
+    inner.table_layers = vec![TableLayer {
+        file: File::open(&table_path)?,
+        entries,
+        is_v2,
+    }];
+    inner.diagnostics.table_layer_count = 1;
+    inner.table_sequence = next_sequence;
+    inner.state.clear();
+    inner.pending_table.clear();
+    inner.pending_table_bytes = 0;
+    let wal = inner
+        .wal
+        .as_mut()
+        .ok_or_else(|| Error::message("ThingDB WAL is unavailable"))?;
+    wal.set_len(0)?;
+    wal.seek(SeekFrom::End(0))?;
+    if sync {
+        wal.sync_data()?;
+    }
+    inner.diagnostics.journal_bytes = wal.metadata()?.len();
+    inner.diagnostics.frame_count = 0;
+    inner.diagnostics.memtable_bytes = 0;
+    inner.diagnostics.memtable_over_budget = false;
+    inner.diagnostics.compaction_count = inner.diagnostics.compaction_count.saturating_add(1);
+    inner.diagnostics.compaction_duration_ns = inner
+        .diagnostics
+        .compaction_duration_ns
+        .saturating_add(elapsed_nanos(started.elapsed()));
+    inner.diagnostics.compaction_input_bytes = input_bytes;
+    inner.diagnostics.compaction_output_bytes = fs::metadata(&table_path)?.len();
+    Ok(())
 }
 
 impl DatabaseBuilder {
@@ -1296,6 +1330,12 @@ impl DatabaseBuilder {
     /// commit's WAL sync and before acknowledgement.
     pub fn max_memtable_bytes(mut self, bytes: u64) -> Self {
         self.max_memtable_bytes = bytes.max(1);
+        self
+    }
+
+    /// Set the maximum number of immutable table layers before compaction.
+    pub fn max_table_layers(mut self, layers: usize) -> Self {
+        self.max_table_layers = layers.max(1);
         self
     }
 
@@ -1428,6 +1468,7 @@ impl DatabaseBuilder {
             pending_table_bytes: 0,
             max_journaling_size: self.max_journaling_size,
             max_memtable_bytes: self.max_memtable_bytes,
+            max_table_layers: self.max_table_layers,
             diagnostics: WalDiagnostics {
                 journal_bytes,
                 frame_count,
@@ -1558,6 +1599,7 @@ impl Keyspace {
         )
     }
 
+    #[allow(clippy::too_many_lines)]
     fn iter_bounds(
         &self,
         prefix: Option<&[u8]>,
@@ -1584,34 +1626,59 @@ impl Keyspace {
             .and_then(|key| successor(&key))
             .or_else(|| successor(&namespace));
         let mut entries = Vec::new();
-        let mut keys = BTreeSet::new();
-        let key_in_bounds = |key: &[u8]| {
-            key >= lower.as_slice()
-                && upper
-                    .as_ref()
-                    .map(|upper| key < upper.as_slice())
-                    .unwrap_or(true)
-        };
-        for key in inner.state.keys().chain(inner.pending_table.keys()) {
-            if key_in_bounds(key) {
-                keys.insert(key.clone());
+        let mut state_key = next_map_key(&inner.state, &lower, upper.as_deref(), None);
+        let mut pending_key = next_map_key(&inner.pending_table, &lower, upper.as_deref(), None);
+        let mut layer_indices = inner
+            .table_layers
+            .iter()
+            .map(|layer| {
+                layer
+                    .entries
+                    .binary_search_by(|entry| entry.key.as_slice().cmp(lower.as_slice()))
+                    .unwrap_or_else(|index| index)
+            })
+            .collect::<Vec<_>>();
+
+        loop {
+            let mut next_key = state_key.clone();
+            if pending_key.as_deref().is_some_and(|candidate| {
+                next_key
+                    .as_deref()
+                    .is_none_or(|current| candidate < current)
+            }) {
+                next_key.clone_from(&pending_key);
             }
-        }
-        for layer in &inner.table_layers {
-            let start_index = layer
-                .entries
-                .binary_search_by(|entry| entry.key.as_slice().cmp(lower.as_slice()))
-                .unwrap_or_else(|index| index);
-            for entry in &layer.entries[start_index..] {
-                if let Some(upper) = &upper
-                    && entry.key.as_slice() >= upper.as_slice()
+            for (layer, index) in inner.table_layers.iter().zip(&layer_indices) {
+                if let Some(candidate) = layer.entries.get(*index).map(|entry| &entry.key)
+                    && next_key
+                        .as_deref()
+                        .is_none_or(|current| candidate.as_slice() < current)
                 {
-                    break;
+                    next_key = Some(candidate.clone());
                 }
-                keys.insert(entry.key.clone());
             }
-        }
-        for key in keys {
+            let Some(key) = next_key else {
+                break;
+            };
+            if upper.as_ref().is_some_and(|upper| key >= *upper) {
+                break;
+            }
+            if state_key.as_deref() == Some(key.as_slice()) {
+                state_key = next_map_key(&inner.state, &lower, upper.as_deref(), Some(&key));
+            }
+            if pending_key.as_deref() == Some(key.as_slice()) {
+                pending_key =
+                    next_map_key(&inner.pending_table, &lower, upper.as_deref(), Some(&key));
+            }
+            for (layer, index) in inner.table_layers.iter().zip(&mut layer_indices) {
+                if layer
+                    .entries
+                    .get(*index)
+                    .is_some_and(|entry| entry.key == key)
+                {
+                    *index += 1;
+                }
+            }
             let Some(value) = inner.get_value(&key).unwrap_or(None) else {
                 continue;
             };
@@ -1657,6 +1724,20 @@ impl Keyspace {
             entries: entries.into_iter(),
         }
     }
+}
+
+fn next_map_key<V>(
+    map: &BTreeMap<Vec<u8>, V>,
+    lower: &[u8],
+    upper: Option<&[u8]>,
+    after: Option<&[u8]>,
+) -> Option<Vec<u8>> {
+    let start = after.map_or_else(
+        || Bound::Included(lower.to_vec()),
+        |key| Bound::Excluded(key.to_vec()),
+    );
+    let end = upper.map_or(Bound::Unbounded, |key| Bound::Excluded(key.to_vec()));
+    map.range((start, end)).next().map(|(key, _)| key.clone())
 }
 
 fn iter_memory_bounds(
@@ -2475,6 +2556,30 @@ mod tests {
         assert!(diagnostics.table_read_duration_ns > 0);
         assert_eq!(diagnostics.scan_count, 1);
         assert!(diagnostics.scan_duration_ns > 0);
+    }
+
+    #[test]
+    fn automatic_layer_threshold_compacts_after_bounded_flush() {
+        let directory = tempfile::tempdir().unwrap();
+        let db = Database::builder(directory.path())
+            .max_memtable_bytes(1)
+            .max_table_layers(2)
+            .open()
+            .unwrap();
+        let objects = db
+            .keyspace("objects", KeyspaceCreateOptions::default)
+            .unwrap();
+
+        objects.insert(b"a", b"one").unwrap();
+        objects.insert(b"b", b"two").unwrap();
+
+        assert_eq!(objects.get(b"a").unwrap(), Some(b"one".to_vec()));
+        assert_eq!(objects.get(b"b").unwrap(), Some(b"two".to_vec()));
+        assert_eq!(objects.iter().count(), 2);
+        let manifest: Manifest =
+            serde_json::from_slice(&std::fs::read(directory.path().join(MANIFEST_FILE)).unwrap())
+                .unwrap();
+        assert_eq!(manifest.table_files.len(), 1);
     }
 
     #[test]

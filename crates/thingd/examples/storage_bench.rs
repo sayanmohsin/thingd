@@ -16,7 +16,7 @@ use std::io::Write as IoWrite;
 use std::path::{Path, PathBuf};
 use std::sync::{
     Arc, Barrier, Mutex,
-    atomic::{AtomicUsize, Ordering},
+    atomic::{AtomicU64, AtomicUsize, Ordering},
 };
 use std::time::{Duration, Instant};
 
@@ -61,6 +61,7 @@ struct BenchConfig {
     phase: String,
     memtable_bytes: u64,
     reliability: bool,
+    queue_iterations: Option<usize>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -141,10 +142,13 @@ struct BenchMetadata {
     parallelism: usize,
     thingdb_memtable_bytes: u64,
     reliability_preflight: bool,
+    queue_iterations: Option<usize>,
+    peak_rss_bytes: Option<u64>,
 }
 
 static RESULTS: std::sync::OnceLock<Mutex<BenchOutput>> = std::sync::OnceLock::new();
 static CURRENT_REPETITION: AtomicUsize = AtomicUsize::new(0);
+static PEAK_RSS_BYTES: AtomicU64 = AtomicU64::new(0);
 
 #[allow(clippy::too_many_lines)]
 fn main() -> Result<(), Box<dyn Error>> {
@@ -166,6 +170,8 @@ fn main() -> Result<(), Box<dyn Error>> {
                 parallelism: std::thread::available_parallelism().map_or(1, usize::from),
                 thingdb_memtable_bytes: config.memtable_bytes,
                 reliability_preflight: config.reliability,
+                queue_iterations: config.queue_iterations,
+                peak_rss_bytes: None,
             },
             results: Vec::new(),
             summaries: Vec::new(),
@@ -176,12 +182,19 @@ fn main() -> Result<(), Box<dyn Error>> {
         .map_err(|_| "benchmark output was initialized more than once")?;
 
     let iterations = config.iterations;
+    sample_peak_rss();
 
     println!("thingd storage benchmark");
     println!("iterations: {iterations}");
     println!("seed: {}", config.seed);
     println!("backend: {}", config.backend.name());
     println!("repetitions: {}", config.repetitions);
+    println!(
+        "queue iterations: {}",
+        config
+            .queue_iterations
+            .map_or_else(|| iterations.to_string(), |value| value.to_string())
+    );
     println!(
         "ThingDB benchmark memtable bound: {} bytes",
         config.memtable_bytes
@@ -203,6 +216,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 MemoryEngine::new(),
                 iterations,
                 config.seed,
+                config.queue_iterations,
             )?;
             bench_concurrent("memory-engine", || Ok(MemoryEngine::new()), iterations)?;
         }
@@ -210,7 +224,13 @@ fn main() -> Result<(), Box<dyn Error>> {
         if config.backend.includes(BackendSelection::ThingDb) {
             let thingdb_memory =
                 PersistentEngine::open_in_memory_with_backend(thingd::PersistentBackend::ThingDb)?;
-            bench_store("thingdb-memory", thingdb_memory, iterations, config.seed)?;
+            bench_store(
+                "thingdb-memory",
+                thingdb_memory,
+                iterations,
+                config.seed,
+                config.queue_iterations,
+            )?;
             record_memory_storage("thingdb-memory");
             bench_memory_latency_distribution("thingdb-memory", iterations.min(256), config.seed)?;
         }
@@ -229,7 +249,13 @@ fn main() -> Result<(), Box<dyn Error>> {
                 PersistentEngine::open_with_options(dir.path(), persistent_options.clone())?;
             let lifecycle_dir = tempfile::tempdir()?;
             time_persistent_lifecycle(lifecycle_dir.path(), persistent_options.clone())?;
-            bench_store("persistent", persistent_engine, iterations, config.seed)?;
+            bench_store(
+                "persistent",
+                persistent_engine,
+                iterations,
+                config.seed,
+                config.queue_iterations,
+            )?;
             record_storage("persistent", dir.path());
             let latency_dir = tempfile::tempdir()?;
             bench_latency_distribution(
@@ -251,6 +277,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 thingdb_engine,
                 iterations,
                 config.seed,
+                config.queue_iterations,
             )?;
             record_storage("thingdb-experimental", thingdb_dir.path());
             let latency_dir = tempfile::tempdir()?;
@@ -328,6 +355,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 encrypted_engine,
                 iterations,
                 config.seed,
+                config.queue_iterations,
             )?;
             record_storage("persistent-encrypted", encrypted_dir.path());
         }
@@ -551,6 +579,9 @@ impl BenchConfig {
             .unwrap_or(DEFAULT_MEMTABLE_BYTES);
         let mut reliability = env::var("THINGD_BENCH_RELIABILITY")
             .is_ok_and(|value| value == "1" || value.eq_ignore_ascii_case("true"));
+        let mut queue_iterations: Option<usize> = env::var("THINGD_BENCH_QUEUE_ITERS")
+            .ok()
+            .and_then(|value| value.parse().ok());
         let mut positional_iterations = None;
         let mut args = env::args().skip(1);
         while let Some(argument) = args.next() {
@@ -567,6 +598,9 @@ impl BenchConfig {
                 "--phase" => phase = value("--phase")?,
                 "--memtable-bytes" => memtable_bytes = value("--memtable-bytes")?.parse()?,
                 "--reliability" => reliability = true,
+                "--queue-iterations" => {
+                    queue_iterations = Some(value("--queue-iterations")?.parse()?);
+                },
                 "--backend" => {
                     backend = match value("--backend")?.as_str() {
                         "all" => BackendSelection::All,
@@ -596,6 +630,7 @@ impl BenchConfig {
             phase,
             memtable_bytes: memtable_bytes.max(1),
             reliability,
+            queue_iterations: queue_iterations.map(|value| value.max(1)),
         })
     }
 }
@@ -621,6 +656,7 @@ fn bench_store<S>(
     mut store: S,
     iterations: usize,
     _seed: u64,
+    queue_iterations: Option<usize>,
 ) -> Result<(), Box<dyn Error>>
 where
     S: EventLog + ObjectStore + QueueStore + Searcher + VectorStore,
@@ -706,17 +742,18 @@ where
     black_box(limited_events.len());
     report(name, "event_list_limit100", 1, elapsed);
 
-    let elapsed = time_queue_pushes(&mut store, iterations)?;
-    report(name, "queue_push", iterations, elapsed);
+    let queue_iterations = queue_iterations.unwrap_or(iterations).min(iterations);
+    let elapsed = time_queue_pushes(&mut store, queue_iterations)?;
+    report(name, "queue_push", queue_iterations, elapsed);
 
-    let elapsed = time_queue_push_batch(&mut store, iterations)?;
-    report(name, "queue_batch", iterations, elapsed);
+    let elapsed = time_queue_push_batch(&mut store, queue_iterations)?;
+    report(name, "queue_batch", queue_iterations, elapsed);
 
-    let elapsed = time_queue_claims_and_acks(&mut store, iterations)?;
-    report(name, "queue_claim_ack", iterations, elapsed);
+    let elapsed = time_queue_claims_and_acks(&mut store, queue_iterations)?;
+    report(name, "queue_claim_ack", queue_iterations, elapsed);
 
-    let elapsed = time_queue_claim_and_ack(&mut store, iterations)?;
-    report(name, "queue_claim_ack2", iterations, elapsed);
+    let elapsed = time_queue_claim_and_ack(&mut store, queue_iterations)?;
+    report(name, "queue_claim_ack2", queue_iterations, elapsed);
 
     time_search_benchmarks(name, &store)?;
     time_vector_benchmarks(name, &mut store, iterations)?;
@@ -1024,6 +1061,10 @@ impl WalDiagnosticsSnapshot {
             scan_duration_ns: before.scan_duration_ns,
             scan_count: before.scan_count,
             table_layer_count: before.table_layer_count.max(after.table_layer_count),
+            compaction_count: before.compaction_count.max(after.compaction_count),
+            compaction_duration_ns: before.compaction_duration_ns,
+            compaction_input_bytes: before.compaction_input_bytes,
+            compaction_output_bytes: before.compaction_output_bytes,
         }
     }
 }
@@ -1742,6 +1783,7 @@ where
 }
 
 fn report(store: &str, operation: &str, iterations: usize, elapsed: Duration) {
+    sample_peak_rss();
     let total_ns = elapsed.as_nanos().max(1);
     let operations_per_second = throughput(iterations, total_ns);
 
@@ -1782,6 +1824,23 @@ fn command_output(command: &str, arguments: &[&str]) -> String {
             || "unknown".to_string(),
             |output| String::from_utf8_lossy(&output.stdout).trim().to_string(),
         )
+}
+
+fn sample_peak_rss() {
+    let pid = std::process::id().to_string();
+    let output = std::process::Command::new("ps")
+        .args(["-o", "rss=", "-p", &pid])
+        .output();
+    let Some(bytes) = output
+        .ok()
+        .filter(|output| output.status.success())
+        .and_then(|output| String::from_utf8(output.stdout).ok())
+        .and_then(|rss| rss.trim().parse::<u64>().ok())
+        .map(|kilobytes| kilobytes.saturating_mul(1024))
+    else {
+        return;
+    };
+    PEAK_RSS_BYTES.fetch_max(bytes, Ordering::Relaxed);
 }
 
 fn record_storage(driver: &str, path: &Path) {
@@ -1834,6 +1893,13 @@ fn directory_stats(path: &Path) -> (u64, usize) {
 }
 
 fn write_output(path: &Path) -> Result<(), Box<dyn Error>> {
+    sample_peak_rss();
+    if let Ok(mut output) = results().lock() {
+        output.metadata.peak_rss_bytes = match PEAK_RSS_BYTES.load(Ordering::Relaxed) {
+            0 => None,
+            bytes => Some(bytes),
+        };
+    }
     if let Some(parent) = path
         .parent()
         .filter(|parent| !parent.as_os_str().is_empty())
