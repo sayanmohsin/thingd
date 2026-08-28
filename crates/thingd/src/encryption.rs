@@ -5,10 +5,10 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use chacha20poly1305::aead::{Aead, KeyInit, Payload};
+use chacha20poly1305::aead::{Aead, KeyInit as AeadKeyInit, Payload};
 use chacha20poly1305::{Key, XChaCha20Poly1305, XNonce};
 use hkdf::Hkdf;
-use hmac::{Hmac, Mac};
+use hmac::{Hmac, KeyInit as HmacKeyInit, Mac};
 use sha2::Sha256;
 
 use crate::{ThingdError, ThingdResult};
@@ -243,13 +243,15 @@ impl StorageCrypto {
     }
 
     pub(crate) fn encrypt(&self, plaintext: &[u8], domain: &str) -> ThingdResult<Vec<u8>> {
-        let cipher = XChaCha20Poly1305::new(Key::from_slice(&self.data_key));
+        let key = Key::from(self.data_key);
+        let cipher = XChaCha20Poly1305::new(&key);
         let mut nonce = [0_u8; 24];
         getrandom::fill(&mut nonce).map_err(|e| ThingdError::Storage(e.to_string()))?;
         let associated = format!("thingd:{FORMAT_VERSION}:{domain}");
+        let nonce = XNonce::from(nonce);
         let ciphertext = cipher
             .encrypt(
-                XNonce::from_slice(&nonce),
+                &nonce,
                 Payload {
                     msg: plaintext,
                     aad: associated.as_bytes(),
@@ -269,11 +271,16 @@ impl StorageCrypto {
                 "invalid encrypted value envelope".to_string(),
             ));
         }
-        let cipher = XChaCha20Poly1305::new(Key::from_slice(&self.data_key));
+        let key = Key::from(self.data_key);
+        let cipher = XChaCha20Poly1305::new(&key);
         let associated = format!("thingd:{FORMAT_VERSION}:{domain}");
+        let nonce: [u8; 24] = ciphertext[1..25]
+            .try_into()
+            .map_err(|_| ThingdError::UnsupportedEncryptionVersion("invalid nonce".to_string()))?;
+        let nonce = XNonce::from(nonce);
         cipher
             .decrypt(
-                XNonce::from_slice(&ciphertext[1..25]),
+                &nonce,
                 Payload {
                     msg: &ciphertext[25..],
                     aad: associated.as_bytes(),
@@ -290,7 +297,7 @@ impl StorageCrypto {
     #[allow(dead_code)]
     pub(crate) fn hash_key(&self, domain: &str, key: &[u8]) -> Vec<u8> {
         let mut mac =
-            <Hmac<Sha256> as Mac>::new_from_slice(&self.index_key).expect("fixed HMAC key");
+            <Hmac<Sha256> as HmacKeyInit>::new_from_slice(&self.index_key).expect("fixed HMAC key");
         mac.update(domain.as_bytes());
         mac.update(b"\0");
         mac.update(key);

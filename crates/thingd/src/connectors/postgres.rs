@@ -143,7 +143,7 @@ impl Connector for PostgresConnector {
             .runtime
             .as_ref()
             .expect("PostgresConnector runtime already shut down")
-            .block_on(sqlx::query(&query).fetch_all(&pool))
+            .block_on(sqlx::query(sqlx::AssertSqlSafe(query)).fetch_all(&pool))
             .map_err(|e| ThingdError::Storage(format!("Postgres query failed: {e}")))?;
 
         let total = rows.len();

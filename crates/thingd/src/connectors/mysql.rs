@@ -138,7 +138,7 @@ impl Connector for MysqlConnector {
             .runtime
             .as_ref()
             .expect("MysqlConnector runtime already shut down")
-            .block_on(sqlx::query(&query).fetch_all(&pool))
+            .block_on(sqlx::query(sqlx::AssertSqlSafe(query)).fetch_all(&pool))
             .map_err(|e| ThingdError::Storage(format!("MySQL query failed: {e}")))?;
 
         let total = rows.len();

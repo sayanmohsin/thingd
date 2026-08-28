@@ -164,6 +164,23 @@ Use `--backend thingdb-memory` for a RAM-only ThingDB run without the durable
 WAL workloads. This is useful for isolating process-local queue and object
 performance; it does not qualify durable ThingDB.
 
+For a dependency-refresh qualification run, use the same release binary and
+dataset settings for every backend:
+
+```bash
+cargo run --release -p thingd --example storage_bench --features persistent,search -- \
+  --iterations 100000 --repetitions 5 --seed 42 --backend all \
+  --reliability --qualification --phase dependency-refresh-100k \
+  --output target/dependency-refresh-100k.json \
+  --history target/storage-benchmark-history.jsonl
+```
+
+This is a full all-backend run: it includes the complete queue workload and
+durable reopen, compaction, repack, encryption, and validation checks. Record
+the structured output as a local or CI artifact; do not commit machine-specific
+results. A timeout, memory limit, failed reliability check, or incomplete
+queue workload is blocked evidence, not a passing qualification result.
+
 ## ThingDB benchmark plan
 
 ThingDB benchmarking is a promotion gate, not a marketing benchmark. Every

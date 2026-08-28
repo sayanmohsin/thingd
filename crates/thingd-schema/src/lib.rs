@@ -4,6 +4,7 @@
 #![allow(missing_docs)]
 
 use std::collections::BTreeSet;
+use std::fmt::Write as FmtWrite;
 
 use pest::Parser;
 use pest::iterators::Pair;
@@ -156,7 +157,12 @@ impl Schema {
     pub fn hash(&self) -> Result<String, serde_json::Error> {
         let mut digest = Sha256::new();
         digest.update(self.canonical_json()?.as_bytes());
-        Ok(format!("sha256:{:x}", digest.finalize()))
+        let digest = digest.finalize();
+        let mut encoded = String::with_capacity(digest.len() * 2);
+        for byte in digest {
+            let _ = write!(encoded, "{byte:02x}");
+        }
+        Ok(format!("sha256:{encoded}"))
     }
 
     fn validate(&self) -> Result<(), SchemaError> {
