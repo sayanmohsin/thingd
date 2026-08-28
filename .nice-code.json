@@ -1,0 +1,18 @@
+{
+  "profiles": ["default", "typescript", "react", "web"],
+  "ignore": [
+    "target/**",
+    ".nice-code/**",
+    "node_modules/**",
+    "build/**",
+    "dist/**",
+    "coverage/**",
+    "vendor/**",
+    "third_party/**",
+    "docs/.generated/**",
+    "benchmarks/results/**",
+    "packages/thingd-cli/src/dashboard/public/assets/**"
+  ],
+  "severity": {},
+  "exceptions": []
+}

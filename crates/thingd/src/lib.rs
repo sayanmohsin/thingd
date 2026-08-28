@@ -93,7 +93,7 @@ pub use model::{
 #[cfg_attr(docsrs, doc(cfg(feature = "persistent")))]
 pub use persistent::{
     PersistentBackend, PersistentEngine, PersistentOpenOptions, PersistentSearchMode,
-    SearchRebuildStatus, StorageValidationReport,
+    QueueDiagnostics, SearchRebuildStatus, StorageValidationReport,
 };
 pub use replication::{
     REPLICATION_PROVENANCE_COLLECTION, REPLICATION_QUARANTINE_COLLECTION,

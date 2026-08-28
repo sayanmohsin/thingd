@@ -1564,6 +1564,133 @@ impl Keyspace {
         self.iter_bounds(Some(prefix.as_ref()), None, None)
     }
 
+    /// Return the first entry whose user key starts with `prefix`.
+    pub fn first_prefix(&self, prefix: impl AsRef<[u8]>) -> Result<Option<Entry>> {
+        self.first_prefix_after(prefix, None)
+    }
+
+    /// Return the first entry whose user key starts with `prefix` and is after
+    /// `after`, when supplied.
+    #[allow(clippy::too_many_lines)]
+    pub fn first_prefix_after(
+        &self,
+        prefix: impl AsRef<[u8]>,
+        after: Option<&[u8]>,
+    ) -> Result<Option<Entry>> {
+        let prefix = prefix.as_ref();
+        let mut inner = self
+            .db
+            .inner
+            .lock()
+            .map_err(|_| Error::message("database lock poisoned"))?;
+        if inner.in_memory {
+            let Some(keyspace) = inner
+                .memory_keyspaces
+                .as_ref()
+                .and_then(|keyspaces| keyspaces.get(&self.name))
+            else {
+                return Ok(None);
+            };
+            let mut entries = after.map_or_else(
+                || keyspace.range(prefix.to_vec()..),
+                |after| keyspace.range((Bound::Excluded(after.to_vec()), Bound::Unbounded)),
+            );
+            return Ok(entries
+                .next()
+                .filter(|(key, _)| key.starts_with(prefix))
+                .map(|(key, value)| Entry {
+                    key: key.clone(),
+                    value: value.clone(),
+                }));
+        }
+        let namespace = self.namespace.clone();
+        let lower = physical_key_from_namespace(&namespace, after.unwrap_or(prefix));
+        let prefix_physical = physical_key_from_namespace(&namespace, prefix);
+        let upper = successor(&prefix_physical);
+        let mut state_key = next_map_key(
+            &inner.state,
+            &lower,
+            upper.as_deref(),
+            after.map(|_| lower.as_slice()),
+        );
+        let mut pending_key = next_map_key(
+            &inner.pending_table,
+            &lower,
+            upper.as_deref(),
+            after.map(|_| lower.as_slice()),
+        );
+        let mut layer_indices = inner
+            .table_layers
+            .iter()
+            .map(|layer| {
+                layer
+                    .entries
+                    .binary_search_by(|entry| entry.key.as_slice().cmp(lower.as_slice()))
+                    .unwrap_or_else(|index| index)
+            })
+            .collect::<Vec<_>>();
+        if after.is_some() {
+            for (layer, index) in inner.table_layers.iter().zip(&mut layer_indices) {
+                if layer
+                    .entries
+                    .get(*index)
+                    .is_some_and(|entry| entry.key == lower)
+                {
+                    *index += 1;
+                }
+            }
+        }
+
+        loop {
+            let mut next_key = state_key.clone();
+            if pending_key.as_deref().is_some_and(|candidate| {
+                next_key
+                    .as_deref()
+                    .is_none_or(|current| candidate < current)
+            }) {
+                next_key.clone_from(&pending_key);
+            }
+            for (layer, index) in inner.table_layers.iter().zip(&layer_indices) {
+                if let Some(candidate) = layer.entries.get(*index).map(|entry| &entry.key)
+                    && next_key
+                        .as_deref()
+                        .is_none_or(|current| candidate.as_slice() < current)
+                {
+                    next_key = Some(candidate.clone());
+                }
+            }
+            let Some(key) = next_key else {
+                return Ok(None);
+            };
+            if state_key.as_deref() == Some(key.as_slice()) {
+                state_key = next_map_key(&inner.state, &lower, upper.as_deref(), Some(&key));
+            }
+            if pending_key.as_deref() == Some(key.as_slice()) {
+                pending_key =
+                    next_map_key(&inner.pending_table, &lower, upper.as_deref(), Some(&key));
+            }
+            for (layer, index) in inner.table_layers.iter().zip(&mut layer_indices) {
+                if layer
+                    .entries
+                    .get(*index)
+                    .is_some_and(|entry| entry.key == key)
+                {
+                    *index += 1;
+                }
+            }
+            let Some(value) = inner.get_value(&key)? else {
+                continue;
+            };
+            let Some(user_key) = key.strip_prefix(namespace.as_slice()) else {
+                continue;
+            };
+            return Ok(Some(Entry {
+                key: user_key.to_vec(),
+                value,
+            }));
+        }
+    }
+
     /// Iterate entries within a user-key range.
     pub fn range<K, R>(&self, range: R) -> Iter
     where

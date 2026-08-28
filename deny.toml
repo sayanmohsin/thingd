@@ -67,6 +67,14 @@ skip = [
     { name = "windows_x86_64_gnullvm", version = "0.52" },
     { name = "windows_x86_64_msvc", version = "0.48" },
     { name = "windows_x86_64_msvc", version = "0.52" },
+    # SQLx 0.9 currently retains the 0.10 digest family while Thingd's
+    # encryption stack uses the 0.11 family. These versions are required by
+    # those incompatible upstream major-version requirements.
+    { name = "block-buffer", version = "0.10" },
+    { name = "cpufeatures", version = "0.2" },
+    { name = "crypto-common", version = "0.1" },
+    { name = "digest", version = "0.10" },
+    { name = "sha2", version = "0.10" },
 ]
 
 [sources]

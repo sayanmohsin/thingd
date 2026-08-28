@@ -61,6 +61,7 @@ pub struct PersistentEngine {
     event_meta: Keyspace,
     queue_jobs: Keyspace,
     ready_jobs: Keyspace,
+    lease_jobs: Keyspace,
     links_by_id: Keyspace,
     links_from: Keyspace,
     links_to: Keyspace,
@@ -99,6 +100,7 @@ pub struct PersistentEngine {
     #[cfg(feature = "search")]
     search_rebuild_path: Option<PathBuf>,
     maintenance: StorageMaintenanceStatus,
+    queue_diagnostics: QueueDiagnostics,
     recovery_batch_size: usize,
     recovery_pause_ms: u64,
     recovery_max_retries: u64,
@@ -129,6 +131,7 @@ const MAX_SEARCH_REBUILD_RETRIES: u64 = 3;
 const DEFAULT_SEARCH_COMMIT_INTERVAL_MS: u64 = 250;
 const DEFAULT_SEARCH_COMMIT_BATCH_SIZE: usize = 32;
 const DEFAULT_SEARCH_QUEUE_MAX_KEYS: usize = 10_000;
+const LEASE_KEYSPACE: &str = "lease_jobs";
 type UniqueIndexCache = HashMap<(String, String, String), ObjectKey>;
 
 const REQUIRED_KEYSPACES: &[&str] = &[
@@ -432,6 +435,20 @@ pub struct StorageValidationReport {
     pub keyspaces_present: bool,
     /// Whether the existing Tantivy schema is compatible, when an index exists.
     pub search_index_compatible: Option<bool>,
+}
+
+/// Bounded queue-index diagnostics for a persistent engine.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QueueDiagnostics {
+    /// Number of lease-index entries examined for expiration.
+    pub lease_entries_examined: u64,
+    /// Number of stale ready or lease entries removed.
+    pub stale_index_repairs: u64,
+    /// Number of queue transitions committed atomically.
+    pub transition_count: u64,
+    /// Number of keyspace operations included in queue transition batches.
+    pub transition_operations: u64,
 }
 
 /// Selects the durable backend used by a persistent Thingd engine.
@@ -953,6 +970,7 @@ impl PersistentEngine {
         let event_meta = db.keyspace("event_meta", KeyspaceCreateOptions::default)?;
         let queue_jobs = db.keyspace("queue_jobs", KeyspaceCreateOptions::default)?;
         let ready_jobs = db.keyspace("ready_jobs", KeyspaceCreateOptions::default)?;
+        let lease_jobs = db.keyspace(LEASE_KEYSPACE, KeyspaceCreateOptions::default)?;
         let links_by_id = db.keyspace("links_by_id", KeyspaceCreateOptions::default)?;
         let links_from = db.keyspace("links_from", KeyspaceCreateOptions::default)?;
         let links_to = db.keyspace("links_to", KeyspaceCreateOptions::default)?;
@@ -1101,6 +1119,7 @@ impl PersistentEngine {
             event_meta,
             queue_jobs,
             ready_jobs,
+            lease_jobs,
             links_by_id,
             links_from,
             links_to,
@@ -1171,6 +1190,7 @@ impl PersistentEngine {
                 search_retry_count: 0,
                 search_stale: false,
             },
+            queue_diagnostics: QueueDiagnostics::default(),
             recovery_batch_size: options.recovery_batch_size.max(1),
             recovery_pause_ms: options.recovery_pause_ms,
             recovery_max_retries: options.recovery_max_retries,
@@ -1180,6 +1200,10 @@ impl PersistentEngine {
             vectors,
             codec,
         };
+
+        if !in_memory {
+            engine.rebuild_lease_index()?;
+        }
 
         #[cfg(feature = "search")]
         if engine.should_run_async_search_worker() {
@@ -1217,6 +1241,28 @@ impl PersistentEngine {
         engine.start_search_worker();
 
         Ok(engine)
+    }
+
+    fn rebuild_lease_index(&self) -> ThingdResult<()> {
+        let mut batch = self.db.batch();
+        for entry in self.lease_jobs.iter() {
+            let (key, _) = guard_data(entry)?;
+            batch.remove(&self.lease_jobs, key);
+        }
+        for entry in self.queue_jobs.iter() {
+            let (_, value) = guard_data(entry)?;
+            let job: QueueJob = self.deserialize(&value)?;
+            if job.status == QueueJobStatus::Leased
+                && let Some(expires_at_ms) = job.lease_expires_at_ms
+            {
+                let key = self.make_lease_key(&job.queue, expires_at_ms, &job.id);
+                let data = self.serialize(&job.id)?;
+                batch.insert(&self.lease_jobs, key, data);
+            }
+        }
+        batch
+            .commit()
+            .map_err(|error| ThingdError::Storage(error.to_string()))
     }
 
     /// Return whether this engine needs an asynchronous derived-index rebuild.
@@ -1260,6 +1306,11 @@ impl PersistentEngine {
             status.total = progress.total;
         }
         status
+    }
+
+    /// Return bounded queue-index diagnostics.
+    pub fn queue_diagnostics(&self) -> QueueDiagnostics {
+        self.queue_diagnostics.clone()
     }
 
     /// Return the bounded recovery work budget.
@@ -1333,6 +1384,7 @@ impl PersistentEngine {
                 &self.event_meta,
                 &self.queue_jobs,
                 &self.ready_jobs,
+                &self.lease_jobs,
                 &self.links_by_id,
                 &self.links_from,
                 &self.links_to,
@@ -1788,6 +1840,12 @@ impl PersistentEngine {
                     );
                     let ready_data = destination.serialize(&job.id)?;
                     destination.ready_jobs.insert(&ready_key, &ready_data)?;
+                } else if job.status == QueueJobStatus::Leased
+                    && let Some(expires_at_ms) = job.lease_expires_at_ms
+                {
+                    let lease_key = destination.make_lease_key(&job.queue, expires_at_ms, &job.id);
+                    let lease_data = destination.serialize(&job.id)?;
+                    destination.lease_jobs.insert(&lease_key, &lease_data)?;
                 }
             }
 
@@ -2184,6 +2242,49 @@ impl PersistentEngine {
             prefix.push(0);
             prefix
         }
+    }
+
+    /// Lease index key ordered by queue, expiration, and job id.
+    fn make_lease_key(&self, queue: &str, expires_at_ms: i64, id: &str) -> Vec<u8> {
+        let expiry = u64::try_from(expires_at_ms)
+            .unwrap_or_default()
+            .to_be_bytes();
+        if self.codec.encrypted() {
+            let mut key = self.codec.encode_key("lease_jobs.queue", queue.as_bytes());
+            key.extend_from_slice(&expiry);
+            key.extend_from_slice(&self.codec.encode_key("lease_jobs.id", id.as_bytes()));
+            key
+        } else {
+            let mut key = queue.as_bytes().to_vec();
+            key.push(0);
+            key.extend_from_slice(&expiry);
+            key.push(0);
+            key.extend_from_slice(id.as_bytes());
+            key
+        }
+    }
+
+    fn make_lease_prefix(&self, queue: &str) -> Vec<u8> {
+        if self.codec.encrypted() {
+            self.codec.encode_key("lease_jobs.queue", queue.as_bytes())
+        } else {
+            let mut prefix = queue.as_bytes().to_vec();
+            prefix.push(0);
+            prefix
+        }
+    }
+
+    fn lease_expiration(&self, queue: &str, key: &[u8]) -> ThingdResult<i64> {
+        let prefix = self.make_lease_prefix(queue);
+        let bytes = key
+            .get(prefix.len()..prefix.len().saturating_add(8))
+            .ok_or_else(|| ThingdError::Storage("malformed queue lease index key".to_string()))?;
+        let millis =
+            u64::from_be_bytes(bytes.try_into().map_err(|_| {
+                ThingdError::Storage("malformed queue lease expiration".to_string())
+            })?);
+        i64::try_from(millis)
+            .map_err(|_| ThingdError::Storage("queue lease expiration overflows i64".to_string()))
     }
 
     #[cfg(feature = "vectors")]
@@ -3375,21 +3476,56 @@ impl QueueStore for PersistentEngine {
         }
         let key = self.make_queue_key(&job.queue, &job.id);
         let data = self.serialize(&job)?;
-        self.queue_jobs.insert(&key, &data)?;
-        // Index in ready_jobs for O(1) claiming
+        let mut batch = self.db.batch();
+        batch.insert(&self.queue_jobs, &key, &data);
         if job.status == QueueJobStatus::Ready {
             let rkey = self.make_ready_key(&job.queue, job.priority, &job.created_at, &job.id);
             let rdata = self.serialize(&job.id)?;
-            self.ready_jobs.insert(&rkey, &rdata)?;
+            batch.insert(&self.ready_jobs, &rkey, &rdata);
         }
+        batch
+            .commit()
+            .map_err(|error| ThingdError::Storage(error.to_string()))?;
+        self.queue_diagnostics.transition_count =
+            self.queue_diagnostics.transition_count.saturating_add(1);
+        self.queue_diagnostics.transition_operations = self
+            .queue_diagnostics
+            .transition_operations
+            .saturating_add(if job.status == QueueJobStatus::Ready {
+                2
+            } else {
+                1
+            });
         Ok(job)
     }
 
     fn push_jobs_batch(&mut self, jobs: Vec<QueueJob>) -> ThingdResult<Vec<QueueJob>> {
         let mut results = Vec::with_capacity(jobs.len());
+        let mut batch = self.db.batch();
         for job in jobs {
-            results.push(self.push_job(job)?);
+            let mut job = job;
+            if job.created_at.is_empty() {
+                job.created_at = now_iso_string();
+            }
+            let key = self.make_queue_key(&job.queue, &job.id);
+            let data = self.serialize(&job)?;
+            batch.insert(&self.queue_jobs, &key, &data);
+            if job.status == QueueJobStatus::Ready {
+                let rkey = self.make_ready_key(&job.queue, job.priority, &job.created_at, &job.id);
+                let rdata = self.serialize(&job.id)?;
+                batch.insert(&self.ready_jobs, &rkey, &rdata);
+            }
+            results.push(job);
         }
+        batch
+            .commit()
+            .map_err(|error| ThingdError::Storage(error.to_string()))?;
+        self.queue_diagnostics.transition_count =
+            self.queue_diagnostics.transition_count.saturating_add(1);
+        self.queue_diagnostics.transition_operations = self
+            .queue_diagnostics
+            .transition_operations
+            .saturating_add(results.len() as u64 * 2);
         Ok(results)
     }
 
@@ -3400,11 +3536,34 @@ impl QueueStore for PersistentEngine {
     ) -> ThingdResult<Option<QueueJob>> {
         let now = unix_timestamp_millis();
 
-        // Release expired leases and re-index into ready_jobs
-        let qprefix = self.make_queue_prefix(queue);
-        for kv in self.queue_jobs.prefix(&qprefix) {
-            let (key, value) = guard_data(kv)?;
-            let mut job: QueueJob = self.deserialize(&value)?;
+        // Reclaim only leases that can have expired. The old implementation
+        // scanned every queue job for every claim, which made large queues
+        // quadratic even when only one job was active.
+        let lease_prefix = self.make_lease_prefix(queue);
+        let mut expiry_batch = self.db.batch();
+        let mut expiry_writes = false;
+        for kv in self.lease_jobs.prefix(&lease_prefix) {
+            self.queue_diagnostics.lease_entries_examined = self
+                .queue_diagnostics
+                .lease_entries_examined
+                .saturating_add(1);
+            let (lease_key, lease_value) = guard_data(kv)?;
+            let expires_at_ms = self.lease_expiration(queue, &lease_key)?;
+            if expires_at_ms > now {
+                break;
+            }
+            let job_id: String = self.deserialize(&lease_value)?;
+            let qkey = self.make_queue_key(queue, &job_id);
+            let Some(job_data) = value_to_vec(self.queue_jobs.get(&qkey)?) else {
+                self.queue_diagnostics.stale_index_repairs =
+                    self.queue_diagnostics.stale_index_repairs.saturating_add(1);
+                expiry_batch.remove(&self.lease_jobs, lease_key);
+                expiry_writes = true;
+                continue;
+            };
+            let mut job: QueueJob = self.deserialize(&job_data)?;
+            expiry_batch.remove(&self.lease_jobs, lease_key);
+            expiry_writes = true;
             if job.status == QueueJobStatus::Leased
                 && job.lease_expires_at_ms.is_some_and(|exp| exp <= now)
             {
@@ -3412,16 +3571,32 @@ impl QueueStore for PersistentEngine {
                 job.leased_at_ms = None;
                 job.lease_expires_at_ms = None;
                 let data = self.serialize(&job)?;
-                self.queue_jobs.insert(&key, &data)?;
                 let rkey = self.make_ready_key(&job.queue, job.priority, &job.created_at, &job.id);
                 let rdata = self.serialize(&job.id)?;
-                self.ready_jobs.insert(&rkey, &rdata)?;
+                expiry_batch.insert(&self.queue_jobs, &qkey, &data);
+                expiry_batch.insert(&self.ready_jobs, &rkey, &rdata);
             }
         }
+        if expiry_writes {
+            expiry_batch
+                .commit()
+                .map_err(|error| ThingdError::Storage(error.to_string()))?;
+            self.queue_diagnostics.transition_count =
+                self.queue_diagnostics.transition_count.saturating_add(1);
+            self.queue_diagnostics.transition_operations = self
+                .queue_diagnostics
+                .transition_operations
+                .saturating_add(3);
+        }
 
-        // Scan ready_jobs index in priority order, skipping delayed and stale entries
+        // Read only the first ready index entry instead of materializing every
+        // ready job on each claim.
         let prefix = self.make_ready_prefix(queue);
-        for kv in self.ready_jobs.prefix(&prefix) {
+        let mut after_key = None;
+        while let Some(kv) = self
+            .ready_jobs
+            .first_prefix_after(&prefix, after_key.as_deref())?
+        {
             let (key, value) = guard_data(kv)?;
             let job_id = if value.is_empty() {
                 let key_str = String::from_utf8_lossy(&key);
@@ -3439,7 +3614,14 @@ impl QueueStore for PersistentEngine {
             let qkey = self.make_queue_key(queue, &job_id);
             let Some(job_data) = value_to_vec(self.queue_jobs.get(&qkey)?) else {
                 // Job record missing — remove stale index entry
-                let _ = self.ready_jobs.remove(&rkey);
+                after_key = Some(rkey.clone());
+                self.queue_diagnostics.stale_index_repairs =
+                    self.queue_diagnostics.stale_index_repairs.saturating_add(1);
+                let mut batch = self.db.batch();
+                batch.remove(&self.ready_jobs, &rkey);
+                batch
+                    .commit()
+                    .map_err(|error| ThingdError::Storage(error.to_string()))?;
                 continue;
             };
             let mut job: QueueJob = self.deserialize(&job_data)?;
@@ -3454,23 +3636,45 @@ impl QueueStore for PersistentEngine {
 
             // Skip (and remove) stale entries for completed or dead jobs
             if job.status != QueueJobStatus::Ready {
-                let _ = self.ready_jobs.remove(&rkey);
+                after_key = Some(rkey.clone());
+                self.queue_diagnostics.stale_index_repairs =
+                    self.queue_diagnostics.stale_index_repairs.saturating_add(1);
+                let mut batch = self.db.batch();
+                batch.remove(&self.ready_jobs, &rkey);
+                batch
+                    .commit()
+                    .map_err(|error| ThingdError::Storage(error.to_string()))?;
                 continue;
             }
 
             // Job is delayed — skip it but keep the index entry so it can be claimed later
             if job.available_at_ms > now {
+                after_key = Some(rkey.clone());
                 continue;
             }
 
             // Claim this job
-            self.ready_jobs.remove(&rkey)?;
             job.status = QueueJobStatus::Leased;
             job.attempts = job.attempts.saturating_add(1);
             job.leased_at_ms = Some(now);
             job.lease_expires_at_ms = Some(now + options.lease_ms as i64);
             let data = self.serialize(&job)?;
-            self.queue_jobs.insert(&qkey, &data)?;
+            let lease_key =
+                self.make_lease_key(queue, job.lease_expires_at_ms.unwrap_or_default(), &job.id);
+            let lease_value = self.serialize(&job.id)?;
+            let mut batch = self.db.batch();
+            batch.remove(&self.ready_jobs, &rkey);
+            batch.insert(&self.queue_jobs, &qkey, &data);
+            batch.insert(&self.lease_jobs, &lease_key, &lease_value);
+            batch
+                .commit()
+                .map_err(|error| ThingdError::Storage(error.to_string()))?;
+            self.queue_diagnostics.transition_count =
+                self.queue_diagnostics.transition_count.saturating_add(1);
+            self.queue_diagnostics.transition_operations = self
+                .queue_diagnostics
+                .transition_operations
+                .saturating_add(3);
             return Ok(Some(job));
         }
 
@@ -3488,7 +3692,21 @@ impl QueueStore for PersistentEngine {
                 job.status = QueueJobStatus::Completed;
                 job.completed_at_ms = Some(unix_timestamp_millis());
                 let new_data = self.serialize(&job)?;
-                self.queue_jobs.insert(&key, &new_data)?;
+                let mut batch = self.db.batch();
+                batch.insert(&self.queue_jobs, &key, &new_data);
+                if let Some(expires_at_ms) = job.lease_expires_at_ms {
+                    let lease_key = self.make_lease_key(queue, expires_at_ms, id);
+                    batch.remove(&self.lease_jobs, &lease_key);
+                }
+                batch
+                    .commit()
+                    .map_err(|error| ThingdError::Storage(error.to_string()))?;
+                self.queue_diagnostics.transition_count =
+                    self.queue_diagnostics.transition_count.saturating_add(1);
+                self.queue_diagnostics.transition_operations = self
+                    .queue_diagnostics
+                    .transition_operations
+                    .saturating_add(2);
                 Ok(Some(job))
             },
             None => Ok(None),
@@ -3508,6 +3726,7 @@ impl QueueStore for PersistentEngine {
                 if job.status != QueueJobStatus::Leased {
                     return Ok(None);
                 }
+                let previous_lease_expires_at_ms = job.lease_expires_at_ms;
                 job.last_error = options.error;
                 job.leased_at_ms = None;
                 job.lease_expires_at_ms = None;
@@ -3522,15 +3741,30 @@ impl QueueStore for PersistentEngine {
                 }
 
                 let new_data = self.serialize(&job)?;
-                self.queue_jobs.insert(&key, &new_data)?;
+                let mut batch = self.db.batch();
+                batch.insert(&self.queue_jobs, &key, &new_data);
+                if let Some(expires_at_ms) = previous_lease_expires_at_ms {
+                    let lease_key = self.make_lease_key(queue, expires_at_ms, id);
+                    batch.remove(&self.lease_jobs, &lease_key);
+                }
 
                 // Re-index if retrying
                 if !is_dead {
                     let rkey =
                         self.make_ready_key(&job.queue, job.priority, &job.created_at, &job.id);
                     let rdata = self.serialize(&job.id)?;
-                    self.ready_jobs.insert(&rkey, &rdata)?;
+                    batch.insert(&self.ready_jobs, &rkey, &rdata);
                 }
+
+                batch
+                    .commit()
+                    .map_err(|error| ThingdError::Storage(error.to_string()))?;
+                self.queue_diagnostics.transition_count =
+                    self.queue_diagnostics.transition_count.saturating_add(1);
+                self.queue_diagnostics.transition_operations = self
+                    .queue_diagnostics
+                    .transition_operations
+                    .saturating_add(if is_dead { 2 } else { 3 });
 
                 Ok(Some(job))
             },
@@ -5792,6 +6026,58 @@ mod tests {
         assert_eq!(claimed.status, QueueJobStatus::Leased);
         assert_eq!(claimed.attempts, 1);
         assert_eq!(acked.status, QueueJobStatus::Completed);
+    }
+
+    #[test]
+    fn persistent_queue_lease_index_rebuilds_after_reopen() {
+        let (mut engine, dir) = setup();
+        engine
+            .push_job(QueueJob::new("embed", "job-1", "doc-1", 3))
+            .unwrap();
+        engine
+            .claim_job_with_options("embed", QueueClaimOptions::new(0))
+            .unwrap()
+            .unwrap();
+        drop(engine);
+
+        let mut reopened = PersistentEngine::open(dir.path()).unwrap();
+        let reclaimed = reopened
+            .claim_job_with_options("embed", QueueClaimOptions::new(0))
+            .unwrap()
+            .unwrap();
+        assert_eq!(reclaimed.id, "job-1");
+        assert!(reopened.queue_diagnostics().lease_entries_examined >= 1);
+    }
+
+    #[test]
+    fn persistent_queue_expiry_work_scales_with_active_leases() {
+        let (mut engine, _dir) = setup();
+        let historical_jobs = 256;
+        let jobs = (0..historical_jobs)
+            .map(|index| QueueJob::new("embed", format!("historical-{index}"), "doc", 3))
+            .collect();
+        engine.push_jobs_batch(jobs).unwrap();
+
+        for _ in 0..historical_jobs {
+            let claimed = engine.claim_job("embed").unwrap().unwrap();
+            engine.ack_job("embed", &claimed.id).unwrap().unwrap();
+        }
+
+        engine
+            .push_job(QueueJob::new("embed", "active", "doc", 3))
+            .unwrap();
+        engine
+            .claim_job_with_options("embed", QueueClaimOptions::new(0))
+            .unwrap()
+            .unwrap();
+        engine
+            .claim_job_with_options("embed", QueueClaimOptions::new(0))
+            .unwrap()
+            .unwrap();
+
+        let diagnostics = engine.queue_diagnostics();
+        assert_eq!(diagnostics.lease_entries_examined, 1);
+        assert!(diagnostics.lease_entries_examined < historical_jobs as u64);
     }
 
     #[test]
