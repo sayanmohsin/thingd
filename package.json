@@ -14,6 +14,7 @@
     "bench:rust:structured": "cargo run --release -p thingd --example storage_bench --features persistent,search -- --iterations 1000 --repetitions 5 --seed 42 --backend all --reliability --phase structured --output target/storage-benchmark.json --history target/storage-benchmark-history.jsonl",
     "check": "biome check .",
     "check:actions": "node scripts/check-actions.mjs",
+    "check:nice-code": "node scripts/check-nice-code.mjs",
     "check:docs": "node scripts/check-docs.mjs && node scripts/check-public-storage-names.mjs && node scripts/check-public-doc-boundary.mjs",
     "check:cargo-versions": "node scripts/sync-cargo-local-dependency-versions.mjs --check",
     "docs:metadata": "node scripts/generate-doc-metadata.mjs",
