@@ -21,7 +21,7 @@ Current implementation:
 - `packages/thingd/src/client/http-thing-store.ts` lets the SDK talk to a sidecar over HTTP REST.
 - `packages/thingd-cli` exposes the visual TUI dashboard, non-interactive CLI commands, and integrated stdio and Streamable HTTP MCP servers.
 - the HTTP MCP runtime supports `single`, `leader`, and `follower` bridge modes.
-- `examples/nestjs-basic` demonstrates app integration shape.
+- `examples/nestjs-basic` demonstrates the NestJS 12 app integration shape.
 
 Do not present the public Node package as production-ready persistent storage yet.
 
