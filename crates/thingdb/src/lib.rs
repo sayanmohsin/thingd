@@ -3080,6 +3080,34 @@ mod tests {
     }
 
     #[test]
+    fn manifest_sequence_older_than_table_is_rejected() {
+        let directory = tempfile::tempdir().unwrap();
+        let db = Database::open(directory.path()).unwrap();
+        let objects = db
+            .keyspace("objects", KeyspaceCreateOptions::default)
+            .unwrap();
+        objects.insert(b"a", b"one").unwrap();
+        db.compact().unwrap();
+        drop(objects);
+        drop(db);
+
+        let manifest_path = directory.path().join(MANIFEST_FILE);
+        let mut manifest: Manifest =
+            serde_json::from_slice(&std::fs::read(&manifest_path).unwrap()).unwrap();
+        manifest.table_sequence = 0;
+        std::fs::write(&manifest_path, serde_json::to_vec(&manifest).unwrap()).unwrap();
+
+        let Err(error) = Database::open(directory.path()) else {
+            panic!("manifest older than its table unexpectedly opened")
+        };
+        assert!(
+            error
+                .to_string()
+                .contains("table sequence exceeds manifest sequence")
+        );
+    }
+
+    #[test]
     fn batch_is_atomic_after_reopen() {
         let directory = tempfile::tempdir().unwrap();
         let db = Database::open(directory.path()).unwrap();
