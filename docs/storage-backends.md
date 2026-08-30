@@ -51,7 +51,11 @@ large-store durability and performance gates.
 
 ## ThingDB development phase
 
-Durable ThingDB is in **Phase 5: scale and performance validation**. Phases 0
+Durable ThingDB is in **Phase 5: scale and performance validation**. The 1K
+all-backend smoke and 100-operation write-path smoke pass their correctness
+and recovery preflights, but the five-repeat 10K and 100K gates remain
+pending because synchronous durable writes are currently too slow locally.
+Phases 0
 through 4 are complete enough for opt-in development, differential testing,
 and safe logical repack, but ThingDB is not a production replacement for
 RocksDB. The separate ThingDB RAM path is being optimized and benchmarked for
@@ -67,7 +71,7 @@ make a performance claim against Redis or another cache product.
 | 2. Manifest and compaction recovery | Atomic manifest replacement, temporary-artifact cleanup, interrupted flush/compaction recovery, corruption validation, and fault-injection tests | Complete; no promotion claim |
 | 3. Bounded memtables and flush backpressure | Bound mutable table memory, flush automatically after durable commits, preserve restart recovery, and measure flush cost | Complete; no promotion claim |
 | 4. Layered table reads | Retain immutable table indexes, seek point reads by key, merge layers for scans, and reduce startup resident state | Complete; no promotion claim |
-| 5. Scale and performance | Large-data benchmarks, memory/disk amplification limits, restart and recovery budgets | Next; active validation |
+| 5. Scale and performance | Large-data benchmarks, memory/disk amplification limits, restart and recovery budgets | Active; 1K smoke passed, 10K/100K pending |
 | 6. Controlled adoption | Soak testing, operational rollback, backup/restore validation, limited opt-in deployments | Planned |
 | 7. Default-candidate review | Compare against RocksDB gates and decide whether the default should change | Not scheduled |
 

@@ -181,6 +181,17 @@ the structured output as a local or CI artifact; do not commit machine-specific
 results. A timeout, memory limit, failed reliability check, or incomplete
 queue workload is blocked evidence, not a passing qualification result.
 
+The current Phase 5 development smoke uses the same command shape at 1,000
+iterations and one repetition. Its correctness, reliability, reopen,
+compaction, encryption, and both logical repack directions passed locally.
+This is a qualification harness check only; the five-repeat 10K and 100K
+comparison gates remain pending.
+
+The durable write-path smoke also passes at 100 iterations with the same
+correctness and recovery preflight. It confirms that durable ThingDB remains
+substantially slower for synchronous sequential writes; the 10K qualification
+run is currently blocked by runtime, so no scale or promotion claim is made.
+
 ## ThingDB benchmark plan
 
 ThingDB benchmarking is a promotion gate, not a marketing benchmark. Every
