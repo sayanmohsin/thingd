@@ -2646,6 +2646,27 @@ mod tests {
     }
 
     #[test]
+    fn in_memory_diagnostics_capture_ram_work() {
+        let db = Database::in_memory().unwrap();
+        let objects = db
+            .keyspace("objects", KeyspaceCreateOptions::default)
+            .unwrap();
+
+        objects.insert(b"a", b"one").unwrap();
+        assert_eq!(objects.get(b"a").unwrap(), Some(b"one".to_vec()));
+        assert_eq!(objects.iter().count(), 1);
+
+        let diagnostics = db.ram_diagnostics().unwrap();
+        assert_eq!(diagnostics.lookup_count, 1);
+        assert_eq!(diagnostics.mutation_count, 1);
+        assert_eq!(diagnostics.iteration_count, 1);
+        assert!(diagnostics.lock_held_duration_ns > 0);
+        assert!(diagnostics.lookup_duration_ns > 0);
+        assert!(diagnostics.value_clone_duration_ns > 0);
+        assert!(diagnostics.iteration_duration_ns > 0);
+    }
+
+    #[test]
     fn in_memory_keyspaces_use_isolated_fast_lookup_state() {
         let db = Database::in_memory().unwrap();
         let objects = db
