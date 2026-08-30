@@ -75,11 +75,12 @@ struct BenchResult {
     operations: usize,
     total_ns: u128,
     throughput_ops_per_second: u128,
-    min_ns: u128,
-    p50_ns: u128,
-    p95_ns: u128,
-    p99_ns: u128,
-    max_ns: u128,
+    min_ns: Option<u128>,
+    p50_ns: Option<u128>,
+    p95_ns: Option<u128>,
+    p99_ns: Option<u128>,
+    max_ns: Option<u128>,
+    latency_sampled: bool,
     error_count: usize,
 }
 
@@ -167,11 +168,17 @@ struct BenchMetadata {
     qualification_preflight: bool,
     queue_iterations: Option<usize>,
     peak_rss_bytes: Option<u64>,
+    peak_rss_status: String,
+    cpu_time_ns: Option<u64>,
+    cpu_time_status: String,
+    cpu_model: String,
+    filesystem: String,
 }
 
 static RESULTS: std::sync::OnceLock<Mutex<BenchOutput>> = std::sync::OnceLock::new();
 static CURRENT_REPETITION: AtomicUsize = AtomicUsize::new(0);
 static PEAK_RSS_BYTES: AtomicU64 = AtomicU64::new(0);
+static CPU_TIME_NS: AtomicU64 = AtomicU64::new(0);
 
 #[allow(clippy::too_many_lines)]
 fn main() -> Result<(), Box<dyn Error>> {
@@ -196,6 +203,11 @@ fn main() -> Result<(), Box<dyn Error>> {
                 qualification_preflight: config.qualification,
                 queue_iterations: config.queue_iterations,
                 peak_rss_bytes: None,
+                peak_rss_status: "pending".to_string(),
+                cpu_time_ns: None,
+                cpu_time_status: "pending".to_string(),
+                cpu_model: cpu_model(),
+                filesystem: filesystem_type(),
             },
             results: Vec::new(),
             summaries: Vec::new(),
@@ -1531,19 +1543,20 @@ fn record_latency(driver: &str, operation: &str, mut samples: Vec<u128>) {
         operations,
         total_ns,
         throughput_ops_per_second: throughput(operations, total_ns),
-        min_ns: samples[0],
-        p50_ns: percentile(&samples, 50),
-        p95_ns: percentile(&samples, 95),
-        p99_ns: percentile(&samples, 99),
-        max_ns: *samples.last().unwrap_or(&0),
+        min_ns: Some(samples[0]),
+        p50_ns: Some(percentile(&samples, 50)),
+        p95_ns: Some(percentile(&samples, 95)),
+        p99_ns: Some(percentile(&samples, 99)),
+        max_ns: Some(*samples.last().unwrap_or(&0)),
+        latency_sampled: true,
         error_count: 0,
     };
     println!(
         "{driver:>13} | {operation:<22} | p50={:?} p95={:?} p99={:?} max={:?}",
-        nanos_duration(result.p50_ns),
-        nanos_duration(result.p95_ns),
-        nanos_duration(result.p99_ns),
-        nanos_duration(result.max_ns),
+        nanos_duration(result.p50_ns.unwrap_or_default()),
+        nanos_duration(result.p95_ns.unwrap_or_default()),
+        nanos_duration(result.p99_ns.unwrap_or_default()),
+        nanos_duration(result.max_ns.unwrap_or_default()),
     );
     results().lock().unwrap().results.push(result);
 }
@@ -2004,11 +2017,12 @@ fn report(store: &str, operation: &str, iterations: usize, elapsed: Duration) {
         operations: iterations,
         total_ns,
         throughput_ops_per_second: operations_per_second,
-        min_ns: total_ns / iterations.max(1) as u128,
-        p50_ns: total_ns / iterations.max(1) as u128,
-        p95_ns: total_ns / iterations.max(1) as u128,
-        p99_ns: total_ns / iterations.max(1) as u128,
-        max_ns: total_ns / iterations.max(1) as u128,
+        min_ns: None,
+        p50_ns: None,
+        p95_ns: None,
+        p99_ns: None,
+        max_ns: None,
+        latency_sampled: false,
         error_count: 0,
     });
 }
@@ -2036,18 +2050,92 @@ fn command_output(command: &str, arguments: &[&str]) -> String {
 fn sample_peak_rss() {
     let pid = std::process::id().to_string();
     let output = std::process::Command::new("ps")
-        .args(["-o", "rss=", "-p", &pid])
+        .args(["-o", "rss=,cputime=", "-p", &pid])
         .output();
-    let Some(bytes) = output
+    let Some((bytes, cpu_ns)) = output
         .ok()
         .filter(|output| output.status.success())
         .and_then(|output| String::from_utf8(output.stdout).ok())
-        .and_then(|rss| rss.trim().parse::<u64>().ok())
-        .map(|kilobytes| kilobytes.saturating_mul(1024))
+        .and_then(|value| {
+            let mut fields = value.split_whitespace();
+            let rss = fields.next()?.parse::<u64>().ok()?;
+            let cpu = parse_process_duration_ns(fields.next()?)?;
+            Some((rss.saturating_mul(1024), cpu))
+        })
     else {
         return;
     };
     PEAK_RSS_BYTES.fetch_max(bytes, Ordering::Relaxed);
+    CPU_TIME_NS.fetch_max(cpu_ns, Ordering::Relaxed);
+}
+
+fn parse_process_duration_ns(value: &str) -> Option<u64> {
+    let parts = value.split(':').collect::<Vec<_>>();
+    if !(1..=3).contains(&parts.len()) {
+        return None;
+    }
+    let seconds = parts.last()?.split_once('.');
+    let whole_seconds = match seconds {
+        Some((whole, _)) => whole.parse::<u64>().ok()?,
+        None => parts.last()?.parse::<u64>().ok()?,
+    };
+    let fraction_ns = seconds
+        .and_then(|(_, fraction)| {
+            let digits = fraction.as_bytes();
+            if digits.iter().any(|digit| !digit.is_ascii_digit()) {
+                return None;
+            }
+            let take = digits.len().min(9);
+            let value = std::str::from_utf8(&digits[..take])
+                .ok()?
+                .parse::<u64>()
+                .ok()?;
+            Some(value.saturating_mul(10_u64.pow(u32::try_from(9 - take).ok()?)))
+        })
+        .unwrap_or(0);
+    let minutes = parts
+        .get(parts.len().saturating_sub(2))
+        .map_or(0, |value| value.parse::<u64>().unwrap_or(0));
+    let hours = parts
+        .get(parts.len().saturating_sub(3))
+        .map_or(0, |value| value.parse::<u64>().unwrap_or(0));
+    Some(
+        hours
+            .saturating_mul(3_600_000_000_000)
+            .saturating_add(minutes.saturating_mul(60_000_000_000))
+            .saturating_add(whole_seconds.saturating_mul(1_000_000_000))
+            .saturating_add(fraction_ns),
+    )
+}
+
+fn cpu_model() -> String {
+    let model = command_output("sysctl", &["-n", "machdep.cpu.brand_string"]);
+    if model != "unknown" {
+        return model;
+    }
+    fs::read_to_string("/proc/cpuinfo")
+        .ok()
+        .and_then(|value| {
+            value.lines().find_map(|line| {
+                line.strip_prefix("model name:")
+                    .map(|model| model.trim().to_string())
+            })
+        })
+        .unwrap_or_else(|| "unsupported: CPU model unavailable".to_string())
+}
+
+fn filesystem_type() -> String {
+    let path = env::current_dir().map_or_else(|_| ".".into(), |path| path.display().to_string());
+    let output = std::process::Command::new("df")
+        .args(["-P", &path])
+        .output();
+    output
+        .ok()
+        .filter(|output| output.status.success())
+        .and_then(|output| String::from_utf8(output.stdout).ok())
+        .and_then(|value| value.lines().nth(1).map(str::to_owned))
+        .and_then(|line| line.split_whitespace().next().map(str::to_owned))
+        .unwrap_or_else(|| "unsupported: filesystem type unavailable".to_string())
 }
 
 fn record_storage(driver: &str, path: &Path) {
@@ -2103,8 +2191,26 @@ fn write_output(path: &Path) -> Result<(), Box<dyn Error>> {
     sample_peak_rss();
     if let Ok(mut output) = results().lock() {
         output.metadata.peak_rss_bytes = match PEAK_RSS_BYTES.load(Ordering::Relaxed) {
-            0 => None,
-            bytes => Some(bytes),
+            0 => {
+                output.metadata.peak_rss_status =
+                    "unsupported: process RSS sampling unavailable".to_string();
+                None
+            },
+            bytes => {
+                output.metadata.peak_rss_status = "measured: ps rss".to_string();
+                Some(bytes)
+            },
+        };
+        output.metadata.cpu_time_ns = match CPU_TIME_NS.load(Ordering::Relaxed) {
+            0 => {
+                output.metadata.cpu_time_status =
+                    "unsupported: process CPU time sampling unavailable".to_string();
+                None
+            },
+            nanos => {
+                output.metadata.cpu_time_status = "measured: ps cputime".to_string();
+                Some(nanos)
+            },
         };
     }
     if let Some(parent) = path
@@ -2117,33 +2223,42 @@ fn write_output(path: &Path) -> Result<(), Box<dyn Error>> {
         let csv = {
             let output = results().lock().unwrap();
             let mut csv = String::from(
-                "commit,rust,os,arch,iterations,repetitions,seed,backend,repetition,driver,operation,operations,total_ns,throughput_ops_per_second,min_ns,p50_ns,p95_ns,p99_ns,max_ns,error_count\n",
+                "date,phase,branch,commit,rust,os,arch,cpu_model,filesystem,iterations,repetitions,seed,backend,peak_rss_bytes,peak_rss_status,cpu_time_ns,cpu_time_status,repetition,driver,operation,operations,total_ns,throughput_ops_per_second,min_ns,p50_ns,p95_ns,p99_ns,max_ns,latency_sampled,error_count\n",
             );
             for result in &output.results {
-                let _ = writeln!(
-                    csv,
-                    "{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
+                let fields = [
+                    csv_escape(&output.metadata.date),
+                    csv_escape(&output.metadata.phase),
+                    csv_escape(&output.metadata.branch),
                     csv_escape(&output.metadata.commit),
                     csv_escape(&output.metadata.rust),
-                    output.metadata.os,
-                    output.metadata.arch,
-                    output.metadata.iterations,
-                    output.metadata.repetitions,
-                    output.metadata.seed,
-                    output.metadata.backend,
-                    result.repetition,
+                    csv_escape(&output.metadata.os),
+                    csv_escape(&output.metadata.arch),
+                    csv_escape(&output.metadata.cpu_model),
+                    csv_escape(&output.metadata.filesystem),
+                    output.metadata.iterations.to_string(),
+                    output.metadata.repetitions.to_string(),
+                    output.metadata.seed.to_string(),
+                    csv_escape(&output.metadata.backend),
+                    option_csv_u64(output.metadata.peak_rss_bytes),
+                    csv_escape(&output.metadata.peak_rss_status),
+                    option_csv_u64(output.metadata.cpu_time_ns),
+                    csv_escape(&output.metadata.cpu_time_status),
+                    result.repetition.to_string(),
                     csv_escape(&result.driver),
                     csv_escape(&result.operation),
-                    result.operations,
-                    result.total_ns,
-                    result.throughput_ops_per_second,
-                    result.min_ns,
-                    result.p50_ns,
-                    result.p95_ns,
-                    result.p99_ns,
-                    result.max_ns,
-                    result.error_count,
-                );
+                    result.operations.to_string(),
+                    result.total_ns.to_string(),
+                    result.throughput_ops_per_second.to_string(),
+                    option_csv(result.min_ns),
+                    option_csv(result.p50_ns),
+                    option_csv(result.p95_ns),
+                    option_csv(result.p99_ns),
+                    option_csv(result.max_ns),
+                    result.latency_sampled.to_string(),
+                    result.error_count.to_string(),
+                ];
+                let _ = writeln!(csv, "{}", fields.join(","));
             }
             drop(output);
             csv
@@ -2177,5 +2292,33 @@ fn csv_escape(value: &str) -> String {
         format!("\"{}\"", value.replace('"', "\"\""))
     } else {
         value.to_string()
+    }
+}
+
+fn option_csv(value: Option<u128>) -> String {
+    value.map_or_else(String::new, |value| value.to_string())
+}
+
+fn option_csv_u64(value: Option<u64>) -> String {
+    value.map_or_else(String::new, |value| value.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{option_csv, parse_process_duration_ns};
+
+    #[test]
+    fn parses_process_cpu_time_without_floating_point_rounding() {
+        assert_eq!(parse_process_duration_ns("00:00.50"), Some(500_000_000));
+        assert_eq!(
+            parse_process_duration_ns("01:02:03.25"),
+            Some(3_723_250_000_000)
+        );
+    }
+
+    #[test]
+    fn leaves_unsampled_percentiles_empty_in_csv() {
+        assert_eq!(option_csv(None), "");
+        assert_eq!(option_csv(Some(42)), "42");
     }
 }

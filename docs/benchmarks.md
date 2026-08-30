@@ -36,11 +36,13 @@ cargo run --release -p thingd --example storage_bench --features persistent,sear
 ```
 
 Use `--output target/storage-benchmark.csv` for a flat CSV result. The output
-includes commit, Rust, operating system, architecture, seed, operation counts,
-throughput, p50/p95/p99/max latency, and durable directory size. Each durable
-backend gets a fresh temporary directory, and correctness/reopen checks run
-before the command succeeds. A correctness or recovery error is a failed run,
-not a performance datapoint.
+includes commit, Rust, operating system, architecture, CPU model, filesystem,
+seed, operation counts, throughput, and durable directory size. Sampled
+workloads include p50/p95/p99/max latency; aggregate timing rows explicitly
+mark latency as unsampled rather than presenting a synthetic percentile. Each
+durable backend gets a fresh temporary directory, and correctness/reopen checks
+run before the command succeeds. A correctness or recovery error is a failed
+run, not a performance datapoint.
 
 Every run is also appended automatically to
 `target/storage-benchmark-history.jsonl`. Set `--history` or
@@ -92,7 +94,11 @@ used as a passing performance datapoint.
 
 Use `--repetitions 5` or `THINGD_BENCH_REPETITIONS=5` for phase comparisons.
 Structured JSON output includes grouped median, minimum, maximum, and spread
-throughput summaries in addition to each repetition's raw result.
+throughput summaries in addition to each repetition's raw result. Resource
+metadata reports peak RSS and process CPU time when the host permits `ps`
+sampling; otherwise it records an explicit `unsupported: ...` status. This
+avoids treating missing host instrumentation as zero usage or a passing scale
+qualification.
 For exploratory large-record runs whose queue transitions would otherwise
 dominate local runtime, use `--queue-iterations <n>` or
 `THINGD_BENCH_QUEUE_ITERS=<n>`. The limit is recorded in benchmark metadata and
