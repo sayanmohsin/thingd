@@ -379,6 +379,15 @@ impl Inner {
         }
         self.diagnostics.table_lookup_count = self.diagnostics.table_lookup_count.saturating_add(1);
         for layer in self.table_layers.iter_mut().rev() {
+            let Some(first) = layer.entries.first() else {
+                continue;
+            };
+            let Some(last) = layer.entries.last() else {
+                continue;
+            };
+            if key < first.key.as_slice() || key > last.key.as_slice() {
+                continue;
+            }
             self.diagnostics.immutable_layer_lookup_count = self
                 .diagnostics
                 .immutable_layer_lookup_count
@@ -2773,6 +2782,28 @@ mod tests {
         assert_eq!(diagnostics.scan_keys_examined, 2);
         assert!(diagnostics.scan_layers_consulted >= 2);
         assert!(diagnostics.scan_duration_ns > 0);
+    }
+
+    #[test]
+    fn point_lookup_skips_disjoint_table_layers() {
+        let directory = tempfile::tempdir().unwrap();
+        let db = Database::open(directory.path()).unwrap();
+        let objects = db
+            .keyspace("objects", KeyspaceCreateOptions::default)
+            .unwrap();
+        objects.insert(b"a", b"one").unwrap();
+        db.persist(PersistMode::SyncAll).unwrap();
+        objects.insert(b"z", b"last").unwrap();
+        db.persist(PersistMode::SyncAll).unwrap();
+
+        let before = db.wal_diagnostics().unwrap();
+        assert_eq!(objects.get(b"m").unwrap(), None);
+        let after = db.wal_diagnostics().unwrap();
+        assert_eq!(
+            after.immutable_layer_lookup_count,
+            before.immutable_layer_lookup_count
+        );
+        assert_eq!(after.table_bytes_read, before.table_bytes_read);
     }
 
     #[test]
