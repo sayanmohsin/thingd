@@ -43,6 +43,12 @@ impl From<rocksdb::Error> for Error {
     }
 }
 
+impl From<String> for Error {
+    fn from(error: String) -> Self {
+        Self(error)
+    }
+}
+
 #[derive(Clone)]
 pub(crate) struct Database {
     db: Arc<Backend>,
@@ -300,6 +306,29 @@ impl Keyspace {
                 .get(key.as_ref())
                 .map_err(|error| Error(error.to_string()))?
                 .map(Slice)),
+        }
+    }
+
+    pub(crate) fn with_value<T>(
+        &self,
+        key: impl AsRef<[u8]>,
+        callback: impl FnOnce(Option<&[u8]>) -> Result<T, Error>,
+    ) -> Result<T, Error> {
+        match self.db.as_ref() {
+            Backend::RocksDb(db) => {
+                let cf = db.cf_handle(&self.name).ok_or_else(|| {
+                    Error(format!("missing RocksDB column family: {}", self.name))
+                })?;
+                let value = db.get_cf(cf, key.as_ref())?;
+                callback(value.as_deref())
+            },
+            Backend::ThingDb(db) => db
+                .keyspace(&self.name, thingdb::KeyspaceCreateOptions::default)
+                .map_err(|error| Error(error.to_string()))?
+                .with_value(key, |value| {
+                    callback(value).map_err(|error| error.to_string())
+                })
+                .map_err(|error| Error(error.to_string())),
         }
     }
 

@@ -1543,6 +1543,47 @@ impl Drop for Inner {
 }
 
 impl Keyspace {
+    /// Read a value through a callback without cloning it in RAM-only mode.
+    pub fn with_value<T>(
+        &self,
+        key: impl AsRef<[u8]>,
+        callback: impl FnOnce(Option<&[u8]>) -> std::result::Result<T, String>,
+    ) -> Result<T> {
+        let key = key.as_ref();
+        let lock_started = Instant::now();
+        let mut inner = self
+            .db
+            .inner
+            .lock()
+            .map_err(|_| Error::message("database lock poisoned"))?;
+        let lock_wait = elapsed_nanos(lock_started.elapsed());
+        if inner.in_memory {
+            let lookup_started = Instant::now();
+            let value = inner
+                .memory_keyspaces
+                .as_ref()
+                .and_then(|keyspaces| keyspaces.get(&self.name))
+                .and_then(|keyspace| keyspace.get(key))
+                .map(Vec::as_slice);
+            let lookup_duration = elapsed_nanos(lookup_started.elapsed());
+            let result = callback(value).map_err(Error::message);
+            let held_duration = elapsed_nanos(lock_started.elapsed());
+            let diagnostics = &mut inner.ram_diagnostics;
+            diagnostics.lookup_count = diagnostics.lookup_count.saturating_add(1);
+            diagnostics.lock_wait_duration_ns =
+                diagnostics.lock_wait_duration_ns.saturating_add(lock_wait);
+            diagnostics.lock_held_duration_ns = diagnostics
+                .lock_held_duration_ns
+                .saturating_add(held_duration);
+            diagnostics.lookup_duration_ns = diagnostics
+                .lookup_duration_ns
+                .saturating_add(lookup_duration);
+            return result;
+        }
+        let value = inner.get_value(key)?;
+        callback(value.as_deref()).map_err(Error::message)
+    }
+
     /// Read a value by user key.
     pub fn get(&self, key: impl AsRef<[u8]>) -> Result<Option<Vec<u8>>> {
         let key = key.as_ref();
@@ -2627,6 +2668,22 @@ mod tests {
         assert!(diagnostics.lock_held_duration_ns > 0);
         assert_eq!(db.journal_disk_space().unwrap(), 0);
         assert_eq!(db.journal_count(), 0);
+    }
+
+    #[test]
+    fn in_memory_with_value_reads_through_borrowed_value_boundary() {
+        let db = Database::in_memory().unwrap();
+        let objects = db
+            .keyspace("objects", KeyspaceCreateOptions::default)
+            .unwrap();
+        objects.insert(b"key", b"value").unwrap();
+
+        let value = objects
+            .with_value(b"key", |value| {
+                Ok(value.map(|value| String::from_utf8_lossy(value).into_owned()))
+            })
+            .unwrap();
+        assert_eq!(value.as_deref(), Some("value"));
     }
 
     #[test]
