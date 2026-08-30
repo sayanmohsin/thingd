@@ -379,6 +379,15 @@ impl Inner {
         }
         self.diagnostics.table_lookup_count = self.diagnostics.table_lookup_count.saturating_add(1);
         for layer in self.table_layers.iter_mut().rev() {
+            let Some(first) = layer.entries.first() else {
+                continue;
+            };
+            let Some(last) = layer.entries.last() else {
+                continue;
+            };
+            if key < first.key.as_slice() || key > last.key.as_slice() {
+                continue;
+            }
             self.diagnostics.immutable_layer_lookup_count = self
                 .diagnostics
                 .immutable_layer_lookup_count
@@ -1109,16 +1118,11 @@ impl Database {
             return Ok(());
         }
 
-        let in_memory = self
+        let mut inner = self
             .inner
             .lock()
-            .map_err(|_| Error::message("database lock poisoned"))?
-            .in_memory;
-        if in_memory {
-            let mut inner = self
-                .inner
-                .lock()
-                .map_err(|_| Error::message("database lock poisoned"))?;
+            .map_err(|_| Error::message("database lock poisoned"))?;
+        if inner.in_memory {
             if inner.recovery_required {
                 return Err(Error::message(
                     "ThingDB requires reopen and recovery before writing",
@@ -1157,6 +1161,7 @@ impl Database {
                 .saturating_add(elapsed_nanos(started.elapsed()));
             return Ok(());
         }
+        drop(inner);
 
         if operations.len() > MAX_GROUP_OPERATIONS {
             return Err(Error::message(
@@ -2641,6 +2646,27 @@ mod tests {
     }
 
     #[test]
+    fn in_memory_diagnostics_capture_ram_work() {
+        let db = Database::in_memory().unwrap();
+        let objects = db
+            .keyspace("objects", KeyspaceCreateOptions::default)
+            .unwrap();
+
+        objects.insert(b"a", b"one").unwrap();
+        assert_eq!(objects.get(b"a").unwrap(), Some(b"one".to_vec()));
+        assert_eq!(objects.iter().count(), 1);
+
+        let diagnostics = db.ram_diagnostics().unwrap();
+        assert_eq!(diagnostics.lookup_count, 1);
+        assert_eq!(diagnostics.mutation_count, 1);
+        assert_eq!(diagnostics.iteration_count, 1);
+        assert!(diagnostics.lock_held_duration_ns > 0);
+        assert!(diagnostics.lookup_duration_ns > 0);
+        assert!(diagnostics.value_clone_duration_ns > 0);
+        assert!(diagnostics.iteration_duration_ns > 0);
+    }
+
+    #[test]
     fn in_memory_keyspaces_use_isolated_fast_lookup_state() {
         let db = Database::in_memory().unwrap();
         let objects = db
@@ -2773,6 +2799,28 @@ mod tests {
         assert_eq!(diagnostics.scan_keys_examined, 2);
         assert!(diagnostics.scan_layers_consulted >= 2);
         assert!(diagnostics.scan_duration_ns > 0);
+    }
+
+    #[test]
+    fn point_lookup_skips_disjoint_table_layers() {
+        let directory = tempfile::tempdir().unwrap();
+        let db = Database::open(directory.path()).unwrap();
+        let objects = db
+            .keyspace("objects", KeyspaceCreateOptions::default)
+            .unwrap();
+        objects.insert(b"a", b"one").unwrap();
+        db.persist(PersistMode::SyncAll).unwrap();
+        objects.insert(b"z", b"last").unwrap();
+        db.persist(PersistMode::SyncAll).unwrap();
+
+        let before = db.wal_diagnostics().unwrap();
+        assert_eq!(objects.get(b"m").unwrap(), None);
+        let after = db.wal_diagnostics().unwrap();
+        assert_eq!(
+            after.immutable_layer_lookup_count,
+            before.immutable_layer_lookup_count
+        );
+        assert_eq!(after.table_bytes_read, before.table_bytes_read);
     }
 
     #[test]
