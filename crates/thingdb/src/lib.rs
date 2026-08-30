@@ -1118,16 +1118,11 @@ impl Database {
             return Ok(());
         }
 
-        let in_memory = self
+        let mut inner = self
             .inner
             .lock()
-            .map_err(|_| Error::message("database lock poisoned"))?
-            .in_memory;
-        if in_memory {
-            let mut inner = self
-                .inner
-                .lock()
-                .map_err(|_| Error::message("database lock poisoned"))?;
+            .map_err(|_| Error::message("database lock poisoned"))?;
+        if inner.in_memory {
             if inner.recovery_required {
                 return Err(Error::message(
                     "ThingDB requires reopen and recovery before writing",
@@ -1166,6 +1161,7 @@ impl Database {
                 .saturating_add(elapsed_nanos(started.elapsed()));
             return Ok(());
         }
+        drop(inner);
 
         if operations.len() > MAX_GROUP_OPERATIONS {
             return Err(Error::message(
