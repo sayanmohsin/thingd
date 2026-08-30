@@ -1158,6 +1158,15 @@ impl Database {
             return Ok(());
         }
 
+        if operations.len() > MAX_GROUP_OPERATIONS {
+            return Err(Error::message(
+                "ThingDB durable request exceeds operation limit",
+            ));
+        }
+        if operations_bytes(&operations) > MAX_GROUP_BYTES {
+            return Err(Error::message("ThingDB durable request exceeds byte limit"));
+        }
+
         let (response, result) = mpsc::channel();
         let request = CommitRequest {
             operations,
@@ -3418,6 +3427,32 @@ mod tests {
         let diagnostics = db.wal_diagnostics().unwrap();
         assert!(diagnostics.recovery_bytes > 0);
         assert!(diagnostics.recovery_duration_ns > 0);
+    }
+
+    #[test]
+    fn durable_requests_respect_group_limits_before_enqueue() {
+        let directory = tempfile::tempdir().unwrap();
+        let db = Database::open(directory.path()).unwrap();
+        let objects = db
+            .keyspace("objects", KeyspaceCreateOptions::default)
+            .unwrap();
+
+        let mut too_many_operations = db.batch();
+        for index in 0..=MAX_GROUP_OPERATIONS {
+            too_many_operations =
+                too_many_operations.put(&objects, format!("key-{index}"), b"value");
+        }
+        let error = too_many_operations.commit().unwrap_err();
+        assert!(error.to_string().contains("operation limit"));
+
+        let oversized_value = vec![0_u8; MAX_GROUP_BYTES + 1];
+        let error = db
+            .batch()
+            .put(&objects, b"oversized", oversized_value)
+            .commit()
+            .unwrap_err();
+        assert!(error.to_string().contains("byte limit"));
+        assert_eq!(objects.get(b"oversized").unwrap(), None);
     }
 
     #[test]
