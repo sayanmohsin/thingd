@@ -724,7 +724,7 @@ fn execute_group(
     group_size: u64,
 ) -> (Result<()>, bool) {
     let mut next_sequence = inner.sequence.saturating_add(1);
-    let mut frames = Vec::with_capacity(requests.len());
+    let mut wal_bytes = Vec::new();
     let mut synced = false;
     let result: Result<()> = (|| {
         for request in requests.iter() {
@@ -734,7 +734,7 @@ fn execute_group(
                 .diagnostics
                 .encode_duration_ns
                 .saturating_add(elapsed_nanos(started.elapsed()));
-            frames.push(frame);
+            wal_bytes.extend_from_slice(&frame);
             next_sequence = next_sequence.saturating_add(1);
         }
 
@@ -746,9 +746,7 @@ fn execute_group(
             let Some(wal) = inner.wal.as_mut() else {
                 return Err(Error::message("ThingDB WAL is unavailable"));
             };
-            for frame in &frames {
-                wal.write_all(frame)?;
-            }
+            wal.write_all(&wal_bytes)?;
         }
         inner.diagnostics.append_duration_ns = inner
             .diagnostics
