@@ -25,7 +25,7 @@ mod cache;
 
 pub use cache::{CacheOptions, CacheStats, MemoryCache};
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fmt::{Display, Formatter};
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, ErrorKind, Read, Seek, SeekFrom, Write};
@@ -324,7 +324,7 @@ struct Inner {
     lock: Option<File>,
     in_memory: bool,
     state: BTreeMap<Vec<u8>, Vec<u8>>,
-    memory_keyspaces: Option<BTreeMap<String, BTreeMap<Vec<u8>, Vec<u8>>>>,
+    memory_keyspaces: Option<HashMap<String, BTreeMap<Vec<u8>, Vec<u8>>>>,
     sequence: u64,
     table_sequence: u64,
     table_files: Vec<String>,
@@ -860,7 +860,7 @@ impl Database {
             lock: None,
             in_memory: true,
             state: BTreeMap::new(),
-            memory_keyspaces: Some(BTreeMap::new()),
+            memory_keyspaces: Some(HashMap::new()),
             sequence: 0,
             table_sequence: 0,
             table_files: Vec::new(),
@@ -1059,16 +1059,11 @@ impl Database {
             return Ok(());
         }
 
-        let in_memory = self
+        let mut inner = self
             .inner
             .lock()
-            .map_err(|_| Error::message("database lock poisoned"))?
-            .in_memory;
-        if in_memory {
-            let mut inner = self
-                .inner
-                .lock()
-                .map_err(|_| Error::message("database lock poisoned"))?;
+            .map_err(|_| Error::message("database lock poisoned"))?;
+        if inner.in_memory {
             if inner.recovery_required {
                 return Err(Error::message(
                     "ThingDB requires reopen and recovery before writing",
@@ -1107,6 +1102,7 @@ impl Database {
                 .saturating_add(elapsed_nanos(started.elapsed()));
             return Ok(());
         }
+        drop(inner);
 
         let (response, result) = mpsc::channel();
         let request = CommitRequest {
@@ -2135,7 +2131,7 @@ fn apply_operation(state: &mut BTreeMap<Vec<u8>, Vec<u8>>, operation: Operation)
 }
 
 fn apply_memory_operation(
-    keyspaces: &mut BTreeMap<String, BTreeMap<Vec<u8>, Vec<u8>>>,
+    keyspaces: &mut HashMap<String, BTreeMap<Vec<u8>, Vec<u8>>>,
     operation: Operation,
 ) -> Result<()> {
     let (key, value) = match operation {
