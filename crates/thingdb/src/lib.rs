@@ -2210,16 +2210,16 @@ fn write_table(
     entries: &BTreeMap<Vec<u8>, Option<Vec<u8>>>,
     sync: bool,
 ) -> Result<()> {
+    const TABLE_WRITE_BUFFER_BYTES: usize = 64 * 1024;
     let mut file = File::create(path)?;
-    file.write_all(TABLE_MAGIC_V2)?;
-    write_u64_to(&mut file, sequence)?;
-    write_u64_to(
-        &mut file,
-        entries
-            .len()
-            .try_into()
-            .map_err(|_| Error::message("too many entries in ThingDB table"))?,
-    )?;
+    let mut buffer = Vec::with_capacity(TABLE_WRITE_BUFFER_BYTES);
+    buffer.extend_from_slice(TABLE_MAGIC_V2);
+    buffer.extend_from_slice(&sequence.to_be_bytes());
+    let entry_count: u64 = entries
+        .len()
+        .try_into()
+        .map_err(|_| Error::message("too many entries in ThingDB table"))?;
+    buffer.extend_from_slice(&entry_count.to_be_bytes());
     for (key, value) in entries {
         let mut record = Vec::new();
         write_bytes(&mut record, key)?;
@@ -2232,7 +2232,16 @@ fn write_table(
         }
         let record_checksum = checksum(&record);
         write_u32(&mut record, record_checksum);
-        file.write_all(&record)?;
+        if buffer.len().saturating_add(record.len()) > TABLE_WRITE_BUFFER_BYTES
+            && !buffer.is_empty()
+        {
+            file.write_all(&buffer)?;
+            buffer.clear();
+        }
+        buffer.extend_from_slice(&record);
+    }
+    if !buffer.is_empty() {
+        file.write_all(&buffer)?;
     }
     if sync {
         file.sync_all()?;
@@ -2372,11 +2381,6 @@ fn write_u32(output: &mut Vec<u8>, value: u32) {
 
 fn write_u64(output: &mut Vec<u8>, value: u64) {
     output.extend_from_slice(&value.to_be_bytes());
-}
-
-fn write_u64_to(output: &mut File, value: u64) -> Result<()> {
-    output.write_all(&value.to_be_bytes())?;
-    Ok(())
 }
 
 fn write_bytes(output: &mut Vec<u8>, bytes: &[u8]) -> Result<()> {
