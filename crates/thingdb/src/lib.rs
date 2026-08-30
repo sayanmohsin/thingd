@@ -194,6 +194,8 @@ pub struct WalDiagnostics {
     pub encode_duration_ns: u64,
     /// Nanoseconds spent appending WAL frames.
     pub append_duration_ns: u64,
+    /// Total bytes appended to the WAL since opening the database.
+    pub wal_bytes_appended: u64,
     /// Nanoseconds spent syncing WAL frames.
     pub sync_duration_ns: u64,
     /// Nanoseconds spent applying committed operations to memory.
@@ -246,6 +248,10 @@ pub struct WalDiagnostics {
     pub scan_duration_ns: u64,
     /// Number of durable scans completed.
     pub scan_count: u64,
+    /// Number of physical keys examined by durable scans.
+    pub scan_keys_examined: u64,
+    /// Number of table layers consulted while merging durable scans.
+    pub scan_layers_consulted: u64,
     /// Number of table layers currently open for reads.
     pub table_layer_count: u64,
     /// Number of completed table compactions.
@@ -256,6 +262,8 @@ pub struct WalDiagnostics {
     pub compaction_input_bytes: u64,
     /// Bytes written by completed compacted tables.
     pub compaction_output_bytes: u64,
+    /// Total bytes written to immutable table files since opening the database.
+    pub table_bytes_written: u64,
 }
 
 /// Timing and allocation-adjacent counters for the RAM-only keyspace path.
@@ -392,6 +400,40 @@ impl Inner {
                 .table_read_duration_ns
                 .saturating_add(elapsed_nanos(started.elapsed()));
             return result;
+        }
+        Ok(None)
+    }
+
+    /// Resolve one key while merging ordered scan sources.
+    ///
+    /// Scan resolution deliberately does not call `get_value`: the scan has
+    /// already selected the next physical key from its source cursors, so a
+    /// second point-lookup would repeat lookup work and make scan diagnostics
+    /// indistinguishable from point-read diagnostics.
+    fn get_scan_value(&mut self, key: &[u8]) -> Result<Option<Vec<u8>>> {
+        if let Some(value) = self.pending_table.get(key) {
+            return value
+                .as_ref()
+                .map_or(Ok(None), |value| Ok(Some(value.clone())));
+        }
+        if let Some(value) = self.state.get(key) {
+            return Ok(Some(value.clone()));
+        }
+        for layer in self.table_layers.iter_mut().rev() {
+            self.diagnostics.scan_layers_consulted =
+                self.diagnostics.scan_layers_consulted.saturating_add(1);
+            let Ok(index) = layer
+                .entries
+                .binary_search_by(|entry| entry.key.as_slice().cmp(key))
+            else {
+                continue;
+            };
+            let value = read_table_value(&mut layer.file, &layer.entries[index], layer.is_v2)?;
+            self.diagnostics.table_bytes_read = self
+                .diagnostics
+                .table_bytes_read
+                .saturating_add(layer.entries[index].length);
+            return Ok(value);
         }
         Ok(None)
     }
@@ -555,9 +597,8 @@ fn writer_loop(inner: Weak<Mutex<Inner>>, receiver: mpsc::Receiver<CommitRequest
                     Ok(request) => {
                         let request_operations = request.operations.len();
                         let request_bytes = operations_bytes(&request.operations);
-                        if !group.is_empty()
-                            && (operation_count + request_operations > MAX_GROUP_OPERATIONS
-                                || operation_bytes + request_bytes > MAX_GROUP_BYTES)
+                        if operation_count + request_operations > MAX_GROUP_OPERATIONS
+                            || operation_bytes + request_bytes > MAX_GROUP_BYTES
                         {
                             pending = Some(request);
                             break;
@@ -752,6 +793,10 @@ fn execute_group(
             .diagnostics
             .append_duration_ns
             .saturating_add(elapsed_nanos(started.elapsed()));
+        inner.diagnostics.wal_bytes_appended = inner
+            .diagnostics
+            .wal_bytes_appended
+            .saturating_add(wal_bytes.len() as u64);
 
         if let Some(point) = request_has_fault(requests, "after-wal-write-before-sync") {
             maybe_fail(point, Some(point))?;
@@ -1161,6 +1206,10 @@ fn flush_table_locked(
         let temp_path = inner.path.join(format!(".{table_name}.tmp"));
         maybe_fail("before-table-write", fault_point)?;
         write_table(&temp_path, next_sequence, &updates, sync)?;
+        inner.diagnostics.table_bytes_written = inner
+            .diagnostics
+            .table_bytes_written
+            .saturating_add(fs::metadata(&temp_path)?.len());
         maybe_fail("after-table-sync-before-rename", fault_point)?;
         maybe_fail("before-table-rename", fault_point)?;
         fs::rename(&temp_path, &table_path)?;
@@ -1257,6 +1306,10 @@ fn compact_tables_locked(
         .collect();
     maybe_fail("before-table-write", fault_point)?;
     write_table(&temp_path, next_sequence, &entries, sync)?;
+    inner.diagnostics.table_bytes_written = inner
+        .diagnostics
+        .table_bytes_written
+        .saturating_add(fs::metadata(&temp_path)?.len());
     maybe_fail("after-table-sync-before-rename", fault_point)?;
     maybe_fail("before-table-rename", fault_point)?;
     fs::rename(&temp_path, &table_path)?;
@@ -1672,7 +1725,9 @@ impl Keyspace {
                     *index += 1;
                 }
             }
-            let Some(value) = inner.get_value(&key)? else {
+            inner.diagnostics.scan_keys_examined =
+                inner.diagnostics.scan_keys_examined.saturating_add(1);
+            let Some(value) = inner.get_scan_value(&key)? else {
                 continue;
             };
             let Some(user_key) = key.strip_prefix(namespace.as_slice()) else {
@@ -1800,7 +1855,9 @@ impl Keyspace {
                     *index += 1;
                 }
             }
-            let Some(value) = inner.get_value(&key).unwrap_or(None) else {
+            inner.diagnostics.scan_keys_examined =
+                inner.diagnostics.scan_keys_examined.saturating_add(1);
+            let Some(value) = inner.get_scan_value(&key).unwrap_or(None) else {
                 continue;
             };
             let Some(user_key) = key.strip_prefix(namespace.as_slice()) else {
@@ -2680,7 +2737,70 @@ mod tests {
         assert!(diagnostics.table_bytes_read > 0);
         assert!(diagnostics.table_read_duration_ns > 0);
         assert_eq!(diagnostics.scan_count, 1);
+        assert_eq!(diagnostics.scan_keys_examined, 2);
+        assert!(diagnostics.scan_layers_consulted >= 2);
         assert!(diagnostics.scan_duration_ns > 0);
+    }
+
+    #[test]
+    fn bounded_scans_merge_overlapping_layers_without_materializing_outside_range() {
+        let directory = tempfile::tempdir().unwrap();
+        let db = Database::open(directory.path()).unwrap();
+        let objects = db
+            .keyspace("objects", KeyspaceCreateOptions::default)
+            .unwrap();
+
+        objects.insert(b"aa-1", b"old").unwrap();
+        objects.insert(b"ab-1", b"keep").unwrap();
+        objects.insert(b"ba-1", b"outside").unwrap();
+        db.persist(PersistMode::SyncAll).unwrap();
+        objects.insert(b"aa-1", b"new").unwrap();
+        objects.insert(b"ac-1", b"added").unwrap();
+        db.persist(PersistMode::SyncAll).unwrap();
+        objects.remove(b"ab-1").unwrap();
+        objects.insert(b"ad-1", b"latest").unwrap();
+        db.persist(PersistMode::SyncAll).unwrap();
+
+        let range: Vec<_> = objects
+            .range_bounds(Some((b"aa-1", true)), Some((b"ad-1", false)))
+            .map(|entry| (entry.key, entry.value))
+            .collect();
+        assert_eq!(
+            range,
+            vec![
+                (b"aa-1".to_vec(), b"new".to_vec()),
+                (b"ac-1".to_vec(), b"added".to_vec()),
+            ]
+        );
+
+        let prefix: Vec<_> = objects.prefix(b"a").map(|entry| entry.key).collect();
+        assert_eq!(
+            prefix,
+            vec![b"aa-1".to_vec(), b"ac-1".to_vec(), b"ad-1".to_vec()]
+        );
+
+        let diagnostics = db.wal_diagnostics().unwrap();
+        assert_eq!(diagnostics.scan_count, 2);
+        assert!(diagnostics.scan_keys_examined >= 4);
+        assert!(diagnostics.scan_layers_consulted >= 3);
+
+        drop(objects);
+        drop(db);
+
+        let db = Database::open(directory.path()).unwrap();
+        let objects = db
+            .keyspace("objects", KeyspaceCreateOptions::default)
+            .unwrap();
+        let reopened_range: Vec<_> = objects
+            .range_bounds(Some((b"aa-1", true)), Some((b"ad-1", false)))
+            .map(|entry| (entry.key, entry.value))
+            .collect();
+        assert_eq!(reopened_range, range);
+        let reopened_prefix: Vec<_> = objects.prefix(b"a").map(|entry| entry.key).collect();
+        assert_eq!(
+            reopened_prefix,
+            vec![b"aa-1".to_vec(), b"ac-1".to_vec(), b"ad-1".to_vec()]
+        );
     }
 
     #[test]
@@ -3127,6 +3247,7 @@ mod tests {
         assert_eq!(diagnostics.physical_sync_count, 1);
         assert_eq!(diagnostics.max_group_size, 1);
         assert!(diagnostics.journal_bytes > 0);
+        assert!(diagnostics.wal_bytes_appended > 0);
         assert!(diagnostics.sync_duration_ns > 0);
         drop(objects);
         drop(db);

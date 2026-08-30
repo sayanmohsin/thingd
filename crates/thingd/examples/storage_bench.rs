@@ -1103,6 +1103,7 @@ impl WalDiagnosticsSnapshot {
             recovery_duration_ns: after.recovery_duration_ns,
             encode_duration_ns: before.encode_duration_ns,
             append_duration_ns: before.append_duration_ns,
+            wal_bytes_appended: before.wal_bytes_appended,
             sync_duration_ns: before.sync_duration_ns,
             state_apply_duration_ns: before.state_apply_duration_ns,
             lock_duration_ns: before.lock_duration_ns,
@@ -1131,11 +1132,14 @@ impl WalDiagnosticsSnapshot {
             table_open_duration_ns: before.table_open_duration_ns,
             scan_duration_ns: before.scan_duration_ns,
             scan_count: before.scan_count,
+            scan_keys_examined: before.scan_keys_examined,
+            scan_layers_consulted: before.scan_layers_consulted,
             table_layer_count: before.table_layer_count.max(after.table_layer_count),
             compaction_count: before.compaction_count.max(after.compaction_count),
             compaction_duration_ns: before.compaction_duration_ns,
             compaction_input_bytes: before.compaction_input_bytes,
             compaction_output_bytes: before.compaction_output_bytes,
+            table_bytes_written: before.table_bytes_written,
         }
     }
 }
