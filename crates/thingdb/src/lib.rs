@@ -49,6 +49,8 @@ const WAL_FILE: &str = "WAL";
 const MANIFEST_FILE: &str = "MANIFEST.json";
 const MANIFEST_TEMP_FILE: &str = ".MANIFEST.json.tmp";
 const LOCK_FILE: &str = "LOCK";
+const MAX_WAL_FRAME_BYTES: usize = 64 * 1024 * 1024;
+const MAX_WAL_OPERATIONS: usize = 1_000_000;
 
 #[cfg(test)]
 thread_local! {
@@ -1461,9 +1463,9 @@ impl DatabaseBuilder {
                 if sequence > manifest.table_sequence {
                     return Err(Error::message("table sequence exceeds manifest sequence"));
                 }
-                if sequence < previous_sequence {
+                if !table_layers.is_empty() && sequence <= previous_sequence {
                     return Err(Error::message(
-                        "ThingDB table layers are not in sequence order",
+                        "ThingDB table layers are not strictly in sequence order",
                     ));
                 }
                 previous_sequence = sequence;
@@ -2131,16 +2133,24 @@ fn replay_wal(
             return Err(Error::message("invalid ThingDB WAL magic"));
         }
         cursor += WAL_MAGIC.len();
-        let frame_len = read_u64(&bytes, &mut cursor)? as usize;
+        let frame_len: usize = read_u64(&bytes, &mut cursor)?
+            .try_into()
+            .map_err(|_| Error::message("ThingDB WAL frame length does not fit platform"))?;
         if frame_len < 12 {
             return Err(Error::message("invalid ThingDB WAL frame length"));
         }
         if frame_len > bytes.len().saturating_sub(cursor) {
             return Ok((last_sequence, frame_start as u64, frame_count));
         }
+        if frame_len > MAX_WAL_FRAME_BYTES {
+            return Err(Error::message("ThingDB WAL frame exceeds size limit"));
+        }
         let frame_end = cursor + frame_len;
         let sequence = read_u64(&bytes, &mut cursor)?;
         let count = read_u32(&bytes, &mut cursor)? as usize;
+        if count > MAX_WAL_OPERATIONS {
+            return Err(Error::message("ThingDB WAL operation count exceeds limit"));
+        }
         let mut operations = Vec::with_capacity(count);
         for _ in 0..count {
             let kind = read_byte(&bytes, &mut cursor)?;
@@ -2167,7 +2177,16 @@ fn replay_wal(
         if stored_checksum != actual_checksum {
             return Err(Error::message("ThingDB WAL checksum mismatch"));
         }
-        if sequence > last_sequence {
+        if sequence == 0 {
+            return Err(Error::message("invalid ThingDB WAL sequence"));
+        }
+        if sequence > table_sequence {
+            let expected = last_sequence
+                .checked_add(1)
+                .ok_or_else(|| Error::message("ThingDB WAL sequence overflow"))?;
+            if sequence != expected {
+                return Err(Error::message("non-contiguous ThingDB WAL sequence"));
+            }
             for operation in operations {
                 apply_operation(state, operation);
             }
@@ -3025,6 +3044,42 @@ mod tests {
     }
 
     #[test]
+    fn manifest_duplicate_table_sequences_are_rejected() {
+        let directory = tempfile::tempdir().unwrap();
+        let db = Database::open(directory.path()).unwrap();
+        let objects = db
+            .keyspace("objects", KeyspaceCreateOptions::default)
+            .unwrap();
+        objects.insert(b"a", b"one").unwrap();
+        db.compact().unwrap();
+        drop(objects);
+        drop(db);
+
+        let manifest_path = directory.path().join(MANIFEST_FILE);
+        let mut manifest: Manifest =
+            serde_json::from_slice(&std::fs::read(&manifest_path).unwrap()).unwrap();
+        let original = manifest.table_files[0].clone();
+        let duplicate = "table-duplicate-sequence.tdb";
+        std::fs::copy(
+            directory.path().join(&original),
+            directory.path().join(duplicate),
+        )
+        .unwrap();
+        manifest.table_files.push(duplicate.to_string());
+        manifest.table_file = Some(duplicate.to_string());
+        std::fs::write(&manifest_path, serde_json::to_vec(&manifest).unwrap()).unwrap();
+
+        let Err(error) = Database::open(directory.path()) else {
+            panic!("manifest with duplicate table sequences unexpectedly opened")
+        };
+        assert!(
+            error
+                .to_string()
+                .contains("table layers are not strictly in sequence order")
+        );
+    }
+
+    #[test]
     fn batch_is_atomic_after_reopen() {
         let directory = tempfile::tempdir().unwrap();
         let db = Database::open(directory.path()).unwrap();
@@ -3236,6 +3291,80 @@ mod tests {
             panic!("invalid WAL operation unexpectedly opened")
         };
         assert!(error.to_string().contains("invalid ThingDB WAL operation"));
+    }
+
+    #[test]
+    fn impossible_wal_sequences_and_operation_counts_are_reported() {
+        let directory = tempfile::tempdir().unwrap();
+        let db = Database::open(directory.path()).unwrap();
+        drop(db);
+        let zero_sequence = encode_frame(
+            0,
+            &[Operation::Put {
+                key: b"objects\0a".to_vec(),
+                value: b"one".to_vec(),
+            }],
+        )
+        .unwrap();
+        std::fs::write(directory.path().join(WAL_FILE), zero_sequence).unwrap();
+        let Err(error) = Database::open(directory.path()) else {
+            panic!("zero-valued WAL sequence unexpectedly opened")
+        };
+        assert!(error.to_string().contains("invalid ThingDB WAL sequence"));
+
+        for (label, second_sequence) in [("duplicate", 1), ("gap", 3)] {
+            let directory = tempfile::tempdir().unwrap();
+            let db = Database::open(directory.path()).unwrap();
+            drop(db);
+            let first = encode_frame(
+                1,
+                &[Operation::Put {
+                    key: b"objects\0a".to_vec(),
+                    value: b"one".to_vec(),
+                }],
+            )
+            .unwrap();
+            let second = encode_frame(
+                second_sequence,
+                &[Operation::Put {
+                    key: b"objects\0b".to_vec(),
+                    value: b"two".to_vec(),
+                }],
+            )
+            .unwrap();
+            let mut bytes = first;
+            bytes.extend_from_slice(&second);
+            std::fs::write(directory.path().join(WAL_FILE), bytes).unwrap();
+            let Err(error) = Database::open(directory.path()) else {
+                panic!("{label} WAL sequence unexpectedly opened")
+            };
+            assert!(
+                error
+                    .to_string()
+                    .contains("non-contiguous ThingDB WAL sequence")
+            );
+        }
+
+        let directory = tempfile::tempdir().unwrap();
+        let db = Database::open(directory.path()).unwrap();
+        drop(db);
+        let mut frame = encode_frame(
+            1,
+            &[Operation::Put {
+                key: b"objects\0a".to_vec(),
+                value: b"one".to_vec(),
+            }],
+        )
+        .unwrap();
+        frame[24..28].copy_from_slice(&(MAX_WAL_OPERATIONS as u32 + 1).to_be_bytes());
+        let checksum_offset = frame.len() - 4;
+        let frame_checksum = checksum(&frame[16..checksum_offset]);
+        frame[checksum_offset..].copy_from_slice(&frame_checksum.to_be_bytes());
+        std::fs::write(directory.path().join(WAL_FILE), frame).unwrap();
+        let Err(error) = Database::open(directory.path()) else {
+            panic!("oversized WAL operation count unexpectedly opened")
+        };
+        assert!(error.to_string().contains("operation count exceeds limit"));
     }
 
     #[test]
