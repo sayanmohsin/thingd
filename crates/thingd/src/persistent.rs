@@ -2605,29 +2605,16 @@ impl PersistentEngine {
 impl PersistentEngine {
     fn read_object_at_key(&self, key: &[u8]) -> ThingdResult<Option<MemoryObject>> {
         if self.db.is_in_memory() {
-            let result = self
+            let value = self
                 .objects
-                .with_value(key, |value| {
-                    value
-                        .map(|data| {
-                            let started = std::time::Instant::now();
-                            let result = self.deserialize::<MemoryObject>(data);
-                            result
-                                .map(|object| {
-                                    (
-                                        object,
-                                        u64::try_from(started.elapsed().as_nanos())
-                                            .unwrap_or(u64::MAX),
-                                    )
-                                })
-                                .map_err(|error| error.to_string())
-                        })
-                        .transpose()
-                        .map_err(crate::storage_backend::Error::from)
-                })
+                .get_shared(key)
                 .map_err(|error| ThingdError::Storage(error.to_string()))?;
-            if let Some((object, duration_ns)) = result {
-                self.db.record_ram_deserialization(duration_ns);
+            if let Some(value) = value {
+                let started = std::time::Instant::now();
+                let object = self.deserialize::<MemoryObject>(value.as_slice())?;
+                self.db.record_ram_deserialization(
+                    u64::try_from(started.elapsed().as_nanos()).unwrap_or(u64::MAX),
+                );
                 return Ok(Some(object));
             }
             return Ok(None);

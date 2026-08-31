@@ -735,6 +735,9 @@ where
     let elapsed = time_object_puts(&mut store, iterations)?;
     report(name, "object_put", iterations, elapsed);
 
+    let elapsed = time_object_updates(&mut store, iterations)?;
+    report(name, "object_update", iterations, elapsed);
+
     let elapsed = time_object_put_batch(&mut store, iterations)?;
     report(name, "object_batch", iterations, elapsed);
 
@@ -960,35 +963,12 @@ fn bench_wal_workloads(
         .wal_diagnostics()?
         .ok_or("ThingDB diagnostics unavailable")?;
     drop(engine);
-    let started = Instant::now();
-    let mut reopened = PersistentEngine::open_with_options(path, options.clone())?;
-    report(name, "wal-recovery", 1, started.elapsed());
-
-    let started = Instant::now();
-    for index in 0..iterations {
-        let id = format!(
-            "wal-single-{}",
-            deterministic_index(seed, index, iterations.max(1))
-        );
-        black_box(reopened.get_object(COLLECTION, &id)?);
-    }
-    report(name, "table-point-read", iterations, started.elapsed());
-
-    let started = Instant::now();
-    reopened.compact_storage()?;
-    report(name, "table-compaction", 1, started.elapsed());
-    drop(reopened);
-
-    let started = Instant::now();
-    let reopened = PersistentEngine::open_with_options(path, options)?;
-    report(name, "table-recovery", 1, started.elapsed());
-    let after_reopen = reopened
-        .wal_diagnostics()?
-        .ok_or("ThingDB diagnostics unavailable after reopen")?;
+    let table_diagnostics =
+        bench_table_read_workloads(name, path, options, iterations, seed, before_reopen)?;
     results().lock().unwrap().wal.push(WalSnapshot {
         driver: name.to_string(),
         repetition: CURRENT_REPETITION.load(Ordering::Relaxed),
-        diagnostics: WalDiagnosticsSnapshot::merge(before_reopen, after_reopen),
+        diagnostics: table_diagnostics,
     });
 
     let bounded_path = path.join("bounded-memtable");
@@ -1032,6 +1012,51 @@ fn bench_wal_workloads(
     });
     bench_thingdb_concurrent_writes(name, path, iterations, seed)?;
     Ok(())
+}
+
+fn bench_table_read_workloads(
+    name: &str,
+    path: &Path,
+    options: PersistentOpenOptions,
+    iterations: usize,
+    seed: u64,
+    before_reopen: thingdb::WalDiagnostics,
+) -> Result<thingdb::WalDiagnostics, Box<dyn Error>> {
+    let started = Instant::now();
+    let mut reopened = PersistentEngine::open_with_options(path, options.clone())?;
+    report(name, "wal-recovery", 1, started.elapsed());
+
+    let started = Instant::now();
+    reopened.compact_storage()?;
+    report(name, "table-compaction", 1, started.elapsed());
+    drop(reopened);
+
+    let started = Instant::now();
+    let reopened = PersistentEngine::open_with_options(path, options.clone())?;
+    report(name, "table-recovery", 1, started.elapsed());
+
+    let started = Instant::now();
+    for index in 0..iterations {
+        let id = format!(
+            "wal-single-{}",
+            deterministic_index(seed, index, iterations.max(1))
+        );
+        black_box(reopened.get_object(COLLECTION, &id)?);
+    }
+    report(name, "table-point-read", iterations, started.elapsed());
+    let after_table_read = reopened
+        .wal_diagnostics()?
+        .ok_or("ThingDB diagnostics unavailable after table reads")?;
+    drop(reopened);
+
+    let reopened = PersistentEngine::open_with_options(path, options)?;
+    let after_reopen = reopened
+        .wal_diagnostics()?
+        .ok_or("ThingDB diagnostics unavailable after reopen")?;
+    Ok(WalDiagnosticsSnapshot::merge(
+        WalDiagnosticsSnapshot::merge(before_reopen, after_table_read),
+        after_reopen,
+    ))
 }
 
 fn bench_thingdb_concurrent_writes(
@@ -1122,13 +1147,38 @@ impl WalDiagnosticsSnapshot {
             flush_duration_ns: before.flush_duration_ns,
             memtable_over_budget: before.memtable_over_budget || after.memtable_over_budget,
             last_error: after.last_error.or(before.last_error),
-            table_lookup_count: before.table_lookup_count,
-            mutable_state_lookup_count: before.mutable_state_lookup_count,
-            pending_table_lookup_count: before.pending_table_lookup_count,
-            immutable_layer_lookup_count: before.immutable_layer_lookup_count,
-            table_layers_consulted: before.table_layers_consulted,
-            table_bytes_read: before.table_bytes_read,
-            table_read_duration_ns: before.table_read_duration_ns,
+            table_lookup_count: before.table_lookup_count.max(after.table_lookup_count),
+            mutable_state_lookup_count: before
+                .mutable_state_lookup_count
+                .max(after.mutable_state_lookup_count),
+            pending_table_lookup_count: before
+                .pending_table_lookup_count
+                .max(after.pending_table_lookup_count),
+            immutable_layer_lookup_count: before
+                .immutable_layer_lookup_count
+                .max(after.immutable_layer_lookup_count),
+            table_layers_consulted: before
+                .table_layers_consulted
+                .max(after.table_layers_consulted),
+            table_bytes_read: before.table_bytes_read.max(after.table_bytes_read),
+            table_read_duration_ns: before
+                .table_read_duration_ns
+                .max(after.table_read_duration_ns),
+            read_lock_wait_duration_ns: before
+                .read_lock_wait_duration_ns
+                .max(after.read_lock_wait_duration_ns),
+            read_lock_held_duration_ns: before
+                .read_lock_held_duration_ns
+                .max(after.read_lock_held_duration_ns),
+            table_reader_wait_duration_ns: before
+                .table_reader_wait_duration_ns
+                .max(after.table_reader_wait_duration_ns),
+            table_lookup_duration_ns: before
+                .table_lookup_duration_ns
+                .max(after.table_lookup_duration_ns),
+            file_read_duration_ns: before
+                .file_read_duration_ns
+                .max(after.file_read_duration_ns),
             table_open_duration_ns: before.table_open_duration_ns,
             scan_duration_ns: before.scan_duration_ns,
             scan_count: before.scan_count,
@@ -1687,6 +1737,26 @@ where
     let started = Instant::now();
     let results = store.put_objects_batch(objects)?;
     black_box(results.len());
+    Ok(started.elapsed())
+}
+
+fn time_object_updates<S>(store: &mut S, iterations: usize) -> Result<Duration, Box<dyn Error>>
+where
+    S: ObjectStore,
+{
+    let started = Instant::now();
+
+    for index in 0..iterations {
+        let body = if index % 2 == 0 {
+            OBJECT_BODY_INACTIVE
+        } else {
+            OBJECT_BODY_ACTIVE
+        };
+        let object = MemoryObject::new(COLLECTION, format!("object-{index}"), body);
+        let stored = store.put_object(object)?;
+        black_box(stored.version);
+    }
+
     Ok(started.elapsed())
 }
 

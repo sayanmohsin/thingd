@@ -242,6 +242,16 @@ pub struct WalDiagnostics {
     pub table_bytes_read: u64,
     /// Nanoseconds spent reading table records.
     pub table_read_duration_ns: u64,
+    /// Nanoseconds spent waiting for the database read lock.
+    pub read_lock_wait_duration_ns: u64,
+    /// Nanoseconds spent holding the database read lock.
+    pub read_lock_held_duration_ns: u64,
+    /// Nanoseconds spent waiting for an immutable table reader.
+    pub table_reader_wait_duration_ns: u64,
+    /// Nanoseconds spent selecting a table record.
+    pub table_lookup_duration_ns: u64,
+    /// Nanoseconds spent reading a table record after selection.
+    pub file_read_duration_ns: u64,
     /// Nanoseconds spent opening table files during database open.
     pub table_open_duration_ns: u64,
     /// Nanoseconds spent materializing or merging durable scans.
@@ -285,6 +295,8 @@ pub struct RamDiagnostics {
     pub lookup_duration_ns: u64,
     /// Nanoseconds spent cloning returned values.
     pub value_clone_duration_ns: u64,
+    /// Nanoseconds spent acquiring shared ownership of returned values.
+    pub value_acquire_duration_ns: u64,
     /// Number of RAM mutations.
     pub mutation_count: u64,
     /// Nanoseconds spent applying RAM mutations.
@@ -344,7 +356,7 @@ struct Inner {
     lock: Option<File>,
     in_memory: bool,
     state: BTreeMap<Vec<u8>, Vec<u8>>,
-    memory_keyspaces: Option<HashMap<String, BTreeMap<Vec<u8>, Vec<u8>>>>,
+    memory_keyspaces: Option<HashMap<String, BTreeMap<Vec<u8>, Arc<Vec<u8>>>>>,
     sequence: u64,
     table_sequence: u64,
     table_files: Vec<String>,
@@ -359,12 +371,14 @@ struct Inner {
     recovery_required: bool,
 }
 
+#[derive(Clone)]
 struct TableLayer {
-    file: File,
+    file: Arc<Mutex<File>>,
     entries: Vec<TableIndexEntry>,
     is_v2: bool,
 }
 
+#[derive(Clone)]
 struct TableIndexEntry {
     key: Vec<u8>,
     offset: u64,
@@ -372,50 +386,6 @@ struct TableIndexEntry {
 }
 
 impl Inner {
-    fn get_value(&mut self, key: &[u8]) -> Result<Option<Vec<u8>>> {
-        self.diagnostics.pending_table_lookup_count = self
-            .diagnostics
-            .pending_table_lookup_count
-            .saturating_add(1);
-        if let Some(value) = self.pending_table.get(key) {
-            return Ok(value.clone());
-        }
-        self.diagnostics.mutable_state_lookup_count = self
-            .diagnostics
-            .mutable_state_lookup_count
-            .saturating_add(1);
-        if let Some(value) = self.state.get(key) {
-            return Ok(Some(value.clone()));
-        }
-        self.diagnostics.table_lookup_count = self.diagnostics.table_lookup_count.saturating_add(1);
-        for layer in self.table_layers.iter_mut().rev() {
-            self.diagnostics.immutable_layer_lookup_count = self
-                .diagnostics
-                .immutable_layer_lookup_count
-                .saturating_add(1);
-            self.diagnostics.table_layers_consulted =
-                self.diagnostics.table_layers_consulted.saturating_add(1);
-            let Ok(index) = layer
-                .entries
-                .binary_search_by(|entry| entry.key.as_slice().cmp(key))
-            else {
-                continue;
-            };
-            let started = Instant::now();
-            let result = read_table_value(&mut layer.file, &layer.entries[index], layer.is_v2);
-            self.diagnostics.table_bytes_read = self
-                .diagnostics
-                .table_bytes_read
-                .saturating_add(layer.entries[index].length);
-            self.diagnostics.table_read_duration_ns = self
-                .diagnostics
-                .table_read_duration_ns
-                .saturating_add(elapsed_nanos(started.elapsed()));
-            return result;
-        }
-        Ok(None)
-    }
-
     /// Resolve one key while merging ordered scan sources.
     ///
     /// Scan resolution deliberately does not call `get_value`: the scan has
@@ -440,7 +410,8 @@ impl Inner {
             else {
                 continue;
             };
-            let value = read_table_value(&mut layer.file, &layer.entries[index], layer.is_v2)?;
+            let (value, _, _) =
+                read_table_value_handle(&layer.file, &layer.entries[index], layer.is_v2)?;
             self.diagnostics.table_bytes_read = self
                 .diagnostics
                 .table_bytes_read
@@ -458,7 +429,7 @@ impl Inner {
                 for (key, value) in entries {
                     let mut physical = namespace.clone();
                     physical.extend_from_slice(key);
-                    state.insert(physical, value.clone());
+                    state.insert(physical, value.as_ref().clone());
                 }
             }
             return Ok(state);
@@ -466,7 +437,7 @@ impl Inner {
         let mut state = BTreeMap::new();
         for layer in &mut self.table_layers {
             for entry in &layer.entries {
-                match read_table_value(&mut layer.file, entry, layer.is_v2)? {
+                match read_table_value_handle(&layer.file, entry, layer.is_v2)?.0 {
                     Some(value) => {
                         state.insert(entry.key.clone(), value);
                     },
@@ -1278,7 +1249,7 @@ fn flush_table_locked(
         inner.table_files = table_files;
         let (_, entries, is_v2) = read_table_index(&table_path)?;
         inner.table_layers.push(TableLayer {
-            file: File::open(&table_path)?,
+            file: Arc::new(Mutex::new(File::open(&table_path)?)),
             entries,
             is_v2,
         });
@@ -1381,7 +1352,7 @@ fn compact_tables_locked(
     inner.table_files = vec![table_name];
     let (_, entries, is_v2) = read_table_index(&table_path)?;
     inner.table_layers = vec![TableLayer {
-        file: File::open(&table_path)?,
+        file: Arc::new(Mutex::new(File::open(&table_path)?)),
         entries,
         is_v2,
     }];
@@ -1513,7 +1484,7 @@ impl DatabaseBuilder {
                 table_open_duration_ns =
                     table_open_duration_ns.saturating_add(elapsed_nanos(open_started.elapsed()));
                 table_layers.push(TableLayer {
-                    file,
+                    file: Arc::new(Mutex::new(file)),
                     entries,
                     is_v2,
                 });
@@ -1592,6 +1563,112 @@ impl Drop for Inner {
     }
 }
 
+impl Database {
+    fn get_durable_value(&self, key: &[u8]) -> Result<Option<Vec<u8>>> {
+        let lock_started = Instant::now();
+        let (resolved, immediate, table) = {
+            let mut inner = self
+                .inner
+                .lock()
+                .map_err(|_| Error::message("database lock poisoned"))?;
+            let lock_wait = elapsed_nanos(lock_started.elapsed());
+            let lookup_started = Instant::now();
+            let mut resolved = false;
+            let mut immediate = None;
+            let mut table = None;
+
+            inner.diagnostics.pending_table_lookup_count = inner
+                .diagnostics
+                .pending_table_lookup_count
+                .saturating_add(1);
+            if let Some(value) = inner.pending_table.get(key) {
+                resolved = true;
+                immediate.clone_from(value);
+            } else {
+                inner.diagnostics.mutable_state_lookup_count = inner
+                    .diagnostics
+                    .mutable_state_lookup_count
+                    .saturating_add(1);
+                if let Some(value) = inner.state.get(key) {
+                    resolved = true;
+                    immediate = Some(value.clone());
+                } else {
+                    inner.diagnostics.table_lookup_count =
+                        inner.diagnostics.table_lookup_count.saturating_add(1);
+                    let mut layers_examined = 0;
+                    for layer in inner.table_layers.iter().rev() {
+                        layers_examined += 1;
+                        let Ok(index) = layer
+                            .entries
+                            .binary_search_by(|entry| entry.key.as_slice().cmp(key))
+                        else {
+                            continue;
+                        };
+                        table = Some((
+                            Arc::clone(&layer.file),
+                            layer.entries[index].clone(),
+                            layer.is_v2,
+                        ));
+                        break;
+                    }
+                    inner.diagnostics.immutable_layer_lookup_count = inner
+                        .diagnostics
+                        .immutable_layer_lookup_count
+                        .saturating_add(layers_examined);
+                    inner.diagnostics.table_layers_consulted = inner
+                        .diagnostics
+                        .table_layers_consulted
+                        .saturating_add(layers_examined);
+                }
+            }
+            let lookup_duration = elapsed_nanos(lookup_started.elapsed());
+            let held_duration = elapsed_nanos(lock_started.elapsed());
+            inner.diagnostics.read_lock_wait_duration_ns = inner
+                .diagnostics
+                .read_lock_wait_duration_ns
+                .saturating_add(lock_wait);
+            inner.diagnostics.read_lock_held_duration_ns = inner
+                .diagnostics
+                .read_lock_held_duration_ns
+                .saturating_add(held_duration);
+            inner.diagnostics.table_lookup_duration_ns = inner
+                .diagnostics
+                .table_lookup_duration_ns
+                .saturating_add(lookup_duration);
+            (resolved, immediate, table)
+        };
+
+        if resolved {
+            return Ok(immediate);
+        }
+        let Some((file, entry, is_v2)) = table else {
+            return Ok(None);
+        };
+        let (result, reader_wait, file_read) = read_table_value_handle(&file, &entry, is_v2)?;
+        let mut inner = self
+            .inner
+            .lock()
+            .map_err(|_| Error::message("database lock poisoned"))?;
+        inner.diagnostics.table_reader_wait_duration_ns = inner
+            .diagnostics
+            .table_reader_wait_duration_ns
+            .saturating_add(reader_wait);
+        inner.diagnostics.file_read_duration_ns = inner
+            .diagnostics
+            .file_read_duration_ns
+            .saturating_add(file_read);
+        inner.diagnostics.table_bytes_read = inner
+            .diagnostics
+            .table_bytes_read
+            .saturating_add(entry.length);
+        inner.diagnostics.table_read_duration_ns = inner
+            .diagnostics
+            .table_read_duration_ns
+            .saturating_add(file_read);
+        Ok(result)
+    }
+}
+
 impl Keyspace {
     /// Read a value through a callback without cloning it in RAM-only mode.
     pub fn with_value<T>(
@@ -1614,7 +1691,7 @@ impl Keyspace {
                 .as_ref()
                 .and_then(|keyspaces| keyspaces.get(&self.name))
                 .and_then(|keyspace| keyspace.get(key))
-                .map(Vec::as_slice);
+                .map(|value| value.as_slice());
             let lookup_duration = elapsed_nanos(lookup_started.elapsed());
             let result = callback(value).map_err(Error::message);
             let held_duration = elapsed_nanos(lock_started.elapsed());
@@ -1630,8 +1707,56 @@ impl Keyspace {
                 .saturating_add(lookup_duration);
             return result;
         }
-        let value = inner.get_value(key)?;
+        drop(inner);
+        let value = self.db.get_durable_value(key)?;
         callback(value.as_deref()).map_err(Error::message)
+    }
+
+    /// Read a RAM value through a shared ownership boundary.
+    ///
+    /// The database lock is released before the caller processes the value.
+    /// This is useful for semantic adapters that need to deserialize a value:
+    /// the bytes remain alive through the returned `Arc`, without blocking
+    /// unrelated readers while deserialization runs.
+    pub fn get_shared(&self, key: impl AsRef<[u8]>) -> Result<Option<Arc<Vec<u8>>>> {
+        let key = key.as_ref();
+        let lock_started = Instant::now();
+        let mut inner = self
+            .db
+            .inner
+            .lock()
+            .map_err(|_| Error::message("database lock poisoned"))?;
+        let lock_wait = elapsed_nanos(lock_started.elapsed());
+        if !inner.in_memory {
+            return Err(Error::message(
+                "ThingDB shared reads are available only in memory mode",
+            ));
+        }
+        let lookup_started = Instant::now();
+        let value_ref = inner
+            .memory_keyspaces
+            .as_ref()
+            .and_then(|keyspaces| keyspaces.get(&self.name))
+            .and_then(|keyspace| keyspace.get(key));
+        let lookup_duration = elapsed_nanos(lookup_started.elapsed());
+        let acquire_started = Instant::now();
+        let value = value_ref.cloned();
+        let acquire_duration = elapsed_nanos(acquire_started.elapsed());
+        let held_duration = elapsed_nanos(lock_started.elapsed());
+        let diagnostics = &mut inner.ram_diagnostics;
+        diagnostics.lookup_count = diagnostics.lookup_count.saturating_add(1);
+        diagnostics.lock_wait_duration_ns =
+            diagnostics.lock_wait_duration_ns.saturating_add(lock_wait);
+        diagnostics.lock_held_duration_ns = diagnostics
+            .lock_held_duration_ns
+            .saturating_add(held_duration);
+        diagnostics.lookup_duration_ns = diagnostics
+            .lookup_duration_ns
+            .saturating_add(lookup_duration);
+        diagnostics.value_acquire_duration_ns = diagnostics
+            .value_acquire_duration_ns
+            .saturating_add(acquire_duration);
+        Ok(value)
     }
 
     /// Read a value by user key.
@@ -1653,7 +1778,7 @@ impl Keyspace {
                 .and_then(|keyspace| keyspace.get(key));
             let lookup_duration = elapsed_nanos(lookup_started.elapsed());
             let clone_started = Instant::now();
-            let value = value.cloned();
+            let value = value.map(|value| value.as_ref().clone());
             let clone_duration = elapsed_nanos(clone_started.elapsed());
             let held_duration = elapsed_nanos(lock_started.elapsed());
             let diagnostics = &mut inner.ram_diagnostics;
@@ -1674,7 +1799,13 @@ impl Keyspace {
         let key_started = Instant::now();
         let physical = physical_key_from_namespace(&self.namespace, key);
         let key_duration = elapsed_nanos(key_started.elapsed());
-        let result = inner.get_value(&physical);
+        drop(inner);
+        let result = self.db.get_durable_value(&physical);
+        let mut inner = self
+            .db
+            .inner
+            .lock()
+            .map_err(|_| Error::message("database lock poisoned"))?;
         inner.ram_diagnostics.key_encode_duration_ns = inner
             .ram_diagnostics
             .key_encode_duration_ns
@@ -1738,7 +1869,7 @@ impl Keyspace {
                 .filter(|(key, _)| key.starts_with(prefix))
                 .map(|(key, value)| Entry {
                     key: key.clone(),
-                    value: value.clone(),
+                    value: value.as_ref().clone(),
                 }));
         }
         let namespace = self.namespace.clone();
@@ -2049,7 +2180,7 @@ fn iter_memory_bounds(
             }
             entries.push(Entry {
                 key: key.clone(),
-                value: value.clone(),
+                value: value.as_ref().clone(),
             });
         }
     }
@@ -2277,7 +2408,7 @@ fn apply_operation(state: &mut BTreeMap<Vec<u8>, Vec<u8>>, operation: Operation)
 }
 
 fn apply_memory_operation(
-    keyspaces: &mut HashMap<String, BTreeMap<Vec<u8>, Vec<u8>>>,
+    keyspaces: &mut HashMap<String, BTreeMap<Vec<u8>, Arc<Vec<u8>>>>,
     operation: Operation,
 ) -> Result<()> {
     let (key, value) = match operation {
@@ -2294,7 +2425,7 @@ fn apply_memory_operation(
     let entries = keyspaces.entry(name.to_string()).or_default();
     match value {
         Some(value) => {
-            entries.insert(user_key.to_vec(), value);
+            entries.insert(user_key.to_vec(), Arc::new(value));
         },
         None => {
             entries.remove(user_key);
@@ -2483,6 +2614,22 @@ fn read_table_value(
         return Err(Error::message("trailing bytes in ThingDB table record"));
     }
     Ok(value)
+}
+
+fn read_table_value_handle(
+    file: &Arc<Mutex<File>>,
+    entry: &TableIndexEntry,
+    is_v2: bool,
+) -> Result<(Option<Vec<u8>>, u64, u64)> {
+    let wait_started = Instant::now();
+    let mut file = file
+        .lock()
+        .map_err(|_| Error::message("ThingDB table reader lock poisoned"))?;
+    let reader_wait = elapsed_nanos(wait_started.elapsed());
+    let read_started = Instant::now();
+    let value = read_table_value(&mut file, entry, is_v2);
+    let read_duration = elapsed_nanos(read_started.elapsed());
+    Ok((value?, reader_wait, read_duration))
 }
 
 fn write_manifest(path: &Path, manifest: &Manifest, sync: bool) -> Result<()> {
@@ -2737,6 +2884,22 @@ mod tests {
     }
 
     #[test]
+    fn in_memory_shared_reads_survive_mutation_after_lookup() {
+        let db = Database::in_memory().unwrap();
+        let objects = db
+            .keyspace("objects", KeyspaceCreateOptions::default)
+            .unwrap();
+        objects.insert(b"key", b"before").unwrap();
+
+        let shared = objects.get_shared(b"key").unwrap().unwrap();
+        objects.insert(b"key", b"after").unwrap();
+
+        assert_eq!(shared.as_slice(), b"before");
+        assert_eq!(objects.get(b"key").unwrap(), Some(b"after".to_vec()));
+        assert!(db.ram_diagnostics().unwrap().value_acquire_duration_ns > 0);
+    }
+
+    #[test]
     fn in_memory_snapshots_remain_atomic_during_concurrent_batches() {
         let db = Database::in_memory().unwrap();
         let left = db.keyspace("left", KeyspaceCreateOptions::default).unwrap();
@@ -2744,8 +2907,8 @@ mod tests {
             .keyspace("right", KeyspaceCreateOptions::default)
             .unwrap();
         let writer_db = db.clone();
-        let writer_left = left.clone();
-        let writer_right = right.clone();
+        let writer_left = left;
+        let writer_right = right;
         let writer = std::thread::spawn(move || {
             for index in 0..256u16 {
                 let key = index.to_be_bytes();
@@ -2798,6 +2961,24 @@ mod tests {
         let entries: Vec<_> = keyspace.iter().collect();
         assert_eq!(entries[0].key, b"a");
         assert_eq!(entries[1].key, b"b");
+    }
+
+    #[test]
+    fn durable_table_reads_record_reader_and_file_timings() {
+        let directory = tempfile::tempdir().unwrap();
+        let db = Database::open(directory.path()).unwrap();
+        let objects = db
+            .keyspace("objects", KeyspaceCreateOptions::default)
+            .unwrap();
+        objects.insert(b"key", b"value").unwrap();
+        db.persist(PersistMode::SyncAll).unwrap();
+
+        assert_eq!(objects.get(b"key").unwrap(), Some(b"value".to_vec()));
+        let diagnostics = db.wal_diagnostics().unwrap();
+        assert!(diagnostics.table_lookup_count > 0);
+        assert!(diagnostics.table_reader_wait_duration_ns > 0);
+        assert!(diagnostics.file_read_duration_ns > 0);
+        assert!(diagnostics.read_lock_held_duration_ns > 0);
     }
 
     #[test]

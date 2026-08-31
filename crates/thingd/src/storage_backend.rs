@@ -321,26 +321,19 @@ impl Keyspace {
         }
     }
 
-    pub(crate) fn with_value<T>(
-        &self,
-        key: impl AsRef<[u8]>,
-        callback: impl FnOnce(Option<&[u8]>) -> Result<T, Error>,
-    ) -> Result<T, Error> {
+    pub(crate) fn get_shared(&self, key: impl AsRef<[u8]>) -> Result<Option<Arc<Vec<u8>>>, Error> {
         match self.db.as_ref() {
             Backend::RocksDb(db) => {
                 let cf = db.cf_handle(&self.name).ok_or_else(|| {
                     Error(format!("missing RocksDB column family: {}", self.name))
                 })?;
-                let value = db.get_cf(cf, key.as_ref())?;
-                callback(value.as_deref())
+                Ok(db.get_cf(cf, key.as_ref())?.map(Arc::new))
             },
-            Backend::ThingDb(db) => db
+            Backend::ThingDb(db) => Ok(db
                 .keyspace(&self.name, thingdb::KeyspaceCreateOptions::default)
                 .map_err(|error| Error(error.to_string()))?
-                .with_value(key, |value| {
-                    callback(value).map_err(|error| error.to_string())
-                })
-                .map_err(|error| Error(error.to_string())),
+                .get_shared(key.as_ref())
+                .map_err(|error| Error(error.to_string()))?),
         }
     }
 
