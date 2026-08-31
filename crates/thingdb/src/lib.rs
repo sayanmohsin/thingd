@@ -2737,6 +2737,40 @@ mod tests {
     }
 
     #[test]
+    fn in_memory_snapshots_remain_atomic_during_concurrent_batches() {
+        let db = Database::in_memory().unwrap();
+        let left = db.keyspace("left", KeyspaceCreateOptions::default).unwrap();
+        let right = db
+            .keyspace("right", KeyspaceCreateOptions::default)
+            .unwrap();
+        let writer_db = db.clone();
+        let writer_left = left.clone();
+        let writer_right = right.clone();
+        let writer = std::thread::spawn(move || {
+            for index in 0..256u16 {
+                let key = index.to_be_bytes();
+                writer_db
+                    .batch()
+                    .put(&writer_left, key, b"left")
+                    .put(&writer_right, key, b"right")
+                    .commit()
+                    .unwrap();
+            }
+        });
+
+        for _ in 0..64 {
+            let snapshot = db.snapshot().unwrap();
+            for index in 0..256u16 {
+                let key = index.to_be_bytes();
+                let left_value = snapshot.keyspace("left").get(key);
+                let right_value = snapshot.keyspace("right").get(key);
+                assert_eq!(left_value.is_some(), right_value.is_some());
+            }
+        }
+        writer.join().unwrap();
+    }
+
+    #[test]
     fn in_memory_diagnostics_are_zero_for_durable_databases() {
         let directory = tempfile::tempdir().unwrap();
         let db = Database::builder(directory.path()).open().unwrap();
