@@ -775,6 +775,7 @@ impl PersistentEngine {
         let queue = Arc::new(SearchMutationQueue::new(self.search_queue_max_keys));
         self.search_queue = Some(queue.clone());
         self.search_worker_started = true;
+        let db = self.db.clone();
         let interval = Duration::from_millis(self.search_commit_interval_ms);
         let batch_size = self.search_commit_batch_size;
         self.search_worker = thread::Builder::new()
@@ -807,6 +808,11 @@ impl PersistentEngine {
                         Ok(_) => {
                             if let Ok(reader) = reader.lock() {
                                 let _ = reader.reload();
+                            }
+                            if db.is_in_memory() {
+                                db.record_ram_search_index(
+                                    u64::try_from(started.elapsed().as_nanos()).unwrap_or(u64::MAX),
+                                );
                             }
                             queue.record_commit(started.elapsed(), mutations.len());
                         },
@@ -2128,8 +2134,15 @@ impl PersistentEngine {
     }
 
     fn serialize<T: serde::Serialize>(&self, value: &T) -> ThingdResult<Vec<u8>> {
+        let started = std::time::Instant::now();
         let data = serde_json::to_vec(value).map_err(|e| ThingdError::Storage(e.to_string()))?;
-        self.codec.encode_value("record", &data)
+        let result = self.codec.encode_value("record", &data);
+        if self.is_in_memory() {
+            self.db.record_ram_serialization(
+                u64::try_from(started.elapsed().as_nanos()).unwrap_or(u64::MAX),
+            );
+        }
+        result
     }
 
     fn deserialize<T: for<'a> serde::Deserialize<'a>>(&self, bytes: &[u8]) -> ThingdResult<T> {

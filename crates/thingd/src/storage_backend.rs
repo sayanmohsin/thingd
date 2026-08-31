@@ -235,6 +235,18 @@ impl Database {
             db.record_ram_search(duration_ns);
         }
     }
+
+    pub(crate) fn record_ram_serialization(&self, duration_ns: u64) {
+        if let Backend::ThingDb(db) = self.db.as_ref() {
+            db.record_ram_serialization(duration_ns);
+        }
+    }
+
+    pub(crate) fn record_ram_search_index(&self, duration_ns: u64) {
+        if let Backend::ThingDb(db) = self.db.as_ref() {
+            db.record_ram_search_index(duration_ns);
+        }
+    }
 }
 
 impl DatabaseBuilder {

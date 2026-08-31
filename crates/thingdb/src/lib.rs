@@ -295,10 +295,22 @@ pub struct RamDiagnostics {
     pub iteration_duration_ns: u64,
     /// Nanoseconds spent deserializing Thingd objects from RAM values.
     pub deserialization_duration_ns: u64,
+    /// Number of RAM-side serialized values recorded by the semantic layer.
+    pub serialization_count: u64,
+    /// Nanoseconds spent serializing values for the RAM semantic layer.
+    pub serialization_duration_ns: u64,
     /// Number of RAM search operations.
     pub search_count: u64,
     /// Nanoseconds spent executing RAM searches.
     pub search_duration_ns: u64,
+    /// Number of RAM derived-index mutations recorded by the semantic layer.
+    pub search_index_count: u64,
+    /// Nanoseconds spent applying RAM derived-index mutations.
+    pub search_index_duration_ns: u64,
+    /// Number of ThingDB RAM snapshots created.
+    pub snapshot_count: u64,
+    /// Nanoseconds spent creating ThingDB RAM snapshots.
+    pub snapshot_duration_ns: u64,
 }
 
 /// Keyspace creation options reserved for future per-keyspace tuning.
@@ -993,13 +1005,23 @@ impl Database {
 
     /// Return a consistent snapshot of all keyspaces.
     pub fn snapshot(&self) -> Result<Snapshot> {
+        let started = Instant::now();
         let mut inner = self
             .inner
             .lock()
             .map_err(|_| Error::message("database lock poisoned"))?;
-        Ok(Snapshot {
+        let snapshot = Snapshot {
             state: Arc::new(inner.materialize_state()?),
-        })
+        };
+        if inner.in_memory {
+            inner.ram_diagnostics.snapshot_count =
+                inner.ram_diagnostics.snapshot_count.saturating_add(1);
+            inner.ram_diagnostics.snapshot_duration_ns = inner
+                .ram_diagnostics
+                .snapshot_duration_ns
+                .saturating_add(elapsed_nanos(started.elapsed()));
+        }
+        Ok(snapshot)
     }
 
     /// Approximate current WAL size in bytes.
@@ -1085,6 +1107,34 @@ impl Database {
             inner.ram_diagnostics.search_duration_ns = inner
                 .ram_diagnostics
                 .search_duration_ns
+                .saturating_add(duration_ns);
+        }
+    }
+
+    /// Record semantic-layer serialization time for RAM diagnostics.
+    pub fn record_ram_serialization(&self, duration_ns: u64) {
+        if let Ok(mut inner) = self.inner.lock()
+            && inner.in_memory
+        {
+            inner.ram_diagnostics.serialization_count =
+                inner.ram_diagnostics.serialization_count.saturating_add(1);
+            inner.ram_diagnostics.serialization_duration_ns = inner
+                .ram_diagnostics
+                .serialization_duration_ns
+                .saturating_add(duration_ns);
+        }
+    }
+
+    /// Record semantic-layer derived-index mutation time for RAM diagnostics.
+    pub fn record_ram_search_index(&self, duration_ns: u64) {
+        if let Ok(mut inner) = self.inner.lock()
+            && inner.in_memory
+        {
+            inner.ram_diagnostics.search_index_count =
+                inner.ram_diagnostics.search_index_count.saturating_add(1);
+            inner.ram_diagnostics.search_index_duration_ns = inner
+                .ram_diagnostics
+                .search_index_duration_ns
                 .saturating_add(duration_ns);
         }
     }
