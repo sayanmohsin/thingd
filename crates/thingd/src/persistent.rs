@@ -2602,15 +2602,57 @@ impl PersistentEngine {
     }
 }
 
+impl PersistentEngine {
+    fn read_object_at_key(&self, key: &[u8]) -> ThingdResult<Option<MemoryObject>> {
+        if self.db.is_in_memory() {
+            let result = self
+                .objects
+                .with_value(key, |value| {
+                    value
+                        .map(|data| {
+                            let started = std::time::Instant::now();
+                            let result = self.deserialize::<MemoryObject>(data);
+                            result
+                                .map(|object| {
+                                    (
+                                        object,
+                                        u64::try_from(started.elapsed().as_nanos())
+                                            .unwrap_or(u64::MAX),
+                                    )
+                                })
+                                .map_err(|error| error.to_string())
+                        })
+                        .transpose()
+                        .map_err(crate::storage_backend::Error::from)
+                })
+                .map_err(|error| ThingdError::Storage(error.to_string()))?;
+            if let Some((object, duration_ns)) = result {
+                self.db.record_ram_deserialization(duration_ns);
+                return Ok(Some(object));
+            }
+            return Ok(None);
+        }
+        match value_to_vec(self.objects.get(key)?) {
+            Some(data) => {
+                let started = std::time::Instant::now();
+                let result = self.deserialize(&data);
+                self.db.record_ram_deserialization(
+                    u64::try_from(started.elapsed().as_nanos()).unwrap_or(u64::MAX),
+                );
+                Ok(Some(result?))
+            },
+            None => Ok(None),
+        }
+    }
+}
+
 // ── ObjectStore ──────────────────────────────────────────────────────────────
 
 impl ObjectStore for PersistentEngine {
     fn put_object(&mut self, mut object: MemoryObject) -> ThingdResult<MemoryObject> {
         self.validate_unique_indexes(&object)?;
         let key = self.make_object_key(&object.key.collection, &object.key.id);
-        let previous = value_to_vec(self.objects.get(&key)?)
-            .map(|data| self.deserialize::<MemoryObject>(&data))
-            .transpose()?;
+        let previous = self.read_object_at_key(&key)?;
 
         if object.created_at.is_empty() {
             object.created_at = now_iso_string();
@@ -2680,9 +2722,7 @@ impl ObjectStore for PersistentEngine {
         let mut inputs = Vec::with_capacity(objects.len());
         for object in objects {
             let key = self.make_object_key(&object.key.collection, &object.key.id);
-            let previous = value_to_vec(self.objects.get(&key)?)
-                .map(|data| self.deserialize::<MemoryObject>(&data))
-                .transpose()?;
+            let previous = self.read_object_at_key(&key)?;
 
             if let Some(previous) = previous.as_ref()
                 && let Ok(body) = serde_json::from_str::<Value>(&previous.body)
@@ -2973,45 +3013,7 @@ impl ObjectStore for PersistentEngine {
 
     fn get_object(&self, collection: &str, id: &str) -> ThingdResult<Option<MemoryObject>> {
         let key = self.make_object_key(collection, id);
-        if self.db.is_in_memory() {
-            let result = self
-                .objects
-                .with_value(&key, |value| {
-                    value
-                        .map(|data| {
-                            let started = std::time::Instant::now();
-                            let result = self.deserialize::<MemoryObject>(data);
-                            result
-                                .map(|object| {
-                                    (
-                                        object,
-                                        u64::try_from(started.elapsed().as_nanos())
-                                            .unwrap_or(u64::MAX),
-                                    )
-                                })
-                                .map_err(|error| error.to_string())
-                        })
-                        .transpose()
-                        .map_err(crate::storage_backend::Error::from)
-                })
-                .map_err(|error| ThingdError::Storage(error.to_string()))?;
-            if let Some((object, duration_ns)) = result {
-                self.db.record_ram_deserialization(duration_ns);
-                return Ok(Some(object));
-            }
-            return Ok(None);
-        }
-        match value_to_vec(self.objects.get(&key)?) {
-            Some(data) => {
-                let started = std::time::Instant::now();
-                let result = self.deserialize(&data);
-                self.db.record_ram_deserialization(
-                    u64::try_from(started.elapsed().as_nanos()).unwrap_or(u64::MAX),
-                );
-                Ok(Some(result?))
-            },
-            None => Ok(None),
-        }
+        self.read_object_at_key(&key)
     }
 
     fn get_objects_batch(
