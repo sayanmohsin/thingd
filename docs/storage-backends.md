@@ -43,6 +43,13 @@ Rust-native ThingDB backend. A sidecar deployment may still use a separate
 Thingd server process because HTTP requires a server, but it does not require a
 database container or database service.
 
+Rust consumers that do not need RocksDB can compile the experimental durable
+ThingDB path with `default-features = false` and the `thingdb-backend` feature.
+The compatibility `persistent` feature intentionally keeps enabling both
+backends for existing applications. This compile-time separation does not
+change the runtime defaults: RocksDB remains the default durable backend, and
+ThingDB remains a separate, opt-in format.
+
 ThingDB is a new format with a checksummed WAL, ordered keyspaces, atomic
 batches, snapshots, and compacted table files. It does not open RocksDB files
 directly. Switching between formats is a logical repack, not a file rename.

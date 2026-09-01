@@ -35,7 +35,7 @@ pub enum ThingdError {
     EncryptionMigration(String),
 }
 
-#[cfg(feature = "persistent")]
+#[cfg(feature = "persistent-engine")]
 impl From<crate::storage_backend::Error> for ThingdError {
     fn from(error: crate::storage_backend::Error) -> Self {
         Self::Storage(error.to_string())

@@ -34,7 +34,7 @@ for (const manifest of manifests) {
   const absolutePath = path.join(root, manifest);
   const source = await readFile(absolutePath, "utf8");
   const updated = source.replace(
-    /^(\s*[^#\n]+\{[^\n]*\bpath\s*=\s*"[^"]+"[^\n]*\bversion\s*=\s*")(\d+\.\d+)("[^\n]*\}\s*(?:#.*)?)$/gm,
+    /^(\s*[^#\n]+\{[^\n]*\bpath\s*=\s*"[^"]+"[^\n]*\bversion\s*=\s*")(\d+\.\d+)("[^\n]*)$/gm,
     (line, prefix, version, suffix) => {
       if (version === dependencyVersion) {
         return line;

@@ -680,7 +680,7 @@ mod tests {
     use super::*;
     use crate::{EventLog, MemoryEngine, ObjectStore};
 
-    #[cfg(feature = "persistent")]
+    #[cfg(feature = "persistent-engine")]
     use crate::PersistentEngine;
 
     #[test]
@@ -797,7 +797,7 @@ mod tests {
         ));
     }
 
-    #[cfg(feature = "persistent")]
+    #[cfg(feature = "persistent-engine")]
     #[test]
     fn persistent_replication_feed_cursor_survives_restart() {
         let directory = tempfile::tempdir().unwrap();
