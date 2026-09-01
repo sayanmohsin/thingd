@@ -1124,88 +1124,157 @@ impl WalDiagnosticsSnapshot {
         thingdb::WalDiagnostics {
             journal_bytes: before.journal_bytes.max(after.journal_bytes),
             frame_count: before.frame_count.max(after.frame_count),
-            recovery_bytes: after.recovery_bytes,
-            recovery_duration_ns: after.recovery_duration_ns,
-            encode_duration_ns: before.encode_duration_ns,
-            append_duration_ns: before.append_duration_ns,
-            wal_bytes_appended: before.wal_bytes_appended,
-            sync_duration_ns: before.sync_duration_ns,
-            state_apply_duration_ns: before.state_apply_duration_ns,
-            lock_duration_ns: before.lock_duration_ns,
-            logical_commit_count: before.logical_commit_count,
-            physical_sync_count: before.physical_sync_count,
-            total_group_size: before.total_group_size,
+            recovery_bytes: before.recovery_bytes.saturating_add(after.recovery_bytes),
+            recovery_duration_ns: before
+                .recovery_duration_ns
+                .saturating_add(after.recovery_duration_ns),
+            encode_duration_ns: before
+                .encode_duration_ns
+                .saturating_add(after.encode_duration_ns),
+            buffer_allocation_duration_ns: before
+                .buffer_allocation_duration_ns
+                .saturating_add(after.buffer_allocation_duration_ns),
+            buffer_reserved_bytes: before
+                .buffer_reserved_bytes
+                .saturating_add(after.buffer_reserved_bytes),
+            encode_outside_lock_duration_ns: before
+                .encode_outside_lock_duration_ns
+                .saturating_add(after.encode_outside_lock_duration_ns),
+            append_duration_ns: before
+                .append_duration_ns
+                .saturating_add(after.append_duration_ns),
+            wal_bytes_appended: before
+                .wal_bytes_appended
+                .saturating_add(after.wal_bytes_appended),
+            sync_duration_ns: before
+                .sync_duration_ns
+                .saturating_add(after.sync_duration_ns),
+            wal_lock_wait_duration_ns: before
+                .wal_lock_wait_duration_ns
+                .saturating_add(after.wal_lock_wait_duration_ns),
+            wal_lock_held_duration_ns: before
+                .wal_lock_held_duration_ns
+                .saturating_add(after.wal_lock_held_duration_ns),
+            state_apply_duration_ns: before
+                .state_apply_duration_ns
+                .saturating_add(after.state_apply_duration_ns),
+            lock_duration_ns: before
+                .lock_duration_ns
+                .saturating_add(after.lock_duration_ns),
+            logical_commit_count: before
+                .logical_commit_count
+                .saturating_add(after.logical_commit_count),
+            physical_sync_count: before
+                .physical_sync_count
+                .saturating_add(after.physical_sync_count),
+            total_group_size: before
+                .total_group_size
+                .saturating_add(after.total_group_size),
             max_group_size: before.max_group_size,
-            queue_wait_duration_ns: before.queue_wait_duration_ns,
+            queue_wait_duration_ns: before
+                .queue_wait_duration_ns
+                .saturating_add(after.queue_wait_duration_ns),
             recovery_required: after.recovery_required,
+            state_generation_conflict_count: before
+                .state_generation_conflict_count
+                .saturating_add(after.state_generation_conflict_count),
+            truncation_failure_count: before
+                .truncation_failure_count
+                .saturating_add(after.truncation_failure_count),
             wal_over_budget: before.wal_over_budget || after.wal_over_budget,
             memtable_bytes: before.memtable_bytes.max(after.memtable_bytes),
-            flush_count: before.flush_count.max(after.flush_count),
+            flush_count: before.flush_count.saturating_add(after.flush_count),
             automatic_flush_count: before
                 .automatic_flush_count
-                .max(after.automatic_flush_count),
-            flush_duration_ns: before.flush_duration_ns,
+                .saturating_add(after.automatic_flush_count),
+            flush_duration_ns: before
+                .flush_duration_ns
+                .saturating_add(after.flush_duration_ns),
             memtable_over_budget: before.memtable_over_budget || after.memtable_over_budget,
             last_error: after.last_error.or(before.last_error),
-            table_lookup_count: before.table_lookup_count.max(after.table_lookup_count),
+            table_lookup_count: before
+                .table_lookup_count
+                .saturating_add(after.table_lookup_count),
             mutable_state_lookup_count: before
                 .mutable_state_lookup_count
-                .max(after.mutable_state_lookup_count),
+                .saturating_add(after.mutable_state_lookup_count),
             pending_table_lookup_count: before
                 .pending_table_lookup_count
-                .max(after.pending_table_lookup_count),
+                .saturating_add(after.pending_table_lookup_count),
             immutable_layer_lookup_count: before
                 .immutable_layer_lookup_count
-                .max(after.immutable_layer_lookup_count),
+                .saturating_add(after.immutable_layer_lookup_count),
             table_layers_consulted: before
                 .table_layers_consulted
-                .max(after.table_layers_consulted),
-            table_bytes_read: before.table_bytes_read.max(after.table_bytes_read),
+                .saturating_add(after.table_layers_consulted),
+            table_bytes_read: before
+                .table_bytes_read
+                .saturating_add(after.table_bytes_read),
             table_read_duration_ns: before
                 .table_read_duration_ns
-                .max(after.table_read_duration_ns),
+                .saturating_add(after.table_read_duration_ns),
             read_lock_wait_duration_ns: before
                 .read_lock_wait_duration_ns
-                .max(after.read_lock_wait_duration_ns),
+                .saturating_add(after.read_lock_wait_duration_ns),
             read_lock_held_duration_ns: before
                 .read_lock_held_duration_ns
-                .max(after.read_lock_held_duration_ns),
+                .saturating_add(after.read_lock_held_duration_ns),
             table_reader_wait_duration_ns: before
                 .table_reader_wait_duration_ns
-                .max(after.table_reader_wait_duration_ns),
+                .saturating_add(after.table_reader_wait_duration_ns),
             table_lookup_duration_ns: before
                 .table_lookup_duration_ns
-                .max(after.table_lookup_duration_ns),
+                .saturating_add(after.table_lookup_duration_ns),
             file_read_duration_ns: before
                 .file_read_duration_ns
-                .max(after.file_read_duration_ns),
-            table_open_duration_ns: before.table_open_duration_ns,
-            scan_duration_ns: before.scan_duration_ns,
-            scan_count: before.scan_count,
-            scan_keys_examined: before.scan_keys_examined,
-            scan_layers_consulted: before.scan_layers_consulted,
+                .saturating_add(after.file_read_duration_ns),
+            table_open_duration_ns: before
+                .table_open_duration_ns
+                .saturating_add(after.table_open_duration_ns),
+            scan_duration_ns: before
+                .scan_duration_ns
+                .saturating_add(after.scan_duration_ns),
+            scan_count: before.scan_count.saturating_add(after.scan_count),
+            scan_keys_examined: before
+                .scan_keys_examined
+                .saturating_add(after.scan_keys_examined),
+            scan_layers_consulted: before
+                .scan_layers_consulted
+                .saturating_add(after.scan_layers_consulted),
             scan_lock_wait_duration_ns: before
                 .scan_lock_wait_duration_ns
-                .max(after.scan_lock_wait_duration_ns),
+                .saturating_add(after.scan_lock_wait_duration_ns),
             scan_lock_held_duration_ns: before
                 .scan_lock_held_duration_ns
-                .max(after.scan_lock_held_duration_ns),
+                .saturating_add(after.scan_lock_held_duration_ns),
             scan_cursor_init_duration_ns: before
                 .scan_cursor_init_duration_ns
-                .max(after.scan_cursor_init_duration_ns),
+                .saturating_add(after.scan_cursor_init_duration_ns),
             scan_merge_duration_ns: before
                 .scan_merge_duration_ns
-                .max(after.scan_merge_duration_ns),
+                .saturating_add(after.scan_merge_duration_ns),
             scan_returned_entries: before
                 .scan_returned_entries
-                .max(after.scan_returned_entries),
-            scan_error_count: before.scan_error_count.max(after.scan_error_count),
+                .saturating_add(after.scan_returned_entries),
+            scan_error_count: before
+                .scan_error_count
+                .saturating_add(after.scan_error_count),
             table_layer_count: before.table_layer_count.max(after.table_layer_count),
-            compaction_count: before.compaction_count.max(after.compaction_count),
-            compaction_duration_ns: before.compaction_duration_ns,
-            compaction_input_bytes: before.compaction_input_bytes,
-            compaction_output_bytes: before.compaction_output_bytes,
-            table_bytes_written: before.table_bytes_written,
+            compaction_count: before
+                .compaction_count
+                .saturating_add(after.compaction_count),
+            compaction_duration_ns: before
+                .compaction_duration_ns
+                .saturating_add(after.compaction_duration_ns),
+            compaction_input_bytes: before
+                .compaction_input_bytes
+                .saturating_add(after.compaction_input_bytes),
+            compaction_output_bytes: before
+                .compaction_output_bytes
+                .saturating_add(after.compaction_output_bytes),
+            table_bytes_written: before
+                .table_bytes_written
+                .saturating_add(after.table_bytes_written),
         }
     }
 }

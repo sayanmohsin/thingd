@@ -192,12 +192,22 @@ pub struct WalDiagnostics {
     pub recovery_duration_ns: u64,
     /// Nanoseconds spent encoding WAL frames.
     pub encode_duration_ns: u64,
+    /// Nanoseconds spent reserving the grouped WAL buffer.
+    pub buffer_allocation_duration_ns: u64,
+    /// Bytes reserved for grouped WAL buffers.
+    pub buffer_reserved_bytes: u64,
+    /// Nanoseconds spent encoding WAL frames outside the state lock.
+    pub encode_outside_lock_duration_ns: u64,
     /// Nanoseconds spent appending WAL frames.
     pub append_duration_ns: u64,
     /// Total bytes appended to the WAL since opening the database.
     pub wal_bytes_appended: u64,
     /// Nanoseconds spent syncing WAL frames.
     pub sync_duration_ns: u64,
+    /// Nanoseconds spent waiting for the WAL I/O lock.
+    pub wal_lock_wait_duration_ns: u64,
+    /// Nanoseconds spent holding the WAL I/O lock.
+    pub wal_lock_held_duration_ns: u64,
     /// Nanoseconds spent applying committed operations to memory.
     pub state_apply_duration_ns: u64,
     /// Nanoseconds spent holding the database lock for commits.
@@ -214,6 +224,10 @@ pub struct WalDiagnostics {
     pub queue_wait_duration_ns: u64,
     /// Whether the database requires reopen and recovery before writing.
     pub recovery_required: bool,
+    /// Number of commit groups rejected after a state-generation change.
+    pub state_generation_conflict_count: u64,
+    /// Number of WAL truncation failures observed during recovery of a group.
+    pub truncation_failure_count: u64,
     /// Whether the WAL is above the configured soft budget.
     pub wal_over_budget: bool,
     /// Bytes held by the current mutable table delta.
@@ -644,8 +658,11 @@ fn process_group(inner: &Weak<Mutex<Inner>>, mut requests: Vec<CommitRequest>) {
 
     let wal_start = if inner.in_memory {
         0
-    } else if let Some(metadata) = inner.wal.as_ref().and_then(|wal| wal.metadata().ok()) {
-        metadata.len()
+    } else if inner.wal.is_some() {
+        // The diagnostic is maintained whenever the WAL is opened, appended,
+        // truncated, or rotated. Reusing it avoids another metadata syscall
+        // while the database lock is held.
+        inner.diagnostics.journal_bytes
     } else {
         let message = "ThingDB WAL is unavailable";
         inner.diagnostics.last_error = Some(message.to_string());
@@ -670,12 +687,6 @@ fn process_group(inner: &Weak<Mutex<Inner>>, mut requests: Vec<CommitRequest>) {
             inner.recovery_required = true;
             inner.diagnostics.recovery_required = true;
         }
-    }
-    if let Some(wal) = inner.wal.as_ref()
-        && let Ok(bytes) = wal.metadata().map(|metadata| metadata.len())
-    {
-        inner.diagnostics.journal_bytes = bytes;
-        inner.diagnostics.wal_over_budget = bytes > inner.max_journaling_size;
     }
     inner.diagnostics.lock_duration_ns = inner
         .diagnostics
@@ -718,6 +729,7 @@ fn execute_memory_group(
     (Ok(()), false)
 }
 
+#[allow(clippy::too_many_lines)]
 fn execute_group(
     inner: &mut Inner,
     requests: &mut [CommitRequest],
@@ -725,17 +737,31 @@ fn execute_group(
     group_size: u64,
 ) -> (Result<()>, bool) {
     let mut next_sequence = inner.sequence.saturating_add(1);
-    let mut wal_bytes = Vec::new();
+    let allocation_started = Instant::now();
+    let reserved_bytes = requests
+        .iter()
+        .map(|request| encoded_frame_capacity(&request.operations))
+        .sum();
+    let mut wal_bytes = Vec::with_capacity(reserved_bytes);
+    inner.diagnostics.buffer_allocation_duration_ns = inner
+        .diagnostics
+        .buffer_allocation_duration_ns
+        .saturating_add(elapsed_nanos(allocation_started.elapsed()));
+    inner.diagnostics.buffer_reserved_bytes = inner
+        .diagnostics
+        .buffer_reserved_bytes
+        .saturating_add(reserved_bytes as u64);
     let mut synced = false;
     let result: Result<()> = (|| {
         for request in requests.iter() {
             let started = Instant::now();
-            let frame = encode_frame(next_sequence, &request.operations)?;
+            let frame_start = wal_bytes.len();
+            encode_frame_into(&mut wal_bytes, next_sequence, &request.operations)?;
             inner.diagnostics.encode_duration_ns = inner
                 .diagnostics
                 .encode_duration_ns
                 .saturating_add(elapsed_nanos(started.elapsed()));
-            wal_bytes.extend_from_slice(&frame);
+            debug_assert!(wal_bytes.len() >= frame_start);
             next_sequence = next_sequence.saturating_add(1);
         }
 
@@ -757,6 +783,9 @@ fn execute_group(
             .diagnostics
             .wal_bytes_appended
             .saturating_add(wal_bytes.len() as u64);
+        let journal_bytes = wal_start.saturating_add(wal_bytes.len() as u64);
+        inner.diagnostics.journal_bytes = journal_bytes;
+        inner.diagnostics.wal_over_budget = journal_bytes > inner.max_journaling_size;
 
         if let Some(point) = request_has_fault(requests, "after-wal-write-before-sync") {
             maybe_fail(point, Some(point))?;
@@ -2309,10 +2338,46 @@ fn successor(key: &[u8]) -> Option<Vec<u8>> {
     None
 }
 
+fn encoded_frame_capacity(operations: &[Operation]) -> usize {
+    WAL_MAGIC
+        .len()
+        .saturating_add(8)
+        .saturating_add(8)
+        .saturating_add(4)
+        .saturating_add(
+            operations
+                .iter()
+                .map(|operation| match operation {
+                    Operation::Put { key, value } => 1usize
+                        .saturating_add(8)
+                        .saturating_add(key.len())
+                        .saturating_add(8)
+                        .saturating_add(value.len()),
+                    Operation::Delete { key } => 1usize
+                        .saturating_add(8)
+                        .saturating_add(key.len())
+                        .saturating_add(8),
+                })
+                .sum(),
+        )
+        .saturating_add(4)
+}
+
+#[cfg(test)]
 fn encode_frame(sequence: u64, operations: &[Operation]) -> Result<Vec<u8>> {
-    let mut payload = Vec::new();
+    let mut frame = Vec::with_capacity(encoded_frame_capacity(operations));
+    encode_frame_into(&mut frame, sequence, operations)?;
+    Ok(frame)
+}
+
+fn encode_frame_into(output: &mut Vec<u8>, sequence: u64, operations: &[Operation]) -> Result<()> {
+    output.extend_from_slice(WAL_MAGIC);
+    let length_offset = output.len();
+    write_u64(output, 0);
+    let body_start = output.len();
+    write_u64(output, sequence);
     write_u32(
-        &mut payload,
+        output,
         operations
             .len()
             .try_into()
@@ -2321,32 +2386,28 @@ fn encode_frame(sequence: u64, operations: &[Operation]) -> Result<Vec<u8>> {
     for operation in operations {
         match operation {
             Operation::Put { key, value } => {
-                payload.push(1);
-                write_bytes(&mut payload, key)?;
-                write_bytes(&mut payload, value)?;
+                output.push(1);
+                write_bytes(output, key)?;
+                write_bytes(output, value)?;
             },
             Operation::Delete { key } => {
-                payload.push(2);
-                write_bytes(&mut payload, key)?;
-                write_u64(&mut payload, 0);
+                output.push(2);
+                write_bytes(output, key)?;
+                write_u64(output, 0);
             },
         }
     }
-    let mut body = Vec::new();
-    write_u64(&mut body, sequence);
-    body.extend_from_slice(&payload);
-    let checksum = checksum(&body);
-    let frame_len: u64 = body
+    let checksum_offset = output.len();
+    let frame_checksum = checksum(&output[body_start..checksum_offset]);
+    write_u32(output, frame_checksum);
+    let frame_len: u64 = output
         .len()
-        .checked_add(4)
-        .and_then(|length| length.try_into().ok())
+        .saturating_sub(body_start)
+        .try_into()
+        .ok()
         .ok_or_else(|| Error::message("WAL frame is too large"))?;
-    let mut frame = Vec::new();
-    frame.extend_from_slice(WAL_MAGIC);
-    write_u64(&mut frame, frame_len);
-    frame.extend_from_slice(&body);
-    write_u32(&mut frame, checksum);
-    Ok(frame)
+    output[length_offset..length_offset + 8].copy_from_slice(&frame_len.to_be_bytes());
+    Ok(())
 }
 
 fn replay_wal(
@@ -3595,6 +3656,7 @@ mod tests {
         assert_eq!(diagnostics.max_group_size, 1);
         assert!(diagnostics.journal_bytes > 0);
         assert!(diagnostics.wal_bytes_appended > 0);
+        assert!(diagnostics.buffer_reserved_bytes >= diagnostics.wal_bytes_appended);
         assert!(diagnostics.sync_duration_ns > 0);
         drop(objects);
         drop(db);
