@@ -75,11 +75,12 @@ struct BenchResult {
     operations: usize,
     total_ns: u128,
     throughput_ops_per_second: u128,
-    min_ns: u128,
-    p50_ns: u128,
-    p95_ns: u128,
-    p99_ns: u128,
-    max_ns: u128,
+    min_ns: Option<u128>,
+    p50_ns: Option<u128>,
+    p95_ns: Option<u128>,
+    p99_ns: Option<u128>,
+    max_ns: Option<u128>,
+    latency_sampled: bool,
     error_count: usize,
 }
 
@@ -167,11 +168,17 @@ struct BenchMetadata {
     qualification_preflight: bool,
     queue_iterations: Option<usize>,
     peak_rss_bytes: Option<u64>,
+    peak_rss_status: String,
+    cpu_time_ns: Option<u64>,
+    cpu_time_status: String,
+    cpu_model: String,
+    filesystem: String,
 }
 
 static RESULTS: std::sync::OnceLock<Mutex<BenchOutput>> = std::sync::OnceLock::new();
 static CURRENT_REPETITION: AtomicUsize = AtomicUsize::new(0);
 static PEAK_RSS_BYTES: AtomicU64 = AtomicU64::new(0);
+static CPU_TIME_NS: AtomicU64 = AtomicU64::new(0);
 
 #[allow(clippy::too_many_lines)]
 fn main() -> Result<(), Box<dyn Error>> {
@@ -196,6 +203,11 @@ fn main() -> Result<(), Box<dyn Error>> {
                 qualification_preflight: config.qualification,
                 queue_iterations: config.queue_iterations,
                 peak_rss_bytes: None,
+                peak_rss_status: "pending".to_string(),
+                cpu_time_ns: None,
+                cpu_time_status: "pending".to_string(),
+                cpu_model: cpu_model(),
+                filesystem: filesystem_type(),
             },
             results: Vec::new(),
             summaries: Vec::new(),
@@ -723,6 +735,9 @@ where
     let elapsed = time_object_puts(&mut store, iterations)?;
     report(name, "object_put", iterations, elapsed);
 
+    let elapsed = time_object_updates(&mut store, iterations)?;
+    report(name, "object_update", iterations, elapsed);
+
     let elapsed = time_object_put_batch(&mut store, iterations)?;
     report(name, "object_batch", iterations, elapsed);
 
@@ -948,35 +963,12 @@ fn bench_wal_workloads(
         .wal_diagnostics()?
         .ok_or("ThingDB diagnostics unavailable")?;
     drop(engine);
-    let started = Instant::now();
-    let mut reopened = PersistentEngine::open_with_options(path, options.clone())?;
-    report(name, "wal-recovery", 1, started.elapsed());
-
-    let started = Instant::now();
-    for index in 0..iterations {
-        let id = format!(
-            "wal-single-{}",
-            deterministic_index(seed, index, iterations.max(1))
-        );
-        black_box(reopened.get_object(COLLECTION, &id)?);
-    }
-    report(name, "table-point-read", iterations, started.elapsed());
-
-    let started = Instant::now();
-    reopened.compact_storage()?;
-    report(name, "table-compaction", 1, started.elapsed());
-    drop(reopened);
-
-    let started = Instant::now();
-    let reopened = PersistentEngine::open_with_options(path, options)?;
-    report(name, "table-recovery", 1, started.elapsed());
-    let after_reopen = reopened
-        .wal_diagnostics()?
-        .ok_or("ThingDB diagnostics unavailable after reopen")?;
+    let table_diagnostics =
+        bench_table_read_workloads(name, path, options, iterations, seed, before_reopen)?;
     results().lock().unwrap().wal.push(WalSnapshot {
         driver: name.to_string(),
         repetition: CURRENT_REPETITION.load(Ordering::Relaxed),
-        diagnostics: WalDiagnosticsSnapshot::merge(before_reopen, after_reopen),
+        diagnostics: table_diagnostics,
     });
 
     let bounded_path = path.join("bounded-memtable");
@@ -1020,6 +1012,51 @@ fn bench_wal_workloads(
     });
     bench_thingdb_concurrent_writes(name, path, iterations, seed)?;
     Ok(())
+}
+
+fn bench_table_read_workloads(
+    name: &str,
+    path: &Path,
+    options: PersistentOpenOptions,
+    iterations: usize,
+    seed: u64,
+    before_reopen: thingdb::WalDiagnostics,
+) -> Result<thingdb::WalDiagnostics, Box<dyn Error>> {
+    let started = Instant::now();
+    let mut reopened = PersistentEngine::open_with_options(path, options.clone())?;
+    report(name, "wal-recovery", 1, started.elapsed());
+
+    let started = Instant::now();
+    reopened.compact_storage()?;
+    report(name, "table-compaction", 1, started.elapsed());
+    drop(reopened);
+
+    let started = Instant::now();
+    let reopened = PersistentEngine::open_with_options(path, options.clone())?;
+    report(name, "table-recovery", 1, started.elapsed());
+
+    let started = Instant::now();
+    for index in 0..iterations {
+        let id = format!(
+            "wal-single-{}",
+            deterministic_index(seed, index, iterations.max(1))
+        );
+        black_box(reopened.get_object(COLLECTION, &id)?);
+    }
+    report(name, "table-point-read", iterations, started.elapsed());
+    let after_table_read = reopened
+        .wal_diagnostics()?
+        .ok_or("ThingDB diagnostics unavailable after table reads")?;
+    drop(reopened);
+
+    let reopened = PersistentEngine::open_with_options(path, options)?;
+    let after_reopen = reopened
+        .wal_diagnostics()?
+        .ok_or("ThingDB diagnostics unavailable after reopen")?;
+    Ok(WalDiagnosticsSnapshot::merge(
+        WalDiagnosticsSnapshot::merge(before_reopen, after_table_read),
+        after_reopen,
+    ))
 }
 
 fn bench_thingdb_concurrent_writes(
@@ -1080,6 +1117,7 @@ fn bench_thingdb_concurrent_writes(
 struct WalDiagnosticsSnapshot;
 
 impl WalDiagnosticsSnapshot {
+    #[allow(clippy::too_many_lines)]
     fn merge(
         before: thingdb::WalDiagnostics,
         after: thingdb::WalDiagnostics,
@@ -1087,43 +1125,157 @@ impl WalDiagnosticsSnapshot {
         thingdb::WalDiagnostics {
             journal_bytes: before.journal_bytes.max(after.journal_bytes),
             frame_count: before.frame_count.max(after.frame_count),
-            recovery_bytes: after.recovery_bytes,
-            recovery_duration_ns: after.recovery_duration_ns,
-            encode_duration_ns: before.encode_duration_ns,
-            append_duration_ns: before.append_duration_ns,
-            sync_duration_ns: before.sync_duration_ns,
-            state_apply_duration_ns: before.state_apply_duration_ns,
-            lock_duration_ns: before.lock_duration_ns,
-            logical_commit_count: before.logical_commit_count,
-            physical_sync_count: before.physical_sync_count,
-            total_group_size: before.total_group_size,
+            recovery_bytes: before.recovery_bytes.saturating_add(after.recovery_bytes),
+            recovery_duration_ns: before
+                .recovery_duration_ns
+                .saturating_add(after.recovery_duration_ns),
+            encode_duration_ns: before
+                .encode_duration_ns
+                .saturating_add(after.encode_duration_ns),
+            buffer_allocation_duration_ns: before
+                .buffer_allocation_duration_ns
+                .saturating_add(after.buffer_allocation_duration_ns),
+            buffer_reserved_bytes: before
+                .buffer_reserved_bytes
+                .saturating_add(after.buffer_reserved_bytes),
+            encode_outside_lock_duration_ns: before
+                .encode_outside_lock_duration_ns
+                .saturating_add(after.encode_outside_lock_duration_ns),
+            append_duration_ns: before
+                .append_duration_ns
+                .saturating_add(after.append_duration_ns),
+            wal_bytes_appended: before
+                .wal_bytes_appended
+                .saturating_add(after.wal_bytes_appended),
+            sync_duration_ns: before
+                .sync_duration_ns
+                .saturating_add(after.sync_duration_ns),
+            wal_lock_wait_duration_ns: before
+                .wal_lock_wait_duration_ns
+                .saturating_add(after.wal_lock_wait_duration_ns),
+            wal_lock_held_duration_ns: before
+                .wal_lock_held_duration_ns
+                .saturating_add(after.wal_lock_held_duration_ns),
+            state_apply_duration_ns: before
+                .state_apply_duration_ns
+                .saturating_add(after.state_apply_duration_ns),
+            lock_duration_ns: before
+                .lock_duration_ns
+                .saturating_add(after.lock_duration_ns),
+            logical_commit_count: before
+                .logical_commit_count
+                .saturating_add(after.logical_commit_count),
+            physical_sync_count: before
+                .physical_sync_count
+                .saturating_add(after.physical_sync_count),
+            total_group_size: before
+                .total_group_size
+                .saturating_add(after.total_group_size),
             max_group_size: before.max_group_size,
-            queue_wait_duration_ns: before.queue_wait_duration_ns,
+            queue_wait_duration_ns: before
+                .queue_wait_duration_ns
+                .saturating_add(after.queue_wait_duration_ns),
             recovery_required: after.recovery_required,
+            state_generation_conflict_count: before
+                .state_generation_conflict_count
+                .saturating_add(after.state_generation_conflict_count),
+            truncation_failure_count: before
+                .truncation_failure_count
+                .saturating_add(after.truncation_failure_count),
             wal_over_budget: before.wal_over_budget || after.wal_over_budget,
             memtable_bytes: before.memtable_bytes.max(after.memtable_bytes),
-            flush_count: before.flush_count.max(after.flush_count),
+            flush_count: before.flush_count.saturating_add(after.flush_count),
             automatic_flush_count: before
                 .automatic_flush_count
-                .max(after.automatic_flush_count),
-            flush_duration_ns: before.flush_duration_ns,
+                .saturating_add(after.automatic_flush_count),
+            flush_duration_ns: before
+                .flush_duration_ns
+                .saturating_add(after.flush_duration_ns),
             memtable_over_budget: before.memtable_over_budget || after.memtable_over_budget,
             last_error: after.last_error.or(before.last_error),
-            table_lookup_count: before.table_lookup_count,
-            mutable_state_lookup_count: before.mutable_state_lookup_count,
-            pending_table_lookup_count: before.pending_table_lookup_count,
-            immutable_layer_lookup_count: before.immutable_layer_lookup_count,
-            table_layers_consulted: before.table_layers_consulted,
-            table_bytes_read: before.table_bytes_read,
-            table_read_duration_ns: before.table_read_duration_ns,
-            table_open_duration_ns: before.table_open_duration_ns,
-            scan_duration_ns: before.scan_duration_ns,
-            scan_count: before.scan_count,
+            table_lookup_count: before
+                .table_lookup_count
+                .saturating_add(after.table_lookup_count),
+            mutable_state_lookup_count: before
+                .mutable_state_lookup_count
+                .saturating_add(after.mutable_state_lookup_count),
+            pending_table_lookup_count: before
+                .pending_table_lookup_count
+                .saturating_add(after.pending_table_lookup_count),
+            immutable_layer_lookup_count: before
+                .immutable_layer_lookup_count
+                .saturating_add(after.immutable_layer_lookup_count),
+            table_layers_consulted: before
+                .table_layers_consulted
+                .saturating_add(after.table_layers_consulted),
+            table_bytes_read: before
+                .table_bytes_read
+                .saturating_add(after.table_bytes_read),
+            table_read_duration_ns: before
+                .table_read_duration_ns
+                .saturating_add(after.table_read_duration_ns),
+            read_lock_wait_duration_ns: before
+                .read_lock_wait_duration_ns
+                .saturating_add(after.read_lock_wait_duration_ns),
+            read_lock_held_duration_ns: before
+                .read_lock_held_duration_ns
+                .saturating_add(after.read_lock_held_duration_ns),
+            table_reader_wait_duration_ns: before
+                .table_reader_wait_duration_ns
+                .saturating_add(after.table_reader_wait_duration_ns),
+            table_lookup_duration_ns: before
+                .table_lookup_duration_ns
+                .saturating_add(after.table_lookup_duration_ns),
+            file_read_duration_ns: before
+                .file_read_duration_ns
+                .saturating_add(after.file_read_duration_ns),
+            table_open_duration_ns: before
+                .table_open_duration_ns
+                .saturating_add(after.table_open_duration_ns),
+            scan_duration_ns: before
+                .scan_duration_ns
+                .saturating_add(after.scan_duration_ns),
+            scan_count: before.scan_count.saturating_add(after.scan_count),
+            scan_keys_examined: before
+                .scan_keys_examined
+                .saturating_add(after.scan_keys_examined),
+            scan_layers_consulted: before
+                .scan_layers_consulted
+                .saturating_add(after.scan_layers_consulted),
+            scan_lock_wait_duration_ns: before
+                .scan_lock_wait_duration_ns
+                .saturating_add(after.scan_lock_wait_duration_ns),
+            scan_lock_held_duration_ns: before
+                .scan_lock_held_duration_ns
+                .saturating_add(after.scan_lock_held_duration_ns),
+            scan_cursor_init_duration_ns: before
+                .scan_cursor_init_duration_ns
+                .saturating_add(after.scan_cursor_init_duration_ns),
+            scan_merge_duration_ns: before
+                .scan_merge_duration_ns
+                .saturating_add(after.scan_merge_duration_ns),
+            scan_returned_entries: before
+                .scan_returned_entries
+                .saturating_add(after.scan_returned_entries),
+            scan_error_count: before
+                .scan_error_count
+                .saturating_add(after.scan_error_count),
             table_layer_count: before.table_layer_count.max(after.table_layer_count),
-            compaction_count: before.compaction_count.max(after.compaction_count),
-            compaction_duration_ns: before.compaction_duration_ns,
-            compaction_input_bytes: before.compaction_input_bytes,
-            compaction_output_bytes: before.compaction_output_bytes,
+            compaction_count: before
+                .compaction_count
+                .saturating_add(after.compaction_count),
+            compaction_duration_ns: before
+                .compaction_duration_ns
+                .saturating_add(after.compaction_duration_ns),
+            compaction_input_bytes: before
+                .compaction_input_bytes
+                .saturating_add(after.compaction_input_bytes),
+            compaction_output_bytes: before
+                .compaction_output_bytes
+                .saturating_add(after.compaction_output_bytes),
+            table_bytes_written: before
+                .table_bytes_written
+                .saturating_add(after.table_bytes_written),
         }
     }
 }
@@ -1531,19 +1683,20 @@ fn record_latency(driver: &str, operation: &str, mut samples: Vec<u128>) {
         operations,
         total_ns,
         throughput_ops_per_second: throughput(operations, total_ns),
-        min_ns: samples[0],
-        p50_ns: percentile(&samples, 50),
-        p95_ns: percentile(&samples, 95),
-        p99_ns: percentile(&samples, 99),
-        max_ns: *samples.last().unwrap_or(&0),
+        min_ns: Some(samples[0]),
+        p50_ns: Some(percentile(&samples, 50)),
+        p95_ns: Some(percentile(&samples, 95)),
+        p99_ns: Some(percentile(&samples, 99)),
+        max_ns: Some(*samples.last().unwrap_or(&0)),
+        latency_sampled: true,
         error_count: 0,
     };
     println!(
         "{driver:>13} | {operation:<22} | p50={:?} p95={:?} p99={:?} max={:?}",
-        nanos_duration(result.p50_ns),
-        nanos_duration(result.p95_ns),
-        nanos_duration(result.p99_ns),
-        nanos_duration(result.max_ns),
+        nanos_duration(result.p50_ns.unwrap_or_default()),
+        nanos_duration(result.p95_ns.unwrap_or_default()),
+        nanos_duration(result.p99_ns.unwrap_or_default()),
+        nanos_duration(result.max_ns.unwrap_or_default()),
     );
     results().lock().unwrap().results.push(result);
 }
@@ -1670,6 +1823,26 @@ where
     let started = Instant::now();
     let results = store.put_objects_batch(objects)?;
     black_box(results.len());
+    Ok(started.elapsed())
+}
+
+fn time_object_updates<S>(store: &mut S, iterations: usize) -> Result<Duration, Box<dyn Error>>
+where
+    S: ObjectStore,
+{
+    let started = Instant::now();
+
+    for index in 0..iterations {
+        let body = if index % 2 == 0 {
+            OBJECT_BODY_INACTIVE
+        } else {
+            OBJECT_BODY_ACTIVE
+        };
+        let object = MemoryObject::new(COLLECTION, format!("object-{index}"), body);
+        let stored = store.put_object(object)?;
+        black_box(stored.version);
+    }
+
     Ok(started.elapsed())
 }
 
@@ -2004,11 +2177,12 @@ fn report(store: &str, operation: &str, iterations: usize, elapsed: Duration) {
         operations: iterations,
         total_ns,
         throughput_ops_per_second: operations_per_second,
-        min_ns: total_ns / iterations.max(1) as u128,
-        p50_ns: total_ns / iterations.max(1) as u128,
-        p95_ns: total_ns / iterations.max(1) as u128,
-        p99_ns: total_ns / iterations.max(1) as u128,
-        max_ns: total_ns / iterations.max(1) as u128,
+        min_ns: None,
+        p50_ns: None,
+        p95_ns: None,
+        p99_ns: None,
+        max_ns: None,
+        latency_sampled: false,
         error_count: 0,
     });
 }
@@ -2036,18 +2210,92 @@ fn command_output(command: &str, arguments: &[&str]) -> String {
 fn sample_peak_rss() {
     let pid = std::process::id().to_string();
     let output = std::process::Command::new("ps")
-        .args(["-o", "rss=", "-p", &pid])
+        .args(["-o", "rss=,cputime=", "-p", &pid])
         .output();
-    let Some(bytes) = output
+    let Some((bytes, cpu_ns)) = output
         .ok()
         .filter(|output| output.status.success())
         .and_then(|output| String::from_utf8(output.stdout).ok())
-        .and_then(|rss| rss.trim().parse::<u64>().ok())
-        .map(|kilobytes| kilobytes.saturating_mul(1024))
+        .and_then(|value| {
+            let mut fields = value.split_whitespace();
+            let rss = fields.next()?.parse::<u64>().ok()?;
+            let cpu = parse_process_duration_ns(fields.next()?)?;
+            Some((rss.saturating_mul(1024), cpu))
+        })
     else {
         return;
     };
     PEAK_RSS_BYTES.fetch_max(bytes, Ordering::Relaxed);
+    CPU_TIME_NS.fetch_max(cpu_ns, Ordering::Relaxed);
+}
+
+fn parse_process_duration_ns(value: &str) -> Option<u64> {
+    let parts = value.split(':').collect::<Vec<_>>();
+    if !(1..=3).contains(&parts.len()) {
+        return None;
+    }
+    let seconds = parts.last()?.split_once('.');
+    let whole_seconds = match seconds {
+        Some((whole, _)) => whole.parse::<u64>().ok()?,
+        None => parts.last()?.parse::<u64>().ok()?,
+    };
+    let fraction_ns = seconds
+        .and_then(|(_, fraction)| {
+            let digits = fraction.as_bytes();
+            if digits.iter().any(|digit| !digit.is_ascii_digit()) {
+                return None;
+            }
+            let take = digits.len().min(9);
+            let value = std::str::from_utf8(&digits[..take])
+                .ok()?
+                .parse::<u64>()
+                .ok()?;
+            Some(value.saturating_mul(10_u64.pow(u32::try_from(9 - take).ok()?)))
+        })
+        .unwrap_or(0);
+    let minutes = parts
+        .get(parts.len().saturating_sub(2))
+        .map_or(0, |value| value.parse::<u64>().unwrap_or(0));
+    let hours = parts
+        .get(parts.len().saturating_sub(3))
+        .map_or(0, |value| value.parse::<u64>().unwrap_or(0));
+    Some(
+        hours
+            .saturating_mul(3_600_000_000_000)
+            .saturating_add(minutes.saturating_mul(60_000_000_000))
+            .saturating_add(whole_seconds.saturating_mul(1_000_000_000))
+            .saturating_add(fraction_ns),
+    )
+}
+
+fn cpu_model() -> String {
+    let model = command_output("sysctl", &["-n", "machdep.cpu.brand_string"]);
+    if model != "unknown" {
+        return model;
+    }
+    fs::read_to_string("/proc/cpuinfo")
+        .ok()
+        .and_then(|value| {
+            value.lines().find_map(|line| {
+                line.strip_prefix("model name:")
+                    .map(|model| model.trim().to_string())
+            })
+        })
+        .unwrap_or_else(|| "unsupported: CPU model unavailable".to_string())
+}
+
+fn filesystem_type() -> String {
+    let path = env::current_dir().map_or_else(|_| ".".into(), |path| path.display().to_string());
+    let output = std::process::Command::new("df")
+        .args(["-P", &path])
+        .output();
+    output
+        .ok()
+        .filter(|output| output.status.success())
+        .and_then(|output| String::from_utf8(output.stdout).ok())
+        .and_then(|value| value.lines().nth(1).map(str::to_owned))
+        .and_then(|line| line.split_whitespace().next().map(str::to_owned))
+        .unwrap_or_else(|| "unsupported: filesystem type unavailable".to_string())
 }
 
 fn record_storage(driver: &str, path: &Path) {
@@ -2103,8 +2351,26 @@ fn write_output(path: &Path) -> Result<(), Box<dyn Error>> {
     sample_peak_rss();
     if let Ok(mut output) = results().lock() {
         output.metadata.peak_rss_bytes = match PEAK_RSS_BYTES.load(Ordering::Relaxed) {
-            0 => None,
-            bytes => Some(bytes),
+            0 => {
+                output.metadata.peak_rss_status =
+                    "unsupported: process RSS sampling unavailable".to_string();
+                None
+            },
+            bytes => {
+                output.metadata.peak_rss_status = "measured: ps rss".to_string();
+                Some(bytes)
+            },
+        };
+        output.metadata.cpu_time_ns = match CPU_TIME_NS.load(Ordering::Relaxed) {
+            0 => {
+                output.metadata.cpu_time_status =
+                    "unsupported: process CPU time sampling unavailable".to_string();
+                None
+            },
+            nanos => {
+                output.metadata.cpu_time_status = "measured: ps cputime".to_string();
+                Some(nanos)
+            },
         };
     }
     if let Some(parent) = path
@@ -2117,33 +2383,42 @@ fn write_output(path: &Path) -> Result<(), Box<dyn Error>> {
         let csv = {
             let output = results().lock().unwrap();
             let mut csv = String::from(
-                "commit,rust,os,arch,iterations,repetitions,seed,backend,repetition,driver,operation,operations,total_ns,throughput_ops_per_second,min_ns,p50_ns,p95_ns,p99_ns,max_ns,error_count\n",
+                "date,phase,branch,commit,rust,os,arch,cpu_model,filesystem,iterations,repetitions,seed,backend,peak_rss_bytes,peak_rss_status,cpu_time_ns,cpu_time_status,repetition,driver,operation,operations,total_ns,throughput_ops_per_second,min_ns,p50_ns,p95_ns,p99_ns,max_ns,latency_sampled,error_count\n",
             );
             for result in &output.results {
-                let _ = writeln!(
-                    csv,
-                    "{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
+                let fields = [
+                    csv_escape(&output.metadata.date),
+                    csv_escape(&output.metadata.phase),
+                    csv_escape(&output.metadata.branch),
                     csv_escape(&output.metadata.commit),
                     csv_escape(&output.metadata.rust),
-                    output.metadata.os,
-                    output.metadata.arch,
-                    output.metadata.iterations,
-                    output.metadata.repetitions,
-                    output.metadata.seed,
-                    output.metadata.backend,
-                    result.repetition,
+                    csv_escape(&output.metadata.os),
+                    csv_escape(&output.metadata.arch),
+                    csv_escape(&output.metadata.cpu_model),
+                    csv_escape(&output.metadata.filesystem),
+                    output.metadata.iterations.to_string(),
+                    output.metadata.repetitions.to_string(),
+                    output.metadata.seed.to_string(),
+                    csv_escape(&output.metadata.backend),
+                    option_csv_u64(output.metadata.peak_rss_bytes),
+                    csv_escape(&output.metadata.peak_rss_status),
+                    option_csv_u64(output.metadata.cpu_time_ns),
+                    csv_escape(&output.metadata.cpu_time_status),
+                    result.repetition.to_string(),
                     csv_escape(&result.driver),
                     csv_escape(&result.operation),
-                    result.operations,
-                    result.total_ns,
-                    result.throughput_ops_per_second,
-                    result.min_ns,
-                    result.p50_ns,
-                    result.p95_ns,
-                    result.p99_ns,
-                    result.max_ns,
-                    result.error_count,
-                );
+                    result.operations.to_string(),
+                    result.total_ns.to_string(),
+                    result.throughput_ops_per_second.to_string(),
+                    option_csv(result.min_ns),
+                    option_csv(result.p50_ns),
+                    option_csv(result.p95_ns),
+                    option_csv(result.p99_ns),
+                    option_csv(result.max_ns),
+                    result.latency_sampled.to_string(),
+                    result.error_count.to_string(),
+                ];
+                let _ = writeln!(csv, "{}", fields.join(","));
             }
             drop(output);
             csv
@@ -2177,5 +2452,33 @@ fn csv_escape(value: &str) -> String {
         format!("\"{}\"", value.replace('"', "\"\""))
     } else {
         value.to_string()
+    }
+}
+
+fn option_csv(value: Option<u128>) -> String {
+    value.map_or_else(String::new, |value| value.to_string())
+}
+
+fn option_csv_u64(value: Option<u64>) -> String {
+    value.map_or_else(String::new, |value| value.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{option_csv, parse_process_duration_ns};
+
+    #[test]
+    fn parses_process_cpu_time_without_floating_point_rounding() {
+        assert_eq!(parse_process_duration_ns("00:00.50"), Some(500_000_000));
+        assert_eq!(
+            parse_process_duration_ns("01:02:03.25"),
+            Some(3_723_250_000_000)
+        );
+    }
+
+    #[test]
+    fn leaves_unsampled_percentiles_empty_in_csv() {
+        assert_eq!(option_csv(None), "");
+        assert_eq!(option_csv(Some(42)), "42");
     }
 }

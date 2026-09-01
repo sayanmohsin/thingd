@@ -11,29 +11,30 @@ storage benchmarks continue to determine whether a change is ready to merge.
 
 ## Run it locally
 
-Clone the reviewed Nice Code revision into a temporary directory:
+Install the published Nice Code package at the version declared by Thingd's
+root `package.json`:
 
 ```bash
-git clone https://github.com/sayanmohsin/nice-code.git /tmp/nice-code
-git -C /tmp/nice-code checkout f3c15e364919969c9c1b9e2f11b837ca4d8f4fb3
+pnpm install --frozen-lockfile
 ```
 
-From the Thingd repository, run the pinned checker:
+From the Thingd repository, run the configured checker:
 
 ```bash
-NICE_CODE_DIR=/tmp/nice-code pnpm check:nice-code
+pnpm check:nice-code
 ```
 
 For machine-readable output:
 
 ```bash
-NICE_CODE_DIR=/tmp/nice-code NICE_CODE_FORMAT=json pnpm check:nice-code
-NICE_CODE_DIR=/tmp/nice-code NICE_CODE_FORMAT=sarif pnpm check:nice-code
+NICE_CODE_FORMAT=json pnpm check:nice-code
+NICE_CODE_FORMAT=sarif pnpm check:nice-code
 ```
 
-The runner verifies the exact Nice Code commit before execution and scans the
-full source tree. It does not install Nice Code as a Thingd runtime or
-workspace dependency and does not modify Thingd source files.
+The runner uses the exact Nice Code npm version in the workspace lockfile and
+scans the full source tree. Nice Code is a development-only dependency; it is
+not part of the Thingd runtime or published packages and does not modify
+Thingd source files.
 
 ## CI behavior
 

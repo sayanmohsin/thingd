@@ -550,8 +550,10 @@ async function openStore(path: string, options: ResolvedThingDOpenOptions): Prom
       throw new Error("Encryption options require the native persistent driver");
     }
 
-    console.warn(
-      `Warning: The native thingd driver is not available. Falling back to the temporary in-memory store. Data will not persist. Run "pnpm --filter @thingd/native build" or install "@thingd/native" to enable native persistence.`
+    process.emitWarning(
+      "The native thingd driver is unavailable; using the temporary in-memory store. " +
+        'Data will not persist. Build "@thingd/native" or install it to enable native persistence.',
+      { code: "THINGD_NATIVE_DRIVER_UNAVAILABLE" }
     );
   }
 

@@ -4,6 +4,10 @@
 the release PR tags and publishes four npm packages (`@thingd/sdk`, `@thingd/cli`,
 `@thingd/native`, and `@thingd/client`) plus the Rust crate.
 
+The current version shown in the Rust dependency example below is read from the
+root `package.json` during the VitePress build. Release Please keeps that value,
+the Cargo workspace, and published package manifests synchronized.
+
 The hosted app-backend client is released as part of the public client package.
 Deploy its compatible Cloud API only after the public contract release and the
 Cloud compatibility matrix has been updated.
@@ -90,7 +94,7 @@ On every release, the workflow publishes `thingd` to [crates.io](https://crates.
 
 ```toml
 [dependencies]
-thingd = { version = "0.71", features = ["persistent", "search"] }
+thingd = { version = "{{ $themeConfig.packageVersion }}", features = ["persistent", "search"] }
 ```
 
 The publish runs in parallel with npm and Docker publishing.

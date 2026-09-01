@@ -20,11 +20,16 @@ export default function App() {
   }, []);
 
   async function signUp() {
+    const password = process.env.EXPO_PUBLIC_DEMO_PASSWORD;
+    if (!password) {
+      setMessage("Set EXPO_PUBLIC_DEMO_PASSWORD to try the demo signup.");
+      return;
+    }
     setMessage("Creating account...");
     try {
       const session = await client.auth.signUp({
         email: "demo@example.com",
-        password: "replace-with-a-real-password",
+        password,
         name: "Demo User",
       });
       setMessage(`Signed in as ${session.user.name}`);

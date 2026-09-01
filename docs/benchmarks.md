@@ -36,11 +36,13 @@ cargo run --release -p thingd --example storage_bench --features persistent,sear
 ```
 
 Use `--output target/storage-benchmark.csv` for a flat CSV result. The output
-includes commit, Rust, operating system, architecture, seed, operation counts,
-throughput, p50/p95/p99/max latency, and durable directory size. Each durable
-backend gets a fresh temporary directory, and correctness/reopen checks run
-before the command succeeds. A correctness or recovery error is a failed run,
-not a performance datapoint.
+includes commit, Rust, operating system, architecture, CPU model, filesystem,
+seed, operation counts, throughput, and durable directory size. Sampled
+workloads include p50/p95/p99/max latency; aggregate timing rows explicitly
+mark latency as unsampled rather than presenting a synthetic percentile. Each
+durable backend gets a fresh temporary directory, and correctness/reopen checks
+run before the command succeeds. A correctness or recovery error is a failed
+run, not a performance datapoint.
 
 Every run is also appended automatically to
 `target/storage-benchmark-history.jsonl`. Set `--history` or
@@ -92,7 +94,11 @@ used as a passing performance datapoint.
 
 Use `--repetitions 5` or `THINGD_BENCH_REPETITIONS=5` for phase comparisons.
 Structured JSON output includes grouped median, minimum, maximum, and spread
-throughput summaries in addition to each repetition's raw result.
+throughput summaries in addition to each repetition's raw result. Resource
+metadata reports peak RSS and process CPU time when the host permits `ps`
+sampling; otherwise it records an explicit `unsupported: ...` status. This
+avoids treating missing host instrumentation as zero usage or a passing scale
+qualification.
 For exploratory large-record runs whose queue transitions would otherwise
 dominate local runtime, use `--queue-iterations <n>` or
 `THINGD_BENCH_QUEUE_ITERS=<n>`. The limit is recorded in benchmark metadata and
@@ -181,6 +187,17 @@ the structured output as a local or CI artifact; do not commit machine-specific
 results. A timeout, memory limit, failed reliability check, or incomplete
 queue workload is blocked evidence, not a passing qualification result.
 
+The current Phase 5 development smoke uses the same command shape at 1,000
+iterations and one repetition. Its correctness, reliability, reopen,
+compaction, encryption, and both logical repack directions passed locally.
+This is a qualification harness check only; the five-repeat 10K and 100K
+comparison gates remain pending.
+
+The durable write-path smoke also passes at 100 iterations with the same
+correctness and recovery preflight. It confirms that durable ThingDB remains
+substantially slower for synchronous sequential writes; the 10K qualification
+run is currently blocked by runtime, so no scale or promotion claim is made.
+
 ## ThingDB benchmark plan
 
 ThingDB benchmarking is a promotion gate, not a marketing benchmark. Every
@@ -243,34 +260,20 @@ expected to miss some durable targets. ThingDB RAM must first demonstrate
 semantic parity, bounded memory behavior, and no filesystem artifacts before
 it can be considered for the separate default-adoption phase.
 
-## Latest smoke run
+## Benchmark status
 
-Run date: 2026-08-06
-Commit: `a8ab14c`
-Environment: macOS 26.6 arm64, Rust 1.97.1, Node.js 24.18.0, release build
-Iterations: 10
+The benchmark is intentionally methodology-first. Recent local smoke runs use
+the same release binary, fixed seed, fresh directories, and correctness and
+recovery preflight for every backend. They show that ThingDB RAM is a viable
+filesystem-free process-local path, while durable ThingDB is relatively strong
+on some reads and batches but remains substantially slower for synchronous
+isolated writes than RocksDB.
 
-This is intentionally a smoke baseline, not a performance regression gate.
-For meaningful comparisons, run the same command on the same machine with the
-same iteration count and commit the generated output only when it is a
-deliberate baseline update.
-
-| Driver | Representative operation | Ops/sec |
-| --- | --- | ---: |
-| in-memory | object_put | 26,385 |
-| in-memory | object_get | 222,222 |
-| in-memory | event_append | 454,545 |
-| in-memory | queue_claim_ack | 238,095 |
-| persistent | object_put | 5 |
-| persistent | object_get | 222,222 |
-| persistent | event_append | 3 |
-| persistent | queue_claim_ack | 2,316 |
-
-The complete output is available from the command above. ThingDB numbers are
-exploratory until its large-store and crash-recovery gates pass. Do not compare
-this smoke table with results from a different machine or iteration count. The
-generated structured output is ignored by Git and should be retained as a
-workflow artifact or local evidence.
+These findings are development evidence, not universal throughput claims. The
+full five-repeat 10K and 100K qualification gates remain separate and must be
+run on the same machine, filesystem, dataset, and build before results can be
+used for promotion decisions. Generated structured output is ignored by Git
+and should be retained as a workflow artifact or private local evidence.
 
 ## Node.js SDK benchmark
 

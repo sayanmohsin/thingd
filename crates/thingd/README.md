@@ -17,6 +17,11 @@ backend can be selected through `PersistentOpenOptions` with
 `PersistentBackend::ThingDb`; it uses a separate format and requires logical
 repack rather than direct file opening. See the public [storage backend guide](../../docs/storage-backends.md).
 
+The unified [storage benchmark](../../docs/benchmarks.md) compares ThingDB RAM,
+the `MemoryEngine` reference, RocksDB, and durable ThingDB with identical
+seeded workloads. Results depend on the machine and dataset; ThingDB remains
+experimental and benchmark results are not production performance claims.
+
 Persistent callers can use `PersistentEngine::open(path)` for the existing
 unencrypted behavior or `PersistentEngine::open_with_options(path, options)`
 with an `EncryptionConfig`. Encryption uses a fallible `KeyProvider`; native

@@ -52,6 +52,18 @@ features:
 
 ---
 
+## Storage and benchmark status
+
+Thingd uses ThingDB RAM for disposable native/server in-memory operation and
+RocksDB as the default durable backend. Durable ThingDB is an experimental,
+opt-in Rust-native format and does not open RocksDB files directly.
+
+The [storage backend guide](/storage-backends) explains the runtime modes and
+safe logical repack path. The [benchmark guide](/benchmarks) documents the
+single reproducible harness used to compare ThingDB RAM, the `MemoryEngine`
+reference, RocksDB, and durable ThingDB. Results are local development signals,
+not production performance claims.
+
 ### ☁️ Need managed hosting?
 
 [**thingd Cloud**](https://thingd.cloud) runs thingd for you — hosted MCP endpoints, API key management, team dashboard, tenant isolation, and backups.

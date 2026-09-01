@@ -1,6 +1,10 @@
+import { readFileSync } from "node:fs";
 import { defineConfig } from "vitepress";
 
 const mcpToolCount = 49;
+const packageVersion = JSON.parse(
+  readFileSync(new URL("../../package.json", import.meta.url), "utf8")
+).version as string;
 
 export default defineConfig({
   title: "thingd — Open-Source Rust Data Engine for AI Agents",
@@ -29,6 +33,7 @@ export default defineConfig({
 
   themeConfig: {
     mcpToolCount,
+    packageVersion,
     logo: "/logo.svg",
     siteTitle: "",
 

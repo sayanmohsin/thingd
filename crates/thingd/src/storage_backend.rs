@@ -43,6 +43,12 @@ impl From<rocksdb::Error> for Error {
     }
 }
 
+impl From<String> for Error {
+    fn from(error: String) -> Self {
+        Self(error)
+    }
+}
+
 #[derive(Clone)]
 pub(crate) struct Database {
     db: Arc<Backend>,
@@ -229,6 +235,18 @@ impl Database {
             db.record_ram_search(duration_ns);
         }
     }
+
+    pub(crate) fn record_ram_serialization(&self, duration_ns: u64) {
+        if let Backend::ThingDb(db) = self.db.as_ref() {
+            db.record_ram_serialization(duration_ns);
+        }
+    }
+
+    pub(crate) fn record_ram_search_index(&self, duration_ns: u64) {
+        if let Backend::ThingDb(db) = self.db.as_ref() {
+            db.record_ram_search_index(duration_ns);
+        }
+    }
 }
 
 impl DatabaseBuilder {
@@ -300,6 +318,22 @@ impl Keyspace {
                 .get(key.as_ref())
                 .map_err(|error| Error(error.to_string()))?
                 .map(Slice)),
+        }
+    }
+
+    pub(crate) fn get_shared(&self, key: impl AsRef<[u8]>) -> Result<Option<Arc<Vec<u8>>>, Error> {
+        match self.db.as_ref() {
+            Backend::RocksDb(db) => {
+                let cf = db.cf_handle(&self.name).ok_or_else(|| {
+                    Error(format!("missing RocksDB column family: {}", self.name))
+                })?;
+                Ok(db.get_cf(cf, key.as_ref())?.map(Arc::new))
+            },
+            Backend::ThingDb(db) => Ok(db
+                .keyspace(&self.name, thingdb::KeyspaceCreateOptions::default)
+                .map_err(|error| Error(error.to_string()))?
+                .get_shared(key.as_ref())
+                .map_err(|error| Error(error.to_string()))?),
         }
     }
 

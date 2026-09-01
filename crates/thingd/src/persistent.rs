@@ -775,6 +775,7 @@ impl PersistentEngine {
         let queue = Arc::new(SearchMutationQueue::new(self.search_queue_max_keys));
         self.search_queue = Some(queue.clone());
         self.search_worker_started = true;
+        let db = self.db.clone();
         let interval = Duration::from_millis(self.search_commit_interval_ms);
         let batch_size = self.search_commit_batch_size;
         self.search_worker = thread::Builder::new()
@@ -807,6 +808,11 @@ impl PersistentEngine {
                         Ok(_) => {
                             if let Ok(reader) = reader.lock() {
                                 let _ = reader.reload();
+                            }
+                            if db.is_in_memory() {
+                                db.record_ram_search_index(
+                                    u64::try_from(started.elapsed().as_nanos()).unwrap_or(u64::MAX),
+                                );
                             }
                             queue.record_commit(started.elapsed(), mutations.len());
                         },
@@ -2128,8 +2134,15 @@ impl PersistentEngine {
     }
 
     fn serialize<T: serde::Serialize>(&self, value: &T) -> ThingdResult<Vec<u8>> {
+        let started = std::time::Instant::now();
         let data = serde_json::to_vec(value).map_err(|e| ThingdError::Storage(e.to_string()))?;
-        self.codec.encode_value("record", &data)
+        let result = self.codec.encode_value("record", &data);
+        if self.is_in_memory() {
+            self.db.record_ram_serialization(
+                u64::try_from(started.elapsed().as_nanos()).unwrap_or(u64::MAX),
+            );
+        }
+        result
     }
 
     fn deserialize<T: for<'a> serde::Deserialize<'a>>(&self, bytes: &[u8]) -> ThingdResult<T> {
@@ -2589,15 +2602,44 @@ impl PersistentEngine {
     }
 }
 
+impl PersistentEngine {
+    fn read_object_at_key(&self, key: &[u8]) -> ThingdResult<Option<MemoryObject>> {
+        if self.db.is_in_memory() {
+            let value = self
+                .objects
+                .get_shared(key)
+                .map_err(|error| ThingdError::Storage(error.to_string()))?;
+            if let Some(value) = value {
+                let started = std::time::Instant::now();
+                let object = self.deserialize::<MemoryObject>(value.as_slice())?;
+                self.db.record_ram_deserialization(
+                    u64::try_from(started.elapsed().as_nanos()).unwrap_or(u64::MAX),
+                );
+                return Ok(Some(object));
+            }
+            return Ok(None);
+        }
+        match value_to_vec(self.objects.get(key)?) {
+            Some(data) => {
+                let started = std::time::Instant::now();
+                let result = self.deserialize(&data);
+                self.db.record_ram_deserialization(
+                    u64::try_from(started.elapsed().as_nanos()).unwrap_or(u64::MAX),
+                );
+                Ok(Some(result?))
+            },
+            None => Ok(None),
+        }
+    }
+}
+
 // ── ObjectStore ──────────────────────────────────────────────────────────────
 
 impl ObjectStore for PersistentEngine {
     fn put_object(&mut self, mut object: MemoryObject) -> ThingdResult<MemoryObject> {
         self.validate_unique_indexes(&object)?;
         let key = self.make_object_key(&object.key.collection, &object.key.id);
-        let previous = value_to_vec(self.objects.get(&key)?)
-            .map(|data| self.deserialize::<MemoryObject>(&data))
-            .transpose()?;
+        let previous = self.read_object_at_key(&key)?;
 
         if object.created_at.is_empty() {
             object.created_at = now_iso_string();
@@ -2645,6 +2687,128 @@ impl ObjectStore for PersistentEngine {
         self.update_unique_index_cache_for_object(&object, previous.as_ref())?;
 
         Ok(object)
+    }
+
+    fn put_objects_batch(&mut self, objects: Vec<MemoryObject>) -> ThingdResult<Vec<MemoryObject>> {
+        if objects.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let unique_indexes: Vec<IndexDefinition> = self
+            .list_index_definitions()?
+            .into_iter()
+            .filter(|index| index.unique)
+            .collect();
+        let mut batch = self.db.batch();
+        let mut results = Vec::with_capacity(objects.len());
+        let mut prepared = Vec::with_capacity(objects.len());
+        let mut prepared_by_key: HashMap<Vec<u8>, MemoryObject> = HashMap::new();
+        let mut virtual_unique = self.unique_index_values.clone();
+        let unique_cache_complete = self.unique_index_cache_complete;
+
+        let mut inputs = Vec::with_capacity(objects.len());
+        for object in objects {
+            let key = self.make_object_key(&object.key.collection, &object.key.id);
+            let previous = self.read_object_at_key(&key)?;
+
+            if let Some(previous) = previous.as_ref()
+                && let Ok(body) = serde_json::from_str::<Value>(&previous.body)
+            {
+                for index in unique_indexes
+                    .iter()
+                    .filter(|index| index.collection == previous.key.collection)
+                {
+                    if let Some(value) = body.get(&index.field).filter(|value| !value.is_null()) {
+                        let cache_key =
+                            Self::unique_cache_key(&index.collection, &index.field, value)?;
+                        if virtual_unique
+                            .get(&cache_key)
+                            .is_some_and(|owner| owner == &previous.key)
+                        {
+                            virtual_unique.remove(&cache_key);
+                        }
+                    }
+                }
+            }
+
+            inputs.push((object, key, previous));
+        }
+
+        for (mut object, key, original_previous) in inputs {
+            let previous = prepared_by_key.get(&key).cloned().or(original_previous);
+            if !unique_cache_complete {
+                self.validate_unique_indexes(&object)?;
+            }
+
+            if object.created_at.is_empty() {
+                object.created_at = now_iso_string();
+            }
+            object.updated_at = now_iso_string();
+            object.version = previous.as_ref().map_or(1, |current| current.version + 1);
+            if let Some(previous) = previous.as_ref() {
+                object.created_at.clone_from(&previous.created_at);
+            }
+
+            if let Ok(body) = serde_json::from_str::<Value>(&object.body) {
+                for index in unique_indexes
+                    .iter()
+                    .filter(|index| index.collection == object.key.collection)
+                {
+                    let Some(value) = body.get(&index.field).filter(|value| !value.is_null())
+                    else {
+                        continue;
+                    };
+                    let cache_key = Self::unique_cache_key(&index.collection, &index.field, value)?;
+                    if let Some(owner) = virtual_unique.get(&cache_key)
+                        && owner != &object.key
+                    {
+                        return Err(ThingdError::Conflict(format!(
+                            "unique index {}.{} rejects duplicate value",
+                            index.collection, index.field
+                        )));
+                    }
+                    virtual_unique.insert(cache_key, object.key.clone());
+                }
+            }
+
+            let data = self.serialize(&object)?;
+            batch.insert(&self.objects, &key, &data);
+            #[cfg(feature = "vectors")]
+            {
+                let vkey = self.make_vector_key(&object.key.collection, &object.key.id);
+                if let Some(ref vector) = object.vector {
+                    let vdata = self.serialize(&StoredVector {
+                        collection: object.key.collection.clone(),
+                        id: object.key.id.clone(),
+                        vector: vector.clone(),
+                    })?;
+                    batch.insert(&self.vectors, &vkey, vdata);
+                } else {
+                    batch.remove(&self.vectors, vkey);
+                }
+            }
+            prepared_by_key.insert(key, object.clone());
+            results.push(object.clone());
+            prepared.push((object, previous));
+        }
+
+        batch
+            .commit()
+            .map_err(|error| ThingdError::Storage(error.to_string()))?;
+
+        for (object, previous) in &prepared {
+            #[cfg(feature = "search")]
+            {
+                self.record_search_mutation(
+                    format!("object:{}/{}", object.key.collection, object.key.id),
+                    SearchReplayMutation::UpsertObject,
+                );
+                self.index_object_for_search(object);
+            }
+            self.update_unique_index_cache_for_object(object, previous.as_ref())?;
+        }
+
+        Ok(results)
     }
 
     fn put_object_with_options(
@@ -2836,17 +3000,7 @@ impl ObjectStore for PersistentEngine {
 
     fn get_object(&self, collection: &str, id: &str) -> ThingdResult<Option<MemoryObject>> {
         let key = self.make_object_key(collection, id);
-        match value_to_vec(self.objects.get(&key)?) {
-            Some(data) => {
-                let started = std::time::Instant::now();
-                let result = self.deserialize(&data);
-                self.db.record_ram_deserialization(
-                    u64::try_from(started.elapsed().as_nanos()).unwrap_or(u64::MAX),
-                );
-                Ok(Some(result?))
-            },
-            None => Ok(None),
-        }
+        self.read_object_at_key(&key)
     }
 
     fn get_objects_batch(
@@ -3302,9 +3456,92 @@ impl EventLog for PersistentEngine {
 
     fn append_events_batch(&mut self, events: Vec<MemoryEvent>) -> ThingdResult<Vec<MemoryEvent>> {
         let mut results = Vec::with_capacity(events.len());
-        for event in events {
-            results.push(self.append_event(event)?);
+        let mut pending = Vec::with_capacity(events.len());
+        let mut pending_idempotency: HashMap<(String, String), MemoryEvent> = HashMap::new();
+        let mut next_sequences = self.event_seq_counters.clone();
+        let mut next_idempotency = self.event_idempotency_keys.clone();
+        let mut affected_streams = std::collections::BTreeSet::new();
+        let mut batch = self.db.batch();
+
+        for mut event in events {
+            if !event.idempotency_key.is_empty() {
+                let idem_key = (event.stream.clone(), event.idempotency_key.clone());
+                if let Some(&existing_seq) = next_idempotency.get(&idem_key) {
+                    let ekey = self.make_event_key(&event.stream, existing_seq);
+                    if let Some(data) = value_to_vec(self.events.get(&ekey)?) {
+                        results.push(self.deserialize(&data)?);
+                        continue;
+                    }
+                    if let Some(existing_event) = pending_idempotency.get(&idem_key) {
+                        results.push(existing_event.clone());
+                        continue;
+                    }
+                }
+            }
+
+            let seq = next_sequences
+                .entry(event.stream.clone())
+                .and_modify(|sequence| *sequence += 1)
+                .or_insert(1);
+            event.sequence = *seq;
+            if event.created_at.is_empty() {
+                event.created_at = now_iso_string();
+            }
+            let ekey = self.make_event_key(&event.stream, event.sequence);
+            let data = self.serialize(&event)?;
+            batch.insert(&self.events, &ekey, &data);
+            if !event.idempotency_key.is_empty() {
+                let idem_key = (event.stream.clone(), event.idempotency_key.clone());
+                next_idempotency.insert(idem_key.clone(), event.sequence);
+                pending_idempotency.insert(idem_key, event.clone());
+            }
+            affected_streams.insert(event.stream.clone());
+            results.push(event.clone());
+            pending.push(event);
         }
+
+        if pending.is_empty() {
+            return Ok(results);
+        }
+
+        for stream in &affected_streams {
+            let idempotency_keys = next_idempotency
+                .iter()
+                .filter_map(|((stored_stream, key), sequence)| {
+                    (stored_stream == stream).then_some((key.clone(), *sequence))
+                })
+                .collect();
+            let metadata = EventMetadata {
+                stream: stream.clone(),
+                max_sequence: next_sequences.get(stream).copied().unwrap_or(0),
+                idempotency_keys,
+            };
+            let raw = serde_json::to_vec(&metadata)
+                .map_err(|error| ThingdError::Storage(error.to_string()))?;
+            let encoded = self.codec.encode_value("event_metadata", &raw)?;
+            let key = self
+                .codec
+                .encode_key("event_metadata.stream", stream.as_bytes());
+            batch.insert(&self.event_meta, &key, &encoded);
+        }
+
+        batch
+            .commit()
+            .map_err(|error| ThingdError::Storage(error.to_string()))?;
+        self.event_seq_counters = next_sequences;
+        self.event_idempotency_keys = next_idempotency;
+
+        #[cfg(feature = "search")]
+        for event in pending {
+            self.record_search_mutation(
+                format!("event:{}/{}", event.stream, event.sequence),
+                SearchReplayMutation::UpsertEvent,
+            );
+            self.index_event_for_search(&event);
+        }
+        #[cfg(not(feature = "search"))]
+        drop(pending);
+
         Ok(results)
     }
 
@@ -5888,6 +6125,64 @@ mod tests {
     }
 
     #[test]
+    fn thingdb_object_batch_commits_once_and_versions_repeated_keys() {
+        let (mut engine, _dir) = setup_thingdb();
+        let results = engine
+            .put_objects_batch(vec![
+                MemoryObject::new("batch", "one", r#"{"value":1}"#),
+                MemoryObject::new("batch", "two", r#"{"value":2}"#),
+                MemoryObject::new("batch", "one", r#"{"value":3}"#),
+            ])
+            .unwrap();
+
+        assert_eq!(results.len(), 3);
+        assert_eq!(results[0].version, 1);
+        assert_eq!(results[1].version, 1);
+        assert_eq!(results[2].version, 2);
+        assert_eq!(
+            engine.get_object("batch", "one").unwrap().unwrap().version,
+            2
+        );
+        assert_eq!(engine.count_objects().unwrap(), 2);
+        let diagnostics = engine.wal_diagnostics().unwrap().unwrap();
+        assert_eq!(diagnostics.logical_commit_count, 1);
+        assert_eq!(diagnostics.physical_sync_count, 1);
+    }
+
+    #[test]
+    fn thingdb_object_batch_validates_unique_indexes_against_final_state() {
+        let (mut engine, _dir) = setup_thingdb();
+        engine
+            .create_index_definition(IndexDefinition {
+                collection: "accounts".to_string(),
+                field: "email".to_string(),
+                unique: true,
+            })
+            .unwrap();
+        engine
+            .put_objects_batch(vec![
+                MemoryObject::new("accounts", "one", r#"{"email":"one@example.com"}"#),
+                MemoryObject::new("accounts", "two", r#"{"email":"two@example.com"}"#),
+            ])
+            .unwrap();
+
+        engine
+            .put_objects_batch(vec![
+                MemoryObject::new("accounts", "one", r#"{"email":"two@example.com"}"#),
+                MemoryObject::new("accounts", "two", r#"{"email":"one@example.com"}"#),
+            ])
+            .unwrap();
+        assert_eq!(
+            engine.get_object("accounts", "one").unwrap().unwrap().body,
+            r#"{"email":"two@example.com"}"#
+        );
+        assert_eq!(
+            engine.get_object("accounts", "two").unwrap().unwrap().body,
+            r#"{"email":"one@example.com"}"#
+        );
+    }
+
+    #[test]
     fn persistent_delete_objects_batch() {
         let (mut engine, _dir) = setup();
         engine
@@ -5942,6 +6237,50 @@ mod tests {
         let second = engine.append_event(event).unwrap();
         assert_eq!(second.sequence, first.sequence);
         assert_eq!(second.body, first.body);
+    }
+
+    #[test]
+    fn thingdb_event_batch_commits_once_and_preserves_in_batch_idempotency() {
+        let (mut engine, dir) = setup_thingdb();
+        let mut first = MemoryEvent::new("batch-stream", "created", "first");
+        first.idempotency_key = "same-key".to_string();
+        let mut duplicate = first.clone();
+        duplicate.body = "duplicate-must-not-be-written".to_string();
+        let third = MemoryEvent::new("batch-stream", "updated", "third");
+
+        let results = engine
+            .append_events_batch(vec![first, duplicate, third])
+            .unwrap();
+        assert_eq!(results.len(), 3);
+        assert_eq!(results[0].sequence, 1);
+        assert_eq!(results[1].sequence, 1);
+        assert_eq!(results[1].body, "first");
+        assert_eq!(results[2].sequence, 2);
+
+        let listed = engine
+            .list_events(Some("batch-stream"), ListEventsOptions::default())
+            .unwrap();
+        assert_eq!(listed.len(), 2);
+        assert_eq!(listed[0].body, "first");
+        assert_eq!(listed[1].body, "third");
+
+        let diagnostics = engine.wal_diagnostics().unwrap().unwrap();
+        assert_eq!(diagnostics.logical_commit_count, 1);
+        assert_eq!(diagnostics.physical_sync_count, 1);
+
+        drop(engine);
+        let reopened = PersistentEngine::open_with_options(
+            dir.path(),
+            PersistentOpenOptions {
+                backend: PersistentBackend::ThingDb,
+                ..PersistentOpenOptions::default()
+            },
+        )
+        .unwrap();
+        let listed_after_reopen = reopened
+            .list_events(Some("batch-stream"), ListEventsOptions::default())
+            .unwrap();
+        assert_eq!(listed_after_reopen, listed);
     }
 
     #[test]
