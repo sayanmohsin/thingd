@@ -14,6 +14,9 @@ importers:
       '@modelcontextprotocol/sdk':
         specifier: ^1.30.0
         version: 1.30.0(zod@4.4.3)
+      '@sayanmohsin/nice-code':
+        specifier: 0.1.10
+        version: 0.1.10
       '@thingd/native':
         specifier: file:packages/thingd-native
         version: link:packages/thingd-native
@@ -806,6 +809,11 @@ packages:
 
   '@rolldown/pluginutils@1.0.1':
     resolution: {integrity: sha512-2j9bGt5Jh8hj+vPtgzPtl72j0yRxHAyumoo6TNfAjsLB04UtpSvPbPcDcBMxz7n+9CYB0c1GxQFxYRg2jimqGw==}
+
+  '@sayanmohsin/nice-code@0.1.10':
+    resolution: {integrity: sha512-rc2MGibPKbai1eUrFiGGKs1r33qJlyQQ8zzPgnsImSeJalqDs51Gj1Q36HLdzaPsp0TNpK/d4WHF5WMkP8mQJQ==}
+    engines: {node: '>=20'}
+    hasBin: true
 
   '@sindresorhus/is@4.6.0':
     resolution: {integrity: sha512-t09vSN3MdfsyCHoFcTRCH/iUtG7OJ0CsjzB8cjAmKc/va/kIgeDI/TxsigdncE/4be734m0cvIYwNaV4i2XqAw==}
@@ -2806,6 +2814,8 @@ snapshots:
     optional: true
 
   '@rolldown/pluginutils@1.0.1': {}
+
+  '@sayanmohsin/nice-code@0.1.10': {}
 
   '@sindresorhus/is@4.6.0': {}
 
