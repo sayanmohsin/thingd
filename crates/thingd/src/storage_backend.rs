@@ -8,7 +8,9 @@
     clippy::needless_collect,
     clippy::needless_pass_by_value,
     clippy::redundant_pub_crate,
-    clippy::unnecessary_wraps
+    clippy::unnecessary_wraps,
+    irrefutable_let_patterns,
+    unused_variables
 )]
 
 use std::fmt::{Display, Formatter};
@@ -16,6 +18,7 @@ use std::ops::{Bound, RangeBounds};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+#[cfg(feature = "rocksdb-backend")]
 use rocksdb::{
     ColumnFamilyDescriptor, DB, FlushOptions, IteratorMode, Options, WriteBatch, WriteOptions,
 };
@@ -37,6 +40,7 @@ impl Display for Error {
 
 impl std::error::Error for Error {}
 
+#[cfg(feature = "rocksdb-backend")]
 impl From<rocksdb::Error> for Error {
     fn from(error: rocksdb::Error) -> Self {
         Self(error.to_string())
@@ -56,6 +60,7 @@ pub(crate) struct Database {
 }
 
 enum Backend {
+    #[cfg(feature = "rocksdb-backend")]
     RocksDb(Arc<DB>),
     ThingDb(thingdb::Database),
 }
@@ -145,6 +150,7 @@ impl Database {
         name: &str,
         _options: KeyspaceCreateOptions,
     ) -> Result<Keyspace, Error> {
+        #[cfg(feature = "rocksdb-backend")]
         if let Backend::RocksDb(db) = self.db.as_ref()
             && db.cf_handle(name).is_none()
         {
@@ -166,6 +172,7 @@ impl Database {
 
     pub(crate) fn persist(&self, mode: PersistMode) -> Result<(), Error> {
         match self.db.as_ref() {
+            #[cfg(feature = "rocksdb-backend")]
             Backend::RocksDb(db) => {
                 let _ = mode;
                 db.flush_wal(true).map_err(Error::from)?;
@@ -179,6 +186,7 @@ impl Database {
 
     pub(crate) fn journal_disk_space(&self) -> Result<u64, Error> {
         match self.db.as_ref() {
+            #[cfg(feature = "rocksdb-backend")]
             Backend::RocksDb(_) => Ok(directory_size(&self.path)),
             Backend::ThingDb(db) => db
                 .journal_disk_space()
@@ -193,20 +201,28 @@ impl Database {
         if let Backend::ThingDb(_) = self.db.as_ref() {
             return 1;
         }
-        std::fs::read_dir(&self.path)
-            .ok()
-            .into_iter()
-            .flatten()
-            .filter_map(Result::ok)
-            .filter(|entry| {
-                entry.file_name().to_string_lossy().starts_with("LOG")
-                    || entry.file_name().to_string_lossy().ends_with(".log")
-            })
-            .count()
+        #[cfg(feature = "rocksdb-backend")]
+        {
+            std::fs::read_dir(&self.path)
+                .ok()
+                .into_iter()
+                .flatten()
+                .filter_map(Result::ok)
+                .filter(|entry| {
+                    entry.file_name().to_string_lossy().starts_with("LOG")
+                        || entry.file_name().to_string_lossy().ends_with(".log")
+                })
+                .count()
+        }
+        #[cfg(not(feature = "rocksdb-backend"))]
+        {
+            0
+        }
     }
 
     pub(crate) fn wal_diagnostics(&self) -> Result<Option<thingdb::WalDiagnostics>, Error> {
         match self.db.as_ref() {
+            #[cfg(feature = "rocksdb-backend")]
             Backend::RocksDb(_) => Ok(None),
             Backend::ThingDb(db) => db
                 .wal_diagnostics()
@@ -217,6 +233,7 @@ impl Database {
 
     pub(crate) fn ram_diagnostics(&self) -> Result<thingdb::RamDiagnostics, Error> {
         match self.db.as_ref() {
+            #[cfg(feature = "rocksdb-backend")]
             Backend::RocksDb(_) => Ok(thingdb::RamDiagnostics::default()),
             Backend::ThingDb(db) => db
                 .ram_diagnostics()
@@ -258,6 +275,7 @@ impl DatabaseBuilder {
     pub(crate) fn open(self) -> Result<Database, Error> {
         std::fs::create_dir_all(&self.path).map_err(|error| Error(error.to_string()))?;
         let backend = match self.backend {
+            #[cfg(feature = "rocksdb-backend")]
             StorageBackend::RocksDb => {
                 let mut options = Options::default();
                 options.create_if_missing(true);
@@ -289,6 +307,13 @@ impl DatabaseBuilder {
                     descriptors,
                 )?))
             },
+            #[cfg(not(feature = "rocksdb-backend"))]
+            StorageBackend::RocksDb => {
+                return Err(Error(
+                    "RocksDB backend is unavailable; enable the `rocksdb-backend` feature"
+                        .to_string(),
+                ));
+            },
             StorageBackend::ThingDb => Backend::ThingDb(
                 thingdb::Database::builder(&self.path)
                     .max_journaling_size(self.max_journaling_size)
@@ -306,6 +331,7 @@ impl DatabaseBuilder {
 impl Keyspace {
     pub(crate) fn get(&self, key: impl AsRef<[u8]>) -> Result<Option<Slice>, Error> {
         match self.db.as_ref() {
+            #[cfg(feature = "rocksdb-backend")]
             Backend::RocksDb(db) => {
                 let cf = db.cf_handle(&self.name).ok_or_else(|| {
                     Error(format!("missing RocksDB column family: {}", self.name))
@@ -323,6 +349,7 @@ impl Keyspace {
 
     pub(crate) fn get_shared(&self, key: impl AsRef<[u8]>) -> Result<Option<Arc<Vec<u8>>>, Error> {
         match self.db.as_ref() {
+            #[cfg(feature = "rocksdb-backend")]
             Backend::RocksDb(db) => {
                 let cf = db.cf_handle(&self.name).ok_or_else(|| {
                     Error(format!("missing RocksDB column family: {}", self.name))
@@ -376,6 +403,7 @@ impl Keyspace {
     ) -> Result<Option<Guard>, Error> {
         let prefix = prefix.as_ref();
         match self.db.as_ref() {
+            #[cfg(feature = "rocksdb-backend")]
             Backend::RocksDb(db) => {
                 let cf = db.cf_handle(&self.name).ok_or_else(|| {
                     Error(format!("missing RocksDB column family: {}", self.name))
@@ -480,6 +508,7 @@ impl Keyspace {
 
     fn collect(&self, prefix: Option<Vec<u8>>) -> Iter {
         let entries = match self.db.as_ref() {
+            #[cfg(feature = "rocksdb-backend")]
             Backend::RocksDb(db) => match db.cf_handle(&self.name) {
                 Some(cf) => db
                     .iterator_cf(cf, rocksdb::IteratorMode::Start)
@@ -539,6 +568,7 @@ impl Keyspace {
 
     pub(crate) fn major_compact(&self) -> Result<(), Error> {
         match self.db.as_ref() {
+            #[cfg(feature = "rocksdb-backend")]
             Backend::RocksDb(db) => {
                 let cf = db.cf_handle(&self.name).ok_or_else(|| {
                     Error(format!("missing RocksDB column family: {}", self.name))
@@ -578,6 +608,7 @@ impl Batch {
             return Err(error);
         }
         match self.db.as_ref() {
+            #[cfg(feature = "rocksdb-backend")]
             Backend::RocksDb(db) => {
                 let mut writes = WriteBatch::default();
                 for operation in self.writes {
@@ -637,6 +668,7 @@ impl Iterator for Iter {
     }
 }
 
+#[cfg(feature = "rocksdb-backend")]
 fn directory_size(path: &Path) -> u64 {
     let Ok(entries) = std::fs::read_dir(path) else {
         return 0;

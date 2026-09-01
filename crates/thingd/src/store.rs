@@ -895,7 +895,7 @@ pub trait ThingStore:
     }
 
     /// Return backend-specific asynchronous search rebuild status, when supported.
-    #[cfg(feature = "persistent")]
+    #[cfg(feature = "persistent-engine")]
     fn search_rebuild_status(&self) -> Option<crate::SearchRebuildStatus> {
         None
     }
@@ -938,7 +938,7 @@ pub trait ThingStore:
 
 impl ThingStore for crate::MemoryEngine {}
 
-#[cfg(feature = "persistent")]
+#[cfg(feature = "persistent-engine")]
 impl ThingStore for crate::PersistentEngine {
     fn recovery_budget(&self) -> crate::RecoveryBudget {
         self.recovery_budget()

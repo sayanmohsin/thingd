@@ -16,7 +16,9 @@
     clippy::manual_let_else
 )]
 //! |---------|---------|-------------|
-//! | `persistent` | Yes | Enables [`PersistentEngine`] — durable local storage |
+//! | `persistent` | Yes | Compatibility feature enabling both durable backends |
+//! | `rocksdb-backend` | No | Enables the `RocksDB` durable backend |
+//! | `thingdb-backend` | No | Enables the `ThingDB` durable backend without `RocksDB` |
 //! | `connectors` | No | Enables CSV/JSON file connectors for data import |
 //!
 //! # Example (in-memory)
@@ -57,15 +59,15 @@ use std::time::{SystemTime, UNIX_EPOCH};
 pub mod connector;
 #[cfg(feature = "connectors")]
 pub mod connectors;
-#[cfg(feature = "persistent")]
+#[cfg(feature = "persistent-engine")]
 mod encryption;
 mod error;
 mod in_memory;
 mod model;
-#[cfg(feature = "persistent")]
+#[cfg(feature = "persistent-engine")]
 mod persistent;
 pub mod replication;
-#[cfg(feature = "persistent")]
+#[cfg(feature = "persistent-engine")]
 mod storage_backend;
 mod store;
 
@@ -77,7 +79,7 @@ pub use connector::{
 };
 #[cfg(feature = "connectors")]
 pub use connectors::{MysqlConnector, PostgresConnector};
-#[cfg(feature = "persistent")]
+#[cfg(feature = "persistent-engine")]
 pub use encryption::{EncryptionConfig, KeyProvider, StaticKeyProvider};
 pub use error::{ThingdError, ThingdResult};
 pub use in_memory::MemoryEngine;
@@ -89,8 +91,8 @@ pub use model::{
     SearchHit, SearchOptions, SortBy, SortDirection, StoredSchema, TimeBucket, TimeSeriesBucket,
     TimeSeriesOptions, TimeSeriesResult, VectorSearchHit, VectorSearchOptions,
 };
-#[cfg(feature = "persistent")]
-#[cfg_attr(docsrs, doc(cfg(feature = "persistent")))]
+#[cfg(feature = "persistent-engine")]
+#[cfg_attr(docsrs, doc(cfg(feature = "persistent-engine")))]
 pub use persistent::{
     PersistentBackend, PersistentEngine, PersistentOpenOptions, PersistentSearchMode,
     QueueDiagnostics, SearchRebuildStatus, StorageValidationReport,

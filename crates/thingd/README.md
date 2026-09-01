@@ -46,7 +46,9 @@ all five primitives behind a single composable trait interface.
 
 | Feature | Default | Description |
 |---------|---------|-------------|
-| `persistent` | Yes | Enables the durable persistent engine |
+| `persistent` | Yes | Compatibility feature enabling both durable backends |
+| `thingdb-backend` | No | Enables ThingDB durable storage without RocksDB |
+| `rocksdb-backend` | No | Enables the RocksDB durable backend |
 | `connectors` | No | Enables CSV/JSON file connectors for data import |
 
 Persistent storage can be opened with an explicit `EncryptionConfig` through
