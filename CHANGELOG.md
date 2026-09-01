@@ -13,6 +13,15 @@
 - server: harden security boundaries (0961ffe)
 - complete public SDK type exports (8a8889a)
 
+## [0.86.1](https://github.com/sayanmohsin/thingd/compare/thingd-v0.86.0...thingd-v0.86.1) (2026-09-01)
+
+
+### Bug Fixes
+
+* install pnpm for native toolchain checks ([8b10964](https://github.com/sayanmohsin/thingd/commit/8b1096403b50e194edfe8d76bab13670aac3627f))
+* isolate ThingDB backend builds from RocksDB ([7aa641d](https://github.com/sayanmohsin/thingd/commit/7aa641d2745bf9c50bcba8caa91c0d39d15325b4))
+* isolate ThingDB backend builds from RocksDB ([af03a10](https://github.com/sayanmohsin/thingd/commit/af03a1074ca0b2b24446edfd8b8345f8a0a912f7))
+
 ## [0.86.0](https://github.com/sayanmohsin/thingd/compare/thingd-v0.85.0...thingd-v0.86.0) (2026-09-01)
 
 
