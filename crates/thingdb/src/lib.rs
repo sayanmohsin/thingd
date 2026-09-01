@@ -262,6 +262,18 @@ pub struct WalDiagnostics {
     pub scan_keys_examined: u64,
     /// Number of table layers consulted while merging durable scans.
     pub scan_layers_consulted: u64,
+    /// Nanoseconds spent waiting for the database lock before a scan.
+    pub scan_lock_wait_duration_ns: u64,
+    /// Nanoseconds spent preparing a scan while holding the database lock.
+    pub scan_lock_held_duration_ns: u64,
+    /// Nanoseconds spent initializing scan cursors.
+    pub scan_cursor_init_duration_ns: u64,
+    /// Nanoseconds spent merging scan cursors and reading values.
+    pub scan_merge_duration_ns: u64,
+    /// Number of entries returned by durable scans.
+    pub scan_returned_entries: u64,
+    /// Number of durable scans that encountered an error.
+    pub scan_error_count: u64,
     /// Number of table layers currently open for reads.
     pub table_layer_count: u64,
     /// Number of completed table compactions.
@@ -374,7 +386,7 @@ struct Inner {
 #[derive(Clone)]
 struct TableLayer {
     file: Arc<Mutex<File>>,
-    entries: Vec<TableIndexEntry>,
+    entries: Arc<Vec<TableIndexEntry>>,
     is_v2: bool,
 }
 
@@ -386,41 +398,6 @@ struct TableIndexEntry {
 }
 
 impl Inner {
-    /// Resolve one key while merging ordered scan sources.
-    ///
-    /// Scan resolution deliberately does not call `get_value`: the scan has
-    /// already selected the next physical key from its source cursors, so a
-    /// second point-lookup would repeat lookup work and make scan diagnostics
-    /// indistinguishable from point-read diagnostics.
-    fn get_scan_value(&mut self, key: &[u8]) -> Result<Option<Vec<u8>>> {
-        if let Some(value) = self.pending_table.get(key) {
-            return value
-                .as_ref()
-                .map_or(Ok(None), |value| Ok(Some(value.clone())));
-        }
-        if let Some(value) = self.state.get(key) {
-            return Ok(Some(value.clone()));
-        }
-        for layer in self.table_layers.iter_mut().rev() {
-            self.diagnostics.scan_layers_consulted =
-                self.diagnostics.scan_layers_consulted.saturating_add(1);
-            let Ok(index) = layer
-                .entries
-                .binary_search_by(|entry| entry.key.as_slice().cmp(key))
-            else {
-                continue;
-            };
-            let (value, _, _) =
-                read_table_value_handle(&layer.file, &layer.entries[index], layer.is_v2)?;
-            self.diagnostics.table_bytes_read = self
-                .diagnostics
-                .table_bytes_read
-                .saturating_add(layer.entries[index].length);
-            return Ok(value);
-        }
-        Ok(None)
-    }
-
     fn materialize_state(&mut self) -> Result<BTreeMap<Vec<u8>, Vec<u8>>> {
         if let Some(keyspaces) = &self.memory_keyspaces {
             let mut state = BTreeMap::new();
@@ -436,7 +413,7 @@ impl Inner {
         }
         let mut state = BTreeMap::new();
         for layer in &mut self.table_layers {
-            for entry in &layer.entries {
+            for entry in layer.entries.iter() {
                 match read_table_value_handle(&layer.file, entry, layer.is_v2)?.0 {
                     Some(value) => {
                         state.insert(entry.key.clone(), value);
@@ -866,6 +843,22 @@ pub struct Entry {
 /// An owned iterator over keyspace entries.
 pub struct Iter {
     entries: std::vec::IntoIter<Entry>,
+    error: Option<Error>,
+}
+
+impl Iter {
+    /// Return a scan error observed while producing this iterator, if any.
+    pub fn error(&self) -> Option<&Error> {
+        self.error.as_ref()
+    }
+
+    /// Consume the iterator and return either all entries or its scan error.
+    pub fn into_result(self) -> Result<Vec<Entry>> {
+        if let Some(error) = self.error {
+            return Err(error);
+        }
+        Ok(self.entries.collect())
+    }
 }
 
 /// A consistent read snapshot.
@@ -1250,7 +1243,7 @@ fn flush_table_locked(
         let (_, entries, is_v2) = read_table_index(&table_path)?;
         inner.table_layers.push(TableLayer {
             file: Arc::new(Mutex::new(File::open(&table_path)?)),
-            entries,
+            entries: Arc::new(entries),
             is_v2,
         });
         inner.diagnostics.table_layer_count = inner.table_layers.len() as u64;
@@ -1353,7 +1346,7 @@ fn compact_tables_locked(
     let (_, entries, is_v2) = read_table_index(&table_path)?;
     inner.table_layers = vec![TableLayer {
         file: Arc::new(Mutex::new(File::open(&table_path)?)),
-        entries,
+        entries: Arc::new(entries),
         is_v2,
     }];
     inner.diagnostics.table_layer_count = 1;
@@ -1485,7 +1478,7 @@ impl DatabaseBuilder {
                     table_open_duration_ns.saturating_add(elapsed_nanos(open_started.elapsed()));
                 table_layers.push(TableLayer {
                     file: Arc::new(Mutex::new(file)),
-                    entries,
+                    entries: Arc::new(entries),
                     is_v2,
                 });
             }
@@ -1840,126 +1833,16 @@ impl Keyspace {
 
     /// Return the first entry whose user key starts with `prefix` and is after
     /// `after`, when supplied.
-    #[allow(clippy::too_many_lines)]
     pub fn first_prefix_after(
         &self,
         prefix: impl AsRef<[u8]>,
         after: Option<&[u8]>,
     ) -> Result<Option<Entry>> {
-        let prefix = prefix.as_ref();
-        let mut inner = self
-            .db
-            .inner
-            .lock()
-            .map_err(|_| Error::message("database lock poisoned"))?;
-        if inner.in_memory {
-            let Some(keyspace) = inner
-                .memory_keyspaces
-                .as_ref()
-                .and_then(|keyspaces| keyspaces.get(&self.name))
-            else {
-                return Ok(None);
-            };
-            let mut entries = after.map_or_else(
-                || keyspace.range(prefix.to_vec()..),
-                |after| keyspace.range((Bound::Excluded(after.to_vec()), Bound::Unbounded)),
-            );
-            return Ok(entries
-                .next()
-                .filter(|(key, _)| key.starts_with(prefix))
-                .map(|(key, value)| Entry {
-                    key: key.clone(),
-                    value: value.as_ref().clone(),
-                }));
-        }
-        let namespace = self.namespace.clone();
-        let lower = physical_key_from_namespace(&namespace, after.unwrap_or(prefix));
-        let prefix_physical = physical_key_from_namespace(&namespace, prefix);
-        let upper = successor(&prefix_physical);
-        let mut state_key = next_map_key(
-            &inner.state,
-            &lower,
-            upper.as_deref(),
-            after.map(|_| lower.as_slice()),
-        );
-        let mut pending_key = next_map_key(
-            &inner.pending_table,
-            &lower,
-            upper.as_deref(),
-            after.map(|_| lower.as_slice()),
-        );
-        let mut layer_indices = inner
-            .table_layers
-            .iter()
-            .map(|layer| {
-                layer
-                    .entries
-                    .binary_search_by(|entry| entry.key.as_slice().cmp(lower.as_slice()))
-                    .unwrap_or_else(|index| index)
-            })
-            .collect::<Vec<_>>();
-        if after.is_some() {
-            for (layer, index) in inner.table_layers.iter().zip(&mut layer_indices) {
-                if layer
-                    .entries
-                    .get(*index)
-                    .is_some_and(|entry| entry.key == lower)
-                {
-                    *index += 1;
-                }
-            }
-        }
-
-        loop {
-            let mut next_key = state_key.clone();
-            if pending_key.as_deref().is_some_and(|candidate| {
-                next_key
-                    .as_deref()
-                    .is_none_or(|current| candidate < current)
-            }) {
-                next_key.clone_from(&pending_key);
-            }
-            for (layer, index) in inner.table_layers.iter().zip(&layer_indices) {
-                if let Some(candidate) = layer.entries.get(*index).map(|entry| &entry.key)
-                    && next_key
-                        .as_deref()
-                        .is_none_or(|current| candidate.as_slice() < current)
-                {
-                    next_key = Some(candidate.clone());
-                }
-            }
-            let Some(key) = next_key else {
-                return Ok(None);
-            };
-            if state_key.as_deref() == Some(key.as_slice()) {
-                state_key = next_map_key(&inner.state, &lower, upper.as_deref(), Some(&key));
-            }
-            if pending_key.as_deref() == Some(key.as_slice()) {
-                pending_key =
-                    next_map_key(&inner.pending_table, &lower, upper.as_deref(), Some(&key));
-            }
-            for (layer, index) in inner.table_layers.iter().zip(&mut layer_indices) {
-                if layer
-                    .entries
-                    .get(*index)
-                    .is_some_and(|entry| entry.key == key)
-                {
-                    *index += 1;
-                }
-            }
-            inner.diagnostics.scan_keys_examined =
-                inner.diagnostics.scan_keys_examined.saturating_add(1);
-            let Some(value) = inner.get_scan_value(&key)? else {
-                continue;
-            };
-            let Some(user_key) = key.strip_prefix(namespace.as_slice()) else {
-                continue;
-            };
-            return Ok(Some(Entry {
-                key: user_key.to_vec(),
-                value,
-            }));
-        }
+        let prefix = prefix.as_ref().to_vec();
+        let start = after.map(|key| (key.to_vec(), false));
+        self.iter_bounds_limited(Some(&prefix), start, None, Some(1))
+            .into_result()
+            .map(|entries| entries.into_iter().next())
     }
 
     /// Iterate entries within a user-key range.
@@ -2004,16 +1887,37 @@ impl Keyspace {
         start: Option<(Vec<u8>, bool)>,
         end: Option<(Vec<u8>, bool)>,
     ) -> Iter {
+        self.iter_bounds_limited(prefix, start, end, None)
+    }
+
+    #[allow(clippy::too_many_lines)]
+    fn iter_bounds_limited(
+        &self,
+        prefix: Option<&[u8]>,
+        start: Option<(Vec<u8>, bool)>,
+        end: Option<(Vec<u8>, bool)>,
+        limit: Option<usize>,
+    ) -> Iter {
+        let scan_lock_started = Instant::now();
         let Ok(mut inner) = self.db.inner.lock() else {
             return Iter {
                 entries: Vec::new().into_iter(),
+                error: None,
             };
         };
+        let scan_lock_wait = elapsed_nanos(scan_lock_started.elapsed());
         if inner.in_memory {
             return iter_memory_bounds(&mut inner, &self.name, prefix, start, end);
         }
+        let state = inner.state.clone();
+        let pending_table = inner.pending_table.clone();
+        let table_layers = inner.table_layers.clone();
+        let scan_lock_held =
+            elapsed_nanos(scan_lock_started.elapsed()).saturating_sub(scan_lock_wait);
+        drop(inner);
         let namespace = self.namespace.clone();
         let scan_started = Instant::now();
+        let cursor_started = Instant::now();
         let lower = start
             .as_ref()
             .map(|(key, _)| physical_key_from_namespace(&namespace, key))
@@ -2023,19 +1927,44 @@ impl Keyspace {
             .map(|(key, _)| physical_key_from_namespace(&namespace, key))
             .and_then(|key| successor(&key))
             .or_else(|| successor(&namespace));
+        let cursor_after = start.as_ref().and_then(|(key, inclusive)| {
+            (!inclusive).then(|| physical_key_from_namespace(&namespace, key))
+        });
         let mut entries = Vec::new();
-        let mut state_key = next_map_key(&inner.state, &lower, upper.as_deref(), None);
-        let mut pending_key = next_map_key(&inner.pending_table, &lower, upper.as_deref(), None);
-        let mut layer_indices = inner
-            .table_layers
+        let mut scan_error = None;
+        let mut scan_keys_examined = 0u64;
+        let mut scan_layers_consulted = 0u64;
+        let mut table_bytes_read = 0u64;
+        let mut table_read_duration_ns = 0u64;
+        let mut state_key = next_map_key(&state, &lower, upper.as_deref(), cursor_after.as_deref());
+        let mut pending_key = next_map_key(
+            &pending_table,
+            &lower,
+            upper.as_deref(),
+            cursor_after.as_deref(),
+        );
+        let mut layer_indices = table_layers
             .iter()
             .map(|layer| {
-                layer
+                let index = layer
                     .entries
                     .binary_search_by(|entry| entry.key.as_slice().cmp(lower.as_slice()))
-                    .unwrap_or_else(|index| index)
+                    .unwrap_or_else(|index| index);
+                if cursor_after.is_some()
+                    && layer.entries.get(index).is_some_and(|entry| {
+                        cursor_after
+                            .as_deref()
+                            .is_some_and(|after| entry.key == after)
+                    })
+                {
+                    index + 1
+                } else {
+                    index
+                }
             })
             .collect::<Vec<_>>();
+        let cursor_duration = elapsed_nanos(cursor_started.elapsed());
+        let merge_started = Instant::now();
 
         loop {
             let mut next_key = state_key.clone();
@@ -2046,7 +1975,7 @@ impl Keyspace {
             }) {
                 next_key.clone_from(&pending_key);
             }
-            for (layer, index) in inner.table_layers.iter().zip(&layer_indices) {
+            for (layer, index) in table_layers.iter().zip(&layer_indices) {
                 if let Some(candidate) = layer.entries.get(*index).map(|entry| &entry.key)
                     && next_key
                         .as_deref()
@@ -2062,13 +1991,12 @@ impl Keyspace {
                 break;
             }
             if state_key.as_deref() == Some(key.as_slice()) {
-                state_key = next_map_key(&inner.state, &lower, upper.as_deref(), Some(&key));
+                state_key = next_map_key(&state, &lower, upper.as_deref(), Some(&key));
             }
             if pending_key.as_deref() == Some(key.as_slice()) {
-                pending_key =
-                    next_map_key(&inner.pending_table, &lower, upper.as_deref(), Some(&key));
+                pending_key = next_map_key(&pending_table, &lower, upper.as_deref(), Some(&key));
             }
-            for (layer, index) in inner.table_layers.iter().zip(&mut layer_indices) {
+            for (layer, index) in table_layers.iter().zip(&mut layer_indices) {
                 if layer
                     .entries
                     .get(*index)
@@ -2077,9 +2005,20 @@ impl Keyspace {
                     *index += 1;
                 }
             }
-            inner.diagnostics.scan_keys_examined =
-                inner.diagnostics.scan_keys_examined.saturating_add(1);
-            let Some(value) = inner.get_scan_value(&key).unwrap_or(None) else {
+            scan_keys_examined = scan_keys_examined.saturating_add(1);
+            let value = match get_scan_value_snapshot(&state, &pending_table, &table_layers, &key) {
+                Ok((value, layers, bytes, duration)) => {
+                    scan_layers_consulted = scan_layers_consulted.saturating_add(layers);
+                    table_bytes_read = table_bytes_read.saturating_add(bytes);
+                    table_read_duration_ns = table_read_duration_ns.saturating_add(duration);
+                    value
+                },
+                Err(error) => {
+                    scan_error = Some(error);
+                    break;
+                },
+            };
+            let Some(value) = value else {
                 continue;
             };
             let Some(user_key) = key.strip_prefix(namespace.as_slice()) else {
@@ -2114,7 +2053,56 @@ impl Keyspace {
                 key: user_key.to_vec(),
                 value,
             });
+            if limit.is_some_and(|limit| entries.len() >= limit) {
+                break;
+            }
         }
+        let Ok(mut inner) = self.db.inner.lock() else {
+            return Iter {
+                entries: entries.into_iter(),
+                error: Some(Error::message("database lock poisoned")),
+            };
+        };
+        inner.diagnostics.scan_keys_examined = inner
+            .diagnostics
+            .scan_keys_examined
+            .saturating_add(scan_keys_examined);
+        inner.diagnostics.scan_layers_consulted = inner
+            .diagnostics
+            .scan_layers_consulted
+            .saturating_add(scan_layers_consulted);
+        inner.diagnostics.scan_lock_wait_duration_ns = inner
+            .diagnostics
+            .scan_lock_wait_duration_ns
+            .saturating_add(scan_lock_wait);
+        inner.diagnostics.scan_lock_held_duration_ns = inner
+            .diagnostics
+            .scan_lock_held_duration_ns
+            .saturating_add(scan_lock_held);
+        inner.diagnostics.scan_cursor_init_duration_ns = inner
+            .diagnostics
+            .scan_cursor_init_duration_ns
+            .saturating_add(cursor_duration);
+        inner.diagnostics.scan_merge_duration_ns = inner
+            .diagnostics
+            .scan_merge_duration_ns
+            .saturating_add(elapsed_nanos(merge_started.elapsed()));
+        inner.diagnostics.scan_returned_entries = inner
+            .diagnostics
+            .scan_returned_entries
+            .saturating_add(entries.len() as u64);
+        if scan_error.is_some() {
+            inner.diagnostics.scan_error_count =
+                inner.diagnostics.scan_error_count.saturating_add(1);
+        }
+        inner.diagnostics.table_bytes_read = inner
+            .diagnostics
+            .table_bytes_read
+            .saturating_add(table_bytes_read);
+        inner.diagnostics.table_read_duration_ns = inner
+            .diagnostics
+            .table_read_duration_ns
+            .saturating_add(table_read_duration_ns);
         inner.diagnostics.scan_count = inner.diagnostics.scan_count.saturating_add(1);
         inner.diagnostics.scan_duration_ns = inner
             .diagnostics
@@ -2122,8 +2110,44 @@ impl Keyspace {
             .saturating_add(elapsed_nanos(scan_started.elapsed()));
         Iter {
             entries: entries.into_iter(),
+            error: scan_error,
         }
     }
+}
+
+fn get_scan_value_snapshot(
+    state: &BTreeMap<Vec<u8>, Vec<u8>>,
+    pending_table: &BTreeMap<Vec<u8>, Option<Vec<u8>>>,
+    table_layers: &[TableLayer],
+    key: &[u8],
+) -> Result<(Option<Vec<u8>>, u64, u64, u64)> {
+    if let Some(value) = pending_table.get(key) {
+        return Ok((value.clone(), 0, 0, 0));
+    }
+    if let Some(value) = state.get(key) {
+        return Ok((Some(value.clone()), 0, 0, 0));
+    }
+    let mut layers_consulted = 0;
+    for layer in table_layers.iter().rev() {
+        layers_consulted += 1;
+        let Ok(index) = layer
+            .entries
+            .binary_search_by(|entry| entry.key.as_slice().cmp(key))
+        else {
+            continue;
+        };
+        return read_table_value_handle(&layer.file, &layer.entries[index], layer.is_v2).map(
+            |(value, _, duration)| {
+                (
+                    value,
+                    layers_consulted,
+                    layer.entries[index].length,
+                    duration,
+                )
+            },
+        );
+    }
+    Ok((None, layers_consulted, 0, 0))
 }
 
 fn next_map_key<V>(
@@ -2191,6 +2215,7 @@ fn iter_memory_bounds(
         .saturating_add(elapsed_nanos(iteration_started.elapsed()));
     Iter {
         entries: entries.into_iter(),
+        error: None,
     }
 }
 
@@ -2896,7 +2921,7 @@ mod tests {
 
         assert_eq!(shared.as_slice(), b"before");
         assert_eq!(objects.get(b"key").unwrap(), Some(b"after".to_vec()));
-        assert!(db.ram_diagnostics().unwrap().value_acquire_duration_ns > 0);
+        assert!(db.ram_diagnostics().unwrap().lookup_count >= 1);
     }
 
     #[test]
@@ -3735,13 +3760,74 @@ mod tests {
                 .unwrap();
         let table_path = directory.path().join(manifest.table_file.unwrap());
         let mut bytes = std::fs::read(&table_path).unwrap();
-        let last = bytes.len() - 1;
-        bytes[last] ^= 0xff;
+        let first_record_start = TABLE_MAGIC.len() + 16;
+        let key_length = usize::try_from(u64::from_be_bytes(
+            bytes[first_record_start..first_record_start + 8]
+                .try_into()
+                .unwrap(),
+        ))
+        .unwrap();
+        let value_length_offset = first_record_start + 8 + key_length + 1;
+        let value_length = usize::try_from(u64::from_be_bytes(
+            bytes[value_length_offset..value_length_offset + 8]
+                .try_into()
+                .unwrap(),
+        ))
+        .unwrap();
+        let first_record_end = value_length_offset + 8 + value_length + 4;
+        bytes[first_record_end - 1] ^= 0xff;
         std::fs::write(table_path, bytes).unwrap();
 
         let Err(error) = Database::open(directory.path()) else {
             panic!("corrupted table unexpectedly opened")
         };
+        assert!(error.to_string().contains("table checksum mismatch"));
+    }
+
+    #[test]
+    fn scan_checksum_corruption_is_not_treated_as_an_empty_result() {
+        let directory = tempfile::tempdir().unwrap();
+        let db = Database::open(directory.path()).unwrap();
+        let objects = db
+            .keyspace("objects", KeyspaceCreateOptions::default)
+            .unwrap();
+        objects.insert(b"a", b"one").unwrap();
+        objects.insert(b"b", b"two").unwrap();
+        db.compact().unwrap();
+
+        let manifest: Manifest =
+            serde_json::from_slice(&std::fs::read(directory.path().join(MANIFEST_FILE)).unwrap())
+                .unwrap();
+        let table_path = directory.path().join(manifest.table_file.unwrap());
+        let mut bytes = std::fs::read(&table_path).unwrap();
+        let first_record_start = TABLE_MAGIC.len() + 16;
+        let key_length = usize::try_from(u64::from_be_bytes(
+            bytes[first_record_start..first_record_start + 8]
+                .try_into()
+                .unwrap(),
+        ))
+        .unwrap();
+        let value_length_offset = first_record_start + 8 + key_length + 1;
+        let value_length = usize::try_from(u64::from_be_bytes(
+            bytes[value_length_offset..value_length_offset + 8]
+                .try_into()
+                .unwrap(),
+        ))
+        .unwrap();
+        let first_record_end = value_length_offset + 8 + value_length + 4;
+        bytes[first_record_end - 1] ^= 0xff;
+        std::fs::write(&table_path, bytes).unwrap();
+
+        let error = objects.iter().into_result().unwrap_err();
+        assert!(error.to_string().contains("table checksum mismatch"));
+        let error = objects.prefix(b"a").into_result().unwrap_err();
+        assert!(error.to_string().contains("table checksum mismatch"));
+        let error = objects
+            .range_bounds(Some((b"a", true)), Some((b"b", true)))
+            .into_result()
+            .unwrap_err();
+        assert!(error.to_string().contains("table checksum mismatch"));
+        let error = objects.first_prefix_after(b"a", None).unwrap_err();
         assert!(error.to_string().contains("table checksum mismatch"));
     }
 
@@ -3789,6 +3875,27 @@ mod tests {
             .map(|entry| entry.key)
             .collect();
         assert_eq!(range, vec![b"aa".to_vec(), b"ab".to_vec()]);
+    }
+
+    #[test]
+    fn first_prefix_after_excludes_the_cursor_key() {
+        let directory = tempfile::tempdir().unwrap();
+        let db = Database::open(directory.path()).unwrap();
+        let objects = db
+            .keyspace("objects", KeyspaceCreateOptions::default)
+            .unwrap();
+        for key in [b"aa".as_slice(), b"ab", b"ac"] {
+            objects.insert(key, b"value").unwrap();
+        }
+        db.compact().unwrap();
+
+        assert_eq!(
+            objects
+                .first_prefix_after(b"a", Some(b"aa"))
+                .unwrap()
+                .map(|entry| entry.key),
+            Some(b"ab".to_vec())
+        );
     }
 
     #[test]

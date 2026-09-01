@@ -1184,6 +1184,22 @@ impl WalDiagnosticsSnapshot {
             scan_count: before.scan_count,
             scan_keys_examined: before.scan_keys_examined,
             scan_layers_consulted: before.scan_layers_consulted,
+            scan_lock_wait_duration_ns: before
+                .scan_lock_wait_duration_ns
+                .max(after.scan_lock_wait_duration_ns),
+            scan_lock_held_duration_ns: before
+                .scan_lock_held_duration_ns
+                .max(after.scan_lock_held_duration_ns),
+            scan_cursor_init_duration_ns: before
+                .scan_cursor_init_duration_ns
+                .max(after.scan_cursor_init_duration_ns),
+            scan_merge_duration_ns: before
+                .scan_merge_duration_ns
+                .max(after.scan_merge_duration_ns),
+            scan_returned_entries: before
+                .scan_returned_entries
+                .max(after.scan_returned_entries),
+            scan_error_count: before.scan_error_count.max(after.scan_error_count),
             table_layer_count: before.table_layer_count.max(after.table_layer_count),
             compaction_count: before.compaction_count.max(after.compaction_count),
             compaction_duration_ns: before.compaction_duration_ns,
