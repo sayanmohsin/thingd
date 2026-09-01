@@ -13,6 +13,36 @@
 - server: harden security boundaries (0961ffe)
 - complete public SDK type exports (8a8889a)
 
+## [0.86.0](https://github.com/sayanmohsin/thingd/compare/thingd-v0.85.0...thingd-v0.86.0) (2026-09-01)
+
+
+### Features
+
+* improve storage benchmark instrumentation ([6ac865a](https://github.com/sayanmohsin/thingd/commit/6ac865a80a93a4cdb9d5e77001da7541cb6d781e))
+* instrument ThingDB RAM operations ([9fe10a6](https://github.com/sayanmohsin/thingd/commit/9fe10a6cd018ffe973a3d3c82f4fa5ba8e16da4b))
+
+
+### Bug Fixes
+
+* adopt published Nice Code review ([cba34be](https://github.com/sayanmohsin/thingd/commit/cba34be05e6979d445dc38251f9c26c4480f35cb))
+* install pnpm in Nice Code workflow ([0ad0ca7](https://github.com/sayanmohsin/thingd/commit/0ad0ca74e62cf7d2031347ba8423986f6a1ec49e))
+* refine review diagnostics ([c38b44c](https://github.com/sayanmohsin/thingd/commit/c38b44cbf6cd5e610d785be442c353af62f5a3c9))
+
+
+### Performance Improvements
+
+* avoid ThingDB RAM read cloning ([8530a7a](https://github.com/sayanmohsin/thingd/commit/8530a7a83059bef6f64fede3092412f33b308ad6))
+* buffer ThingDB table writes ([b549ee3](https://github.com/sayanmohsin/thingd/commit/b549ee3cc98907a6d60f7e413bc1deb2074de4ae))
+* coalesce ThingDB WAL writes ([6fdb7f8](https://github.com/sayanmohsin/thingd/commit/6fdb7f8ce37318808f0fb96ff3139c23b63be282))
+* improve ThingDB durable WAL throughput ([38fa351](https://github.com/sayanmohsin/thingd/commit/38fa3512ab6b3ba98e2c7108f7c1a8fe71c8b3cd))
+* improve ThingDB durable write batching ([5f250e9](https://github.com/sayanmohsin/thingd/commit/5f250e97f435cf1c318444d1d12e0adcb7166e60))
+* optimize durable ThingDB scans ([2bceb8d](https://github.com/sayanmohsin/thingd/commit/2bceb8d9d43f92d024a4fc3fcdc87669521d4100))
+* reduce ThingDB RAM lookup overhead ([3ff1bf6](https://github.com/sayanmohsin/thingd/commit/3ff1bf600d7f6add04a1a1ead2be2826563708ea))
+* release durable table reads from global lock ([76114c1](https://github.com/sayanmohsin/thingd/commit/76114c157c8c0c82495b6d97b2e97c7777fa1062))
+* release durable ThingDB table reads from global lock ([af9a4e0](https://github.com/sayanmohsin/thingd/commit/af9a4e06a7c51dd780832d18fae0c22cfb363de1))
+* reuse borrowed ThingDB RAM object reads ([57458a5](https://github.com/sayanmohsin/thingd/commit/57458a57bd2b8653c13c49d886a900b8650f166f))
+* separate ThingDB WAL I/O from state lock ([eb4d1b8](https://github.com/sayanmohsin/thingd/commit/eb4d1b8ea12fb0ce149489ab0df2c9944e4363dc))
+
 ## [0.85.0](https://github.com/sayanmohsin/thingd/compare/thingd-v0.84.6...thingd-v0.85.0) (2026-08-28)
 
 
