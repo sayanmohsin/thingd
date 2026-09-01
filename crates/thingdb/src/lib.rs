@@ -395,6 +395,7 @@ struct Inner {
     diagnostics: WalDiagnostics,
     ram_diagnostics: RamDiagnostics,
     recovery_required: bool,
+    commit_gate: Arc<Mutex<()>>,
 }
 
 #[derive(Clone)]
@@ -606,6 +607,7 @@ fn request_has_fault(requests: &[CommitRequest], point: &'static str) -> Option<
         .find_map(|request| (request.fault_point == Some(point)).then_some(point))
 }
 
+#[allow(clippy::too_many_lines)]
 fn process_group(inner: &Weak<Mutex<Inner>>, mut requests: Vec<CommitRequest>) {
     let Some(inner_arc) = inner.upgrade() else {
         for request in &mut *requests {
@@ -613,6 +615,20 @@ fn process_group(inner: &Weak<Mutex<Inner>>, mut requests: Vec<CommitRequest>) {
                 .response
                 .send(Err(Error::message("ThingDB writer is unavailable")));
         }
+        return;
+    };
+    let gate = if let Ok(inner) = inner_arc.lock() {
+        Arc::clone(&inner.commit_gate)
+    } else {
+        for request in requests {
+            let _ = request
+                .response
+                .send(Err(Error::message("database lock poisoned")));
+        }
+        return;
+    };
+    let Ok(_gate) = gate.lock() else {
+        finish_group_with_error(&mut requests, "ThingDB commit gate poisoned");
         return;
     };
     let lock_started = Instant::now();
@@ -921,6 +937,7 @@ impl Database {
             diagnostics: WalDiagnostics::default(),
             ram_diagnostics: RamDiagnostics::default(),
             recovery_required: false,
+            commit_gate: Arc::new(Mutex::new(())),
         }));
         let writer = WriterCoordinator::new(Arc::downgrade(&inner))?;
         Ok(Self { inner, writer })
@@ -1133,6 +1150,15 @@ impl Database {
     }
 
     fn flush_table(&self, sync: bool) -> Result<()> {
+        let gate = self
+            .inner
+            .lock()
+            .map_err(|_| Error::message("database lock poisoned"))?
+            .commit_gate
+            .clone();
+        let _gate = gate
+            .lock()
+            .map_err(|_| Error::message("ThingDB commit gate poisoned"))?;
         let mut inner = self
             .inner
             .lock()
@@ -1308,6 +1334,15 @@ fn flush_table_locked(
 
 impl Database {
     fn compact_tables(&self, sync: bool) -> Result<()> {
+        let gate = self
+            .inner
+            .lock()
+            .map_err(|_| Error::message("database lock poisoned"))?
+            .commit_gate
+            .clone();
+        let _gate = gate
+            .lock()
+            .map_err(|_| Error::message("ThingDB commit gate poisoned"))?;
         let mut inner = self
             .inner
             .lock()
@@ -1570,6 +1605,7 @@ impl DatabaseBuilder {
             },
             ram_diagnostics: RamDiagnostics::default(),
             recovery_required: false,
+            commit_gate: Arc::new(Mutex::new(())),
         }));
         let writer = WriterCoordinator::new(Arc::downgrade(&inner))?;
         Ok(Database { inner, writer })
