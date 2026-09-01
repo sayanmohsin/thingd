@@ -62,7 +62,7 @@
   "devDependencies": {
     "@biomejs/biome": "2.5.11",
     "@modelcontextprotocol/sdk": "^1.30.0",
-    "@sayanmohsin/nice-code": "0.1.10",
+    "@sayanmohsin/nice-code": "0.1.11",
     "@thingd/native": "file:packages/thingd-native",
     "@types/node": "26.4.0",
     "cross-spawn": "^7.0.6",
