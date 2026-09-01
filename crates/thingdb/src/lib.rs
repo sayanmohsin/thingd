@@ -192,12 +192,22 @@ pub struct WalDiagnostics {
     pub recovery_duration_ns: u64,
     /// Nanoseconds spent encoding WAL frames.
     pub encode_duration_ns: u64,
+    /// Nanoseconds spent reserving the grouped WAL buffer.
+    pub buffer_allocation_duration_ns: u64,
+    /// Bytes reserved for grouped WAL buffers.
+    pub buffer_reserved_bytes: u64,
+    /// Nanoseconds spent encoding WAL frames outside the state lock.
+    pub encode_outside_lock_duration_ns: u64,
     /// Nanoseconds spent appending WAL frames.
     pub append_duration_ns: u64,
     /// Total bytes appended to the WAL since opening the database.
     pub wal_bytes_appended: u64,
     /// Nanoseconds spent syncing WAL frames.
     pub sync_duration_ns: u64,
+    /// Nanoseconds spent waiting for the WAL I/O lock.
+    pub wal_lock_wait_duration_ns: u64,
+    /// Nanoseconds spent holding the WAL I/O lock.
+    pub wal_lock_held_duration_ns: u64,
     /// Nanoseconds spent applying committed operations to memory.
     pub state_apply_duration_ns: u64,
     /// Nanoseconds spent holding the database lock for commits.
@@ -214,6 +224,10 @@ pub struct WalDiagnostics {
     pub queue_wait_duration_ns: u64,
     /// Whether the database requires reopen and recovery before writing.
     pub recovery_required: bool,
+    /// Number of commit groups rejected after a state-generation change.
+    pub state_generation_conflict_count: u64,
+    /// Number of WAL truncation failures observed during recovery of a group.
+    pub truncation_failure_count: u64,
     /// Whether the WAL is above the configured soft budget.
     pub wal_over_budget: bool,
     /// Bytes held by the current mutable table delta.
@@ -360,6 +374,7 @@ pub struct DatabaseBuilder {
 pub struct Database {
     inner: Arc<Mutex<Inner>>,
     writer: Arc<WriterCoordinator>,
+    commit_gate: Arc<Mutex<()>>,
 }
 
 struct Inner {
@@ -381,6 +396,9 @@ struct Inner {
     diagnostics: WalDiagnostics,
     ram_diagnostics: RamDiagnostics,
     recovery_required: bool,
+    commit_gate: Arc<Mutex<()>>,
+    wal_io_lock: Arc<Mutex<()>>,
+    state_generation: u64,
 }
 
 #[derive(Clone)]
@@ -592,6 +610,7 @@ fn request_has_fault(requests: &[CommitRequest], point: &'static str) -> Option<
         .find_map(|request| (request.fault_point == Some(point)).then_some(point))
 }
 
+#[allow(clippy::too_many_lines)]
 fn process_group(inner: &Weak<Mutex<Inner>>, mut requests: Vec<CommitRequest>) {
     let Some(inner_arc) = inner.upgrade() else {
         for request in &mut *requests {
@@ -599,6 +618,20 @@ fn process_group(inner: &Weak<Mutex<Inner>>, mut requests: Vec<CommitRequest>) {
                 .response
                 .send(Err(Error::message("ThingDB writer is unavailable")));
         }
+        return;
+    };
+    let gate = if let Ok(inner) = inner_arc.lock() {
+        Arc::clone(&inner.commit_gate)
+    } else {
+        for request in requests {
+            let _ = request
+                .response
+                .send(Err(Error::message("database lock poisoned")));
+        }
+        return;
+    };
+    let Ok(_gate) = gate.lock() else {
+        finish_group_with_error(&mut requests, "ThingDB commit gate poisoned");
         return;
     };
     let lock_started = Instant::now();
@@ -644,8 +677,11 @@ fn process_group(inner: &Weak<Mutex<Inner>>, mut requests: Vec<CommitRequest>) {
 
     let wal_start = if inner.in_memory {
         0
-    } else if let Some(metadata) = inner.wal.as_ref().and_then(|wal| wal.metadata().ok()) {
-        metadata.len()
+    } else if inner.wal.is_some() {
+        // The diagnostic is maintained whenever the WAL is opened, appended,
+        // truncated, or rotated. Reusing it avoids another metadata syscall
+        // while the database lock is held.
+        inner.diagnostics.journal_bytes
     } else {
         let message = "ThingDB WAL is unavailable";
         inner.diagnostics.last_error = Some(message.to_string());
@@ -661,9 +697,27 @@ fn process_group(inner: &Weak<Mutex<Inner>>, mut requests: Vec<CommitRequest>) {
     let (result, synced) = if inner.in_memory {
         execute_memory_group(&mut inner, &mut requests, group_size)
     } else {
-        execute_group(&mut inner, &mut requests, wal_start, group_size)
+        let expected_sequence = inner.sequence.saturating_add(1);
+        let expected_generation = inner.state_generation;
+        let wal_io_lock = Arc::clone(&inner.wal_io_lock);
+        let wal_file = inner.wal.as_ref().and_then(|wal| wal.try_clone().ok());
+        drop(inner);
+        execute_group(
+            &inner_arc,
+            &mut requests,
+            expected_sequence,
+            expected_generation,
+            wal_start,
+            wal_file,
+            wal_io_lock,
+            group_size,
+        )
     };
 
+    let Ok(mut inner) = inner_arc.lock() else {
+        finish_group_with_error(&mut requests, "database lock poisoned");
+        return;
+    };
     if let Err(error) = &result {
         inner.diagnostics.last_error = Some(error.to_string());
         if synced {
@@ -671,18 +725,11 @@ fn process_group(inner: &Weak<Mutex<Inner>>, mut requests: Vec<CommitRequest>) {
             inner.diagnostics.recovery_required = true;
         }
     }
-    if let Some(wal) = inner.wal.as_ref()
-        && let Ok(bytes) = wal.metadata().map(|metadata| metadata.len())
-    {
-        inner.diagnostics.journal_bytes = bytes;
-        inner.diagnostics.wal_over_budget = bytes > inner.max_journaling_size;
-    }
     inner.diagnostics.lock_duration_ns = inner
         .diagnostics
         .lock_duration_ns
         .saturating_add(elapsed_nanos(lock_started.elapsed()));
     drop(inner);
-    drop(inner_arc);
 
     match result {
         Ok(()) => {
@@ -718,68 +765,148 @@ fn execute_memory_group(
     (Ok(()), false)
 }
 
+#[allow(clippy::too_many_arguments, clippy::too_many_lines)]
 fn execute_group(
-    inner: &mut Inner,
+    inner_arc: &Arc<Mutex<Inner>>,
     requests: &mut [CommitRequest],
+    expected_sequence: u64,
+    expected_generation: u64,
     wal_start: u64,
+    wal_file: Option<File>,
+    wal_io_lock: Arc<Mutex<()>>,
     group_size: u64,
 ) -> (Result<()>, bool) {
-    let mut next_sequence = inner.sequence.saturating_add(1);
-    let mut wal_bytes = Vec::new();
-    let mut synced = false;
-    let result: Result<()> = (|| {
+    let allocation_started = Instant::now();
+    let reserved_bytes = requests
+        .iter()
+        .map(|request| encoded_frame_capacity(&request.operations))
+        .sum();
+    let mut wal_bytes = Vec::with_capacity(reserved_bytes);
+    let allocation_duration_ns = elapsed_nanos(allocation_started.elapsed());
+    let encode_started = Instant::now();
+    let mut next_sequence = expected_sequence;
+    let encode_result = (|| {
         for request in requests.iter() {
-            let started = Instant::now();
-            let frame = encode_frame(next_sequence, &request.operations)?;
-            inner.diagnostics.encode_duration_ns = inner
-                .diagnostics
-                .encode_duration_ns
-                .saturating_add(elapsed_nanos(started.elapsed()));
-            wal_bytes.extend_from_slice(&frame);
+            encode_frame_into(&mut wal_bytes, next_sequence, &request.operations)?;
             next_sequence = next_sequence.saturating_add(1);
         }
-
+        Ok::<(), Error>(())
+    })();
+    let encode_duration_ns = elapsed_nanos(encode_started.elapsed());
+    if let Ok(mut inner) = inner_arc.lock() {
+        inner.diagnostics.buffer_allocation_duration_ns = inner
+            .diagnostics
+            .buffer_allocation_duration_ns
+            .saturating_add(allocation_duration_ns);
+        inner.diagnostics.buffer_reserved_bytes = inner
+            .diagnostics
+            .buffer_reserved_bytes
+            .saturating_add(reserved_bytes as u64);
+        inner.diagnostics.encode_duration_ns = inner
+            .diagnostics
+            .encode_duration_ns
+            .saturating_add(encode_duration_ns);
+        inner.diagnostics.encode_outside_lock_duration_ns = inner
+            .diagnostics
+            .encode_outside_lock_duration_ns
+            .saturating_add(encode_duration_ns);
+    }
+    if let Err(error) = encode_result {
+        return (Err(error), false);
+    }
+    let Some(mut wal_file) = wal_file else {
+        return (Err(Error::message("ThingDB WAL is unavailable")), false);
+    };
+    let mut synced = false;
+    let mut appended = false;
+    let result: Result<()> = (|| {
         if let Some(point) = request_has_fault(requests, "before-wal-append") {
             maybe_fail(point, Some(point))?;
         }
-        let started = Instant::now();
         {
-            let Some(wal) = inner.wal.as_mut() else {
-                return Err(Error::message("ThingDB WAL is unavailable"));
+            let Ok(mut inner) = inner_arc.lock() else {
+                return Err(Error::message("database lock poisoned"));
             };
-            wal.write_all(&wal_bytes)?;
+            if inner.recovery_required
+                || inner.sequence.saturating_add(1) != expected_sequence
+                || inner.state_generation != expected_generation
+            {
+                inner.diagnostics.state_generation_conflict_count = inner
+                    .diagnostics
+                    .state_generation_conflict_count
+                    .saturating_add(1);
+                return Err(Error::message(
+                    "ThingDB commit state changed while preparing WAL frames",
+                ));
+            }
         }
-        inner.diagnostics.append_duration_ns = inner
-            .diagnostics
-            .append_duration_ns
-            .saturating_add(elapsed_nanos(started.elapsed()));
-        inner.diagnostics.wal_bytes_appended = inner
-            .diagnostics
-            .wal_bytes_appended
-            .saturating_add(wal_bytes.len() as u64);
-
-        if let Some(point) = request_has_fault(requests, "after-wal-write-before-sync") {
-            maybe_fail(point, Some(point))?;
-        }
-        let started = Instant::now();
-        inner.diagnostics.physical_sync_count =
-            inner.diagnostics.physical_sync_count.saturating_add(1);
         {
-            let Some(wal) = inner.wal.as_mut() else {
-                return Err(Error::message("ThingDB WAL is unavailable"));
+            let wal_lock_started = Instant::now();
+            let Ok(_wal_lock) = wal_io_lock.lock() else {
+                return Err(Error::message("ThingDB WAL lock poisoned"));
             };
-            wal.sync_data()?;
+            let wal_lock_wait = elapsed_nanos(wal_lock_started.elapsed());
+            let started = Instant::now();
+            wal_file.write_all(&wal_bytes)?;
+            appended = true;
+            let append_duration_ns = elapsed_nanos(started.elapsed());
+            if let Ok(mut inner) = inner_arc.lock() {
+                inner.diagnostics.append_duration_ns = inner
+                    .diagnostics
+                    .append_duration_ns
+                    .saturating_add(append_duration_ns);
+                inner.diagnostics.wal_bytes_appended = inner
+                    .diagnostics
+                    .wal_bytes_appended
+                    .saturating_add(wal_bytes.len() as u64);
+                let journal_bytes = wal_start.saturating_add(wal_bytes.len() as u64);
+                inner.diagnostics.journal_bytes = journal_bytes;
+                inner.diagnostics.wal_over_budget = journal_bytes > inner.max_journaling_size;
+            }
+            if let Some(point) = request_has_fault(requests, "after-wal-write-before-sync") {
+                maybe_fail(point, Some(point))?;
+            }
+            let started = Instant::now();
+            wal_file.sync_data()?;
+            synced = true;
+            let sync_duration_ns = elapsed_nanos(started.elapsed());
+            if let Ok(mut inner) = inner_arc.lock() {
+                inner.diagnostics.physical_sync_count =
+                    inner.diagnostics.physical_sync_count.saturating_add(1);
+                inner.diagnostics.sync_duration_ns = inner
+                    .diagnostics
+                    .sync_duration_ns
+                    .saturating_add(sync_duration_ns);
+                inner.diagnostics.wal_lock_wait_duration_ns = inner
+                    .diagnostics
+                    .wal_lock_wait_duration_ns
+                    .saturating_add(wal_lock_wait);
+                inner.diagnostics.wal_lock_held_duration_ns = inner
+                    .diagnostics
+                    .wal_lock_held_duration_ns
+                    .saturating_add(append_duration_ns.saturating_add(sync_duration_ns));
+            }
         }
-        synced = true;
-        inner.diagnostics.sync_duration_ns = inner
-            .diagnostics
-            .sync_duration_ns
-            .saturating_add(elapsed_nanos(started.elapsed()));
-
         if let Some(point) = request_has_fault(requests, "after-wal-sync-before-state-apply") {
             maybe_fail(point, Some(point))?;
         }
+        let Ok(mut inner) = inner_arc.lock() else {
+            return Err(Error::message("database lock poisoned"));
+        };
+        if inner.recovery_required
+            || inner.sequence.saturating_add(1) != expected_sequence
+            || inner.state_generation != expected_generation
+        {
+            inner.diagnostics.state_generation_conflict_count = inner
+                .diagnostics
+                .state_generation_conflict_count
+                .saturating_add(1);
+            return Err(Error::message(
+                "ThingDB commit state changed before state application",
+            ));
+        }
         let started = Instant::now();
+        let inner = &mut *inner;
         for request in requests.iter_mut() {
             for operation in std::mem::take(&mut request.operations) {
                 apply_operation_with_pending(
@@ -795,6 +922,7 @@ fn execute_group(
             .state_apply_duration_ns
             .saturating_add(elapsed_nanos(started.elapsed()));
         inner.sequence = next_sequence.saturating_sub(1);
+        inner.state_generation = inner.state_generation.saturating_add(1);
         inner.diagnostics.frame_count = inner.diagnostics.frame_count.saturating_add(group_size);
         inner.diagnostics.memtable_bytes = inner.pending_table_bytes;
         inner.diagnostics.memtable_over_budget =
@@ -814,13 +942,18 @@ fn execute_group(
         Ok(())
     })();
 
-    if result.is_err()
-        && !synced
-        && let Some(wal) = inner.wal.as_mut()
-        && wal.set_len(wal_start).is_ok()
-    {
-        let _ = wal.seek(SeekFrom::End(0));
-        inner.diagnostics.journal_bytes = wal_start;
+    if result.is_err() && !synced && appended {
+        if let Ok(_wal_lock) = wal_io_lock.lock()
+            && wal_file.set_len(wal_start).is_ok()
+        {
+            let _ = wal_file.seek(SeekFrom::End(0));
+            if let Ok(mut inner) = inner_arc.lock() {
+                inner.diagnostics.journal_bytes = wal_start;
+            }
+        } else if let Ok(mut inner) = inner_arc.lock() {
+            inner.diagnostics.truncation_failure_count =
+                inner.diagnostics.truncation_failure_count.saturating_add(1);
+        }
     }
     (result, synced)
 }
@@ -873,6 +1006,7 @@ impl Database {
     /// This mode creates no files, WAL, manifest, table layers, or durable
     /// recovery state. All data is lost when the returned instance is dropped.
     pub fn in_memory() -> Result<Self> {
+        let commit_gate = Arc::new(Mutex::new(()));
         let inner = Arc::new(Mutex::new(Inner {
             path: PathBuf::new(),
             wal: None,
@@ -892,9 +1026,16 @@ impl Database {
             diagnostics: WalDiagnostics::default(),
             ram_diagnostics: RamDiagnostics::default(),
             recovery_required: false,
+            commit_gate: Arc::clone(&commit_gate),
+            wal_io_lock: Arc::new(Mutex::new(())),
+            state_generation: 0,
         }));
         let writer = WriterCoordinator::new(Arc::downgrade(&inner))?;
-        Ok(Self { inner, writer })
+        Ok(Self {
+            inner,
+            writer,
+            commit_gate,
+        })
     }
 
     /// Start building a database at `path`.
@@ -1104,6 +1245,10 @@ impl Database {
     }
 
     fn flush_table(&self, sync: bool) -> Result<()> {
+        let _gate = self
+            .commit_gate
+            .lock()
+            .map_err(|_| Error::message("ThingDB commit gate poisoned"))?;
         let mut inner = self
             .inner
             .lock()
@@ -1196,6 +1341,10 @@ fn flush_table_locked(
         ));
     }
     if inner.pending_table.is_empty() {
+        let _wal_lock = inner
+            .wal_io_lock
+            .lock()
+            .map_err(|_| Error::message("ThingDB WAL lock poisoned"))?;
         let wal = inner
             .wal
             .as_mut()
@@ -1206,6 +1355,10 @@ fn flush_table_locked(
     let updates = std::mem::take(&mut inner.pending_table);
     let update_bytes = inner.pending_table_bytes;
     let result = (|| {
+        let _wal_lock = inner
+            .wal_io_lock
+            .lock()
+            .map_err(|_| Error::message("ThingDB WAL lock poisoned"))?;
         let wal = inner
             .wal
             .as_mut()
@@ -1250,16 +1403,18 @@ fn flush_table_locked(
         inner.table_sequence = next_sequence;
         inner.state.clear();
         inner.pending_table_bytes = 0;
-        let wal = inner
-            .wal
-            .as_mut()
-            .ok_or_else(|| Error::message("ThingDB WAL is unavailable"))?;
-        wal.set_len(0)?;
-        wal.seek(SeekFrom::End(0))?;
-        if sync {
-            wal.sync_data()?;
+        {
+            let wal = inner
+                .wal
+                .as_mut()
+                .ok_or_else(|| Error::message("ThingDB WAL is unavailable"))?;
+            wal.set_len(0)?;
+            wal.seek(SeekFrom::End(0))?;
+            if sync {
+                wal.sync_data()?;
+            }
+            inner.diagnostics.journal_bytes = wal.metadata()?.len();
         }
-        inner.diagnostics.journal_bytes = wal.metadata()?.len();
         inner.diagnostics.frame_count = 0;
         inner.diagnostics.memtable_bytes = 0;
         inner.diagnostics.memtable_over_budget = false;
@@ -1279,6 +1434,10 @@ fn flush_table_locked(
 
 impl Database {
     fn compact_tables(&self, sync: bool) -> Result<()> {
+        let _gate = self
+            .commit_gate
+            .lock()
+            .map_err(|_| Error::message("ThingDB commit gate poisoned"))?;
         let mut inner = self
             .inner
             .lock()
@@ -1298,11 +1457,17 @@ fn compact_tables_locked(
             "ThingDB requires reopen and recovery before writing",
         ));
     }
-    let wal = inner
-        .wal
-        .as_mut()
-        .ok_or_else(|| Error::message("ThingDB WAL is unavailable"))?;
-    wal.sync_data()?;
+    {
+        let _wal_lock = inner
+            .wal_io_lock
+            .lock()
+            .map_err(|_| Error::message("ThingDB WAL lock poisoned"))?;
+        let wal = inner
+            .wal
+            .as_mut()
+            .ok_or_else(|| Error::message("ThingDB WAL is unavailable"))?;
+        wal.sync_data()?;
+    }
     let next_sequence = inner.sequence;
     let table_name = format!("table-{next_sequence:020}-compact.tdb");
     let table_path = inner.path.join(&table_name);
@@ -1354,16 +1519,18 @@ fn compact_tables_locked(
     inner.state.clear();
     inner.pending_table.clear();
     inner.pending_table_bytes = 0;
-    let wal = inner
-        .wal
-        .as_mut()
-        .ok_or_else(|| Error::message("ThingDB WAL is unavailable"))?;
-    wal.set_len(0)?;
-    wal.seek(SeekFrom::End(0))?;
-    if sync {
-        wal.sync_data()?;
+    {
+        let wal = inner
+            .wal
+            .as_mut()
+            .ok_or_else(|| Error::message("ThingDB WAL is unavailable"))?;
+        wal.set_len(0)?;
+        wal.seek(SeekFrom::End(0))?;
+        if sync {
+            wal.sync_data()?;
+        }
+        inner.diagnostics.journal_bytes = wal.metadata()?.len();
     }
-    inner.diagnostics.journal_bytes = wal.metadata()?.len();
     inner.diagnostics.frame_count = 0;
     inner.diagnostics.memtable_bytes = 0;
     inner.diagnostics.memtable_over_budget = false;
@@ -1514,6 +1681,7 @@ impl DatabaseBuilder {
                 true,
             )?;
         }
+        let commit_gate = Arc::new(Mutex::new(()));
         let inner = Arc::new(Mutex::new(Inner {
             path: self.path,
             wal: Some(wal),
@@ -1541,9 +1709,16 @@ impl DatabaseBuilder {
             },
             ram_diagnostics: RamDiagnostics::default(),
             recovery_required: false,
+            commit_gate: Arc::clone(&commit_gate),
+            wal_io_lock: Arc::new(Mutex::new(())),
+            state_generation: 0,
         }));
         let writer = WriterCoordinator::new(Arc::downgrade(&inner))?;
-        Ok(Database { inner, writer })
+        Ok(Database {
+            inner,
+            writer,
+            commit_gate,
+        })
     }
 }
 
@@ -2309,10 +2484,46 @@ fn successor(key: &[u8]) -> Option<Vec<u8>> {
     None
 }
 
+fn encoded_frame_capacity(operations: &[Operation]) -> usize {
+    WAL_MAGIC
+        .len()
+        .saturating_add(8)
+        .saturating_add(8)
+        .saturating_add(4)
+        .saturating_add(
+            operations
+                .iter()
+                .map(|operation| match operation {
+                    Operation::Put { key, value } => 1usize
+                        .saturating_add(8)
+                        .saturating_add(key.len())
+                        .saturating_add(8)
+                        .saturating_add(value.len()),
+                    Operation::Delete { key } => 1usize
+                        .saturating_add(8)
+                        .saturating_add(key.len())
+                        .saturating_add(8),
+                })
+                .sum(),
+        )
+        .saturating_add(4)
+}
+
+#[cfg(test)]
 fn encode_frame(sequence: u64, operations: &[Operation]) -> Result<Vec<u8>> {
-    let mut payload = Vec::new();
+    let mut frame = Vec::with_capacity(encoded_frame_capacity(operations));
+    encode_frame_into(&mut frame, sequence, operations)?;
+    Ok(frame)
+}
+
+fn encode_frame_into(output: &mut Vec<u8>, sequence: u64, operations: &[Operation]) -> Result<()> {
+    output.extend_from_slice(WAL_MAGIC);
+    let length_offset = output.len();
+    write_u64(output, 0);
+    let body_start = output.len();
+    write_u64(output, sequence);
     write_u32(
-        &mut payload,
+        output,
         operations
             .len()
             .try_into()
@@ -2321,32 +2532,28 @@ fn encode_frame(sequence: u64, operations: &[Operation]) -> Result<Vec<u8>> {
     for operation in operations {
         match operation {
             Operation::Put { key, value } => {
-                payload.push(1);
-                write_bytes(&mut payload, key)?;
-                write_bytes(&mut payload, value)?;
+                output.push(1);
+                write_bytes(output, key)?;
+                write_bytes(output, value)?;
             },
             Operation::Delete { key } => {
-                payload.push(2);
-                write_bytes(&mut payload, key)?;
-                write_u64(&mut payload, 0);
+                output.push(2);
+                write_bytes(output, key)?;
+                write_u64(output, 0);
             },
         }
     }
-    let mut body = Vec::new();
-    write_u64(&mut body, sequence);
-    body.extend_from_slice(&payload);
-    let checksum = checksum(&body);
-    let frame_len: u64 = body
+    let checksum_offset = output.len();
+    let frame_checksum = checksum(&output[body_start..checksum_offset]);
+    write_u32(output, frame_checksum);
+    let frame_len: u64 = output
         .len()
-        .checked_add(4)
-        .and_then(|length| length.try_into().ok())
+        .saturating_sub(body_start)
+        .try_into()
+        .ok()
         .ok_or_else(|| Error::message("WAL frame is too large"))?;
-    let mut frame = Vec::new();
-    frame.extend_from_slice(WAL_MAGIC);
-    write_u64(&mut frame, frame_len);
-    frame.extend_from_slice(&body);
-    write_u32(&mut frame, checksum);
-    Ok(frame)
+    output[length_offset..length_offset + 8].copy_from_slice(&frame_len.to_be_bytes());
+    Ok(())
 }
 
 fn replay_wal(
@@ -3595,6 +3802,7 @@ mod tests {
         assert_eq!(diagnostics.max_group_size, 1);
         assert!(diagnostics.journal_bytes > 0);
         assert!(diagnostics.wal_bytes_appended > 0);
+        assert!(diagnostics.buffer_reserved_bytes >= diagnostics.wal_bytes_appended);
         assert!(diagnostics.sync_duration_ns > 0);
         drop(objects);
         drop(db);
