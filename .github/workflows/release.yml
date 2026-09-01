@@ -92,6 +92,11 @@ jobs:
             git commit -m "chore: sync release dependency versions"
             git push origin "$BRANCH"
           fi
+      - name: Validate release Cargo manifests
+        run: |
+          node --test scripts/sync-cargo-local-dependency-versions.test.mjs
+          node scripts/sync-cargo-local-dependency-versions.mjs --check
+          cargo metadata --no-deps --format-version 1 >/dev/null
       - name: Normalize manual retry
         id: manual
         if: ${{ inputs.publish_version != '' }}
