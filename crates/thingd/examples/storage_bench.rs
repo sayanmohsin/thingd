@@ -1117,6 +1117,7 @@ fn bench_thingdb_concurrent_writes(
 struct WalDiagnosticsSnapshot;
 
 impl WalDiagnosticsSnapshot {
+    #[allow(clippy::too_many_lines)]
     fn merge(
         before: thingdb::WalDiagnostics,
         after: thingdb::WalDiagnostics,

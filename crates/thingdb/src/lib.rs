@@ -374,6 +374,7 @@ pub struct DatabaseBuilder {
 pub struct Database {
     inner: Arc<Mutex<Inner>>,
     writer: Arc<WriterCoordinator>,
+    commit_gate: Arc<Mutex<()>>,
 }
 
 struct Inner {
@@ -396,6 +397,8 @@ struct Inner {
     ram_diagnostics: RamDiagnostics,
     recovery_required: bool,
     commit_gate: Arc<Mutex<()>>,
+    wal_io_lock: Arc<Mutex<()>>,
+    state_generation: u64,
 }
 
 #[derive(Clone)]
@@ -694,9 +697,27 @@ fn process_group(inner: &Weak<Mutex<Inner>>, mut requests: Vec<CommitRequest>) {
     let (result, synced) = if inner.in_memory {
         execute_memory_group(&mut inner, &mut requests, group_size)
     } else {
-        execute_group(&mut inner, &mut requests, wal_start, group_size)
+        let expected_sequence = inner.sequence.saturating_add(1);
+        let expected_generation = inner.state_generation;
+        let wal_io_lock = Arc::clone(&inner.wal_io_lock);
+        let wal_file = inner.wal.as_ref().and_then(|wal| wal.try_clone().ok());
+        drop(inner);
+        execute_group(
+            &inner_arc,
+            &mut requests,
+            expected_sequence,
+            expected_generation,
+            wal_start,
+            wal_file,
+            wal_io_lock,
+            group_size,
+        )
     };
 
+    let Ok(mut inner) = inner_arc.lock() else {
+        finish_group_with_error(&mut requests, "database lock poisoned");
+        return;
+    };
     if let Err(error) = &result {
         inner.diagnostics.last_error = Some(error.to_string());
         if synced {
@@ -709,7 +730,6 @@ fn process_group(inner: &Weak<Mutex<Inner>>, mut requests: Vec<CommitRequest>) {
         .lock_duration_ns
         .saturating_add(elapsed_nanos(lock_started.elapsed()));
     drop(inner);
-    drop(inner_arc);
 
     match result {
         Ok(()) => {
@@ -745,86 +765,148 @@ fn execute_memory_group(
     (Ok(()), false)
 }
 
-#[allow(clippy::too_many_lines)]
+#[allow(clippy::too_many_arguments, clippy::too_many_lines)]
 fn execute_group(
-    inner: &mut Inner,
+    inner_arc: &Arc<Mutex<Inner>>,
     requests: &mut [CommitRequest],
+    expected_sequence: u64,
+    expected_generation: u64,
     wal_start: u64,
+    wal_file: Option<File>,
+    wal_io_lock: Arc<Mutex<()>>,
     group_size: u64,
 ) -> (Result<()>, bool) {
-    let mut next_sequence = inner.sequence.saturating_add(1);
     let allocation_started = Instant::now();
     let reserved_bytes = requests
         .iter()
         .map(|request| encoded_frame_capacity(&request.operations))
         .sum();
     let mut wal_bytes = Vec::with_capacity(reserved_bytes);
-    inner.diagnostics.buffer_allocation_duration_ns = inner
-        .diagnostics
-        .buffer_allocation_duration_ns
-        .saturating_add(elapsed_nanos(allocation_started.elapsed()));
-    inner.diagnostics.buffer_reserved_bytes = inner
-        .diagnostics
-        .buffer_reserved_bytes
-        .saturating_add(reserved_bytes as u64);
-    let mut synced = false;
-    let result: Result<()> = (|| {
+    let allocation_duration_ns = elapsed_nanos(allocation_started.elapsed());
+    let encode_started = Instant::now();
+    let mut next_sequence = expected_sequence;
+    let encode_result = (|| {
         for request in requests.iter() {
-            let started = Instant::now();
-            let frame_start = wal_bytes.len();
             encode_frame_into(&mut wal_bytes, next_sequence, &request.operations)?;
-            inner.diagnostics.encode_duration_ns = inner
-                .diagnostics
-                .encode_duration_ns
-                .saturating_add(elapsed_nanos(started.elapsed()));
-            debug_assert!(wal_bytes.len() >= frame_start);
             next_sequence = next_sequence.saturating_add(1);
         }
-
+        Ok::<(), Error>(())
+    })();
+    let encode_duration_ns = elapsed_nanos(encode_started.elapsed());
+    if let Ok(mut inner) = inner_arc.lock() {
+        inner.diagnostics.buffer_allocation_duration_ns = inner
+            .diagnostics
+            .buffer_allocation_duration_ns
+            .saturating_add(allocation_duration_ns);
+        inner.diagnostics.buffer_reserved_bytes = inner
+            .diagnostics
+            .buffer_reserved_bytes
+            .saturating_add(reserved_bytes as u64);
+        inner.diagnostics.encode_duration_ns = inner
+            .diagnostics
+            .encode_duration_ns
+            .saturating_add(encode_duration_ns);
+        inner.diagnostics.encode_outside_lock_duration_ns = inner
+            .diagnostics
+            .encode_outside_lock_duration_ns
+            .saturating_add(encode_duration_ns);
+    }
+    if let Err(error) = encode_result {
+        return (Err(error), false);
+    }
+    let Some(mut wal_file) = wal_file else {
+        return (Err(Error::message("ThingDB WAL is unavailable")), false);
+    };
+    let mut synced = false;
+    let mut appended = false;
+    let result: Result<()> = (|| {
         if let Some(point) = request_has_fault(requests, "before-wal-append") {
             maybe_fail(point, Some(point))?;
         }
-        let started = Instant::now();
         {
-            let Some(wal) = inner.wal.as_mut() else {
-                return Err(Error::message("ThingDB WAL is unavailable"));
+            let Ok(mut inner) = inner_arc.lock() else {
+                return Err(Error::message("database lock poisoned"));
             };
-            wal.write_all(&wal_bytes)?;
+            if inner.recovery_required
+                || inner.sequence.saturating_add(1) != expected_sequence
+                || inner.state_generation != expected_generation
+            {
+                inner.diagnostics.state_generation_conflict_count = inner
+                    .diagnostics
+                    .state_generation_conflict_count
+                    .saturating_add(1);
+                return Err(Error::message(
+                    "ThingDB commit state changed while preparing WAL frames",
+                ));
+            }
         }
-        inner.diagnostics.append_duration_ns = inner
-            .diagnostics
-            .append_duration_ns
-            .saturating_add(elapsed_nanos(started.elapsed()));
-        inner.diagnostics.wal_bytes_appended = inner
-            .diagnostics
-            .wal_bytes_appended
-            .saturating_add(wal_bytes.len() as u64);
-        let journal_bytes = wal_start.saturating_add(wal_bytes.len() as u64);
-        inner.diagnostics.journal_bytes = journal_bytes;
-        inner.diagnostics.wal_over_budget = journal_bytes > inner.max_journaling_size;
-
-        if let Some(point) = request_has_fault(requests, "after-wal-write-before-sync") {
-            maybe_fail(point, Some(point))?;
-        }
-        let started = Instant::now();
-        inner.diagnostics.physical_sync_count =
-            inner.diagnostics.physical_sync_count.saturating_add(1);
         {
-            let Some(wal) = inner.wal.as_mut() else {
-                return Err(Error::message("ThingDB WAL is unavailable"));
+            let wal_lock_started = Instant::now();
+            let Ok(_wal_lock) = wal_io_lock.lock() else {
+                return Err(Error::message("ThingDB WAL lock poisoned"));
             };
-            wal.sync_data()?;
+            let wal_lock_wait = elapsed_nanos(wal_lock_started.elapsed());
+            let started = Instant::now();
+            wal_file.write_all(&wal_bytes)?;
+            appended = true;
+            let append_duration_ns = elapsed_nanos(started.elapsed());
+            if let Ok(mut inner) = inner_arc.lock() {
+                inner.diagnostics.append_duration_ns = inner
+                    .diagnostics
+                    .append_duration_ns
+                    .saturating_add(append_duration_ns);
+                inner.diagnostics.wal_bytes_appended = inner
+                    .diagnostics
+                    .wal_bytes_appended
+                    .saturating_add(wal_bytes.len() as u64);
+                let journal_bytes = wal_start.saturating_add(wal_bytes.len() as u64);
+                inner.diagnostics.journal_bytes = journal_bytes;
+                inner.diagnostics.wal_over_budget = journal_bytes > inner.max_journaling_size;
+            }
+            if let Some(point) = request_has_fault(requests, "after-wal-write-before-sync") {
+                maybe_fail(point, Some(point))?;
+            }
+            let started = Instant::now();
+            wal_file.sync_data()?;
+            synced = true;
+            let sync_duration_ns = elapsed_nanos(started.elapsed());
+            if let Ok(mut inner) = inner_arc.lock() {
+                inner.diagnostics.physical_sync_count =
+                    inner.diagnostics.physical_sync_count.saturating_add(1);
+                inner.diagnostics.sync_duration_ns = inner
+                    .diagnostics
+                    .sync_duration_ns
+                    .saturating_add(sync_duration_ns);
+                inner.diagnostics.wal_lock_wait_duration_ns = inner
+                    .diagnostics
+                    .wal_lock_wait_duration_ns
+                    .saturating_add(wal_lock_wait);
+                inner.diagnostics.wal_lock_held_duration_ns = inner
+                    .diagnostics
+                    .wal_lock_held_duration_ns
+                    .saturating_add(append_duration_ns.saturating_add(sync_duration_ns));
+            }
         }
-        synced = true;
-        inner.diagnostics.sync_duration_ns = inner
-            .diagnostics
-            .sync_duration_ns
-            .saturating_add(elapsed_nanos(started.elapsed()));
-
         if let Some(point) = request_has_fault(requests, "after-wal-sync-before-state-apply") {
             maybe_fail(point, Some(point))?;
         }
+        let Ok(mut inner) = inner_arc.lock() else {
+            return Err(Error::message("database lock poisoned"));
+        };
+        if inner.recovery_required
+            || inner.sequence.saturating_add(1) != expected_sequence
+            || inner.state_generation != expected_generation
+        {
+            inner.diagnostics.state_generation_conflict_count = inner
+                .diagnostics
+                .state_generation_conflict_count
+                .saturating_add(1);
+            return Err(Error::message(
+                "ThingDB commit state changed before state application",
+            ));
+        }
         let started = Instant::now();
+        let inner = &mut *inner;
         for request in requests.iter_mut() {
             for operation in std::mem::take(&mut request.operations) {
                 apply_operation_with_pending(
@@ -840,6 +922,7 @@ fn execute_group(
             .state_apply_duration_ns
             .saturating_add(elapsed_nanos(started.elapsed()));
         inner.sequence = next_sequence.saturating_sub(1);
+        inner.state_generation = inner.state_generation.saturating_add(1);
         inner.diagnostics.frame_count = inner.diagnostics.frame_count.saturating_add(group_size);
         inner.diagnostics.memtable_bytes = inner.pending_table_bytes;
         inner.diagnostics.memtable_over_budget =
@@ -859,13 +942,18 @@ fn execute_group(
         Ok(())
     })();
 
-    if result.is_err()
-        && !synced
-        && let Some(wal) = inner.wal.as_mut()
-        && wal.set_len(wal_start).is_ok()
-    {
-        let _ = wal.seek(SeekFrom::End(0));
-        inner.diagnostics.journal_bytes = wal_start;
+    if result.is_err() && !synced && appended {
+        if let Ok(_wal_lock) = wal_io_lock.lock()
+            && wal_file.set_len(wal_start).is_ok()
+        {
+            let _ = wal_file.seek(SeekFrom::End(0));
+            if let Ok(mut inner) = inner_arc.lock() {
+                inner.diagnostics.journal_bytes = wal_start;
+            }
+        } else if let Ok(mut inner) = inner_arc.lock() {
+            inner.diagnostics.truncation_failure_count =
+                inner.diagnostics.truncation_failure_count.saturating_add(1);
+        }
     }
     (result, synced)
 }
@@ -918,6 +1006,7 @@ impl Database {
     /// This mode creates no files, WAL, manifest, table layers, or durable
     /// recovery state. All data is lost when the returned instance is dropped.
     pub fn in_memory() -> Result<Self> {
+        let commit_gate = Arc::new(Mutex::new(()));
         let inner = Arc::new(Mutex::new(Inner {
             path: PathBuf::new(),
             wal: None,
@@ -937,10 +1026,16 @@ impl Database {
             diagnostics: WalDiagnostics::default(),
             ram_diagnostics: RamDiagnostics::default(),
             recovery_required: false,
-            commit_gate: Arc::new(Mutex::new(())),
+            commit_gate: Arc::clone(&commit_gate),
+            wal_io_lock: Arc::new(Mutex::new(())),
+            state_generation: 0,
         }));
         let writer = WriterCoordinator::new(Arc::downgrade(&inner))?;
-        Ok(Self { inner, writer })
+        Ok(Self {
+            inner,
+            writer,
+            commit_gate,
+        })
     }
 
     /// Start building a database at `path`.
@@ -1150,13 +1245,8 @@ impl Database {
     }
 
     fn flush_table(&self, sync: bool) -> Result<()> {
-        let gate = self
-            .inner
-            .lock()
-            .map_err(|_| Error::message("database lock poisoned"))?
+        let _gate = self
             .commit_gate
-            .clone();
-        let _gate = gate
             .lock()
             .map_err(|_| Error::message("ThingDB commit gate poisoned"))?;
         let mut inner = self
@@ -1251,6 +1341,10 @@ fn flush_table_locked(
         ));
     }
     if inner.pending_table.is_empty() {
+        let _wal_lock = inner
+            .wal_io_lock
+            .lock()
+            .map_err(|_| Error::message("ThingDB WAL lock poisoned"))?;
         let wal = inner
             .wal
             .as_mut()
@@ -1261,6 +1355,10 @@ fn flush_table_locked(
     let updates = std::mem::take(&mut inner.pending_table);
     let update_bytes = inner.pending_table_bytes;
     let result = (|| {
+        let _wal_lock = inner
+            .wal_io_lock
+            .lock()
+            .map_err(|_| Error::message("ThingDB WAL lock poisoned"))?;
         let wal = inner
             .wal
             .as_mut()
@@ -1305,16 +1403,18 @@ fn flush_table_locked(
         inner.table_sequence = next_sequence;
         inner.state.clear();
         inner.pending_table_bytes = 0;
-        let wal = inner
-            .wal
-            .as_mut()
-            .ok_or_else(|| Error::message("ThingDB WAL is unavailable"))?;
-        wal.set_len(0)?;
-        wal.seek(SeekFrom::End(0))?;
-        if sync {
-            wal.sync_data()?;
+        {
+            let wal = inner
+                .wal
+                .as_mut()
+                .ok_or_else(|| Error::message("ThingDB WAL is unavailable"))?;
+            wal.set_len(0)?;
+            wal.seek(SeekFrom::End(0))?;
+            if sync {
+                wal.sync_data()?;
+            }
+            inner.diagnostics.journal_bytes = wal.metadata()?.len();
         }
-        inner.diagnostics.journal_bytes = wal.metadata()?.len();
         inner.diagnostics.frame_count = 0;
         inner.diagnostics.memtable_bytes = 0;
         inner.diagnostics.memtable_over_budget = false;
@@ -1334,13 +1434,8 @@ fn flush_table_locked(
 
 impl Database {
     fn compact_tables(&self, sync: bool) -> Result<()> {
-        let gate = self
-            .inner
-            .lock()
-            .map_err(|_| Error::message("database lock poisoned"))?
+        let _gate = self
             .commit_gate
-            .clone();
-        let _gate = gate
             .lock()
             .map_err(|_| Error::message("ThingDB commit gate poisoned"))?;
         let mut inner = self
@@ -1362,11 +1457,17 @@ fn compact_tables_locked(
             "ThingDB requires reopen and recovery before writing",
         ));
     }
-    let wal = inner
-        .wal
-        .as_mut()
-        .ok_or_else(|| Error::message("ThingDB WAL is unavailable"))?;
-    wal.sync_data()?;
+    {
+        let _wal_lock = inner
+            .wal_io_lock
+            .lock()
+            .map_err(|_| Error::message("ThingDB WAL lock poisoned"))?;
+        let wal = inner
+            .wal
+            .as_mut()
+            .ok_or_else(|| Error::message("ThingDB WAL is unavailable"))?;
+        wal.sync_data()?;
+    }
     let next_sequence = inner.sequence;
     let table_name = format!("table-{next_sequence:020}-compact.tdb");
     let table_path = inner.path.join(&table_name);
@@ -1418,16 +1519,18 @@ fn compact_tables_locked(
     inner.state.clear();
     inner.pending_table.clear();
     inner.pending_table_bytes = 0;
-    let wal = inner
-        .wal
-        .as_mut()
-        .ok_or_else(|| Error::message("ThingDB WAL is unavailable"))?;
-    wal.set_len(0)?;
-    wal.seek(SeekFrom::End(0))?;
-    if sync {
-        wal.sync_data()?;
+    {
+        let wal = inner
+            .wal
+            .as_mut()
+            .ok_or_else(|| Error::message("ThingDB WAL is unavailable"))?;
+        wal.set_len(0)?;
+        wal.seek(SeekFrom::End(0))?;
+        if sync {
+            wal.sync_data()?;
+        }
+        inner.diagnostics.journal_bytes = wal.metadata()?.len();
     }
-    inner.diagnostics.journal_bytes = wal.metadata()?.len();
     inner.diagnostics.frame_count = 0;
     inner.diagnostics.memtable_bytes = 0;
     inner.diagnostics.memtable_over_budget = false;
@@ -1578,6 +1681,7 @@ impl DatabaseBuilder {
                 true,
             )?;
         }
+        let commit_gate = Arc::new(Mutex::new(()));
         let inner = Arc::new(Mutex::new(Inner {
             path: self.path,
             wal: Some(wal),
@@ -1605,10 +1709,16 @@ impl DatabaseBuilder {
             },
             ram_diagnostics: RamDiagnostics::default(),
             recovery_required: false,
-            commit_gate: Arc::new(Mutex::new(())),
+            commit_gate: Arc::clone(&commit_gate),
+            wal_io_lock: Arc::new(Mutex::new(())),
+            state_generation: 0,
         }));
         let writer = WriterCoordinator::new(Arc::downgrade(&inner))?;
-        Ok(Database { inner, writer })
+        Ok(Database {
+            inner,
+            writer,
+            commit_gate,
+        })
     }
 }
 
