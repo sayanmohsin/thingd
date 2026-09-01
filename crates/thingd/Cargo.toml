@@ -28,7 +28,7 @@ connectors = ["dep:calamine", "dep:csv", "dep:sqlx", "dep:tokio"]
 
 [dependencies]
 rocksdb = { version = "0.25", default-features = false, optional = true }
-thingdb = { path = "../thingdb", version = "0.85", optional = true }
+thingdb = { path = "../thingdb", version = "0.86", optional = true }
 tantivy = { version = "0.26.1", optional = true }
 csv = { version = "1.4", optional = true }
 calamine = { version = "0.36.1", optional = true }

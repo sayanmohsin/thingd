@@ -13,8 +13,8 @@ crate-type = ["cdylib"]
 path = "native/src/lib.rs"
 
 [dependencies]
-thingd = { path = "../../crates/thingd", version = "0.85", features = ["persistent", "search", "vectors"] } # x-release-please-version
-thingd-schema = { path = "../../crates/thingd-schema", version = "0.85" }
+thingd = { path = "../../crates/thingd", version = "0.86", features = ["persistent", "search", "vectors"] } # x-release-please-version
+thingd-schema = { path = "../../crates/thingd-schema", version = "0.86" }
 uuid = { version = "1", features = ["v4"] }
 napi = { version = "3.12.2", default-features = false, features = ["napi4"] }
 napi-derive = "3.6.3"
