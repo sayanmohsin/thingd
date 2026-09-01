@@ -260,34 +260,20 @@ expected to miss some durable targets. ThingDB RAM must first demonstrate
 semantic parity, bounded memory behavior, and no filesystem artifacts before
 it can be considered for the separate default-adoption phase.
 
-## Latest smoke run
+## Benchmark status
 
-Run date: 2026-08-06
-Commit: `a8ab14c`
-Environment: macOS 26.6 arm64, Rust 1.97.1, Node.js 24.18.0, release build
-Iterations: 10
+The benchmark is intentionally methodology-first. Recent local smoke runs use
+the same release binary, fixed seed, fresh directories, and correctness and
+recovery preflight for every backend. They show that ThingDB RAM is a viable
+filesystem-free process-local path, while durable ThingDB is relatively strong
+on some reads and batches but remains substantially slower for synchronous
+isolated writes than RocksDB.
 
-This is intentionally a smoke baseline, not a performance regression gate.
-For meaningful comparisons, run the same command on the same machine with the
-same iteration count and commit the generated output only when it is a
-deliberate baseline update.
-
-| Driver | Representative operation | Ops/sec |
-| --- | --- | ---: |
-| in-memory | object_put | 26,385 |
-| in-memory | object_get | 222,222 |
-| in-memory | event_append | 454,545 |
-| in-memory | queue_claim_ack | 238,095 |
-| persistent | object_put | 5 |
-| persistent | object_get | 222,222 |
-| persistent | event_append | 3 |
-| persistent | queue_claim_ack | 2,316 |
-
-The complete output is available from the command above. ThingDB numbers are
-exploratory until its large-store and crash-recovery gates pass. Do not compare
-this smoke table with results from a different machine or iteration count. The
-generated structured output is ignored by Git and should be retained as a
-workflow artifact or local evidence.
+These findings are development evidence, not universal throughput claims. The
+full five-repeat 10K and 100K qualification gates remain separate and must be
+run on the same machine, filesystem, dataset, and build before results can be
+used for promotion decisions. Generated structured output is ignored by Git
+and should be retained as a workflow artifact or private local evidence.
 
 ## Node.js SDK benchmark
 

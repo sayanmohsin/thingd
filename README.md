@@ -21,6 +21,12 @@ Native persistent storage optionally supports authenticated encryption through
 `THINGD_ENCRYPTION_KEY` (64 hexadecimal characters). Encrypted databases
 require the key on reopen and filesystem backups remain encrypted.
 
+Storage backends and benchmark methodology are documented in the [storage
+backend guide](./docs/storage-backends.md) and [benchmark guide](./docs/benchmarks.md).
+RocksDB remains the default durable backend. ThingDB is an experimental,
+opt-in Rust-native backend with a separate format; it is evaluated against
+RocksDB and the in-memory reference engine using the unified benchmark.
+
 ## Status
 
 `thingd` is in early-to-mid stage prototype (0.x track). The core engine,
@@ -75,6 +81,7 @@ For browsers, edge runtimes, and non-Node.js environments, use the standalone
 - **Rust** — core engine, durable runtime, and sidecar server
 - **TypeScript / Node.js** — SDK, browser client, and CLI
 - **RocksDB** — default durable storage backend
+- **ThingDB** — experimental Rust-native RAM and opt-in durable backend under validation
 - **Tantivy** — persistent full-text search with BM25 ranking
 - **MCP** — agent-facing tools over stdio and Streamable HTTP
 - **CLI** — dashboard, administration, diagnostics, and database operations
@@ -167,7 +174,7 @@ npm install @thingd/sdk
 
 ```toml
 [dependencies]
-thingd = { version = "0.72", features = ["persistent", "search"] } # x-release-please-version
+thingd = { version = "0.85", features = ["persistent", "search"] } # x-release-please-version
 ```
 
 ### Subpath imports

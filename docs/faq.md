@@ -87,24 +87,14 @@ thingd is designed for small-to-medium datasets (hundreds of MB to low GBs). The
 
 ### What are read/write latencies?
 
-Published benchmarks (local development hardware, 5000 iterations):
-
-| Operation | In-memory | persistent (file) |
-|-----------|-----------|---------------|
-| Object put | 868k ops/sec | 2.2k ops/sec |
-| Object get | 1.9M ops/sec | 237k ops/sec |
-| Event append | 2.1M ops/sec | — |
-| Queue claim+ack | — | 14.7k ops/sec |
-
-Node.js (native driver, 1000 iterations):
-
-| Operation | In-memory | Native (persistent) |
-|-----------|-----------|-----------------|
-| Object put | 435k ops/sec | 9.8k ops/sec |
-| Object get | 2.9M ops/sec | 192k ops/sec |
-| Event append | — | 37k ops/sec |
-
-See [benchmarks.md](./benchmarks.md) for full methodology.
+Latency depends heavily on hardware, filesystem, dataset size, search mode,
+and durability settings. The repository uses one unified benchmark to compare
+`MemoryEngine`, ThingDB RAM, RocksDB, and durable ThingDB with identical seeded
+workloads. Current local runs are development evidence: durable ThingDB is
+competitive on some reads and batches but remains substantially slower for
+synchronous isolated writes. See [the benchmark guide](./benchmarks.md) for
+reproducible commands and qualification rules; it does not publish a universal
+performance promise.
 
 ### How does search scale with millions of records?
 

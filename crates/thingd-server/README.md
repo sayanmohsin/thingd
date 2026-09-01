@@ -7,6 +7,12 @@ Use it instead of the Node.js SDK when you want a standalone server with no runt
 The server embeds its durable storage directly. It does not connect to a
 separate database container or require a database service.
 
+RocksDB is the default durable backend. The experimental Rust-native ThingDB
+backend can be selected with `THINGD_STORAGE_BACKEND=thingdb`; it uses a
+separate format and is not a direct RocksDB file-compatible replacement. See
+the public [storage backend guide](../../docs/storage-backends.md) and
+[benchmark methodology](../../docs/benchmarks.md).
+
 ## Quick start
 
 ```bash
