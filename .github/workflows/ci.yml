@@ -69,6 +69,34 @@ jobs:
           echo "- docs build: $((SECONDS - started))s" >> "$GITHUB_STEP_SUMMARY"
         working-directory: docs
 
+  native-toolchain:
+    name: Native toolchain diagnostics
+    if: "${{ github.event_name != 'push' || github.ref != 'refs/heads/main' || !startsWith(github.event.head_commit.message, 'chore(main): release') }}"
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+          - os: macos-14
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - name: Install Linux LLVM tools
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y clang llvm libclang-dev
+      - name: Install macOS LLVM tools
+        if: runner.os == 'macOS'
+        run: |
+          brew install llvm
+          echo "PATH=$(brew --prefix llvm)/bin:$PATH" >> "$GITHUB_ENV"
+          echo "LLVM_CONFIG_PATH=$(brew --prefix llvm)/bin/llvm-config" >> "$GITHUB_ENV"
+          echo "LIBCLANG_PATH=$(brew --prefix llvm)/lib" >> "$GITHUB_ENV"
+      - run: pnpm check:native-toolchain -- --json
+
   # ── Rust runtime: fmt + clippy + test (parallel to node) ─
   rust:
     name: Rust (fmt, clippy, test)
@@ -102,6 +130,8 @@ jobs:
           echo "- Rust documentation tests: $((SECONDS - started))s" >> "$GITHUB_STEP_SUMMARY"
       - name: Verify ThingDB backend contract and format tests
         run: |
+          cargo check -p thingd --no-default-features --features thingdb-backend,search,vectors
+          cargo test -p thingd --no-default-features --features thingdb-backend,search,vectors --lib thingdb
           cargo test -p thingdb --all-targets
           cargo test -p thingd --features persistent --lib thingdb
           cargo test -p thingd --features persistent --lib encrypted_thingdb

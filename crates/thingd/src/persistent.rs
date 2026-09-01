@@ -5802,6 +5802,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "rocksdb-backend")]
     #[test]
     fn repacks_rocksdb_into_thingdb_without_overwriting_source() {
         let root = tempfile::tempdir().unwrap();

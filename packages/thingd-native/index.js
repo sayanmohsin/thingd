@@ -21,8 +21,15 @@ function resolveBinding() {
     return { binding: require(prebuiltPath), path: prebuiltPath };
   }
 
-  // 3. Fallback to requiring dev path directly (will throw standard error)
-  return { binding: require(devPath), path: devPath };
+  // A source build is intentionally not attempted at runtime. Published
+  // packages carry prebuilds; falling back to a native compilation here would
+  // produce opaque libclang/RocksDB failures for consumers.
+  const message =
+    `No prebuilt @thingd/native binary is available for ${platform}-${arch}. ` +
+    "Install a supported package target or build the native addon with the Thingd native toolchain.";
+  const error = new Error(message);
+  error.code = "THINGD_NATIVE_PREBUILD_MISSING";
+  throw error;
 }
 
 const { binding, path } = resolveBinding();

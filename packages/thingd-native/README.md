@@ -9,7 +9,9 @@ This package is an internal dependency of `@thingd/sdk` and provides the native 
 The addon uses ThingDB RAM for `:memory:` and empty-path operation without
 creating temporary files. Real filesystem paths use the RocksDB durable backend
 by default; set `THINGD_STORAGE_BACKEND=thingdb` to opt into the experimental
-Rust-native durable backend. The public SDK store contract remains unchanged.
+Rust-native durable backend. Published packages include prebuilt native
+artifacts for supported targets, so consumers normally do not install LLVM,
+Clang, or RocksDB locally. The public SDK store contract remains unchanged.
 
 The native open boundary accepts an optional 64-character hexadecimal key for
 authenticated encrypted storage. The key is validated before opening the Rust

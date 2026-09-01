@@ -14,9 +14,13 @@ exclude = ["examples/"]
 [features]
 default = ["persistent", "search"]
 search = ["dep:tantivy"]
-persistent = [
-    "dep:rocksdb",
-    "dep:thingdb",
+# `persistent` remains the compatibility feature and enables both durable
+# backends, preserving the historical default. Consumers that only need the
+# Rust-native backend can opt into `thingdb-backend` without compiling RocksDB.
+persistent = ["rocksdb-backend", "thingdb-backend"]
+rocksdb-backend = ["persistent-engine", "dep:rocksdb"]
+thingdb-backend = ["persistent-engine", "dep:thingdb"]
+persistent-engine = [
     "dep:chacha20poly1305",
     "dep:getrandom",
     "dep:hkdf",
