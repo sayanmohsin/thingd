@@ -239,9 +239,38 @@ jobs:
           path: packages/thingd-native/prebuilds/
           retention-days: 1
 
+  build-javascript:
+    name: Build JavaScript packages
+    needs: release-please
+    if: ${{ needs.release-please.outputs.release_created == 'true' || needs.release-please.outputs.retry == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+          ref: ${{ needs.release-please.outputs.tag_name }}
+      - uses: ./.github/actions/setup-pnpm
+        with:
+          lockfile: pnpm-lock.yaml
+          cache-scope: root
+      - name: Prepare publish manifests
+        env:
+          VERSION: ${{ needs.release-please.outputs.version }}
+        run: node scripts/prepare-publish-manifests.mjs "$VERSION"
+      - name: Build JavaScript packages
+        run: pnpm --filter @thingd/sdk --filter @thingd/cli --filter @thingd/client build
+      - name: Package JavaScript build outputs
+        run: tar -czf javascript-builds.tar.gz packages/thingd/dist packages/thingd-cli/dist packages/thingd-client/dist
+      - uses: actions/upload-artifact@v7
+        with:
+          name: javascript-builds
+          path: javascript-builds.tar.gz
+          retention-days: 1
+
   publish-npm:
     name: Publish npm packages
-    needs: [release-please, build-native]
+    needs: [release-please, build-native, build-javascript]
     if: ${{ needs.release-please.outputs.release_created == 'true' || needs.release-please.outputs.retry == 'true' }}
     runs-on: ubuntu-latest
     steps:
@@ -267,12 +296,17 @@ jobs:
         run: |
           mkdir -p packages/thingd-native/prebuilds
           for dir in prebuild-artifacts/*/; do [ -d "$dir" ] && cp -r "$dir". packages/thingd-native/prebuilds/; done
+      - uses: actions/download-artifact@v8
+        with:
+          name: javascript-builds
+          path: .
+      - name: Restore JavaScript build outputs
+        run: tar -xzf javascript-builds.tar.gz
       - name: Validate package artifacts
         env:
           REQUIRED_NATIVE_PREBUILDS: "5"
           RELEASE_VERSION: ${{ needs.release-please.outputs.version }}
         run: |
-          pnpm --filter @thingd/sdk --filter @thingd/cli --filter @thingd/client build
           pnpm verify:publish
       - name: Start npm publication timer
         id: npm-start
