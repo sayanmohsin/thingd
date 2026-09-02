@@ -13,6 +13,13 @@
 - server: harden security boundaries (0961ffe)
 - complete public SDK type exports (8a8889a)
 
+## [0.86.2](https://github.com/sayanmohsin/thingd/compare/thingd-v0.86.1...thingd-v0.86.2) (2026-09-02)
+
+
+### Bug Fixes
+
+* prepare ThingDB manifest for crate publishing ([#222](https://github.com/sayanmohsin/thingd/issues/222)) ([8ba317b](https://github.com/sayanmohsin/thingd/commit/8ba317b831d554eda29dfb18eb2031752e65f3be))
+
 ## [0.86.1](https://github.com/sayanmohsin/thingd/compare/thingd-v0.86.0...thingd-v0.86.1) (2026-09-01)
 
 
