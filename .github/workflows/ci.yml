@@ -49,20 +49,32 @@ jobs:
         with:
           lockfile: pnpm-lock.yaml
           cache-scope: root
-      - run: pnpm check
-      - run: pnpm check:actions
-      - run: pnpm check:docs
-      - run: pnpm check:cargo-versions
-      - run: pnpm test:publish-manifests
-      - run: pnpm docs:metadata
-      - run: git diff --exit-code -- docs/.generated/mcp-metadata.json
+      - name: Validate repository or release metadata
+        run: |
+          set -eu
+          if [[ "${{ startsWith(github.head_ref, 'release-please--branches--main--components--') }}" == "true" ]]; then
+            pnpm check:cargo-versions
+            pnpm test:publish-manifests
+            pnpm docs:metadata
+            git diff --exit-code -- docs/.generated/mcp-metadata.json
+          else
+            pnpm check
+            pnpm check:actions
+            pnpm check:docs
+            pnpm check:cargo-versions
+            pnpm test:publish-manifests
+            pnpm docs:metadata
+            git diff --exit-code -- docs/.generated/mcp-metadata.json
+          fi
       - name: Set up documentation workspace
+        if: ${{ !startsWith(github.head_ref, 'release-please--branches--main--components--') }}
         uses: ./.github/actions/setup-pnpm
         with:
           lockfile: docs/pnpm-lock.yaml
           cache-scope: docs
           working-directory: docs
       - name: Build VitePress documentation
+        if: ${{ !startsWith(github.head_ref, 'release-please--branches--main--components--') }}
         run: |
           started=$SECONDS
           pnpm build
@@ -113,39 +125,41 @@ jobs:
           shared-key: rust-runtime-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/Cargo.lock') }}
           cache-all-crates: true
           save-if: ${{ runner.os == 'Linux' }}
-      - run: cargo fmt --all --check
-      - name: Run Clippy
+      - name: Validate Rust
         run: |
+          set -eu
+          if [[ "${{ startsWith(github.head_ref, 'release-please--branches--main--components--') }}" == "true" ]]; then
+            cargo metadata --no-deps --format-version 1 >/dev/null
+            node --test scripts/sync-cargo-local-dependency-versions.test.mjs
+            node scripts/sync-cargo-local-dependency-versions.mjs --check
+            exit 0
+          fi
+          cargo fmt --all --check
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            cargo check --workspace --all-targets --all-features
+            cargo test -p thingd --lib
+            exit 0
+          fi
           started=$SECONDS
           cargo clippy --workspace --all-targets --all-features -- -D warnings
           echo "- clippy: $((SECONDS - started))s" >> "$GITHUB_STEP_SUMMARY"
-      - name: Run Rust tests
-        run: |
           started=$SECONDS
           cargo test --workspace --all-targets --all-features
           echo "- Rust tests: $((SECONDS - started))s" >> "$GITHUB_STEP_SUMMARY"
-      - name: Run Rust documentation tests
-        run: |
           started=$SECONDS
           cargo test --doc --workspace --all-features
           echo "- Rust documentation tests: $((SECONDS - started))s" >> "$GITHUB_STEP_SUMMARY"
-      - name: Verify ThingDB backend contract and format tests
-        run: |
           cargo check -p thingd --no-default-features --features thingdb-backend,search,vectors
           cargo test -p thingd --no-default-features --features thingdb-backend,search,vectors --lib thingdb
           cargo test -p thingdb --all-targets
           cargo test -p thingd --features persistent --lib thingdb
           cargo test -p thingd --features persistent --lib encrypted_thingdb
           cargo test -p thingd --features persistent --lib repacks_rocksdb_into_thingdb
-      - name: Build Thingd server once
-        run: |
           started=$SECONDS
           cargo build -p thingd-server
           echo "- thingd-server build: $((SECONDS - started))s" >> "$GITHUB_STEP_SUMMARY"
-      - name: ThingDB server backend smoke test
-        run: bash scripts/test-thingdb-backend.sh ./target/debug/thingd-server
-      - name: Tenant isolation test
-        run: bash scripts/test-tenant-isolation.sh ./target/debug/thingd-server
+          bash scripts/test-thingdb-backend.sh ./target/debug/thingd-server
+          bash scripts/test-tenant-isolation.sh ./target/debug/thingd-server
 
   # ── Node tests (linux) — no `needs: [rust]` ──────────
   node:
@@ -166,17 +180,28 @@ jobs:
           shared-key: rust-node-native-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/Cargo.lock') }}
           cache-all-crates: true
           save-if: ${{ runner.os == 'Linux' }}
+      - name: Validate release manifests
+        if: ${{ startsWith(github.head_ref, 'release-please--branches--main--components--') }}
+        run: |
+          node --test scripts/publish-manifest.test.mjs
+          pnpm check:cargo-versions
       - name: Build Node packages
         run: |
           started=$SECONDS
-          pnpm build:node
-          echo "- build:node: $((SECONDS - started))s" >> "$GITHUB_STEP_SUMMARY"
+          if [[ "${{ startsWith(github.head_ref, 'release-please--branches--main--components--') }}" == "true" || "${{ github.event_name }}" == "pull_request" ]]; then
+            pnpm --filter @thingd/sdk --filter @thingd/cli --filter @thingd/client --filter @thingd/native build
+          else
+            pnpm build:node
+          fi
+          echo "- Node build: $((SECONDS - started))s" >> "$GITHUB_STEP_SUMMARY"
       - name: Check examples
+        if: ${{ !startsWith(github.head_ref, 'release-please--branches--main--components--') }}
         run: |
           started=$SECONDS
           pnpm examples:check:built
           echo "- examples:check:built: $((SECONDS - started))s" >> "$GITHUB_STEP_SUMMARY"
       - name: Run built Node tests
+        if: ${{ !startsWith(github.head_ref, 'release-please--branches--main--components--') }}
         run: |
           started=$SECONDS
           pnpm test:node:built
@@ -184,6 +209,7 @@ jobs:
           pnpm test:cli:built
           echo "- built Node tests: $((SECONDS - started))s" >> "$GITHUB_STEP_SUMMARY"
       - name: Verify native ThingDB opt-in preserves the Node API
+        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
         run: |
           THINGD_STORAGE_BACKEND=thingdb node --input-type=module <<'EOF'
           import { mkdtempSync, rmSync } from 'node:fs';
@@ -205,6 +231,7 @@ jobs:
           }
           EOF
       - name: Verify native filter
+        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
         run: |
           node << 'EOF'
           (async () => {
