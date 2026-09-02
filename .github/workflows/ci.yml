@@ -189,7 +189,7 @@ jobs:
         run: |
           started=$SECONDS
           if [[ "${{ startsWith(github.head_ref, 'release-please--branches--main--components--') }}" == "true" || "${{ github.event_name }}" == "pull_request" ]]; then
-            pnpm --filter @thingd/sdk --filter @thingd/cli --filter @thingd/client build
+            pnpm --filter @thingd/sdk --filter @thingd/cli --filter @thingd/client --filter @thingd/native build
           else
             pnpm build:node
           fi
