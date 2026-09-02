@@ -9,18 +9,30 @@ if (!/^\d+\.\d+\.\d+$/.test(version ?? "")) {
 const root = process.cwd();
 const manifestPath = path.join(root, "crates/thingd/Cargo.toml");
 let manifest = fs.readFileSync(manifestPath, "utf8");
-const featureDependency = '    "dep:thingdb",\n';
 const sourceRoot = path.join(root, "crates/thingdb/src");
 const publishRoot = path.join(root, "crates/thingd/src");
 const workspaceDependency = manifest.match(
   /thingdb = \{ path = "\.\.\/thingdb", version = "[^"]+", optional = true \}/,
 )?.[0];
+const persistentFeature = manifest.match(/^persistent = \[([^\n]*)\]$/m);
+const thingdbFeature = manifest.match(/^thingdb-backend = \[[^\n]*\]\n?/m)?.[0];
 
-if (!workspaceDependency || !manifest.includes(featureDependency)) {
-  throw new Error("Expected the workspace ThingDB dependency and persistent feature entry");
+if (!workspaceDependency || !persistentFeature || !thingdbFeature) {
+  throw new Error("Expected the ThingDB dependency and backend feature entries");
 }
 
-manifest = manifest.replace(`\n${featureDependency}`, "\n").replace(`\n${workspaceDependency}`, "");
+const persistentEntries = persistentFeature[1]
+  .split(",")
+  .map((entry) => entry.trim())
+  .filter((entry) => entry !== '"thingdb-backend"');
+if (persistentEntries.length === 0) {
+  throw new Error("The publish manifest must retain at least one persistent backend");
+}
+
+manifest = manifest
+  .replace(persistentFeature[0], `persistent = [${persistentEntries.join(", ")}]`)
+  .replace(`\n${thingdbFeature}`, "\n")
+  .replace(`\n${workspaceDependency}`, "");
 if (!manifest.includes('crc32fast = "1.4"')) {
   manifest = manifest.replace(
     "[dependencies]\n",
