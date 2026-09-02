@@ -43,12 +43,16 @@ fs.writeFileSync(manifestPath, manifest);
 
 const thingdLibPath = path.join(publishRoot, "lib.rs");
 const thingdLib = fs.readFileSync(thingdLibPath, "utf8");
-if (!thingdLib.includes("mod thingdb;")) {
+if (!thingdLib.includes('#[path = "thingdb.rs"]')) {
+  const storageModule = '#[cfg(feature = "persistent-engine")]\nmod storage_backend;';
+  if (!thingdLib.includes(storageModule)) {
+    throw new Error("Expected the persistent storage module declaration");
+  }
   fs.writeFileSync(
     thingdLibPath,
     thingdLib.replace(
-      "#[cfg(feature = \"persistent\")]\nmod storage_backend;",
-      "#[cfg(feature = \"persistent\")]\nmod storage_backend;\n#[cfg(feature = \"persistent\")]\nmod thingdb;",
+      storageModule,
+      `${storageModule}\n#[cfg(feature = "persistent-engine")]\n#[path = "thingdb.rs"]\nmod thingdb;`,
     ),
   );
 }
