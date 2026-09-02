@@ -114,7 +114,13 @@ pub struct PersistentEngine {
 impl Drop for PersistentEngine {
     fn drop(&mut self) {
         #[cfg(feature = "search")]
-        self.stop_search_worker();
+        {
+            self.stop_search_worker();
+            // The worker normally drains the queue during shutdown. Commit
+            // once more after it joins so a final derived-index mutation is
+            // never left buffered when the primary store is reopened.
+            self.commit_search_index();
+        }
     }
 }
 
