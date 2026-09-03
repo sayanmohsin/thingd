@@ -277,26 +277,75 @@ impl EnginePool {
 
     /// Get or create the writer engine for a path.
     pub fn get_writer(&self, db_path: &str) -> SharedEngine {
+        match self.try_get_writer(db_path) {
+            Ok(engine) => engine,
+            Err(error) => panic!("failed to open durable database at {db_path}: {error}"),
+        }
+    }
+
+    fn try_get_writer(&self, db_path: &str) -> Result<SharedEngine, String> {
         let path = self.resolve_path(db_path);
 
         // Fast path: check if writer already exists
         if let Some(guard) = self.writers.try_read()
             && let Some(engine) = guard.get(&path)
         {
-            return engine.clone();
+            return Ok(engine.clone());
         }
 
         // Slow path: acquire write lock and create
         let mut guard = self.writers.write();
         if let Some(engine) = guard.get(&path) {
-            return engine.clone();
+            return Ok(engine.clone());
         }
 
-        let writer = match create_engine(&path, &self.open_options) {
-            Ok(engine) => Arc::new(Mutex::new(engine)),
-            Err(e) => panic!("failed to open durable database at {path}: {e}"),
+        let engine: Box<dyn ThingStore + Send> = match create_engine(&path, &self.open_options) {
+            Ok(engine) => engine,
+            Err(error) => {
+                let message = error.to_string();
+                let is_validation_error = message.contains("storage validation failed")
+                    || message.contains("missing required lock file")
+                    || message.contains("lock file");
+                if is_validation_error && !path.is_empty() && path != ":memory:" {
+                    let count = Path::new(&path)
+                        .read_dir()
+                        .map(|entries| entries.count())
+                        .unwrap_or(usize::MAX);
+                    let should_recreate = count <= 1;
+                    if should_recreate {
+                        tracing::warn!(
+                            path,
+                            error = %message,
+                            "removing invalid tenant database directory and recreating"
+                        );
+                        let _ = std::fs::remove_dir_all(&path);
+                        let _ = std::fs::remove_file(&path);
+                        match create_engine(&path, &self.open_options) {
+                            Ok(recreated) => {
+                                let writer = Arc::new(Mutex::new(recreated));
+                                guard.insert(path.clone(), writer.clone());
+                                if writer.lock().search_rebuild_required()
+                                    || writer.lock().storage_maintenance_status().state != "idle"
+                                {
+                                    spawn_storage_recovery(writer.clone());
+                                }
+                                return Ok(writer);
+                            },
+                            Err(retry_error) => {
+                                return Err(format!(
+                                    "failed to open durable database at {path}: {retry_error} (original: {message})"
+                                ));
+                            },
+                        }
+                    }
+                }
+                return Err(format!(
+                    "failed to open durable database at {path}: {message}"
+                ));
+            },
         };
 
+        let writer = Arc::new(Mutex::new(engine));
         guard.insert(path.clone(), writer.clone());
 
         if writer.lock().search_rebuild_required()
@@ -305,7 +354,7 @@ impl EnginePool {
             spawn_storage_recovery(writer.clone());
         }
 
-        writer
+        Ok(writer)
     }
 
     /// Get a reader engine for a path. All readers share the writer (single-process engine).
