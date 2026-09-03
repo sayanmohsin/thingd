@@ -65,9 +65,9 @@
     "@modelcontextprotocol/sdk": "^1.30.0",
     "@sayanmohsin/nice-code": "0.1.11",
     "@thingd/native": "file:packages/thingd-native",
-    "@types/node": "26.4.0",
+    "@types/node": "26.4.1",
     "cross-spawn": "^7.0.6",
-    "lefthook": "^2.1.10",
+    "lefthook": "^2.1.12",
     "typescript": "7.0.2"
   }
 }
