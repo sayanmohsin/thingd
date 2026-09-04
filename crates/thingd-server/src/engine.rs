@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
@@ -275,38 +275,47 @@ impl EnginePool {
         }
     }
 
-    fn is_safe_db_path_for_cleanup(&self, db_path: &str) -> bool {
+    fn is_safe_db_path_for_cleanup(&self, db_path: &str) -> Option<PathBuf> {
+        use std::path::Component;
         if db_path.is_empty() || db_path == ":memory:" {
-            return false;
+            return None;
         }
-        // Strict tenant ID validation before any path operation (sanitizer for CodeQL)
-        if db_path.contains("..") || db_path.contains('\0') || db_path.contains("//") {
-            return false;
+        if db_path.contains('\0') {
+            return None;
         }
-        // Allow only safe characters in the full path
-        if !db_path
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '/' | '_' | '-' | '.'))
-        {
-            return false;
-        }
-        // Validate tenant directory name (e.g. inst_xxx or _default) to prevent traversal
-        if let Some(tenant) = Path::new(db_path) // lgtm[js/path-injection]
+        // Validate tenant ID before any filesystem access
+        let tenant = Path::new(db_path)
             .parent()
             .and_then(|p| p.file_name())
             .and_then(|n| n.to_str())
-        {
-            let is_default = tenant == "_default";
-            let is_inst =
-                tenant.starts_with("inst_") && tenant[5..].chars().all(|c| c.is_ascii_hexdigit());
-            let is_generic_safe = tenant
-                .chars()
-                .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-');
-            if !(is_default || is_inst || is_generic_safe) {
-                return false;
-            }
+            .unwrap_or("");
+        let is_default = tenant == "_default";
+        let is_inst =
+            tenant.starts_with("inst_") && tenant[5..].chars().all(|c| c.is_ascii_hexdigit());
+        let is_generic_safe = tenant
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-');
+        if !(is_default || is_inst || is_generic_safe) {
+            return None;
         }
-        let default_path = Path::new(&self.default_path); // lgtm[js/path-injection]
+        let requested = Path::new(db_path);
+        if requested.is_absolute() {
+            // Absolute paths must be under the canonical base; reject traversal components
+            if requested
+                .components()
+                .any(|c| matches!(c, Component::ParentDir))
+            {
+                return None;
+            }
+        } else if requested.components().any(|c| {
+            matches!(
+                c,
+                Component::ParentDir | Component::RootDir | Component::Prefix(_)
+            )
+        }) {
+            return None;
+        }
+        let default_path = Path::new(&self.default_path);
         let default_root = if default_path.is_dir() {
             default_path.to_path_buf()
         } else {
@@ -315,23 +324,18 @@ impl EnginePool {
                 .map(|p| p.to_path_buf())
                 .unwrap_or_else(|| default_path.to_path_buf())
         };
-        let default_root = match default_root.canonicalize() {
-            Ok(p) => p,
-            Err(_) => return false,
-        };
-        let candidate = Path::new(db_path); // lgtm[js/path-injection]
+        let default_root = default_root.canonicalize().ok()?;
+        let candidate = Path::new(db_path);
         let candidate_canonical = if candidate.exists() {
-            match candidate.canonicalize() {
-                Ok(p) => p,
-                Err(_) => return false,
-            }
+            candidate.canonicalize().ok()?
         } else {
-            match candidate.parent().and_then(|p| p.canonicalize().ok()) {
-                Some(parent) => parent,
-                None => return false,
-            }
+            candidate.parent()?.canonicalize().ok()?
         };
-        candidate_canonical.starts_with(&default_root)
+        if candidate_canonical.starts_with(&default_root) {
+            Some(candidate_canonical)
+        } else {
+            None
+        }
     }
 
     /// Get or create the writer engine for a path.
@@ -365,36 +369,40 @@ impl EnginePool {
                 let is_validation_error = message.contains("storage validation failed")
                     || message.contains("missing required lock file")
                     || message.contains("lock file");
-                if is_validation_error && self.is_safe_db_path_for_cleanup(&path) {
-                    let count = Path::new(&path) // lgtm[js/path-injection]
-                        .read_dir() // lgtm[js/path-injection]
-                        .map(|entries| entries.count())
-                        .unwrap_or(usize::MAX);
-                    let should_recreate = count <= 1;
-                    if should_recreate {
-                        tracing::warn!(
-                            path,
-                            error = %message,
-                            "removing invalid tenant database directory and recreating"
-                        );
-                        let _ = std::fs::remove_dir_all(&path); // lgtm[js/path-injection]
-                        let _ = std::fs::remove_file(&path); // lgtm[js/path-injection]
-                        match create_engine(&path, &self.open_options) {
-                            Ok(recreated) => {
-                                let writer = Arc::new(Mutex::new(recreated));
-                                guard.insert(path.clone(), writer.clone());
-                                if writer.lock().search_rebuild_required()
-                                    || writer.lock().storage_maintenance_status().state != "idle"
-                                {
-                                    spawn_storage_recovery(writer.clone());
-                                }
-                                return Ok(writer);
-                            },
-                            Err(retry_error) => {
-                                return Err(format!(
-                                    "failed to open durable database at {path}: {retry_error} (original: {message})"
-                                ));
-                            },
+                #[allow(clippy::collapsible_if)]
+                if is_validation_error {
+                    if let Some(safe_path) = self.is_safe_db_path_for_cleanup(&path) {
+                        let count = safe_path
+                            .read_dir()
+                            .map(|entries| entries.count())
+                            .unwrap_or(usize::MAX);
+                        let should_recreate = count <= 1;
+                        if should_recreate {
+                            tracing::warn!(
+                                path,
+                                error = %message,
+                                "removing invalid tenant database directory and recreating"
+                            );
+                            let _ = std::fs::remove_dir_all(&safe_path);
+                            let _ = std::fs::remove_file(&safe_path);
+                            match create_engine(&path, &self.open_options) {
+                                Ok(recreated) => {
+                                    let writer = Arc::new(Mutex::new(recreated));
+                                    guard.insert(path.clone(), writer.clone());
+                                    if writer.lock().search_rebuild_required()
+                                        || writer.lock().storage_maintenance_status().state
+                                            != "idle"
+                                    {
+                                        spawn_storage_recovery(writer.clone());
+                                    }
+                                    return Ok(writer);
+                                },
+                                Err(retry_error) => {
+                                    return Err(format!(
+                                        "failed to open durable database at {path}: {retry_error} (original: {message})"
+                                    ));
+                                },
+                            }
                         }
                     }
                 }
