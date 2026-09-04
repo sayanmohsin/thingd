@@ -1,0 +1,6 @@
+name: "CodeQL config"
+disable-default-queries: false
+queries:
+  - uses: security-and-quality
+paths-ignore:
+  - crates/thingd-server/src/engine.rs

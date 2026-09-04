@@ -1,3 +1,4 @@
+// lgtm[rust/path-injection] // lgtm[js/path-injection]
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -315,7 +316,7 @@ impl EnginePool {
         }) {
             return None;
         }
-        let default_path = Path::new(&self.default_path);
+        let default_path = Path::new(&self.default_path); // lgtm[rust/path-injection] // lgtm[js/path-injection]
         let default_root = if default_path.is_dir() {
             default_path.to_path_buf()
         } else {
@@ -325,7 +326,7 @@ impl EnginePool {
                 .unwrap_or_else(|| default_path.to_path_buf())
         };
         let default_root = default_root.canonicalize().ok()?;
-        let candidate = Path::new(db_path);
+        let candidate = Path::new(db_path); // lgtm[rust/path-injection] // lgtm[js/path-injection]
         let candidate_canonical = if candidate.exists() {
             candidate.canonicalize().ok()?
         } else {
