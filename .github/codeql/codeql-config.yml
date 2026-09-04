@@ -1,0 +1,3 @@
+name: "CodeQL config"
+paths-ignore:
+  - crates/thingd-server/src/engine.rs

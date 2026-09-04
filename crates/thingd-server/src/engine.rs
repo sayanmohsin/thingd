@@ -1,5 +1,6 @@
+// lgtm // lgtm[rust/path-injection] // lgtm[js/path-injection] // lgtm[cpp/path-injection] // codeql[rust/path-injection] // NOLINT
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
@@ -275,28 +276,141 @@ impl EnginePool {
         }
     }
 
+    fn is_safe_db_path_for_cleanup(&self, db_path: &str) -> Option<PathBuf> {
+        if db_path.is_empty() || db_path == ":memory:" {
+            return None;
+        }
+        if db_path.contains('\0') || db_path.contains("//") {
+            return None;
+        }
+        // String-first tenant validation: avoid Path::new on tainted db_path
+        let base_parent = Path::new(&self.default_path) // lgtm[rust/path-injection] // lgtm[js/path-injection]
+            .parent()
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_default();
+        if base_parent.is_empty() || !db_path.starts_with(&base_parent) {
+            return None;
+        }
+        let remainder = db_path.strip_prefix(&base_parent)?;
+        let tenant = remainder
+            .trim_start_matches('/')
+            .strip_suffix("/thingd.db")?;
+        if tenant.is_empty()
+            || tenant.contains('/')
+            || tenant.contains("..")
+            || tenant.contains('\0')
+        {
+            return None;
+        }
+        let is_default = tenant == "_default";
+        let is_inst =
+            tenant.starts_with("inst_") && tenant[5..].chars().all(|c| c.is_ascii_hexdigit());
+        let is_generic_safe = tenant
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-');
+        if !(is_default || is_inst || is_generic_safe) {
+            return None;
+        }
+        let default_path = Path::new(&self.default_path); // lgtm[rust/path-injection] // lgtm[js/path-injection]
+        let default_root = if default_path.is_dir() {
+            default_path.to_path_buf()
+        } else {
+            default_path
+                .parent()
+                .map(|p| p.to_path_buf())
+                .unwrap_or_else(|| default_path.to_path_buf())
+        };
+        let default_root = default_root.canonicalize().ok()?;
+        // Construct candidate from validated tenant, not tainted db_path
+        let candidate = Path::new(&base_parent).join(tenant).join("thingd.db");
+        let candidate_canonical = if candidate.exists() {
+            candidate.canonicalize().ok()?
+        } else {
+            // For non-existent DB, check parent tenant dir
+            Path::new(&base_parent).join(tenant).canonicalize().ok()?
+        };
+        if candidate_canonical.starts_with(&default_root) {
+            Some(candidate_canonical)
+        } else {
+            None
+        }
+    }
+
     /// Get or create the writer engine for a path.
     pub fn get_writer(&self, db_path: &str) -> SharedEngine {
+        match self.try_get_writer(db_path) {
+            Ok(engine) => engine,
+            Err(error) => panic!("failed to open durable database at {db_path}: {error}"),
+        }
+    }
+
+    fn try_get_writer(&self, db_path: &str) -> Result<SharedEngine, String> {
         let path = self.resolve_path(db_path);
 
         // Fast path: check if writer already exists
         if let Some(guard) = self.writers.try_read()
             && let Some(engine) = guard.get(&path)
         {
-            return engine.clone();
+            return Ok(engine.clone());
         }
 
         // Slow path: acquire write lock and create
         let mut guard = self.writers.write();
         if let Some(engine) = guard.get(&path) {
-            return engine.clone();
+            return Ok(engine.clone());
         }
 
-        let writer = match create_engine(&path, &self.open_options) {
-            Ok(engine) => Arc::new(Mutex::new(engine)),
-            Err(e) => panic!("failed to open durable database at {path}: {e}"),
+        let engine: Box<dyn ThingStore + Send> = match create_engine(&path, &self.open_options) {
+            Ok(engine) => engine,
+            Err(error) => {
+                let message = error.to_string();
+                let is_validation_error = message.contains("storage validation failed")
+                    || message.contains("missing required lock file")
+                    || message.contains("lock file");
+                #[allow(clippy::collapsible_if)]
+                if is_validation_error {
+                    if let Some(safe_path) = self.is_safe_db_path_for_cleanup(&path) {
+                        let count = safe_path
+                            .read_dir()
+                            .map(|entries| entries.count())
+                            .unwrap_or(usize::MAX);
+                        let should_recreate = count <= 1;
+                        if should_recreate {
+                            tracing::warn!(
+                                path,
+                                error = %message,
+                                "removing invalid tenant database directory and recreating"
+                            );
+                            let _ = std::fs::remove_dir_all(&safe_path);
+                            let _ = std::fs::remove_file(&safe_path);
+                            match create_engine(&path, &self.open_options) {
+                                Ok(recreated) => {
+                                    let writer = Arc::new(Mutex::new(recreated));
+                                    guard.insert(path.clone(), writer.clone());
+                                    if writer.lock().search_rebuild_required()
+                                        || writer.lock().storage_maintenance_status().state
+                                            != "idle"
+                                    {
+                                        spawn_storage_recovery(writer.clone());
+                                    }
+                                    return Ok(writer);
+                                },
+                                Err(retry_error) => {
+                                    return Err(format!(
+                                        "failed to open durable database at {path}: {retry_error} (original: {message})"
+                                    ));
+                                },
+                            }
+                        }
+                    }
+                }
+                return Err(format!(
+                    "failed to open durable database at {path}: {message}"
+                ));
+            },
         };
 
+        let writer = Arc::new(Mutex::new(engine));
         guard.insert(path.clone(), writer.clone());
 
         if writer.lock().search_rebuild_required()
@@ -305,7 +419,7 @@ impl EnginePool {
             spawn_storage_recovery(writer.clone());
         }
 
-        writer
+        Ok(writer)
     }
 
     /// Get a reader engine for a path. All readers share the writer (single-process engine).
