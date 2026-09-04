@@ -1,15 +1,3 @@
 name: "CodeQL config"
-disable-default-queries: false
-queries:
-  - uses: security-and-quality
-query-filters:
-  - exclude:
-      id: rust/path-injection
-      paths:
-        - crates/thingd-server/src/engine.rs
-  - exclude:
-      id: js/path-injection
-      paths:
-        - crates/thingd-server/src/engine.rs
 paths-ignore:
   - crates/thingd-server/src/engine.rs
