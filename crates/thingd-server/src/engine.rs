@@ -307,6 +307,26 @@ impl EnginePool {
                     || message.contains("missing required lock file")
                     || message.contains("lock file");
                 if is_validation_error && !path.is_empty() && path != ":memory:" {
+                    // Validate tenant path is confined to the configured database prefix
+                    // to avoid path traversal via user-provided tenant IDs (CodeQL js/path-injection).
+                    let is_safe = {
+                        if path.contains("..") || path.contains('\0') {
+                            false
+                        } else if let Some(parent) = Path::new(&self.default_path)
+                            .parent()
+                            .filter(|p| !p.as_os_str().is_empty())
+                        {
+                            Path::new(&path).starts_with(parent)
+                        } else {
+                            // No parent configured (e.g. in-memory fallback); allow only simple absolute paths
+                            Path::new(&path).is_absolute()
+                        }
+                    };
+                    if !is_safe {
+                        return Err(format!(
+                            "failed to open durable database at {path}: {message} (refused unsafe path)"
+                        ));
+                    }
                     let count = Path::new(&path)
                         .read_dir()
                         .map(|entries| entries.count())
