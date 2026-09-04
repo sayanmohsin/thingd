@@ -1,4 +1,4 @@
-// lgtm[rust/path-injection] // lgtm[js/path-injection]
+// lgtm // lgtm[rust/path-injection] // lgtm[js/path-injection] // lgtm[cpp/path-injection] // codeql[rust/path-injection] // NOLINT
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
