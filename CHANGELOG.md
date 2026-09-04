@@ -13,6 +13,13 @@
 - server: harden security boundaries (0961ffe)
 - complete public SDK type exports (8a8889a)
 
+## [0.86.4](https://github.com/sayanmohsin/thingd/compare/thingd-v0.86.3...thingd-v0.86.4) (2026-09-04)
+
+
+### Bug Fixes
+
+* add CA bundle and tmp to scratch image, handle invalid tenant DB and bump deps ([#229](https://github.com/sayanmohsin/thingd/issues/229)) ([a51f06a](https://github.com/sayanmohsin/thingd/commit/a51f06a10dc77235820eb04effdc4a11a1be82b2))
+
 ## [0.86.3](https://github.com/sayanmohsin/thingd/compare/thingd-v0.86.2...thingd-v0.86.3) (2026-09-02)
 
 
