@@ -277,19 +277,31 @@ impl EnginePool {
     }
 
     fn is_safe_db_path_for_cleanup(&self, db_path: &str) -> Option<PathBuf> {
-        use std::path::Component;
         if db_path.is_empty() || db_path == ":memory:" {
             return None;
         }
-        if db_path.contains('\0') {
+        if db_path.contains('\0') || db_path.contains("//") {
             return None;
         }
-        // Validate tenant ID before any filesystem access
-        let tenant = Path::new(db_path)
+        // String-first tenant validation: avoid Path::new on tainted db_path
+        let base_parent = Path::new(&self.default_path) // lgtm[rust/path-injection] // lgtm[js/path-injection]
             .parent()
-            .and_then(|p| p.file_name())
-            .and_then(|n| n.to_str())
-            .unwrap_or("");
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_default();
+        if base_parent.is_empty() || !db_path.starts_with(&base_parent) {
+            return None;
+        }
+        let remainder = db_path.strip_prefix(&base_parent)?;
+        let tenant = remainder
+            .trim_start_matches('/')
+            .strip_suffix("/thingd.db")?;
+        if tenant.is_empty()
+            || tenant.contains('/')
+            || tenant.contains("..")
+            || tenant.contains('\0')
+        {
+            return None;
+        }
         let is_default = tenant == "_default";
         let is_inst =
             tenant.starts_with("inst_") && tenant[5..].chars().all(|c| c.is_ascii_hexdigit());
@@ -297,23 +309,6 @@ impl EnginePool {
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-');
         if !(is_default || is_inst || is_generic_safe) {
-            return None;
-        }
-        let requested = Path::new(db_path);
-        if requested.is_absolute() {
-            // Absolute paths must be under the canonical base; reject traversal components
-            if requested
-                .components()
-                .any(|c| matches!(c, Component::ParentDir))
-            {
-                return None;
-            }
-        } else if requested.components().any(|c| {
-            matches!(
-                c,
-                Component::ParentDir | Component::RootDir | Component::Prefix(_)
-            )
-        }) {
             return None;
         }
         let default_path = Path::new(&self.default_path); // lgtm[rust/path-injection] // lgtm[js/path-injection]
@@ -326,11 +321,13 @@ impl EnginePool {
                 .unwrap_or_else(|| default_path.to_path_buf())
         };
         let default_root = default_root.canonicalize().ok()?;
-        let candidate = Path::new(db_path); // lgtm[rust/path-injection] // lgtm[js/path-injection]
+        // Construct candidate from validated tenant, not tainted db_path
+        let candidate = Path::new(&base_parent).join(tenant).join("thingd.db");
         let candidate_canonical = if candidate.exists() {
             candidate.canonicalize().ok()?
         } else {
-            candidate.parent()?.canonicalize().ok()?
+            // For non-existent DB, check parent tenant dir
+            Path::new(&base_parent).join(tenant).canonicalize().ok()?
         };
         if candidate_canonical.starts_with(&default_root) {
             Some(candidate_canonical)
