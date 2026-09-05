@@ -28,6 +28,7 @@ use thingd::{
     QueueJob, QueueStore, SearchOptions, Searcher, VectorSearchOptions, VectorStore,
 };
 use thingd::{Link, LinkStore};
+use thingdb::KeyspaceCreateOptions;
 use thingdb::{CacheOptions, MemoryCache};
 
 const DEFAULT_ITERATIONS: usize = 5_000;
@@ -1760,6 +1761,10 @@ where
     S: ObjectStore + Send + 'static,
     F: Fn() -> Result<S, Box<dyn Error>>,
 {
+    if name == "thingdb-memory" {
+        bench_raw_thingdb_concurrency(iterations)?;
+    }
+
     let store = factory()?;
     let shared = Arc::new(Mutex::new(store));
 
@@ -1782,6 +1787,69 @@ where
     report(name, "contention_4r1w", actual, elapsed);
 
     println!();
+    Ok(())
+}
+
+fn bench_raw_thingdb_concurrency(iterations: usize) -> Result<(), Box<dyn Error>> {
+    let db = thingdb::Database::in_memory()?;
+    let keyspace = Arc::new(db.keyspace("bench", KeyspaceCreateOptions::default)?);
+    for index in 0..iterations {
+        let key = format!("object-{index}");
+        keyspace.insert(key.as_bytes(), OBJECT_BODY_ACTIVE.as_bytes())?;
+    }
+
+    for &threads in &[1, 2, 4, 8] {
+        let ops_per_thread = iterations / threads;
+        let started = Instant::now();
+        std::thread::scope(|scope| {
+            for thread in 0..threads {
+                let keyspace = Arc::clone(&keyspace);
+                scope.spawn(move || {
+                    for offset in 0..ops_per_thread {
+                        let index = thread * ops_per_thread + offset;
+                        let key = format!("object-{index}");
+                        black_box(keyspace.get(key.as_bytes()).unwrap());
+                    }
+                });
+            }
+        });
+        report(
+            "thingdb-memory",
+            &format!("raw_concurrent_read_{threads}t"),
+            ops_per_thread * threads,
+            started.elapsed(),
+        );
+    }
+
+    let readers = iterations / 5;
+    let started = Instant::now();
+    std::thread::scope(|scope| {
+        for thread in 0..4 {
+            let keyspace = Arc::clone(&keyspace);
+            scope.spawn(move || {
+                for offset in 0..readers {
+                    let index = thread * readers + offset;
+                    let key = format!("object-{index}");
+                    black_box(keyspace.get(key.as_bytes()).unwrap());
+                }
+            });
+        }
+        let keyspace = Arc::clone(&keyspace);
+        scope.spawn(move || {
+            for index in 0..readers {
+                let key = format!("contention-{index}");
+                keyspace
+                    .insert(key.as_bytes(), OBJECT_BODY_INACTIVE.as_bytes())
+                    .unwrap();
+            }
+        });
+    });
+    report(
+        "thingdb-memory",
+        "raw_contention_4r1w",
+        readers * 5,
+        started.elapsed(),
+    );
     Ok(())
 }
 
