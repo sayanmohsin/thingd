@@ -32,7 +32,7 @@ use std::io::{self, ErrorKind, Read, Seek, SeekFrom, Write};
 use std::ops::{Bound, RangeBounds};
 use std::path::{Component, Path, PathBuf};
 use std::sync::{
-    Arc, Mutex, Weak,
+    Arc, Mutex, RwLock, Weak,
     mpsc::{self, RecvTimeoutError, SyncSender, TryRecvError},
 };
 use std::thread;
@@ -377,6 +377,7 @@ pub struct DatabaseBuilder {
 #[derive(Clone)]
 pub struct Database {
     inner: Arc<Mutex<Inner>>,
+    ram_keyspaces: Option<Arc<RwLock<HashMap<String, BTreeMap<Vec<u8>, Arc<Vec<u8>>>>>>>,
     writer: Arc<WriterCoordinator>,
     commit_gate: Arc<Mutex<()>>,
 }
@@ -387,7 +388,6 @@ struct Inner {
     lock: Option<File>,
     in_memory: bool,
     state: BTreeMap<Vec<u8>, Vec<u8>>,
-    memory_keyspaces: Option<HashMap<String, BTreeMap<Vec<u8>, Arc<Vec<u8>>>>>,
     sequence: u64,
     table_sequence: u64,
     table_files: Vec<String>,
@@ -421,18 +421,6 @@ struct TableIndexEntry {
 
 impl Inner {
     fn materialize_state(&mut self) -> Result<BTreeMap<Vec<u8>, Vec<u8>>> {
-        if let Some(keyspaces) = &self.memory_keyspaces {
-            let mut state = BTreeMap::new();
-            for (name, entries) in keyspaces {
-                let namespace = namespace(name);
-                for (key, value) in entries {
-                    let mut physical = namespace.clone();
-                    physical.extend_from_slice(key);
-                    state.insert(physical, value.as_ref().clone());
-                }
-            }
-            return Ok(state);
-        }
         let mut state = BTreeMap::new();
         for layer in &mut self.table_layers {
             for entry in layer.entries.iter() {
@@ -1017,7 +1005,6 @@ impl Database {
             lock: None,
             in_memory: true,
             state: BTreeMap::new(),
-            memory_keyspaces: Some(HashMap::new()),
             sequence: 0,
             table_sequence: 0,
             table_files: Vec::new(),
@@ -1037,6 +1024,7 @@ impl Database {
         let writer = WriterCoordinator::new(Arc::downgrade(&inner))?;
         Ok(Self {
             inner,
+            ram_keyspaces: Some(Arc::new(RwLock::new(HashMap::new()))),
             writer,
             commit_gate,
         })
@@ -1119,18 +1107,41 @@ impl Database {
             .inner
             .lock()
             .map_err(|_| Error::message("database lock poisoned"))?;
-        let snapshot = Snapshot {
-            state: Arc::new(inner.materialize_state()?),
-        };
         if inner.in_memory {
+            drop(inner);
+            let keyspaces = self
+                .ram_keyspaces
+                .as_ref()
+                .ok_or_else(|| Error::message("ThingDB RAM state is unavailable"))?
+                .read()
+                .map_err(|_| Error::message("ThingDB RAM state lock poisoned"))?;
+            let mut state = BTreeMap::new();
+            for (name, entries) in keyspaces.iter() {
+                let namespace = namespace(name);
+                for (key, value) in entries {
+                    let mut physical = namespace.clone();
+                    physical.extend_from_slice(key);
+                    state.insert(physical, value.as_ref().clone());
+                }
+            }
+            drop(keyspaces);
+            let mut inner = self
+                .inner
+                .lock()
+                .map_err(|_| Error::message("database lock poisoned"))?;
             inner.ram_diagnostics.snapshot_count =
                 inner.ram_diagnostics.snapshot_count.saturating_add(1);
             inner.ram_diagnostics.snapshot_duration_ns = inner
                 .ram_diagnostics
                 .snapshot_duration_ns
                 .saturating_add(elapsed_nanos(started.elapsed()));
+            return Ok(Snapshot {
+                state: Arc::new(state),
+            });
         }
-        Ok(snapshot)
+        Ok(Snapshot {
+            state: Arc::new(inner.materialize_state()?),
+        })
     }
 
     /// Approximate current WAL size in bytes.
@@ -1265,7 +1276,7 @@ impl Database {
             return Ok(());
         }
 
-        let mut inner = self
+        let inner = self
             .inner
             .lock()
             .map_err(|_| Error::message("database lock poisoned"))?;
@@ -1275,19 +1286,28 @@ impl Database {
                     "ThingDB requires reopen and recovery before writing",
                 ));
             }
+            drop(inner);
             let started = Instant::now();
-            let keyspaces = inner
-                .memory_keyspaces
-                .as_mut()
+            let ram_keyspaces = self
+                .ram_keyspaces
+                .as_ref()
                 .ok_or_else(|| Error::message("ThingDB RAM state is unavailable"))?;
+            let mut keyspaces = ram_keyspaces
+                .write()
+                .map_err(|_| Error::message("ThingDB RAM state lock poisoned"))?;
             for operation in &operations {
                 validate_memory_operation(operation)?;
             }
             let operation_count = operations.len() as u64;
             for operation in operations {
-                apply_memory_operation(keyspaces, operation)?;
+                apply_memory_operation(&mut keyspaces, operation)?;
             }
             let elapsed = elapsed_nanos(started.elapsed());
+            drop(keyspaces);
+            let mut inner = self
+                .inner
+                .lock()
+                .map_err(|_| Error::message("database lock poisoned"))?;
             inner.ram_diagnostics.mutation_count = inner
                 .ram_diagnostics
                 .mutation_count
@@ -1692,7 +1712,6 @@ impl DatabaseBuilder {
             lock: Some(lock),
             in_memory: false,
             state,
-            memory_keyspaces: None,
             sequence,
             table_sequence,
             table_files,
@@ -1720,6 +1739,7 @@ impl DatabaseBuilder {
         let writer = WriterCoordinator::new(Arc::downgrade(&inner))?;
         Ok(Database {
             inner,
+            ram_keyspaces: None,
             writer,
             commit_gate,
         })
@@ -1850,23 +1870,36 @@ impl Keyspace {
     ) -> Result<T> {
         let key = key.as_ref();
         let lock_started = Instant::now();
-        let mut inner = self
+        let inner = self
             .db
             .inner
             .lock()
             .map_err(|_| Error::message("database lock poisoned"))?;
         let lock_wait = elapsed_nanos(lock_started.elapsed());
         if inner.in_memory {
+            drop(inner);
             let lookup_started = Instant::now();
-            let value = inner
-                .memory_keyspaces
+            let ram_keyspaces = self
+                .db
+                .ram_keyspaces
                 .as_ref()
-                .and_then(|keyspaces| keyspaces.get(&self.name))
+                .ok_or_else(|| Error::message("ThingDB RAM state is unavailable"))?;
+            let keyspaces = ram_keyspaces
+                .read()
+                .map_err(|_| Error::message("ThingDB RAM state lock poisoned"))?;
+            let value = keyspaces
+                .get(&self.name)
                 .and_then(|keyspace| keyspace.get(key))
                 .map(|value| value.as_slice());
             let lookup_duration = elapsed_nanos(lookup_started.elapsed());
             let result = callback(value).map_err(Error::message);
-            let held_duration = elapsed_nanos(lock_started.elapsed());
+            let held_duration = lookup_duration;
+            drop(keyspaces);
+            let mut inner = self
+                .db
+                .inner
+                .lock()
+                .map_err(|_| Error::message("database lock poisoned"))?;
             let diagnostics = &mut inner.ram_diagnostics;
             diagnostics.lookup_count = diagnostics.lookup_count.saturating_add(1);
             diagnostics.lock_wait_duration_ns =
@@ -1893,7 +1926,7 @@ impl Keyspace {
     pub fn get_shared(&self, key: impl AsRef<[u8]>) -> Result<Option<Arc<Vec<u8>>>> {
         let key = key.as_ref();
         let lock_started = Instant::now();
-        let mut inner = self
+        let inner = self
             .db
             .inner
             .lock()
@@ -1904,17 +1937,30 @@ impl Keyspace {
                 "ThingDB shared reads are available only in memory mode",
             ));
         }
+        drop(inner);
         let lookup_started = Instant::now();
-        let value_ref = inner
-            .memory_keyspaces
+        let ram_keyspaces = self
+            .db
+            .ram_keyspaces
             .as_ref()
-            .and_then(|keyspaces| keyspaces.get(&self.name))
+            .ok_or_else(|| Error::message("ThingDB RAM state is unavailable"))?;
+        let keyspaces = ram_keyspaces
+            .read()
+            .map_err(|_| Error::message("ThingDB RAM state lock poisoned"))?;
+        let value_ref = keyspaces
+            .get(&self.name)
             .and_then(|keyspace| keyspace.get(key));
         let lookup_duration = elapsed_nanos(lookup_started.elapsed());
         let acquire_started = Instant::now();
         let value = value_ref.cloned();
         let acquire_duration = elapsed_nanos(acquire_started.elapsed());
-        let held_duration = elapsed_nanos(lock_started.elapsed());
+        let held_duration = lookup_duration.saturating_add(acquire_duration);
+        drop(keyspaces);
+        let mut inner = self
+            .db
+            .inner
+            .lock()
+            .map_err(|_| Error::message("database lock poisoned"))?;
         let diagnostics = &mut inner.ram_diagnostics;
         diagnostics.lookup_count = diagnostics.lookup_count.saturating_add(1);
         diagnostics.lock_wait_duration_ns =
@@ -1935,24 +1981,37 @@ impl Keyspace {
     pub fn get(&self, key: impl AsRef<[u8]>) -> Result<Option<Vec<u8>>> {
         let key = key.as_ref();
         let lock_started = Instant::now();
-        let mut inner = self
+        let inner = self
             .db
             .inner
             .lock()
             .map_err(|_| Error::message("database lock poisoned"))?;
         let lock_wait = elapsed_nanos(lock_started.elapsed());
         if inner.in_memory {
+            drop(inner);
             let lookup_started = Instant::now();
-            let value = inner
-                .memory_keyspaces
+            let ram_keyspaces = self
+                .db
+                .ram_keyspaces
                 .as_ref()
-                .and_then(|keyspaces| keyspaces.get(&self.name))
+                .ok_or_else(|| Error::message("ThingDB RAM state is unavailable"))?;
+            let keyspaces = ram_keyspaces
+                .read()
+                .map_err(|_| Error::message("ThingDB RAM state lock poisoned"))?;
+            let value = keyspaces
+                .get(&self.name)
                 .and_then(|keyspace| keyspace.get(key));
             let lookup_duration = elapsed_nanos(lookup_started.elapsed());
             let clone_started = Instant::now();
             let value = value.map(|value| value.as_ref().clone());
             let clone_duration = elapsed_nanos(clone_started.elapsed());
-            let held_duration = elapsed_nanos(lock_started.elapsed());
+            let held_duration = lookup_duration.saturating_add(clone_duration);
+            drop(keyspaces);
+            let mut inner = self
+                .db
+                .inner
+                .lock()
+                .map_err(|_| Error::message("database lock poisoned"))?;
             let diagnostics = &mut inner.ram_diagnostics;
             diagnostics.lookup_count = diagnostics.lookup_count.saturating_add(1);
             diagnostics.lock_wait_duration_ns =
@@ -2078,7 +2137,7 @@ impl Keyspace {
         limit: Option<usize>,
     ) -> Iter {
         let scan_lock_started = Instant::now();
-        let Ok(mut inner) = self.db.inner.lock() else {
+        let Ok(inner) = self.db.inner.lock() else {
             return Iter {
                 entries: Vec::new().into_iter(),
                 error: None,
@@ -2086,7 +2145,21 @@ impl Keyspace {
         };
         let scan_lock_wait = elapsed_nanos(scan_lock_started.elapsed());
         if inner.in_memory {
-            return iter_memory_bounds(&mut inner, &self.name, prefix, start, end);
+            drop(inner);
+            let ram_keyspaces = self
+                .db
+                .ram_keyspaces
+                .as_ref()
+                .ok_or_else(|| Error::message("ThingDB RAM state is unavailable"));
+            return match ram_keyspaces {
+                Ok(ram_keyspaces) => {
+                    iter_memory_bounds(&self.db, ram_keyspaces, &self.name, prefix, start, end)
+                },
+                Err(error) => Iter {
+                    entries: Vec::new().into_iter(),
+                    error: Some(error),
+                },
+            };
         }
         let state = inner.state.clone();
         let pending_table = inner.pending_table.clone();
@@ -2344,7 +2417,8 @@ fn next_map_key<V>(
 }
 
 fn iter_memory_bounds(
-    inner: &mut Inner,
+    db: &Database,
+    ram_keyspaces: &Arc<RwLock<HashMap<String, BTreeMap<Vec<u8>, Arc<Vec<u8>>>>>>,
     name: &str,
     prefix: Option<&[u8]>,
     start: Option<(Vec<u8>, bool)>,
@@ -2354,10 +2428,8 @@ fn iter_memory_bounds(
     let mut entries = Vec::new();
     let mut entries_examined = 0u64;
     let mut entries_returned = 0u64;
-    if let Some(keyspace) = inner
-        .memory_keyspaces
-        .as_ref()
-        .and_then(|keyspaces| keyspaces.get(name))
+    if let Ok(keyspaces) = ram_keyspaces.read()
+        && let Some(keyspace) = keyspaces.get(name)
     {
         let lower = match (start.as_ref(), prefix) {
             (Some((start, inclusive)), Some(prefix)) if start.as_slice() >= prefix => {
@@ -2410,19 +2482,22 @@ fn iter_memory_bounds(
             entries_returned = entries_returned.saturating_add(1);
         }
     }
-    inner.ram_diagnostics.iteration_count = inner.ram_diagnostics.iteration_count.saturating_add(1);
-    inner.ram_diagnostics.iteration_duration_ns = inner
-        .ram_diagnostics
-        .iteration_duration_ns
-        .saturating_add(elapsed_nanos(iteration_started.elapsed()));
-    inner.ram_diagnostics.iteration_entries_examined = inner
-        .ram_diagnostics
-        .iteration_entries_examined
-        .saturating_add(entries_examined);
-    inner.ram_diagnostics.iteration_entries_returned = inner
-        .ram_diagnostics
-        .iteration_entries_returned
-        .saturating_add(entries_returned);
+    if let Ok(mut inner) = db.inner.lock() {
+        inner.ram_diagnostics.iteration_count =
+            inner.ram_diagnostics.iteration_count.saturating_add(1);
+        inner.ram_diagnostics.iteration_duration_ns = inner
+            .ram_diagnostics
+            .iteration_duration_ns
+            .saturating_add(elapsed_nanos(iteration_started.elapsed()));
+        inner.ram_diagnostics.iteration_entries_examined = inner
+            .ram_diagnostics
+            .iteration_entries_examined
+            .saturating_add(entries_examined);
+        inner.ram_diagnostics.iteration_entries_returned = inner
+            .ram_diagnostics
+            .iteration_entries_returned
+            .saturating_add(entries_returned);
+    }
     Iter {
         entries: entries.into_iter(),
         error: None,
