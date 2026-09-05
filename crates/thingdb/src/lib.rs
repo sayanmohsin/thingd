@@ -331,6 +331,10 @@ pub struct RamDiagnostics {
     pub iteration_count: u64,
     /// Nanoseconds spent materializing RAM iteration results.
     pub iteration_duration_ns: u64,
+    /// Number of RAM entries inspected by bounded iterations.
+    pub iteration_entries_examined: u64,
+    /// Number of entries returned by RAM iterations.
+    pub iteration_entries_returned: u64,
     /// Nanoseconds spent deserializing Thingd objects from RAM values.
     pub deserialization_duration_ns: u64,
     /// Number of RAM-side serialized values recorded by the semantic layer.
@@ -2348,39 +2352,62 @@ fn iter_memory_bounds(
 ) -> Iter {
     let iteration_started = Instant::now();
     let mut entries = Vec::new();
+    let mut entries_examined = 0u64;
+    let mut entries_returned = 0u64;
     if let Some(keyspace) = inner
         .memory_keyspaces
         .as_ref()
         .and_then(|keyspaces| keyspaces.get(name))
     {
-        for (key, value) in keyspace {
+        let lower = match (start.as_ref(), prefix) {
+            (Some((start, inclusive)), Some(prefix)) if start.as_slice() >= prefix => {
+                if *inclusive {
+                    Bound::Included(start.as_slice())
+                } else {
+                    Bound::Excluded(start.as_slice())
+                }
+            },
+            (_, Some(prefix)) => Bound::Included(prefix),
+            (Some((start, inclusive)), None) => {
+                if *inclusive {
+                    Bound::Included(start.as_slice())
+                } else {
+                    Bound::Excluded(start.as_slice())
+                }
+            },
+            (None, None) => Bound::Unbounded,
+        };
+        let prefix_upper = prefix.and_then(successor);
+        let upper = match (end.as_ref(), prefix_upper.as_deref()) {
+            (Some((end, inclusive)), Some(prefix_upper)) if end.as_slice() <= prefix_upper => {
+                if *inclusive {
+                    Bound::Included(end.as_slice())
+                } else {
+                    Bound::Excluded(end.as_slice())
+                }
+            },
+            (Some((end, inclusive)), None) => {
+                if *inclusive {
+                    Bound::Included(end.as_slice())
+                } else {
+                    Bound::Excluded(end.as_slice())
+                }
+            },
+            (_, Some(prefix_upper)) => Bound::Excluded(prefix_upper),
+            (None, None) => Bound::Unbounded,
+        };
+        for (key, value) in keyspace.range::<[u8], _>((lower, upper)) {
+            entries_examined = entries_examined.saturating_add(1);
             if let Some(prefix) = prefix
                 && !key.starts_with(prefix)
             {
-                continue;
-            }
-            if let Some((start, inclusive)) = &start
-                && if *inclusive {
-                    key.as_slice() < start.as_slice()
-                } else {
-                    key.as_slice() <= start.as_slice()
-                }
-            {
-                continue;
-            }
-            if let Some((end, inclusive)) = &end
-                && if *inclusive {
-                    key.as_slice() > end.as_slice()
-                } else {
-                    key.as_slice() >= end.as_slice()
-                }
-            {
-                continue;
+                break;
             }
             entries.push(Entry {
                 key: key.clone(),
                 value: value.as_ref().clone(),
             });
+            entries_returned = entries_returned.saturating_add(1);
         }
     }
     inner.ram_diagnostics.iteration_count = inner.ram_diagnostics.iteration_count.saturating_add(1);
@@ -2388,6 +2415,14 @@ fn iter_memory_bounds(
         .ram_diagnostics
         .iteration_duration_ns
         .saturating_add(elapsed_nanos(iteration_started.elapsed()));
+    inner.ram_diagnostics.iteration_entries_examined = inner
+        .ram_diagnostics
+        .iteration_entries_examined
+        .saturating_add(entries_examined);
+    inner.ram_diagnostics.iteration_entries_returned = inner
+        .ram_diagnostics
+        .iteration_entries_returned
+        .saturating_add(entries_returned);
     Iter {
         entries: entries.into_iter(),
         error: None,
@@ -3113,6 +3148,36 @@ mod tests {
             })
             .unwrap();
         assert_eq!(value.as_deref(), Some("value"));
+    }
+
+    #[test]
+    fn in_memory_bounded_iterations_use_ordered_bounds() {
+        let db = Database::in_memory().unwrap();
+        let objects = db
+            .keyspace("objects", KeyspaceCreateOptions::default)
+            .unwrap();
+        for key in [b"a-1".as_slice(), b"a-2", b"b-1", b"c-1"] {
+            objects.insert(key, key).unwrap();
+        }
+
+        let entries = objects
+            .range_bounds(Some((b"a-2", true)), Some((b"c-1", false)))
+            .into_result()
+            .unwrap();
+        assert_eq!(
+            entries
+                .iter()
+                .map(|entry| entry.key.as_slice())
+                .collect::<Vec<_>>(),
+            vec![b"a-2".as_slice(), b"b-1"]
+        );
+        let prefix = objects.prefix(b"b-").into_result().unwrap();
+        assert_eq!(prefix.len(), 1);
+
+        let diagnostics = db.ram_diagnostics().unwrap();
+        assert_eq!(diagnostics.iteration_count, 2);
+        assert_eq!(diagnostics.iteration_entries_examined, 3);
+        assert_eq!(diagnostics.iteration_entries_returned, 3);
     }
 
     #[test]
