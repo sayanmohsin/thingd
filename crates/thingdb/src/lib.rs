@@ -3662,6 +3662,56 @@ mod tests {
     }
 
     #[test]
+    fn unsupported_manifest_version_is_rejected_before_recovery() {
+        let directory = tempfile::tempdir().unwrap();
+        let db = Database::open(directory.path()).unwrap();
+        drop(db);
+
+        let manifest_path = directory.path().join(MANIFEST_FILE);
+        let mut manifest: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&manifest_path).unwrap()).unwrap();
+        manifest["format_version"] = serde_json::json!(FORMAT_VERSION + 1);
+        std::fs::write(&manifest_path, serde_json::to_vec(&manifest).unwrap()).unwrap();
+
+        let Err(error) = Database::open(directory.path()) else {
+            panic!("unsupported manifest version unexpectedly opened")
+        };
+        assert!(
+            error
+                .to_string()
+                .contains("unsupported ThingDB format version")
+        );
+    }
+
+    #[test]
+    fn manifest_rejects_table_sequence_older_than_referenced_table() {
+        let directory = tempfile::tempdir().unwrap();
+        let db = Database::open(directory.path()).unwrap();
+        let objects = db
+            .keyspace("objects", KeyspaceCreateOptions::default)
+            .unwrap();
+        objects.insert(b"a", b"one").unwrap();
+        db.compact().unwrap();
+        drop(objects);
+        drop(db);
+
+        let manifest_path = directory.path().join(MANIFEST_FILE);
+        let mut manifest: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&manifest_path).unwrap()).unwrap();
+        manifest["table_sequence"] = serde_json::json!(0);
+        std::fs::write(&manifest_path, serde_json::to_vec(&manifest).unwrap()).unwrap();
+
+        let Err(error) = Database::open(directory.path()) else {
+            panic!("manifest with an older table sequence unexpectedly opened")
+        };
+        assert!(
+            error
+                .to_string()
+                .contains("table sequence exceeds manifest sequence")
+        );
+    }
+
+    #[test]
     fn table_key_order_corruption_is_reported() {
         let directory = tempfile::tempdir().unwrap();
         let db = Database::open(directory.path()).unwrap();
