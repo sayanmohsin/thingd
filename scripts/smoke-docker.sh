@@ -57,6 +57,24 @@ fi
 
 curl -fsS "http://127.0.0.1:$PORT/healthz" || fail_endpoint "/healthz"
 printf "\n"
+
+# /healthz only confirms that the HTTP server is listening. Storage recovery
+# may still be running, so wait for the readiness contract instead of turning
+# a normal startup 503 into a release failure.
+ready=0
+for _ in {1..30}; do
+  if curl -fsS "http://127.0.0.1:$PORT/ready" >/dev/null 2>&1; then
+    ready=1
+    break
+  fi
+
+  sleep 1
+done
+
+if [[ "$ready" != "1" ]]; then
+  fail_endpoint "/ready"
+fi
+
 curl -fsS "http://127.0.0.1:$PORT/ready" || fail_endpoint "/ready"
 printf "\n"
 
