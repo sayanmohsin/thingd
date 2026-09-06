@@ -1,0 +1,4 @@
+interface:
+  display_name: "Phase Tracker"
+  short_description: "Keep Thingd and Cloud phase docs synchronized"
+  default_prompt: "Use $phase-tracker to audit, update, and validate Thingd and Thingd Cloud phase tracking."

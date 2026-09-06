@@ -1,6 +1,6 @@
 //! Bounded, process-local cache storage for Thingd adapters.
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::{BTreeSet, HashMap};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -57,11 +57,14 @@ pub struct CacheStats {
 struct Entry {
     value: Vec<u8>,
     expires_at: Instant,
+    access_order: u64,
 }
 
 struct CacheState {
     entries: HashMap<Vec<u8>, Entry>,
-    lru: VecDeque<Vec<u8>>,
+    lru: BTreeSet<(u64, Vec<u8>)>,
+    expirations: BTreeSet<(Instant, Vec<u8>)>,
+    next_access_order: u64,
     bytes: usize,
     options: CacheOptions,
     stats: CacheStats,
@@ -105,7 +108,9 @@ impl MemoryCache {
                     ..CacheStats::default()
                 },
                 entries: HashMap::new(),
-                lru: VecDeque::new(),
+                lru: BTreeSet::new(),
+                expirations: BTreeSet::new(),
+                next_access_order: 0,
                 bytes: 0,
                 options,
             })),
@@ -122,17 +127,21 @@ impl MemoryCache {
             state.stats.misses = state.stats.misses.saturating_add(1);
             return Ok(None);
         };
+        remove_indexes(&mut state, key, &entry);
         if entry.expires_at <= now {
             state.bytes = state.bytes.saturating_sub(entry_size(key, &entry.value));
-            state.lru.retain(|candidate| candidate.as_slice() != key);
             state.stats.expirations = state.stats.expirations.saturating_add(1);
             state.stats.misses = state.stats.misses.saturating_add(1);
             refresh_current_stats(&mut state);
             return Ok(None);
         }
         let value = entry.value.clone();
+        let entry = Entry {
+            access_order: next_access_order(&mut state),
+            ..entry
+        };
+        insert_indexes(&mut state, key, &entry);
         state.entries.insert(key.to_vec(), entry);
-        touch(&mut state.lru, key);
         state.stats.hits = state.stats.hits.saturating_add(1);
         Ok(Some(value))
     }
@@ -164,24 +173,32 @@ impl MemoryCache {
 
         if let Some(previous) = state.entries.remove(key) {
             state.bytes = state.bytes.saturating_sub(entry_size(key, &previous.value));
-            state.lru.retain(|candidate| candidate.as_slice() != key);
+            remove_indexes(&mut state, key, &previous);
         }
 
         let value = value.to_vec();
-        state.bytes = state.bytes.saturating_add(entry_size(key, &value));
-        state
-            .entries
-            .insert(key.to_vec(), Entry { value, expires_at });
-        state.lru.push_back(key.to_vec());
+        let entry = Entry {
+            value,
+            expires_at,
+            access_order: next_access_order(&mut state),
+        };
+        state.bytes = state.bytes.saturating_add(entry_size(key, &entry.value));
+        insert_indexes(&mut state, key, &entry);
+        state.entries.insert(key.to_vec(), entry);
         state.stats.inserts = state.stats.inserts.saturating_add(1);
 
         while state.entries.len() > state.options.max_entries
             || state.bytes > state.options.max_bytes
         {
-            let Some(oldest) = state.lru.pop_front() else {
+            let Some((_, oldest)) = state.lru.first().cloned() else {
                 break;
             };
+            let access_order = state.entries[&oldest].access_order;
+            state.lru.remove(&(access_order, oldest.clone()));
             if let Some(entry) = state.entries.remove(&oldest) {
+                state
+                    .expirations
+                    .remove(&(entry.expires_at, oldest.clone()));
                 state.bytes = state
                     .bytes
                     .saturating_sub(entry_size(&oldest, &entry.value));
@@ -199,8 +216,8 @@ impl MemoryCache {
         let Some(entry) = state.entries.remove(key) else {
             return Ok(false);
         };
+        remove_indexes(&mut state, key, &entry);
         state.bytes = state.bytes.saturating_sub(entry_size(key, &entry.value));
-        state.lru.retain(|candidate| candidate.as_slice() != key);
         state.stats.removals = state.stats.removals.saturating_add(1);
         refresh_current_stats(&mut state);
         Ok(true)
@@ -211,6 +228,7 @@ impl MemoryCache {
         let mut state = lock_state(&self.state)?;
         state.entries.clear();
         state.lru.clear();
+        state.expirations.clear();
         state.bytes = 0;
         refresh_current_stats(&mut state);
         Ok(())
@@ -246,24 +264,35 @@ fn entry_size(key: &[u8], value: &[u8]) -> usize {
     key.len().saturating_add(value.len())
 }
 
-fn touch(lru: &mut VecDeque<Vec<u8>>, key: &[u8]) {
-    lru.retain(|candidate| candidate.as_slice() != key);
-    lru.push_back(key.to_vec());
+fn next_access_order(state: &mut CacheState) -> u64 {
+    let order = state.next_access_order;
+    state.next_access_order = state.next_access_order.saturating_add(1);
+    order
+}
+
+fn insert_indexes(state: &mut CacheState, key: &[u8], entry: &Entry) {
+    state.lru.insert((entry.access_order, key.to_vec()));
+    state.expirations.insert((entry.expires_at, key.to_vec()));
+}
+
+fn remove_indexes(state: &mut CacheState, key: &[u8], entry: &Entry) {
+    state.lru.remove(&(entry.access_order, key.to_vec()));
+    state.expirations.remove(&(entry.expires_at, key.to_vec()));
 }
 
 fn remove_expired(state: &mut CacheState, now: Instant) {
     let expired = state
-        .entries
+        .expirations
         .iter()
-        .filter(|(_, entry)| entry.expires_at <= now)
-        .map(|(key, _)| key.clone())
+        .take_while(|(expires_at, _)| *expires_at <= now)
+        .map(|(_, key)| key.clone())
         .collect::<Vec<_>>();
     for key in expired {
         if let Some(entry) = state.entries.remove(&key) {
+            remove_indexes(state, &key, &entry);
             state.bytes = state.bytes.saturating_sub(entry_size(&key, &entry.value));
             state.stats.expirations = state.stats.expirations.saturating_add(1);
         }
-        state.lru.retain(|candidate| candidate != &key);
     }
     refresh_current_stats(state);
 }
@@ -313,8 +342,53 @@ mod tests {
         assert_eq!(cache.get(b"key").unwrap(), Some(b"one".to_vec()));
         cache.insert(b"key", b"two").unwrap();
         assert_eq!(cache.get(b"key").unwrap(), Some(b"two".to_vec()));
+        assert_eq!(cache.stats().unwrap().current_bytes, 6);
         assert!(cache.remove(b"key").unwrap());
         assert_eq!(cache.get(b"key").unwrap(), None);
+    }
+
+    #[test]
+    fn replacement_updates_byte_accounting_and_lru_order() {
+        let clock = Arc::new(TestClock::new());
+        let cache = cache(
+            clock,
+            CacheOptions {
+                max_entries: 2,
+                max_bytes: 32,
+                ..CacheOptions::default()
+            },
+        );
+        cache.insert(b"old", b"123456").unwrap();
+        cache.insert(b"other", b"x").unwrap();
+        cache.insert(b"old", b"z").unwrap();
+        cache.insert(b"new", b"y").unwrap();
+
+        assert_eq!(cache.get(b"old").unwrap(), Some(b"z".to_vec()));
+        assert_eq!(cache.get(b"other").unwrap(), None);
+        assert_eq!(cache.stats().unwrap().current_bytes, 8);
+    }
+
+    #[test]
+    fn expired_entries_are_removed_before_capacity_eviction() {
+        let clock = Arc::new(TestClock::new());
+        let cache = cache(
+            clock.clone(),
+            CacheOptions {
+                max_entries: 2,
+                default_ttl: Duration::from_secs(10),
+                ..CacheOptions::default()
+            },
+        );
+        cache
+            .insert_with_ttl(b"expired", b"x", Duration::from_secs(1))
+            .unwrap();
+        clock.advance(Duration::from_secs(2));
+        cache.insert(b"live", b"y").unwrap();
+        cache.insert(b"new", b"z").unwrap();
+
+        assert_eq!(cache.get(b"live").unwrap(), Some(b"y".to_vec()));
+        assert_eq!(cache.get(b"expired").unwrap(), None);
+        assert_eq!(cache.stats().unwrap().evictions, 0);
     }
 
     #[test]
@@ -449,5 +523,19 @@ mod tests {
             thread.join().unwrap();
         }
         assert!(cache.stats().unwrap().current_entries <= 1_024);
+    }
+
+    #[test]
+    fn hot_reads_keep_order_indexes_bounded() {
+        let cache = cache(Arc::new(TestClock::new()), CacheOptions::default());
+        cache.insert(b"hot", b"value").unwrap();
+        for _ in 0..10_000 {
+            assert_eq!(cache.get(b"hot").unwrap(), Some(b"value".to_vec()));
+        }
+
+        let state = cache.state.lock().unwrap();
+        assert_eq!(state.entries.len(), 1);
+        assert_eq!(state.lru.len(), 1);
+        assert_eq!(state.expirations.len(), 1);
     }
 }

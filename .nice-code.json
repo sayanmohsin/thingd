@@ -21,5 +21,41 @@
     "packages/thingd-cli/src/dashboard/public/assets/**"
   ],
   "severity": {},
-  "exceptions": []
+  "exceptions": [
+    {
+      "patternId": "AP-LOG-002",
+      "path": "crates/thingd-server/src/main.rs",
+      "reason": "This binary's println/eprintln calls are intentional human-facing CLI status, usage, and error output; structured tracing is used for server diagnostics below the command boundary."
+    },
+    {
+      "patternId": "AP-LOG-002",
+      "path": "crates/thingd/src/bin.rs",
+      "reason": "This small command-line entry point intentionally prints its open/close status and errors as user-facing CLI output, not production diagnostic logging."
+    },
+    {
+      "patternId": "AP-ASYNC-001",
+      "path": "packages/thingd-client/src/app.ts",
+      "reason": "Authentication requests are intentionally sequential because each successful response updates the access-token session state used by subsequent calls."
+    },
+    {
+      "patternId": "AP-ASYNC-001",
+      "path": "packages/thingd-client/src/client.ts",
+      "reason": "These are independent public client methods, not one sequential workflow; each request remains ordered within its own method and callers choose any parallelism."
+    },
+    {
+      "patternId": "AP-ASYNC-001",
+      "path": "packages/thingd/src/client/http-thing-store.ts",
+      "reason": "These are independent public store methods, not one sequential workflow; request ordering and error propagation are intentionally controlled by each caller."
+    },
+    {
+      "patternId": "AP-ASYNC-001",
+      "path": "packages/thingd/src/scheduler.ts",
+      "reason": "Schedule reads and writes are deliberately ordered around state transitions; parallelizing them could observe stale schedule state or reorder persistence."
+    },
+    {
+      "patternId": "AP-ASYNC-001",
+      "path": "packages/thingd/src/stores/native-thing-store.ts",
+      "reason": "Native module loading is an initialization dependency and must complete before the binding operation; concurrent loading would not improve this path."
+    }
+  ]
 }

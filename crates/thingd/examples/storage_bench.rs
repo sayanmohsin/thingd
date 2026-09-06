@@ -28,6 +28,7 @@ use thingd::{
     QueueJob, QueueStore, SearchOptions, Searcher, VectorSearchOptions, VectorStore,
 };
 use thingd::{Link, LinkStore};
+use thingdb::KeyspaceCreateOptions;
 use thingdb::{CacheOptions, MemoryCache};
 
 const DEFAULT_ITERATIONS: usize = 5_000;
@@ -278,6 +279,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             || config.backend.includes(BackendSelection::ThingDbMemory)
             || config.backend.includes(BackendSelection::Cache)
         {
+            record_memory_storage("thingdb-cache");
             bench_cache("thingdb-cache", iterations, config.seed)?;
         }
 
@@ -530,6 +532,95 @@ fn bench_cache(name: &str, iterations: usize, seed: u64) -> Result<(), Box<dyn E
         "{name} | stats hits={} misses={} evictions={} bytes={}",
         stats.hits, stats.misses, stats.evictions, stats.current_bytes
     );
+
+    let expired = MemoryCache::new(CacheOptions {
+        max_entries: iterations.max(1),
+        max_bytes: iterations.saturating_mul(256).max(256),
+        default_ttl: Duration::ZERO,
+    })?;
+    let expired_started = Instant::now();
+    for index in 0..iterations {
+        expired.insert(&cache_key(seed ^ 0x51ed, index), value)?;
+    }
+    let expired_stats = expired.stats()?;
+    if expired_stats.current_entries != 0 {
+        return Err("ThingDB cache retained an expired entry".into());
+    }
+    report(
+        name,
+        "cache_ttl_expiration",
+        iterations,
+        expired_started.elapsed(),
+    );
+
+    let lru = MemoryCache::new(CacheOptions {
+        max_entries: iterations.clamp(1, 256),
+        max_bytes: iterations.saturating_mul(256).max(256),
+        default_ttl: Duration::from_mins(1),
+    })?;
+    let lru_started = Instant::now();
+    for index in 0..iterations {
+        lru.insert(&cache_key(seed ^ 1_u64, index), value)?;
+    }
+    let lru_stats = lru.stats()?;
+    let expected_evictions = iterations > lru_stats.max_entries;
+    if lru_stats.current_entries > lru_stats.max_entries
+        || (expected_evictions && lru_stats.evictions == 0)
+    {
+        return Err("ThingDB cache LRU bound was not enforced".into());
+    }
+    report(
+        name,
+        "cache_lru_eviction",
+        iterations,
+        lru_started.elapsed(),
+    );
+
+    let byte_limited = MemoryCache::new(CacheOptions {
+        max_entries: iterations.max(1),
+        max_bytes: value
+            .len()
+            .saturating_add(cache_key(seed ^ 0xa11, iterations.saturating_sub(1)).len())
+            .saturating_add(8),
+        default_ttl: Duration::from_mins(1),
+    })?;
+    let byte_started = Instant::now();
+    for index in 0..iterations {
+        byte_limited.insert(&cache_key(seed ^ 0xa11, index), value)?;
+    }
+    if byte_limited.stats()?.current_bytes > byte_limited.stats()?.max_bytes {
+        return Err("ThingDB cache byte bound was not enforced".into());
+    }
+    report(
+        name,
+        "cache_byte_eviction",
+        iterations,
+        byte_started.elapsed(),
+    );
+
+    let oversized = MemoryCache::new(CacheOptions {
+        max_entries: 1,
+        max_bytes: 8,
+        default_ttl: Duration::from_mins(1),
+    })?;
+    let oversized_started = Instant::now();
+    if oversized.insert(b"oversized", value).is_ok() || oversized.stats()?.current_entries != 0 {
+        return Err("ThingDB cache accepted an oversized value".into());
+    }
+    report(
+        name,
+        "cache_oversized_rejection",
+        1,
+        oversized_started.elapsed(),
+    );
+
+    let clear_started = Instant::now();
+    cache.clear()?;
+    report(name, "cache_clear", 1, clear_started.elapsed());
+    let stats_started = Instant::now();
+    let _ = cache.stats()?;
+    report(name, "cache_stats", 1, stats_started.elapsed());
+    report(name, "cache_filesystem_artifacts", 0, Duration::ZERO);
 
     let concurrent = Arc::new(MemoryCache::new(CacheOptions {
         max_entries: 4_096,
@@ -1760,6 +1851,10 @@ where
     S: ObjectStore + Send + 'static,
     F: Fn() -> Result<S, Box<dyn Error>>,
 {
+    if name == "thingdb-memory" {
+        bench_raw_thingdb_concurrency(iterations)?;
+    }
+
     let store = factory()?;
     let shared = Arc::new(Mutex::new(store));
 
@@ -1782,6 +1877,69 @@ where
     report(name, "contention_4r1w", actual, elapsed);
 
     println!();
+    Ok(())
+}
+
+fn bench_raw_thingdb_concurrency(iterations: usize) -> Result<(), Box<dyn Error>> {
+    let db = thingdb::Database::in_memory()?;
+    let keyspace = Arc::new(db.keyspace("bench", KeyspaceCreateOptions::default)?);
+    for index in 0..iterations {
+        let key = format!("object-{index}");
+        keyspace.insert(key.as_bytes(), OBJECT_BODY_ACTIVE.as_bytes())?;
+    }
+
+    for &threads in &[1, 2, 4, 8] {
+        let ops_per_thread = iterations / threads;
+        let started = Instant::now();
+        std::thread::scope(|scope| {
+            for thread in 0..threads {
+                let keyspace = Arc::clone(&keyspace);
+                scope.spawn(move || {
+                    for offset in 0..ops_per_thread {
+                        let index = thread * ops_per_thread + offset;
+                        let key = format!("object-{index}");
+                        black_box(keyspace.get(key.as_bytes()).unwrap());
+                    }
+                });
+            }
+        });
+        report(
+            "thingdb-memory",
+            &format!("raw_concurrent_read_{threads}t"),
+            ops_per_thread * threads,
+            started.elapsed(),
+        );
+    }
+
+    let readers = iterations / 5;
+    let started = Instant::now();
+    std::thread::scope(|scope| {
+        for thread in 0..4 {
+            let keyspace = Arc::clone(&keyspace);
+            scope.spawn(move || {
+                for offset in 0..readers {
+                    let index = thread * readers + offset;
+                    let key = format!("object-{index}");
+                    black_box(keyspace.get(key.as_bytes()).unwrap());
+                }
+            });
+        }
+        let keyspace = Arc::clone(&keyspace);
+        scope.spawn(move || {
+            for index in 0..readers {
+                let key = format!("contention-{index}");
+                keyspace
+                    .insert(key.as_bytes(), OBJECT_BODY_INACTIVE.as_bytes())
+                    .unwrap();
+            }
+        });
+    });
+    report(
+        "thingdb-memory",
+        "raw_contention_4r1w",
+        readers * 5,
+        started.elapsed(),
+    );
     Ok(())
 }
 
