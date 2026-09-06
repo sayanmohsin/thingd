@@ -38,6 +38,9 @@ use std::sync::{
 use std::thread;
 use std::time::{Duration, Instant};
 
+#[cfg(unix)]
+use std::os::unix::fs::FileExt;
+
 use crc32fast::Hasher;
 use serde::{Deserialize, Serialize};
 
@@ -407,7 +410,7 @@ struct Inner {
 
 #[derive(Clone)]
 struct TableLayer {
-    file: Arc<Mutex<File>>,
+    file: Arc<File>,
     entries: Arc<Vec<TableIndexEntry>>,
     is_v2: bool,
 }
@@ -1422,7 +1425,7 @@ fn flush_table_locked(
         inner.table_files = table_files;
         let (_, entries, is_v2) = read_table_index(&table_path)?;
         inner.table_layers.push(TableLayer {
-            file: Arc::new(Mutex::new(File::open(&table_path)?)),
+            file: Arc::new(File::open(&table_path)?),
             entries: Arc::new(entries),
             is_v2,
         });
@@ -1537,7 +1540,7 @@ fn compact_tables_locked(
     inner.table_files = vec![table_name];
     let (_, entries, is_v2) = read_table_index(&table_path)?;
     inner.table_layers = vec![TableLayer {
-        file: Arc::new(Mutex::new(File::open(&table_path)?)),
+        file: Arc::new(File::open(&table_path)?),
         entries: Arc::new(entries),
         is_v2,
     }];
@@ -1671,7 +1674,7 @@ impl DatabaseBuilder {
                 table_open_duration_ns =
                     table_open_duration_ns.saturating_add(elapsed_nanos(open_started.elapsed()));
                 table_layers.push(TableLayer {
-                    file: Arc::new(Mutex::new(file)),
+                    file: Arc::new(file),
                     entries: Arc::new(entries),
                     is_v2,
                 });
@@ -2922,6 +2925,7 @@ fn read_table_index(path: &Path) -> Result<(u64, Vec<TableIndexEntry>, bool)> {
     Ok((sequence, entries, is_v2))
 }
 
+#[cfg(not(unix))]
 fn read_table_value(
     file: &mut File,
     entry: &TableIndexEntry,
@@ -2962,19 +2966,62 @@ fn read_table_value(
 }
 
 fn read_table_value_handle(
-    file: &Arc<Mutex<File>>,
+    file: &Arc<File>,
     entry: &TableIndexEntry,
     is_v2: bool,
 ) -> Result<(Option<Vec<u8>>, u64, u64)> {
-    let wait_started = Instant::now();
-    let mut file = file
-        .lock()
-        .map_err(|_| Error::message("ThingDB table reader lock poisoned"))?;
-    let reader_wait = elapsed_nanos(wait_started.elapsed());
+    let reader_wait = 0;
     let read_started = Instant::now();
-    let value = read_table_value(&mut file, entry, is_v2);
+    #[cfg(unix)]
+    let value = {
+        let length: usize = entry
+            .length
+            .try_into()
+            .map_err(|_| Error::message("ThingDB table record is too large"))?;
+        let mut bytes = vec![0; length];
+        file.read_exact_at(&mut bytes, entry.offset)?;
+        decode_table_value(&bytes, entry, is_v2)
+    };
+    #[cfg(not(unix))]
+    let value = {
+        let mut reader = file.try_clone()?;
+        read_table_value(&mut reader, entry, is_v2)
+    };
     let read_duration = elapsed_nanos(read_started.elapsed());
     Ok((value?, reader_wait, read_duration))
+}
+
+#[cfg(unix)]
+fn decode_table_value(
+    bytes: &[u8],
+    entry: &TableIndexEntry,
+    is_v2: bool,
+) -> Result<Option<Vec<u8>>> {
+    let mut cursor = 0;
+    let key = read_bytes(bytes, &mut cursor)?;
+    if key != entry.key {
+        return Err(Error::message("ThingDB table index key mismatch"));
+    }
+    let value = if !is_v2 {
+        Some(read_bytes(bytes, &mut cursor)?)
+    } else if bytes.get(cursor) == Some(&1) {
+        cursor += 1;
+        Some(read_bytes(bytes, &mut cursor)?)
+    } else if bytes.get(cursor) == Some(&2) {
+        cursor += 1;
+        None
+    } else {
+        return Err(Error::message("invalid ThingDB table operation"));
+    };
+    let checksum_offset = cursor;
+    let stored = read_u32(bytes, &mut cursor)?;
+    if stored != checksum(&bytes[..checksum_offset]) {
+        return Err(Error::message("ThingDB table checksum mismatch"));
+    }
+    if cursor != bytes.len() {
+        return Err(Error::message("trailing bytes in ThingDB table record"));
+    }
+    Ok(value)
 }
 
 fn write_manifest(path: &Path, manifest: &Manifest, sync: bool) -> Result<()> {
@@ -3351,7 +3398,7 @@ mod tests {
         assert_eq!(objects.get(b"key").unwrap(), Some(b"value".to_vec()));
         let diagnostics = db.wal_diagnostics().unwrap();
         assert!(diagnostics.table_lookup_count > 0);
-        assert!(diagnostics.table_reader_wait_duration_ns > 0);
+        assert_eq!(diagnostics.table_reader_wait_duration_ns, 0);
         assert!(diagnostics.file_read_duration_ns > 0);
         assert!(diagnostics.read_lock_held_duration_ns > 0);
     }
