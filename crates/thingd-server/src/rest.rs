@@ -1733,7 +1733,9 @@ async fn prepare_remote_source(
         .timeout(std::time::Duration::from_secs(30))
         .tls_certs_only(ca_certs)
         .build()
-        .map_err(|e| AppError::internal(format!("failed to create connector client: {e}")))?;
+        .map_err(|e| {
+            AppError::internal(format!("failed to create HTTPS connector client: {e:?}"))
+        })?;
     let response = client
         .get(&config.source)
         .send()
