@@ -811,6 +811,9 @@ fn execute_group(
     };
     let mut synced = false;
     let mut appended = false;
+    let mut append_duration_ns = 0;
+    let mut sync_duration_ns = 0;
+    let mut wal_lock_wait_ns = 0;
     let result: Result<()> = (|| {
         if let Some(point) = request_has_fault(requests, "before-wal-append") {
             maybe_fail(point, Some(point))?;
@@ -837,47 +840,47 @@ fn execute_group(
             let Ok(_wal_lock) = wal_io_lock.lock() else {
                 return Err(Error::message("ThingDB WAL lock poisoned"));
             };
-            let wal_lock_wait = elapsed_nanos(wal_lock_started.elapsed());
+            wal_lock_wait_ns = elapsed_nanos(wal_lock_started.elapsed());
             let started = Instant::now();
             wal_file.write_all(&wal_bytes)?;
             appended = true;
-            let append_duration_ns = elapsed_nanos(started.elapsed());
-            if let Ok(mut inner) = inner_arc.lock() {
-                inner.diagnostics.append_duration_ns = inner
-                    .diagnostics
-                    .append_duration_ns
-                    .saturating_add(append_duration_ns);
-                inner.diagnostics.wal_bytes_appended = inner
-                    .diagnostics
-                    .wal_bytes_appended
-                    .saturating_add(wal_bytes.len() as u64);
-                let journal_bytes = wal_start.saturating_add(wal_bytes.len() as u64);
-                inner.diagnostics.journal_bytes = journal_bytes;
-                inner.diagnostics.wal_over_budget = journal_bytes > inner.max_journaling_size;
-            }
+            append_duration_ns = elapsed_nanos(started.elapsed());
             if let Some(point) = request_has_fault(requests, "after-wal-write-before-sync") {
                 maybe_fail(point, Some(point))?;
             }
             let started = Instant::now();
             wal_file.sync_data()?;
             synced = true;
-            let sync_duration_ns = elapsed_nanos(started.elapsed());
-            if let Ok(mut inner) = inner_arc.lock() {
+            sync_duration_ns = elapsed_nanos(started.elapsed());
+        }
+        if let Ok(mut inner) = inner_arc.lock() {
+            let journal_bytes = wal_start.saturating_add(wal_bytes.len() as u64);
+            inner.diagnostics.append_duration_ns = inner
+                .diagnostics
+                .append_duration_ns
+                .saturating_add(append_duration_ns);
+            inner.diagnostics.wal_bytes_appended = inner
+                .diagnostics
+                .wal_bytes_appended
+                .saturating_add(wal_bytes.len() as u64);
+            inner.diagnostics.journal_bytes = journal_bytes;
+            inner.diagnostics.wal_over_budget = journal_bytes > inner.max_journaling_size;
+            if synced {
                 inner.diagnostics.physical_sync_count =
                     inner.diagnostics.physical_sync_count.saturating_add(1);
                 inner.diagnostics.sync_duration_ns = inner
                     .diagnostics
                     .sync_duration_ns
                     .saturating_add(sync_duration_ns);
-                inner.diagnostics.wal_lock_wait_duration_ns = inner
-                    .diagnostics
-                    .wal_lock_wait_duration_ns
-                    .saturating_add(wal_lock_wait);
-                inner.diagnostics.wal_lock_held_duration_ns = inner
-                    .diagnostics
-                    .wal_lock_held_duration_ns
-                    .saturating_add(append_duration_ns.saturating_add(sync_duration_ns));
             }
+            inner.diagnostics.wal_lock_wait_duration_ns = inner
+                .diagnostics
+                .wal_lock_wait_duration_ns
+                .saturating_add(wal_lock_wait_ns);
+            inner.diagnostics.wal_lock_held_duration_ns = inner
+                .diagnostics
+                .wal_lock_held_duration_ns
+                .saturating_add(append_duration_ns.saturating_add(sync_duration_ns));
         }
         if let Some(point) = request_has_fault(requests, "after-wal-sync-before-state-apply") {
             maybe_fail(point, Some(point))?;

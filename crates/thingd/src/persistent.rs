@@ -2157,6 +2157,12 @@ impl PersistentEngine {
     }
 
     fn persist_event_metadata(&self, stream: &str) -> ThingdResult<()> {
+        let (key, encoded) = self.encode_event_metadata(stream)?;
+        self.event_meta.insert(&key, &encoded)?;
+        Ok(())
+    }
+
+    fn encode_event_metadata(&self, stream: &str) -> ThingdResult<(Vec<u8>, Vec<u8>)> {
         let max_sequence = self.event_seq_counters.get(stream).copied().unwrap_or(0);
         let idempotency_keys = self
             .event_idempotency_keys
@@ -2176,8 +2182,7 @@ impl PersistentEngine {
         let key = self
             .codec
             .encode_key("event_metadata.stream", stream.as_bytes());
-        self.event_meta.insert(&key, &encoded)?;
-        Ok(())
+        Ok((key, encoded))
     }
 
     fn persist_all_event_metadata(&self) -> ThingdResult<()> {
@@ -3425,6 +3430,7 @@ impl EventLog for PersistentEngine {
             }
         }
 
+        let previous_sequence = self.event_seq_counters.get(&event.stream).copied();
         let seq = self
             .event_seq_counters
             .entry(event.stream.clone())
@@ -3438,16 +3444,6 @@ impl EventLog for PersistentEngine {
 
         let ekey = self.make_event_key(&event.stream, event.sequence);
         let data = self.serialize(&event)?;
-        self.events.insert(&ekey, &data)?;
-
-        #[cfg(feature = "search")]
-        self.record_search_mutation(
-            format!("event:{}/{}", event.stream, event.sequence),
-            SearchReplayMutation::UpsertEvent,
-        );
-        #[cfg(feature = "search")]
-        self.index_event_for_search(&event);
-
         if !event.idempotency_key.is_empty() {
             self.event_idempotency_keys.insert(
                 (event.stream.clone(), event.idempotency_key.clone()),
@@ -3455,7 +3451,35 @@ impl EventLog for PersistentEngine {
             );
         }
 
-        self.persist_event_metadata(&event.stream)?;
+        let (metadata_key, metadata_value) = self.encode_event_metadata(&event.stream)?;
+        let mut batch = self.db.batch();
+        batch.insert(&self.events, &ekey, &data);
+        batch.insert(&self.event_meta, &metadata_key, &metadata_value);
+        if let Err(error) = batch.commit() {
+            if !event.idempotency_key.is_empty() {
+                self.event_idempotency_keys
+                    .remove(&(event.stream.clone(), event.idempotency_key));
+            }
+            match previous_sequence {
+                Some(previous) => {
+                    self.event_seq_counters
+                        .insert(event.stream.clone(), previous);
+                },
+                None => {
+                    self.event_seq_counters.remove(&event.stream);
+                },
+            }
+            return Err(ThingdError::Storage(error.to_string()));
+        }
+
+        #[cfg(feature = "search")]
+        {
+            self.record_search_mutation(
+                format!("event:{}/{}", event.stream, event.sequence),
+                SearchReplayMutation::UpsertEvent,
+            );
+            self.index_event_for_search(&event);
+        }
 
         Ok(event)
     }
@@ -6244,6 +6268,50 @@ mod tests {
         let second = engine.append_event(event).unwrap();
         assert_eq!(second.sequence, first.sequence);
         assert_eq!(second.body, first.body);
+    }
+
+    #[test]
+    fn thingdb_single_event_and_metadata_commit_together() {
+        let (mut engine, dir) = setup_thingdb();
+        let before = engine
+            .wal_diagnostics()
+            .unwrap()
+            .expect("ThingDB diagnostics should be available")
+            .logical_commit_count;
+
+        engine
+            .append_event(MemoryEvent::new("atomic-stream", "created", "one"))
+            .unwrap();
+
+        let after = engine
+            .wal_diagnostics()
+            .unwrap()
+            .expect("ThingDB diagnostics should be available");
+        assert_eq!(after.logical_commit_count - before, 1);
+        drop(engine);
+
+        let mut reopened = PersistentEngine::open_with_options(
+            dir.path(),
+            PersistentOpenOptions {
+                backend: PersistentBackend::ThingDb,
+                ..PersistentOpenOptions::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            reopened
+                .list_events(Some("atomic-stream"), ListEventsOptions::default())
+                .unwrap()
+                .len(),
+            1
+        );
+        assert_eq!(
+            reopened
+                .append_event(MemoryEvent::new("atomic-stream", "next", "two"))
+                .unwrap()
+                .sequence,
+            2
+        );
     }
 
     #[test]
