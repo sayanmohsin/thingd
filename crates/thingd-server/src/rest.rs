@@ -1707,9 +1707,31 @@ async fn prepare_remote_source(
         return Ok((config, None));
     }
     url_host_allowed(&config.source, hardening)?;
+    // The server is shipped in a scratch image. reqwest's platform verifier
+    // fails while constructing a client when that image does not expose a
+    // native CA store, which used to surface as the opaque "builder error".
+    // Load the bundled PEM explicitly so HTTPS connector reads are stable in
+    // scratch and still fail with an actionable configuration error when the
+    // bundle is missing.
+    let ca_bundle = std::env::var_os("SSL_CERT_FILE")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("/etc/ssl/certs/ca-certificates.crt"));
+    let ca_pem = std::fs::read(&ca_bundle).map_err(|e| {
+        AppError::internal(format!(
+            "HTTPS connector client could not load CA bundle {}: {e}",
+            ca_bundle.display()
+        ))
+    })?;
+    let ca_certs = reqwest::Certificate::from_pem_bundle(&ca_pem).map_err(|e| {
+        AppError::internal(format!(
+            "HTTPS connector client could not parse CA bundle {}: {e}",
+            ca_bundle.display()
+        ))
+    })?;
     let client = reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::none())
         .timeout(std::time::Duration::from_secs(30))
+        .tls_certs_only(ca_certs)
         .build()
         .map_err(|e| AppError::internal(format!("failed to create connector client: {e}")))?;
     let response = client
