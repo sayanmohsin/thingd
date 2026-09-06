@@ -13,6 +13,13 @@
 - server: harden security boundaries (0961ffe)
 - complete public SDK type exports (8a8889a)
 
+## [0.86.6](https://github.com/sayanmohsin/thingd/compare/thingd-v0.86.5...thingd-v0.86.6) (2026-09-06)
+
+
+### Bug Fixes
+
+* wait for Thingd readiness during Docker smoke ([da6c028](https://github.com/sayanmohsin/thingd/commit/da6c028f4eaabd9369d1e466d6cb4fb01b3a0715))
+
 ## [0.86.5](https://github.com/sayanmohsin/thingd/compare/thingd-v0.86.4...thingd-v0.86.5) (2026-09-06)
 
 
