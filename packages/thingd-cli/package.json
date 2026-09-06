@@ -1,6 +1,6 @@
 {
   "name": "@thingd/cli",
-  "version": "0.86.5",
+  "version": "0.86.6",
   "description": "CLI, Interactive TUI Dashboard, and MCP server for thingd — a fast object-first data engine for applications and AI agents.",
   "type": "module",
   "homepage": "https://engine.thingd.cloud",
