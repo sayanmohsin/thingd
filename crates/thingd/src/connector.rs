@@ -528,6 +528,14 @@ impl Connector for GoogleSheetsConnector {
         FileConnector.discover_schema(config)
     }
 
+    fn list_tables(&self, _config: &ConnectorConfig) -> ThingdResult<Vec<String>> {
+        // A public Google Sheets CSV export represents one selected worksheet.
+        // The export URL carries the worksheet gid, so there is no separate
+        // table catalog to query. Expose a stable table name for Cloud's
+        // mapping and discovery flow instead of the default empty list.
+        Ok(vec!["sheet".to_string()])
+    }
+
     fn pull(&self, config: &ConnectorConfig) -> ThingdResult<PullStream> {
         FileConnector.pull(config)
     }
@@ -1219,6 +1227,13 @@ mod tests {
         let config = ConnectorConfig::default();
         let tables = connector.list_tables(&config).unwrap();
         assert!(tables.is_empty());
+    }
+
+    #[test]
+    fn google_sheets_exposes_selected_export_as_one_table() {
+        let connector = GoogleSheetsConnector;
+        let tables = connector.list_tables(&ConnectorConfig::default()).unwrap();
+        assert_eq!(tables, vec!["sheet"]);
     }
 
     #[test]
