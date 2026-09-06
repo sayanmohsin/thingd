@@ -13,6 +13,13 @@
 - server: harden security boundaries (0961ffe)
 - complete public SDK type exports (8a8889a)
 
+## [0.86.7](https://github.com/sayanmohsin/thingd/compare/thingd-v0.86.6...thingd-v0.86.7) (2026-09-06)
+
+
+### Bug Fixes
+
+* improve Google Sheets discovery ([73eeb8b](https://github.com/sayanmohsin/thingd/commit/73eeb8b78b18b658ce47b28f46c896e884cb71b5))
+
 ## [0.86.6](https://github.com/sayanmohsin/thingd/compare/thingd-v0.86.5...thingd-v0.86.6) (2026-09-06)
 
 
