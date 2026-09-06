@@ -13,6 +13,17 @@
 - server: harden security boundaries (0961ffe)
 - complete public SDK type exports (8a8889a)
 
+## [0.86.5](https://github.com/sayanmohsin/thingd/compare/thingd-v0.86.4...thingd-v0.86.5) (2026-09-06)
+
+
+### Performance Improvements
+
+* bound ThingDB RAM scans ([3a52073](https://github.com/sayanmohsin/thingd/commit/3a52073656daec1968ca8915144a04d31a97e507))
+* decouple ThingDB table readers ([faa7134](https://github.com/sayanmohsin/thingd/commit/faa7134504a31301cc316025ad1ef3a952105120))
+* improve ThingDB durable WAL throughput ([6c3c6d7](https://github.com/sayanmohsin/thingd/commit/6c3c6d7e7a47355cfbc1f69cf58402e2412eadf7))
+* improve ThingDB RAM concurrency ([e751e85](https://github.com/sayanmohsin/thingd/commit/e751e85582c9bbb18b768214fc7bd424541c6b73))
+* optimize ThingDB bounded cache ([0b63c6f](https://github.com/sayanmohsin/thingd/commit/0b63c6f7946101dd0c47c9ed085e3347c6a89a68))
+
 ## [0.86.4](https://github.com/sayanmohsin/thingd/compare/thingd-v0.86.3...thingd-v0.86.4) (2026-09-04)
 
 
