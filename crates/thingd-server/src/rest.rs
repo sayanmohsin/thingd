@@ -1736,11 +1736,36 @@ async fn prepare_remote_source(
         .map_err(|e| {
             AppError::internal(format!("failed to create HTTPS connector client: {e:?}"))
         })?;
-    let response = client
-        .get(&config.source)
-        .send()
-        .await
-        .map_err(|e| AppError::bad_request(format!("failed to fetch connector source: {e}")))?;
+    let mut source_url = config.source.clone();
+    let mut redirects = 0;
+    let response =
+        loop {
+            let response = client.get(&source_url).send().await.map_err(|e| {
+                AppError::bad_request(format!("failed to fetch connector source: {e}"))
+            })?;
+            if !response.status().is_redirection() {
+                break response;
+            }
+            if redirects >= 5 {
+                return Err(AppError::bad_request(
+                    "connector source followed too many redirects",
+                ));
+            }
+            let location = response
+                .headers()
+                .get(header::LOCATION)
+                .ok_or_else(|| AppError::bad_request("connector source redirect has no location"))?
+                .to_str()
+                .map_err(|_| {
+                    AppError::bad_request("connector source redirect has an invalid location")
+                })?;
+            let next_url = response.url().join(location).map_err(|_| {
+                AppError::bad_request("connector source redirect has an invalid URL")
+            })?;
+            url_host_allowed(next_url.as_str(), hardening)?;
+            source_url = next_url.to_string();
+            redirects += 1;
+        };
     if !response.status().is_success() {
         return Err(AppError::bad_request(format!(
             "connector source returned HTTP {}",
