@@ -13,6 +13,13 @@
 - server: harden security boundaries (0961ffe)
 - complete public SDK type exports (8a8889a)
 
+## [0.86.8](https://github.com/sayanmohsin/thingd/compare/thingd-v0.86.7...thingd-v0.86.8) (2026-09-06)
+
+
+### Bug Fixes
+
+* follow allowed sheet export redirects ([#238](https://github.com/sayanmohsin/thingd/issues/238)) ([dff87ba](https://github.com/sayanmohsin/thingd/commit/dff87ba29f46e4e83b96ee7922b03eec919f9389))
+
 ## [0.86.7](https://github.com/sayanmohsin/thingd/compare/thingd-v0.86.6...thingd-v0.86.7) (2026-09-06)
 
 
