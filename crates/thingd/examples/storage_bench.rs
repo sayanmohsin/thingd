@@ -563,7 +563,10 @@ fn bench_cache(name: &str, iterations: usize, seed: u64) -> Result<(), Box<dyn E
         lru.insert(&cache_key(seed ^ 1_u64, index), value)?;
     }
     let lru_stats = lru.stats()?;
-    if lru_stats.current_entries > lru_stats.max_entries || lru_stats.evictions == 0 {
+    let expected_evictions = iterations > lru_stats.max_entries;
+    if lru_stats.current_entries > lru_stats.max_entries
+        || (expected_evictions && lru_stats.evictions == 0)
+    {
         return Err("ThingDB cache LRU bound was not enforced".into());
     }
     report(
