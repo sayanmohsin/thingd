@@ -32,7 +32,8 @@ use std::io::{self, ErrorKind, Read, Seek, SeekFrom, Write};
 use std::ops::{Bound, RangeBounds};
 use std::path::{Component, Path, PathBuf};
 use std::sync::{
-    Arc, Mutex, RwLock, Weak,
+    Arc, Mutex, OnceLock, RwLock, Weak,
+    atomic::{AtomicBool, AtomicU64, Ordering},
     mpsc::{self, RecvTimeoutError, SyncSender, TryRecvError},
 };
 use std::thread;
@@ -41,17 +42,39 @@ use std::time::{Duration, Instant};
 #[cfg(unix)]
 use std::os::unix::fs::FileExt;
 
+#[cfg(feature = "benchmark")]
+use arc_swap::ArcSwap;
 use crc32fast::Hasher;
 use serde::{Deserialize, Serialize};
 
 const WAL_MAGIC: &[u8; 8] = b"TDBWAL01";
 const TABLE_MAGIC: &[u8; 8] = b"TDBTAB01";
 const TABLE_MAGIC_V2: &[u8; 8] = b"TDBTAB02";
+const TABLE_MAGIC_V3: &[u8; 8] = b"TDBTAB03";
+const TABLE_FOOTER_MAGIC: &[u8; 8] = b"TDBFTR01";
 const FORMAT_VERSION: u32 = 1;
 const WAL_FILE: &str = "WAL";
 const MANIFEST_FILE: &str = "MANIFEST.json";
 const MANIFEST_TEMP_FILE: &str = ".MANIFEST.json.tmp";
 const LOCK_FILE: &str = "LOCK";
+
+#[cfg(feature = "benchmark")]
+type RamGeneration = HashMap<Arc<str>, Arc<BTreeMap<Vec<u8>, Arc<Vec<u8>>>>>;
+
+#[derive(Clone, Copy)]
+enum WalSyncMode {
+    Data,
+    #[cfg(feature = "benchmark")]
+    All,
+}
+
+fn sync_wal(file: &File, mode: WalSyncMode) -> io::Result<()> {
+    match mode {
+        WalSyncMode::Data => file.sync_data(),
+        #[cfg(feature = "benchmark")]
+        WalSyncMode::All => file.sync_all(),
+    }
+}
 
 #[cfg(test)]
 thread_local! {
@@ -358,6 +381,48 @@ pub struct RamDiagnostics {
     pub snapshot_duration_ns: u64,
 }
 
+/// Lock-free counters for diagnostics that are updated on every RAM lookup,
+/// mutation, or semantic serialization. Keeping these counters separate from
+/// the richer snapshot state avoids adding a diagnostics mutex to the hot
+/// storage path.
+#[derive(Default)]
+struct RamHotDiagnostics {
+    lookup_count: AtomicU64,
+    lock_wait_duration_ns: AtomicU64,
+    lock_held_duration_ns: AtomicU64,
+    lookup_duration_ns: AtomicU64,
+    value_clone_duration_ns: AtomicU64,
+    value_acquire_duration_ns: AtomicU64,
+    mutation_count: AtomicU64,
+    mutation_duration_ns: AtomicU64,
+    deserialization_duration_ns: AtomicU64,
+    serialization_count: AtomicU64,
+    serialization_duration_ns: AtomicU64,
+}
+
+impl RamHotDiagnostics {
+    fn add(counter: &AtomicU64, value: u64) {
+        counter.fetch_add(value, Ordering::Relaxed);
+    }
+
+    fn snapshot_into(&self, diagnostics: &mut RamDiagnostics) {
+        diagnostics.lookup_count = self.lookup_count.load(Ordering::Relaxed);
+        diagnostics.lock_wait_duration_ns = self.lock_wait_duration_ns.load(Ordering::Relaxed);
+        diagnostics.lock_held_duration_ns = self.lock_held_duration_ns.load(Ordering::Relaxed);
+        diagnostics.lookup_duration_ns = self.lookup_duration_ns.load(Ordering::Relaxed);
+        diagnostics.value_clone_duration_ns = self.value_clone_duration_ns.load(Ordering::Relaxed);
+        diagnostics.value_acquire_duration_ns =
+            self.value_acquire_duration_ns.load(Ordering::Relaxed);
+        diagnostics.mutation_count = self.mutation_count.load(Ordering::Relaxed);
+        diagnostics.mutation_duration_ns = self.mutation_duration_ns.load(Ordering::Relaxed);
+        diagnostics.deserialization_duration_ns =
+            self.deserialization_duration_ns.load(Ordering::Relaxed);
+        diagnostics.serialization_count = self.serialization_count.load(Ordering::Relaxed);
+        diagnostics.serialization_duration_ns =
+            self.serialization_duration_ns.load(Ordering::Relaxed);
+    }
+}
+
 /// Keyspace creation options reserved for future per-keyspace tuning.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct KeyspaceCreateOptions;
@@ -374,20 +439,31 @@ pub struct DatabaseBuilder {
     max_journaling_size: u64,
     max_memtable_bytes: u64,
     max_table_layers: usize,
+    wal_sync_mode: WalSyncMode,
 }
 
 /// A shared ThingDB database handle.
 #[derive(Clone)]
 pub struct Database {
     inner: Arc<Mutex<Inner>>,
-    ram_keyspaces: Option<Arc<RwLock<HashMap<String, BTreeMap<Vec<u8>, Arc<Vec<u8>>>>>>>,
+    ram_keyspaces: Option<Arc<RwLock<HashMap<Arc<str>, BTreeMap<Vec<u8>, Arc<Vec<u8>>>>>>>,
+    #[cfg(feature = "benchmark")]
+    ram_rcu_keyspaces: Option<Arc<ArcSwap<RamGeneration>>>,
+    ram_diagnostics: Arc<Mutex<RamDiagnostics>>,
+    ram_hot_diagnostics: Arc<RamHotDiagnostics>,
+    ram_logical_commit_count: Arc<AtomicU64>,
+    ram_total_group_size: Arc<AtomicU64>,
+    ram_state_apply_duration_ns: Arc<AtomicU64>,
     writer: Arc<WriterCoordinator>,
     commit_gate: Arc<Mutex<()>>,
 }
 
 struct Inner {
     path: PathBuf,
-    wal: Option<File>,
+    // Share the opened handle with commit groups. Cloning the Arc avoids a
+    // file-descriptor duplication syscall for every durable commit while the
+    // WAL mutex still serializes append, sync, and truncation ordering.
+    wal: Option<Arc<File>>,
     lock: Option<File>,
     in_memory: bool,
     state: BTreeMap<Vec<u8>, Vec<u8>>,
@@ -401,17 +477,20 @@ struct Inner {
     max_memtable_bytes: u64,
     max_table_layers: usize,
     diagnostics: WalDiagnostics,
-    ram_diagnostics: RamDiagnostics,
     recovery_required: bool,
     commit_gate: Arc<Mutex<()>>,
     wal_io_lock: Arc<Mutex<()>>,
     state_generation: u64,
+    wal_sync_mode: WalSyncMode,
+    flush_scheduled: Arc<AtomicBool>,
 }
 
 #[derive(Clone)]
 struct TableLayer {
     file: Arc<File>,
-    entries: Arc<Vec<TableIndexEntry>>,
+    path: PathBuf,
+    entries: Arc<OnceLock<Arc<Vec<TableIndexEntry>>>>,
+    blocks: Arc<Vec<TableBlock>>,
     is_v2: bool,
 }
 
@@ -422,11 +501,68 @@ struct TableIndexEntry {
     length: u64,
 }
 
+#[derive(Clone, Debug)]
+struct TableBlock {
+    offset: u64,
+    length: u64,
+    first_key: Vec<u8>,
+    last_key: Vec<u8>,
+    checksum: u32,
+}
+
+impl TableLayer {
+    fn loaded_entries(&self) -> Result<Arc<Vec<TableIndexEntry>>> {
+        if self.entries.get().is_none() {
+            let (_, entries, _, _) = read_table_index(&self.path)?;
+            let _ = self.entries.set(Arc::new(entries));
+        }
+        Ok(Arc::clone(self.entries.get().ok_or_else(|| {
+            Error::message("ThingDB table index was not initialized")
+        })?))
+    }
+
+    fn candidate_entry_range(&self, key: &[u8]) -> std::ops::Range<usize> {
+        if self.blocks.is_empty() {
+            let entries = self.entries.get().map_or(0, |entries| entries.len());
+            return 0..entries;
+        }
+        let block_index = self
+            .blocks
+            .partition_point(|block| block.last_key.as_slice() < key);
+        let Some(block) = self.blocks.get(block_index) else {
+            return 0..0;
+        };
+        if block.first_key.as_slice() > key {
+            return 0..0;
+        }
+        let end = block.offset.saturating_add(block.length);
+        let Some(entries) = self.entries.get() else {
+            return 0..0;
+        };
+        let start_index = entries.partition_point(|entry| entry.offset < block.offset);
+        let end_index = entries.partition_point(|entry| entry.offset < end);
+        start_index..end_index
+    }
+
+    fn candidate_block(&self, key: &[u8]) -> Option<&TableBlock> {
+        if self.blocks.is_empty() {
+            return None;
+        }
+        let index = self
+            .blocks
+            .partition_point(|block| block.last_key.as_slice() < key);
+        self.blocks
+            .get(index)
+            .filter(|block| block.first_key.as_slice() <= key && key <= block.last_key.as_slice())
+    }
+}
+
 impl Inner {
     fn materialize_state(&mut self) -> Result<BTreeMap<Vec<u8>, Vec<u8>>> {
         let mut state = BTreeMap::new();
         for layer in &mut self.table_layers {
-            for entry in layer.entries.iter() {
+            let entries = layer.loaded_entries()?;
+            for entry in entries.iter() {
                 match read_table_value_handle(&layer.file, entry, layer.is_v2)?.0 {
                     Some(value) => {
                         state.insert(entry.key.clone(), value);
@@ -467,14 +603,21 @@ struct Manifest {
 #[derive(Clone)]
 pub struct Keyspace {
     db: Database,
-    name: String,
-    namespace: Vec<u8>,
+    name: Arc<str>,
+    namespace: Arc<[u8]>,
 }
 
 /// A write batch applied atomically to all included keyspaces.
 pub struct Batch {
     db: Database,
-    operations: Vec<Operation>,
+    memory_mode: bool,
+    operations: Vec<BatchOperation>,
+}
+
+struct BatchOperation {
+    keyspace: Arc<str>,
+    key: Vec<u8>,
+    value: Option<Vec<u8>>,
 }
 
 #[derive(Clone, Debug)]
@@ -485,6 +628,9 @@ enum Operation {
 
 struct CommitRequest {
     operations: Vec<Operation>,
+    // Computed before enqueueing so the coordinator does not walk every
+    // operation once for admission and again when reserving the WAL buffer.
+    encoded_bytes: usize,
     submitted_at: Instant,
     fault_point: Option<&'static str>,
     response: mpsc::Sender<Result<()>>,
@@ -496,7 +642,9 @@ struct WriterCoordinator {
 }
 
 const WRITER_QUEUE_CAPACITY: usize = 1024;
-const GROUP_COMMIT_WINDOW: Duration = Duration::from_millis(1);
+// A short window lets already-queued writers coalesce without adding a
+// millisecond of latency to every burst. Isolated writes still bypass it.
+const GROUP_COMMIT_WINDOW: Duration = Duration::from_micros(250);
 const MAX_GROUP_OPERATIONS: usize = 4_096;
 const MAX_GROUP_BYTES: usize = 4 * 1024 * 1024;
 
@@ -528,20 +676,24 @@ impl Drop for WriterCoordinator {
 
 fn writer_loop(inner: Weak<Mutex<Inner>>, receiver: mpsc::Receiver<CommitRequest>) {
     let mut pending = None;
+    // Groups are processed serially by this dedicated thread. Reusing the
+    // encoded WAL buffer avoids allocating and freeing a large Vec for every
+    // group while keeping its lifetime bounded by the writer thread.
+    let mut wal_buffer = Vec::new();
     loop {
         let Some(first) = pending.take().or_else(|| receiver.recv().ok()) else {
             return;
         };
         let mut group = vec![first];
         let mut operation_count = group[0].operations.len();
-        let mut operation_bytes = operations_bytes(&group[0].operations);
+        let mut operation_bytes = group[0].encoded_bytes;
         // An isolated durable write should not pay the group-commit window.
         // Once another request is already queued, retain the bounded window
         // so concurrent writers can still share one WAL sync.
         let deadline = match receiver.try_recv() {
             Ok(request) => {
                 let request_operations = request.operations.len();
-                let request_bytes = operations_bytes(&request.operations);
+                let request_bytes = request.encoded_bytes;
                 if operation_count + request_operations <= MAX_GROUP_OPERATIONS
                     && operation_bytes + request_bytes <= MAX_GROUP_BYTES
                 {
@@ -569,7 +721,7 @@ fn writer_loop(inner: Weak<Mutex<Inner>>, receiver: mpsc::Receiver<CommitRequest
                 match receiver.recv_timeout(remaining) {
                     Ok(request) => {
                         let request_operations = request.operations.len();
-                        let request_bytes = operations_bytes(&request.operations);
+                        let request_bytes = request.encoded_bytes;
                         if operation_count + request_operations > MAX_GROUP_OPERATIONS
                             || operation_bytes + request_bytes > MAX_GROUP_BYTES
                         {
@@ -585,18 +737,85 @@ fn writer_loop(inner: Weak<Mutex<Inner>>, receiver: mpsc::Receiver<CommitRequest
             }
         }
 
-        process_group(&inner, group);
+        process_group(&inner, group, &mut wal_buffer);
     }
 }
 
-fn operations_bytes(operations: &[Operation]) -> usize {
-    operations
-        .iter()
-        .map(|operation| match operation {
-            Operation::Put { key, value } => key.len().saturating_add(value.len()),
-            Operation::Delete { key } => key.len(),
+fn schedule_background_flush(inner_arc: &Arc<Mutex<Inner>>, scheduled: Arc<AtomicBool>) -> bool {
+    if scheduled.swap(true, Ordering::AcqRel) {
+        return true;
+    }
+    let weak_inner = Arc::downgrade(inner_arc);
+    let worker_scheduled = Arc::clone(&scheduled);
+    if thread::Builder::new()
+        .name("thingdb-flush".to_string())
+        .spawn(move || background_flush_worker(weak_inner, worker_scheduled))
+        .is_err()
+    {
+        scheduled.store(false, Ordering::Release);
+        return false;
+    }
+    true
+}
+
+fn background_flush_worker(inner_weak: Weak<Mutex<Inner>>, scheduled: Arc<AtomicBool>) {
+    loop {
+        let Some(inner_arc) = inner_weak.upgrade() else {
+            break;
+        };
+        let gate = match inner_arc.lock() {
+            Ok(inner) => Arc::clone(&inner.commit_gate),
+            Err(_) => break,
+        };
+        let Ok(_gate) = gate.lock() else {
+            break;
+        };
+        let Ok(mut inner) = inner_arc.lock() else {
+            break;
+        };
+        if inner.recovery_required || inner.pending_table.is_empty() {
+            break;
+        }
+        if let Err(error) = flush_table_locked(&mut inner, true, None) {
+            inner.recovery_required = true;
+            inner.diagnostics.recovery_required = true;
+            inner.diagnostics.last_error = Some(error.to_string());
+            break;
+        }
+        inner.diagnostics.automatic_flush_count =
+            inner.diagnostics.automatic_flush_count.saturating_add(1);
+        if inner.table_layers.len() >= inner.max_table_layers
+            && let Err(error) = compact_tables_locked(&mut inner, true, None)
+        {
+            inner.recovery_required = true;
+            inner.diagnostics.recovery_required = true;
+            inner.diagnostics.last_error = Some(error.to_string());
+            break;
+        }
+        if inner.pending_table_bytes < inner.max_memtable_bytes {
+            break;
+        }
+    }
+
+    scheduled.store(false, Ordering::Release);
+    let reschedule = inner_weak
+        .upgrade()
+        .and_then(|inner_arc| {
+            inner_arc.lock().ok().map(|inner| {
+                !inner.recovery_required && inner.pending_table_bytes >= inner.max_memtable_bytes
+            })
         })
-        .sum()
+        .unwrap_or(false);
+    if reschedule
+        && let Some(inner_arc) = inner_weak.upgrade()
+        && !schedule_background_flush(&inner_arc, Arc::clone(&scheduled))
+        && let Ok(mut inner) = inner_arc.lock()
+    {
+        inner.recovery_required = true;
+        inner.diagnostics.recovery_required = true;
+        inner.diagnostics.last_error =
+            Some("ThingDB could not restart its background flush worker".to_string());
+    }
 }
 
 fn request_has_fault(requests: &[CommitRequest], point: &'static str) -> Option<&'static str> {
@@ -606,7 +825,11 @@ fn request_has_fault(requests: &[CommitRequest], point: &'static str) -> Option<
 }
 
 #[allow(clippy::too_many_lines)]
-fn process_group(inner: &Weak<Mutex<Inner>>, mut requests: Vec<CommitRequest>) {
+fn process_group(
+    inner: &Weak<Mutex<Inner>>,
+    mut requests: Vec<CommitRequest>,
+    wal_buffer: &mut Vec<u8>,
+) {
     let Some(inner_arc) = inner.upgrade() else {
         for request in &mut *requests {
             let _ = request
@@ -629,7 +852,6 @@ fn process_group(inner: &Weak<Mutex<Inner>>, mut requests: Vec<CommitRequest>) {
         finish_group_with_error(&mut requests, "ThingDB commit gate poisoned");
         return;
     };
-    let lock_started = Instant::now();
     let Ok(mut inner) = inner_arc.lock() else {
         drop(inner_arc);
         for request in requests {
@@ -639,6 +861,7 @@ fn process_group(inner: &Weak<Mutex<Inner>>, mut requests: Vec<CommitRequest>) {
         }
         return;
     };
+    let lock_held_started = Instant::now();
 
     let group_size = requests.len() as u64;
     inner.diagnostics.logical_commit_count = inner
@@ -663,11 +886,37 @@ fn process_group(inner: &Weak<Mutex<Inner>>, mut requests: Vec<CommitRequest>) {
         inner.diagnostics.lock_duration_ns = inner
             .diagnostics
             .lock_duration_ns
-            .saturating_add(elapsed_nanos(lock_started.elapsed()));
+            .saturating_add(elapsed_nanos(lock_held_started.elapsed()));
         drop(inner);
         drop(inner_arc);
         finish_group_with_error(&mut requests, message);
         return;
+    }
+
+    // Let the background flusher catch up after acknowledged writes. If it
+    // falls behind by two memtable bounds, apply bounded backpressure before
+    // admitting another WAL group rather than allowing unbounded memory/WAL
+    // growth.
+    if !inner.in_memory
+        && inner.max_memtable_bytes > 1
+        && inner.pending_table_bytes >= inner.max_memtable_bytes.saturating_mul(2)
+    {
+        if let Err(error) = flush_table_locked(&mut inner, true, None) {
+            let message = error.to_string();
+            inner.recovery_required = true;
+            inner.diagnostics.recovery_required = true;
+            inner.diagnostics.last_error = Some(message.clone());
+            inner.diagnostics.lock_duration_ns = inner
+                .diagnostics
+                .lock_duration_ns
+                .saturating_add(elapsed_nanos(lock_held_started.elapsed()));
+            drop(inner);
+            drop(inner_arc);
+            finish_group_with_error(&mut requests, &message);
+            return;
+        }
+        inner.diagnostics.automatic_flush_count =
+            inner.diagnostics.automatic_flush_count.saturating_add(1);
     }
 
     let wal_start = if inner.in_memory {
@@ -683,19 +932,30 @@ fn process_group(inner: &Weak<Mutex<Inner>>, mut requests: Vec<CommitRequest>) {
         inner.diagnostics.lock_duration_ns = inner
             .diagnostics
             .lock_duration_ns
-            .saturating_add(elapsed_nanos(lock_started.elapsed()));
+            .saturating_add(elapsed_nanos(lock_held_started.elapsed()));
         drop(inner);
         drop(inner_arc);
         finish_group_with_error(&mut requests, message);
         return;
     };
     let (result, synced) = if inner.in_memory {
-        execute_memory_group(&mut inner, &mut requests, group_size)
+        let result = execute_memory_group(&mut inner, &mut requests, group_size);
+        inner.diagnostics.lock_duration_ns = inner
+            .diagnostics
+            .lock_duration_ns
+            .saturating_add(elapsed_nanos(lock_held_started.elapsed()));
+        drop(inner);
+        result
     } else {
         let expected_sequence = inner.sequence.saturating_add(1);
         let expected_generation = inner.state_generation;
         let wal_io_lock = Arc::clone(&inner.wal_io_lock);
-        let wal_file = inner.wal.as_ref().and_then(|wal| wal.try_clone().ok());
+        let wal_file = inner.wal.as_ref().map(Arc::clone);
+        let wal_sync_mode = inner.wal_sync_mode;
+        inner.diagnostics.lock_duration_ns = inner
+            .diagnostics
+            .lock_duration_ns
+            .saturating_add(elapsed_nanos(lock_held_started.elapsed()));
         drop(inner);
         execute_group(
             &inner_arc,
@@ -705,7 +965,9 @@ fn process_group(inner: &Weak<Mutex<Inner>>, mut requests: Vec<CommitRequest>) {
             wal_start,
             wal_file,
             wal_io_lock,
+            wal_sync_mode,
             group_size,
+            wal_buffer,
         )
     };
 
@@ -713,6 +975,7 @@ fn process_group(inner: &Weak<Mutex<Inner>>, mut requests: Vec<CommitRequest>) {
         finish_group_with_error(&mut requests, "database lock poisoned");
         return;
     };
+    let post_lock_held_started = Instant::now();
     if let Err(error) = &result {
         inner.diagnostics.last_error = Some(error.to_string());
         if synced {
@@ -723,7 +986,7 @@ fn process_group(inner: &Weak<Mutex<Inner>>, mut requests: Vec<CommitRequest>) {
     inner.diagnostics.lock_duration_ns = inner
         .diagnostics
         .lock_duration_ns
-        .saturating_add(elapsed_nanos(lock_started.elapsed()));
+        .saturating_add(elapsed_nanos(post_lock_held_started.elapsed()));
     drop(inner);
 
     match result {
@@ -767,22 +1030,24 @@ fn execute_group(
     expected_sequence: u64,
     expected_generation: u64,
     wal_start: u64,
-    wal_file: Option<File>,
+    wal_file: Option<Arc<File>>,
     wal_io_lock: Arc<Mutex<()>>,
+    wal_sync_mode: WalSyncMode,
     group_size: u64,
+    wal_buffer: &mut Vec<u8>,
 ) -> (Result<()>, bool) {
     let allocation_started = Instant::now();
-    let reserved_bytes = requests
-        .iter()
-        .map(|request| encoded_frame_capacity(&request.operations))
-        .sum();
-    let mut wal_bytes = Vec::with_capacity(reserved_bytes);
+    let reserved_bytes = requests.iter().map(|request| request.encoded_bytes).sum();
+    wal_buffer.clear();
+    if wal_buffer.capacity() < reserved_bytes {
+        wal_buffer.reserve(reserved_bytes - wal_buffer.capacity());
+    }
     let allocation_duration_ns = elapsed_nanos(allocation_started.elapsed());
     let encode_started = Instant::now();
     let mut next_sequence = expected_sequence;
     let encode_result = (|| {
         for request in requests.iter() {
-            encode_frame_into(&mut wal_bytes, next_sequence, &request.operations)?;
+            encode_frame_into(wal_buffer, next_sequence, &request.operations)?;
             next_sequence = next_sequence.saturating_add(1);
         }
         Ok::<(), Error>(())
@@ -845,19 +1110,19 @@ fn execute_group(
             };
             wal_lock_wait_ns = elapsed_nanos(wal_lock_started.elapsed());
             let started = Instant::now();
-            wal_file.write_all(&wal_bytes)?;
+            wal_file.write_all(wal_buffer)?;
             appended = true;
             append_duration_ns = elapsed_nanos(started.elapsed());
             if let Some(point) = request_has_fault(requests, "after-wal-write-before-sync") {
                 maybe_fail(point, Some(point))?;
             }
             let started = Instant::now();
-            wal_file.sync_data()?;
+            sync_wal(&wal_file, wal_sync_mode)?;
             synced = true;
             sync_duration_ns = elapsed_nanos(started.elapsed());
         }
         if let Ok(mut inner) = inner_arc.lock() {
-            let journal_bytes = wal_start.saturating_add(wal_bytes.len() as u64);
+            let journal_bytes = wal_start.saturating_add(wal_buffer.len() as u64);
             inner.diagnostics.append_duration_ns = inner
                 .diagnostics
                 .append_duration_ns
@@ -865,7 +1130,7 @@ fn execute_group(
             inner.diagnostics.wal_bytes_appended = inner
                 .diagnostics
                 .wal_bytes_appended
-                .saturating_add(wal_bytes.len() as u64);
+                .saturating_add(wal_buffer.len() as u64);
             inner.diagnostics.journal_bytes = journal_bytes;
             inner.diagnostics.wal_over_budget = journal_bytes > inner.max_journaling_size;
             if synced {
@@ -925,16 +1190,31 @@ fn execute_group(
         inner.diagnostics.memtable_bytes = inner.pending_table_bytes;
         inner.diagnostics.memtable_over_budget =
             inner.pending_table_bytes >= inner.max_memtable_bytes;
-        if inner.pending_table_bytes >= inner.max_memtable_bytes {
-            flush_table_locked(
-                inner,
-                true,
-                request_has_fault(requests, "before-table-write"),
-            )?;
-            inner.diagnostics.automatic_flush_count =
-                inner.diagnostics.automatic_flush_count.saturating_add(1);
-            if inner.table_layers.len() >= inner.max_table_layers {
-                compact_tables_locked(inner, true, current_fault_point())?;
+        let wal_over_budget = inner.max_journaling_size > 0
+            && inner.diagnostics.journal_bytes >= inner.max_journaling_size;
+        if inner.pending_table_bytes >= inner.max_memtable_bytes || wal_over_budget {
+            let scheduled = Arc::clone(&inner.flush_scheduled);
+            let synchronous_flush = inner.max_memtable_bytes <= 1
+                || request_has_fault(requests, "before-table-write").is_some();
+            if synchronous_flush {
+                flush_table_locked(
+                    inner,
+                    true,
+                    request_has_fault(requests, "before-table-write"),
+                )?;
+                inner.diagnostics.automatic_flush_count =
+                    inner.diagnostics.automatic_flush_count.saturating_add(1);
+                if inner.table_layers.len() >= inner.max_table_layers {
+                    compact_tables_locked(inner, true, current_fault_point())?;
+                }
+            } else if !schedule_background_flush(inner_arc, scheduled) {
+                inner.recovery_required = true;
+                inner.diagnostics.recovery_required = true;
+                inner.diagnostics.last_error =
+                    Some("ThingDB could not start its background flush worker".to_string());
+                return Err(Error::message(
+                    "ThingDB could not start its background flush worker",
+                ));
             }
         }
         Ok(())
@@ -999,12 +1279,91 @@ pub struct Snapshot {
 }
 
 impl Database {
+    fn update_ram_diagnostics(&self, update: impl FnOnce(&mut RamDiagnostics)) {
+        if self.ram_keyspaces.is_some()
+            && let Ok(mut diagnostics) = self.ram_diagnostics.lock()
+        {
+            update(&mut diagnostics);
+        }
+    }
+
+    fn record_ram_lookup_timing(
+        &self,
+        lock_wait: u64,
+        lock_held: u64,
+        lookup: u64,
+        clone: u64,
+        acquire: u64,
+    ) {
+        if self.ram_keyspaces.is_none() {
+            return;
+        }
+        self.ram_hot_diagnostics
+            .lookup_count
+            .fetch_add(1, Ordering::Relaxed);
+        RamHotDiagnostics::add(&self.ram_hot_diagnostics.lock_wait_duration_ns, lock_wait);
+        RamHotDiagnostics::add(&self.ram_hot_diagnostics.lock_held_duration_ns, lock_held);
+        RamHotDiagnostics::add(&self.ram_hot_diagnostics.lookup_duration_ns, lookup);
+        RamHotDiagnostics::add(&self.ram_hot_diagnostics.value_clone_duration_ns, clone);
+        RamHotDiagnostics::add(&self.ram_hot_diagnostics.value_acquire_duration_ns, acquire);
+    }
+
+    fn record_ram_mutation_timing(&self, operation_count: u64, duration_ns: u64) {
+        if self.ram_keyspaces.is_some() {
+            RamHotDiagnostics::add(&self.ram_hot_diagnostics.mutation_count, operation_count);
+            RamHotDiagnostics::add(&self.ram_hot_diagnostics.mutation_duration_ns, duration_ns);
+        }
+    }
+
+    #[cfg(feature = "benchmark")]
+    fn commit_ram_rcu_batch(&self, batch: Vec<BatchOperation>) -> Result<()> {
+        let started = Instant::now();
+        let rcu = self
+            .ram_rcu_keyspaces
+            .as_ref()
+            .ok_or_else(|| Error::message("ThingDB RCU state is unavailable"))?;
+        for operation in &batch {
+            validate_memory_batch_operation(operation)?;
+        }
+        let operation_count = batch.len() as u64;
+        let current = rcu.load_full();
+        let mut next = current.as_ref().clone();
+        for operation in batch {
+            let keyspace = next
+                .entry(Arc::clone(&operation.keyspace))
+                .or_insert_with(|| Arc::new(BTreeMap::new()));
+            let keyspace = Arc::make_mut(keyspace);
+            match operation.value {
+                Some(value) => {
+                    keyspace.insert(operation.key, Arc::new(value));
+                },
+                None => {
+                    keyspace.remove(&operation.key);
+                },
+            }
+        }
+        rcu.store(Arc::new(next));
+        let elapsed = elapsed_nanos(started.elapsed());
+        self.record_ram_mutation_timing(operation_count, elapsed);
+        self.ram_logical_commit_count
+            .fetch_add(1, Ordering::Relaxed);
+        self.ram_total_group_size.fetch_add(1, Ordering::Relaxed);
+        self.ram_state_apply_duration_ns
+            .fetch_add(elapsed, Ordering::Relaxed);
+        Ok(())
+    }
+
     /// Create a true RAM-only ThingDB instance.
     ///
     /// This mode creates no files, WAL, manifest, table layers, or durable
     /// recovery state. All data is lost when the returned instance is dropped.
     pub fn in_memory() -> Result<Self> {
         let commit_gate = Arc::new(Mutex::new(()));
+        let ram_diagnostics = Arc::new(Mutex::new(RamDiagnostics::default()));
+        let ram_hot_diagnostics = Arc::new(RamHotDiagnostics::default());
+        let ram_logical_commit_count = Arc::new(AtomicU64::new(0));
+        let ram_total_group_size = Arc::new(AtomicU64::new(0));
+        let ram_state_apply_duration_ns = Arc::new(AtomicU64::new(0));
         let inner = Arc::new(Mutex::new(Inner {
             path: PathBuf::new(),
             wal: None,
@@ -1021,19 +1380,37 @@ impl Database {
             max_memtable_bytes: 0,
             max_table_layers: 0,
             diagnostics: WalDiagnostics::default(),
-            ram_diagnostics: RamDiagnostics::default(),
             recovery_required: false,
             commit_gate: Arc::clone(&commit_gate),
             wal_io_lock: Arc::new(Mutex::new(())),
             state_generation: 0,
+            wal_sync_mode: WalSyncMode::Data,
+            flush_scheduled: Arc::new(AtomicBool::new(false)),
         }));
         let writer = WriterCoordinator::new(Arc::downgrade(&inner))?;
         Ok(Self {
             inner,
             ram_keyspaces: Some(Arc::new(RwLock::new(HashMap::new()))),
+            #[cfg(feature = "benchmark")]
+            ram_rcu_keyspaces: None,
+            ram_diagnostics,
+            ram_hot_diagnostics,
+            ram_logical_commit_count,
+            ram_total_group_size,
+            ram_state_apply_duration_ns,
             writer,
             commit_gate,
         })
+    }
+
+    /// Create a benchmark-only RAM database using immutable generations for
+    /// reads. This does not change the default RAM implementation.
+    #[cfg(feature = "benchmark")]
+    #[doc(hidden)]
+    pub fn in_memory_with_rcu() -> Result<Self> {
+        let mut database = Self::in_memory()?;
+        database.ram_rcu_keyspaces = Some(Arc::new(ArcSwap::from_pointee(HashMap::new())));
+        Ok(database)
     }
 
     /// Start building a database at `path`.
@@ -1043,6 +1420,7 @@ impl Database {
             max_journaling_size: 32 * 1024 * 1024,
             max_memtable_bytes: 64 * 1024 * 1024,
             max_table_layers: 8,
+            wal_sync_mode: WalSyncMode::Data,
         }
     }
 
@@ -1060,16 +1438,24 @@ impl Database {
         }
         Ok(Keyspace {
             db: self.clone(),
-            name: name.to_string(),
-            namespace: namespace(name),
+            name: Arc::from(name.to_owned()),
+            namespace: Arc::from(namespace(name)),
         })
     }
 
     /// Create an empty atomic batch.
     pub fn batch(&self) -> Batch {
+        self.batch_with_capacity(0)
+    }
+
+    /// Create an empty atomic batch with room for `capacity` operations.
+    ///
+    /// This is an allocation hint only; it does not change batch semantics.
+    pub fn batch_with_capacity(&self, capacity: usize) -> Batch {
         Batch {
             db: self.clone(),
-            operations: Vec::new(),
+            memory_mode: self.ram_keyspaces.is_some(),
+            operations: Vec::with_capacity(capacity),
         }
     }
 
@@ -1109,6 +1495,28 @@ impl Database {
     /// Return a consistent snapshot of all keyspaces.
     pub fn snapshot(&self) -> Result<Snapshot> {
         let started = Instant::now();
+        #[cfg(feature = "benchmark")]
+        if let Some(rcu) = &self.ram_rcu_keyspaces {
+            let generation = rcu.load_full();
+            let mut state = BTreeMap::new();
+            for (name, entries) in generation.iter() {
+                let namespace = namespace(name);
+                for (key, value) in entries.iter() {
+                    let mut physical = namespace.clone();
+                    physical.extend_from_slice(key);
+                    state.insert(physical, value.as_ref().clone());
+                }
+            }
+            let elapsed = elapsed_nanos(started.elapsed());
+            self.update_ram_diagnostics(|diagnostics| {
+                diagnostics.snapshot_count = diagnostics.snapshot_count.saturating_add(1);
+                diagnostics.snapshot_duration_ns =
+                    diagnostics.snapshot_duration_ns.saturating_add(elapsed);
+            });
+            return Ok(Snapshot {
+                state: Arc::new(state),
+            });
+        }
         let mut inner = self
             .inner
             .lock()
@@ -1131,16 +1539,12 @@ impl Database {
                 }
             }
             drop(keyspaces);
-            let mut inner = self
-                .inner
-                .lock()
-                .map_err(|_| Error::message("database lock poisoned"))?;
-            inner.ram_diagnostics.snapshot_count =
-                inner.ram_diagnostics.snapshot_count.saturating_add(1);
-            inner.ram_diagnostics.snapshot_duration_ns = inner
-                .ram_diagnostics
-                .snapshot_duration_ns
-                .saturating_add(elapsed_nanos(started.elapsed()));
+            let elapsed = elapsed_nanos(started.elapsed());
+            self.update_ram_diagnostics(|diagnostics| {
+                diagnostics.snapshot_count = diagnostics.snapshot_count.saturating_add(1);
+                diagnostics.snapshot_duration_ns =
+                    diagnostics.snapshot_duration_ns.saturating_add(elapsed);
+            });
             return Ok(Snapshot {
                 state: Arc::new(state),
             });
@@ -1184,6 +1588,14 @@ impl Database {
             .lock()
             .map_err(|_| Error::message("database lock poisoned"))?;
         let mut diagnostics = inner.diagnostics.clone();
+        if inner.in_memory {
+            diagnostics.logical_commit_count =
+                self.ram_logical_commit_count.load(Ordering::Relaxed);
+            diagnostics.total_group_size = self.ram_total_group_size.load(Ordering::Relaxed);
+            diagnostics.max_group_size = u64::from(diagnostics.logical_commit_count > 0);
+            diagnostics.state_apply_duration_ns =
+                self.ram_state_apply_duration_ns.load(Ordering::Relaxed);
+        }
         diagnostics.journal_bytes = if inner.in_memory {
             0
         } else {
@@ -1200,12 +1612,14 @@ impl Database {
 
     /// Return RAM-only lookup and mutation timings.
     pub fn ram_diagnostics(&self) -> Result<RamDiagnostics> {
-        let inner = self
-            .inner
-            .lock()
-            .map_err(|_| Error::message("database lock poisoned"))?;
-        if inner.in_memory {
-            Ok(inner.ram_diagnostics.clone())
+        if self.ram_keyspaces.is_some() {
+            let mut diagnostics = self
+                .ram_diagnostics
+                .lock()
+                .map_err(|_| Error::message("RAM diagnostics lock poisoned"))?
+                .clone();
+            self.ram_hot_diagnostics.snapshot_into(&mut diagnostics);
+            Ok(diagnostics)
         } else {
             Ok(RamDiagnostics::default())
         }
@@ -1213,56 +1627,44 @@ impl Database {
 
     /// Record Thingd-layer deserialization time for RAM diagnostics.
     pub fn record_ram_deserialization(&self, duration_ns: u64) {
-        if let Ok(mut inner) = self.inner.lock()
-            && inner.in_memory
-        {
-            inner.ram_diagnostics.deserialization_duration_ns = inner
-                .ram_diagnostics
-                .deserialization_duration_ns
-                .saturating_add(duration_ns);
+        if self.ram_keyspaces.is_some() {
+            RamHotDiagnostics::add(
+                &self.ram_hot_diagnostics.deserialization_duration_ns,
+                duration_ns,
+            );
         }
     }
 
     /// Record Thingd-layer search time for RAM diagnostics.
     pub fn record_ram_search(&self, duration_ns: u64) {
-        if let Ok(mut inner) = self.inner.lock()
-            && inner.in_memory
-        {
-            inner.ram_diagnostics.search_count =
-                inner.ram_diagnostics.search_count.saturating_add(1);
-            inner.ram_diagnostics.search_duration_ns = inner
-                .ram_diagnostics
-                .search_duration_ns
-                .saturating_add(duration_ns);
-        }
+        self.update_ram_diagnostics(|diagnostics| {
+            diagnostics.search_count = diagnostics.search_count.saturating_add(1);
+            diagnostics.search_duration_ns =
+                diagnostics.search_duration_ns.saturating_add(duration_ns);
+        });
     }
 
     /// Record semantic-layer serialization time for RAM diagnostics.
     pub fn record_ram_serialization(&self, duration_ns: u64) {
-        if let Ok(mut inner) = self.inner.lock()
-            && inner.in_memory
-        {
-            inner.ram_diagnostics.serialization_count =
-                inner.ram_diagnostics.serialization_count.saturating_add(1);
-            inner.ram_diagnostics.serialization_duration_ns = inner
-                .ram_diagnostics
-                .serialization_duration_ns
-                .saturating_add(duration_ns);
+        if self.ram_keyspaces.is_some() {
+            self.ram_hot_diagnostics
+                .serialization_count
+                .fetch_add(1, Ordering::Relaxed);
+            RamHotDiagnostics::add(
+                &self.ram_hot_diagnostics.serialization_duration_ns,
+                duration_ns,
+            );
         }
     }
 
     /// Record semantic-layer derived-index mutation time for RAM diagnostics.
     pub fn record_ram_search_index(&self, duration_ns: u64) {
-        if let Ok(mut inner) = self.inner.lock()
-            && inner.in_memory
-        {
-            inner.ram_diagnostics.search_index_count =
-                inner.ram_diagnostics.search_index_count.saturating_add(1);
-            inner.ram_diagnostics.search_index_duration_ns = inner
-                .ram_diagnostics
+        self.update_ram_diagnostics(|diagnostics| {
+            diagnostics.search_index_count = diagnostics.search_index_count.saturating_add(1);
+            diagnostics.search_index_duration_ns = diagnostics
                 .search_index_duration_ns
                 .saturating_add(duration_ns);
-        }
+        });
     }
 
     fn flush_table(&self, sync: bool) -> Result<()> {
@@ -1277,22 +1679,62 @@ impl Database {
         flush_table_locked(&mut inner, sync, current_fault_point())
     }
 
+    fn commit_batch(&self, batch: Vec<BatchOperation>) -> Result<()> {
+        if batch.is_empty() {
+            return Ok(());
+        }
+
+        #[cfg(feature = "benchmark")]
+        if self.ram_rcu_keyspaces.is_some() {
+            return self.commit_ram_rcu_batch(batch);
+        }
+
+        if self.ram_keyspaces.is_some() {
+            let started = Instant::now();
+            let ram_keyspaces = self
+                .ram_keyspaces
+                .as_ref()
+                .ok_or_else(|| Error::message("ThingDB RAM state is unavailable"))?;
+            let mut keyspaces = ram_keyspaces
+                .write()
+                .map_err(|_| Error::message("ThingDB RAM state lock poisoned"))?;
+            for operation in &batch {
+                validate_memory_batch_operation(operation)?;
+            }
+            let operation_count = batch.len() as u64;
+            for operation in batch {
+                apply_memory_batch_operation(&mut keyspaces, operation);
+            }
+            let elapsed = elapsed_nanos(started.elapsed());
+            drop(keyspaces);
+            self.record_ram_mutation_timing(operation_count, elapsed);
+            self.ram_logical_commit_count
+                .fetch_add(1, Ordering::Relaxed);
+            self.ram_total_group_size.fetch_add(1, Ordering::Relaxed);
+            self.ram_state_apply_duration_ns
+                .fetch_add(elapsed, Ordering::Relaxed);
+            return Ok(());
+        }
+
+        let operations = batch
+            .into_iter()
+            .map(|operation| match operation.value {
+                Some(value) => Operation::Put {
+                    key: operation.key,
+                    value,
+                },
+                None => Operation::Delete { key: operation.key },
+            })
+            .collect();
+        self.commit_operations(operations)
+    }
+
     fn commit_operations(&self, operations: Vec<Operation>) -> Result<()> {
         if operations.is_empty() {
             return Ok(());
         }
 
-        let inner = self
-            .inner
-            .lock()
-            .map_err(|_| Error::message("database lock poisoned"))?;
-        if inner.in_memory {
-            if inner.recovery_required {
-                return Err(Error::message(
-                    "ThingDB requires reopen and recovery before writing",
-                ));
-            }
-            drop(inner);
+        if self.ram_keyspaces.is_some() {
             let started = Instant::now();
             let ram_keyspaces = self
                 .ram_keyspaces
@@ -1310,34 +1752,19 @@ impl Database {
             }
             let elapsed = elapsed_nanos(started.elapsed());
             drop(keyspaces);
-            let mut inner = self
-                .inner
-                .lock()
-                .map_err(|_| Error::message("database lock poisoned"))?;
-            inner.ram_diagnostics.mutation_count = inner
-                .ram_diagnostics
-                .mutation_count
-                .saturating_add(operation_count);
-            inner.ram_diagnostics.mutation_duration_ns = inner
-                .ram_diagnostics
-                .mutation_duration_ns
-                .saturating_add(elapsed);
-            inner.sequence = inner.sequence.saturating_add(1);
-            inner.diagnostics.logical_commit_count =
-                inner.diagnostics.logical_commit_count.saturating_add(1);
-            inner.diagnostics.total_group_size =
-                inner.diagnostics.total_group_size.saturating_add(1);
-            inner.diagnostics.max_group_size = inner.diagnostics.max_group_size.max(1);
-            inner.diagnostics.state_apply_duration_ns = inner
-                .diagnostics
-                .state_apply_duration_ns
-                .saturating_add(elapsed_nanos(started.elapsed()));
+            self.record_ram_mutation_timing(operation_count, elapsed);
+            self.ram_logical_commit_count
+                .fetch_add(1, Ordering::Relaxed);
+            self.ram_total_group_size.fetch_add(1, Ordering::Relaxed);
+            self.ram_state_apply_duration_ns
+                .fetch_add(elapsed_nanos(started.elapsed()), Ordering::Relaxed);
             return Ok(());
         }
-        drop(inner);
 
         let (response, result) = mpsc::channel();
+        let encoded_bytes = encoded_frame_capacity(&operations);
         let request = CommitRequest {
+            encoded_bytes,
             operations,
             submitted_at: Instant::now(),
             fault_point: current_fault_point(),
@@ -1379,21 +1806,21 @@ fn flush_table_locked(
             .wal
             .as_mut()
             .ok_or_else(|| Error::message("ThingDB WAL is unavailable"))?;
-        wal.sync_data()?;
+        sync_wal(wal, inner.wal_sync_mode)?;
         return Ok(());
     }
     let updates = std::mem::take(&mut inner.pending_table);
     let update_bytes = inner.pending_table_bytes;
     let result = (|| {
+        // Every operation reaches this path only after execute_group has
+        // synced its WAL frame before acknowledging the write. Keep the WAL
+        // mutex for append/truncate ordering, but do not issue a second
+        // physical sync before writing the immutable table. The final sync
+        // below still makes the table publication durable for SyncAll.
         let _wal_lock = inner
             .wal_io_lock
             .lock()
             .map_err(|_| Error::message("ThingDB WAL lock poisoned"))?;
-        let wal = inner
-            .wal
-            .as_mut()
-            .ok_or_else(|| Error::message("ThingDB WAL is unavailable"))?;
-        wal.sync_data()?;
         let next_sequence = inner.sequence;
         let table_name = format!(
             "table-{next_sequence:020}-{:04}.tdb",
@@ -1423,10 +1850,12 @@ fn flush_table_locked(
         write_manifest(&inner.path, &manifest, sync)?;
         maybe_fail("after-manifest-rename-before-wal-truncate", fault_point)?;
         inner.table_files = table_files;
-        let (_, entries, is_v2) = read_table_index(&table_path)?;
+        let (_, entries, is_v2, blocks) = read_table_index(&table_path)?;
         inner.table_layers.push(TableLayer {
             file: Arc::new(File::open(&table_path)?),
-            entries: Arc::new(entries),
+            path: table_path,
+            entries: Arc::new(OnceLock::from(Arc::new(entries))),
+            blocks: Arc::new(blocks),
             is_v2,
         });
         inner.diagnostics.table_layer_count = inner.table_layers.len() as u64;
@@ -1439,11 +1868,10 @@ fn flush_table_locked(
                 .as_mut()
                 .ok_or_else(|| Error::message("ThingDB WAL is unavailable"))?;
             wal.set_len(0)?;
-            wal.seek(SeekFrom::End(0))?;
             if sync {
-                wal.sync_data()?;
+                sync_wal(wal, inner.wal_sync_mode)?;
             }
-            inner.diagnostics.journal_bytes = wal.metadata()?.len();
+            inner.diagnostics.journal_bytes = 0;
         }
         inner.diagnostics.frame_count = 0;
         inner.diagnostics.memtable_bytes = 0;
@@ -1496,18 +1924,22 @@ fn compact_tables_locked(
             .wal
             .as_mut()
             .ok_or_else(|| Error::message("ThingDB WAL is unavailable"))?;
-        wal.sync_data()?;
+        sync_wal(wal, inner.wal_sync_mode)?;
     }
     let next_sequence = inner.sequence;
     let table_name = format!("table-{next_sequence:020}-compact.tdb");
     let table_path = inner.path.join(&table_name);
     let temp_path = inner.path.join(format!(".{table_name}.tmp"));
-    let input_bytes = inner
-        .table_layers
-        .iter()
-        .flat_map(|layer| layer.entries.iter())
-        .map(|entry| entry.length)
-        .sum();
+    let mut input_bytes: u64 = 0;
+    for layer in &inner.table_layers {
+        input_bytes = input_bytes.saturating_add(
+            layer
+                .loaded_entries()?
+                .iter()
+                .map(|entry| entry.length)
+                .sum::<u64>(),
+        );
+    }
     let entries: BTreeMap<_, _> = inner
         .materialize_state()?
         .into_iter()
@@ -1538,10 +1970,12 @@ fn compact_tables_locked(
         }
     }
     inner.table_files = vec![table_name];
-    let (_, entries, is_v2) = read_table_index(&table_path)?;
+    let (_, entries, is_v2, blocks) = read_table_index(&table_path)?;
     inner.table_layers = vec![TableLayer {
         file: Arc::new(File::open(&table_path)?),
-        entries: Arc::new(entries),
+        path: table_path.clone(),
+        entries: Arc::new(OnceLock::from(Arc::new(entries))),
+        blocks: Arc::new(blocks),
         is_v2,
     }];
     inner.diagnostics.table_layer_count = 1;
@@ -1555,11 +1989,10 @@ fn compact_tables_locked(
             .as_mut()
             .ok_or_else(|| Error::message("ThingDB WAL is unavailable"))?;
         wal.set_len(0)?;
-        wal.seek(SeekFrom::End(0))?;
         if sync {
-            wal.sync_data()?;
+            sync_wal(wal, inner.wal_sync_mode)?;
         }
-        inner.diagnostics.journal_bytes = wal.metadata()?.len();
+        inner.diagnostics.journal_bytes = 0;
     }
     inner.diagnostics.frame_count = 0;
     inner.diagnostics.memtable_bytes = 0;
@@ -1575,6 +2008,15 @@ fn compact_tables_locked(
 }
 
 impl DatabaseBuilder {
+    /// Use full-file synchronization for benchmark-only cross-backend
+    /// comparisons. This is not enabled in normal builds or runtime paths.
+    #[cfg(feature = "benchmark")]
+    #[doc(hidden)]
+    pub fn benchmark_common_fsync(mut self) -> Self {
+        self.wal_sync_mode = WalSyncMode::All;
+        self
+    }
+
     /// Set the soft WAL budget used for diagnostics and future backpressure.
     pub fn max_journaling_size(mut self, bytes: u64) -> Self {
         self.max_journaling_size = bytes;
@@ -1584,8 +2026,9 @@ impl DatabaseBuilder {
     /// Set the maximum mutable table size before an automatic durable flush.
     ///
     /// A single commit may exceed this bound when its operation set is larger
-    /// than the configured limit. The bound is otherwise enforced after the
-    /// commit's WAL sync and before acknowledgement.
+    /// than the configured limit. Normal commits acknowledge after WAL sync
+    /// and state application while background maintenance catches up; a hard
+    /// upper bound applies backpressure when maintenance falls behind.
     pub fn max_memtable_bytes(mut self, bytes: u64) -> Self {
         self.max_memtable_bytes = bytes.max(1);
         self
@@ -1659,7 +2102,7 @@ impl DatabaseBuilder {
                         "ThingDB manifest references missing table: {table_file}"
                     )));
                 }
-                let (sequence, entries, is_v2) = read_table_index(&table_path)?;
+                let (sequence, entries, is_v2, blocks) = read_table_metadata(&table_path)?;
                 if sequence > manifest.table_sequence {
                     return Err(Error::message("table sequence exceeds manifest sequence"));
                 }
@@ -1675,7 +2118,13 @@ impl DatabaseBuilder {
                     table_open_duration_ns.saturating_add(elapsed_nanos(open_started.elapsed()));
                 table_layers.push(TableLayer {
                     file: Arc::new(file),
-                    entries: Arc::new(entries),
+                    path: table_path.clone(),
+                    entries: Arc::new(if blocks.is_empty() {
+                        OnceLock::from(Arc::new(entries))
+                    } else {
+                        OnceLock::new()
+                    }),
+                    blocks: Arc::new(blocks),
                     is_v2,
                 });
             }
@@ -1712,9 +2161,11 @@ impl DatabaseBuilder {
             )?;
         }
         let commit_gate = Arc::new(Mutex::new(()));
+        let ram_diagnostics = Arc::new(Mutex::new(RamDiagnostics::default()));
+        let ram_hot_diagnostics = Arc::new(RamHotDiagnostics::default());
         let inner = Arc::new(Mutex::new(Inner {
             path: self.path,
-            wal: Some(wal),
+            wal: Some(Arc::new(wal)),
             lock: Some(lock),
             in_memory: false,
             state,
@@ -1736,16 +2187,24 @@ impl DatabaseBuilder {
                 table_open_duration_ns,
                 ..WalDiagnostics::default()
             },
-            ram_diagnostics: RamDiagnostics::default(),
             recovery_required: false,
             commit_gate: Arc::clone(&commit_gate),
             wal_io_lock: Arc::new(Mutex::new(())),
             state_generation: 0,
+            wal_sync_mode: self.wal_sync_mode,
+            flush_scheduled: Arc::new(AtomicBool::new(false)),
         }));
         let writer = WriterCoordinator::new(Arc::downgrade(&inner))?;
         Ok(Database {
             inner,
             ram_keyspaces: None,
+            #[cfg(feature = "benchmark")]
+            ram_rcu_keyspaces: None,
+            ram_diagnostics,
+            ram_hot_diagnostics,
+            ram_logical_commit_count: Arc::new(AtomicU64::new(0)),
+            ram_total_group_size: Arc::new(AtomicU64::new(0)),
+            ram_state_apply_duration_ns: Arc::new(AtomicU64::new(0)),
             writer,
             commit_gate,
         })
@@ -1762,9 +2221,10 @@ impl Drop for Inner {
 }
 
 impl Database {
+    #[allow(clippy::too_many_lines)]
     fn get_durable_value(&self, key: &[u8]) -> Result<Option<Vec<u8>>> {
         let lock_started = Instant::now();
-        let (resolved, immediate, table) = {
+        let (resolved, immediate, table_layers) = {
             let mut inner = self
                 .inner
                 .lock()
@@ -1773,7 +2233,7 @@ impl Database {
             let lookup_started = Instant::now();
             let mut resolved = false;
             let mut immediate = None;
-            let mut table = None;
+            let mut table_layers = Vec::new();
 
             inner.diagnostics.pending_table_lookup_count = inner
                 .diagnostics
@@ -1793,30 +2253,16 @@ impl Database {
                 } else {
                     inner.diagnostics.table_lookup_count =
                         inner.diagnostics.table_lookup_count.saturating_add(1);
-                    let mut layers_examined = 0;
-                    for layer in inner.table_layers.iter().rev() {
-                        layers_examined += 1;
-                        let Ok(index) = layer
-                            .entries
-                            .binary_search_by(|entry| entry.key.as_slice().cmp(key))
-                        else {
-                            continue;
-                        };
-                        table = Some((
-                            Arc::clone(&layer.file),
-                            layer.entries[index].clone(),
-                            layer.is_v2,
-                        ));
-                        break;
-                    }
+                    table_layers.clone_from(&inner.table_layers);
+                    let layers_examined = table_layers.len();
                     inner.diagnostics.immutable_layer_lookup_count = inner
                         .diagnostics
                         .immutable_layer_lookup_count
-                        .saturating_add(layers_examined);
+                        .saturating_add(layers_examined as u64);
                     inner.diagnostics.table_layers_consulted = inner
                         .diagnostics
                         .table_layers_consulted
-                        .saturating_add(layers_examined);
+                        .saturating_add(layers_examined as u64);
                 }
             }
             let lookup_duration = elapsed_nanos(lookup_started.elapsed());
@@ -1833,37 +2279,71 @@ impl Database {
                 .diagnostics
                 .table_lookup_duration_ns
                 .saturating_add(lookup_duration);
-            (resolved, immediate, table)
+            (resolved, immediate, table_layers)
         };
 
         if resolved {
             return Ok(immediate);
         }
-        let Some((file, entry, is_v2)) = table else {
-            return Ok(None);
-        };
-        let (result, reader_wait, file_read) = read_table_value_handle(&file, &entry, is_v2)?;
-        let mut inner = self
-            .inner
-            .lock()
-            .map_err(|_| Error::message("database lock poisoned"))?;
-        inner.diagnostics.table_reader_wait_duration_ns = inner
-            .diagnostics
-            .table_reader_wait_duration_ns
-            .saturating_add(reader_wait);
-        inner.diagnostics.file_read_duration_ns = inner
-            .diagnostics
-            .file_read_duration_ns
-            .saturating_add(file_read);
-        inner.diagnostics.table_bytes_read = inner
-            .diagnostics
-            .table_bytes_read
-            .saturating_add(entry.length);
-        inner.diagnostics.table_read_duration_ns = inner
-            .diagnostics
-            .table_read_duration_ns
-            .saturating_add(file_read);
-        Ok(result)
+        for layer in table_layers.iter().rev() {
+            if let Some(block) = layer.candidate_block(key) {
+                let (found, bytes_read, read_duration) =
+                    read_table_block_value(&layer.file, block, key, layer.is_v2)?;
+                let mut inner = self
+                    .inner
+                    .lock()
+                    .map_err(|_| Error::message("database lock poisoned"))?;
+                inner.diagnostics.table_bytes_read = inner
+                    .diagnostics
+                    .table_bytes_read
+                    .saturating_add(bytes_read);
+                inner.diagnostics.table_read_duration_ns = inner
+                    .diagnostics
+                    .table_read_duration_ns
+                    .saturating_add(read_duration);
+                inner.diagnostics.file_read_duration_ns = inner
+                    .diagnostics
+                    .file_read_duration_ns
+                    .saturating_add(read_duration);
+                if let Some(value) = found {
+                    return Ok(value);
+                }
+                continue;
+            }
+            let entries = layer.loaded_entries()?;
+            let candidate_range = layer.candidate_entry_range(key);
+            let Ok(relative_index) = entries[candidate_range.clone()]
+                .binary_search_by(|entry| entry.key.as_slice().cmp(key))
+            else {
+                continue;
+            };
+            let index = candidate_range.start + relative_index;
+            let entry = &entries[index];
+            let (result, reader_wait, file_read) =
+                read_table_value_handle(&layer.file, entry, layer.is_v2)?;
+            let mut inner = self
+                .inner
+                .lock()
+                .map_err(|_| Error::message("database lock poisoned"))?;
+            inner.diagnostics.table_reader_wait_duration_ns = inner
+                .diagnostics
+                .table_reader_wait_duration_ns
+                .saturating_add(reader_wait);
+            inner.diagnostics.file_read_duration_ns = inner
+                .diagnostics
+                .file_read_duration_ns
+                .saturating_add(file_read);
+            inner.diagnostics.table_bytes_read = inner
+                .diagnostics
+                .table_bytes_read
+                .saturating_add(entry.length);
+            inner.diagnostics.table_read_duration_ns = inner
+                .diagnostics
+                .table_read_duration_ns
+                .saturating_add(file_read);
+            return Ok(result);
+        }
+        Ok(None)
     }
 }
 
@@ -1875,6 +2355,47 @@ impl Keyspace {
         callback: impl FnOnce(Option<&[u8]>) -> std::result::Result<T, String>,
     ) -> Result<T> {
         let key = key.as_ref();
+        #[cfg(feature = "benchmark")]
+        if let Some(rcu) = &self.db.ram_rcu_keyspaces {
+            let started = Instant::now();
+            let generation = rcu.load_full();
+            let value = generation
+                .get(self.name.as_ref())
+                .and_then(|keyspace| keyspace.get(key))
+                .map(|value| value.as_slice());
+            let result = callback(value).map_err(Error::message);
+            self.db
+                .record_ram_lookup_timing(0, 0, elapsed_nanos(started.elapsed()), 0, 0);
+            return result;
+        }
+        if self.db.ram_keyspaces.is_some() {
+            let lookup_started = Instant::now();
+            let ram_keyspaces = self
+                .db
+                .ram_keyspaces
+                .as_ref()
+                .ok_or_else(|| Error::message("ThingDB RAM state is unavailable"))?;
+            let state_lock_started = Instant::now();
+            let keyspaces = ram_keyspaces
+                .read()
+                .map_err(|_| Error::message("ThingDB RAM state lock poisoned"))?;
+            let lock_wait = elapsed_nanos(state_lock_started.elapsed());
+            let value = keyspaces
+                .get(self.name.as_ref())
+                .and_then(|keyspace| keyspace.get(key))
+                .map(|value| value.as_slice());
+            let result = callback(value).map_err(Error::message);
+            let lookup_duration = elapsed_nanos(lookup_started.elapsed());
+            drop(keyspaces);
+            self.db.record_ram_lookup_timing(
+                lock_wait,
+                lookup_duration.saturating_sub(lock_wait),
+                lookup_duration,
+                0,
+                0,
+            );
+            return result;
+        }
         let lock_started = Instant::now();
         let inner = self
             .db
@@ -1894,28 +2415,15 @@ impl Keyspace {
                 .read()
                 .map_err(|_| Error::message("ThingDB RAM state lock poisoned"))?;
             let value = keyspaces
-                .get(&self.name)
+                .get(self.name.as_ref())
                 .and_then(|keyspace| keyspace.get(key))
                 .map(|value| value.as_slice());
             let lookup_duration = elapsed_nanos(lookup_started.elapsed());
             let result = callback(value).map_err(Error::message);
             let held_duration = lookup_duration;
             drop(keyspaces);
-            let mut inner = self
-                .db
-                .inner
-                .lock()
-                .map_err(|_| Error::message("database lock poisoned"))?;
-            let diagnostics = &mut inner.ram_diagnostics;
-            diagnostics.lookup_count = diagnostics.lookup_count.saturating_add(1);
-            diagnostics.lock_wait_duration_ns =
-                diagnostics.lock_wait_duration_ns.saturating_add(lock_wait);
-            diagnostics.lock_held_duration_ns = diagnostics
-                .lock_held_duration_ns
-                .saturating_add(held_duration);
-            diagnostics.lookup_duration_ns = diagnostics
-                .lookup_duration_ns
-                .saturating_add(lookup_duration);
+            self.db
+                .record_ram_lookup_timing(lock_wait, held_duration, lookup_duration, 0, 0);
             return result;
         }
         drop(inner);
@@ -1931,6 +2439,47 @@ impl Keyspace {
     /// unrelated readers while deserialization runs.
     pub fn get_shared(&self, key: impl AsRef<[u8]>) -> Result<Option<Arc<Vec<u8>>>> {
         let key = key.as_ref();
+        #[cfg(feature = "benchmark")]
+        if let Some(rcu) = &self.db.ram_rcu_keyspaces {
+            let started = Instant::now();
+            let generation = rcu.load_full();
+            let value = generation
+                .get(self.name.as_ref())
+                .and_then(|keyspace| keyspace.get(key))
+                .cloned();
+            self.db
+                .record_ram_lookup_timing(0, elapsed_nanos(started.elapsed()), 0, 0, 0);
+            return Ok(value);
+        }
+        if self.db.ram_keyspaces.is_some() {
+            let lookup_started = Instant::now();
+            let ram_keyspaces = self
+                .db
+                .ram_keyspaces
+                .as_ref()
+                .ok_or_else(|| Error::message("ThingDB RAM state is unavailable"))?;
+            let state_lock_started = Instant::now();
+            let keyspaces = ram_keyspaces
+                .read()
+                .map_err(|_| Error::message("ThingDB RAM state lock poisoned"))?;
+            let lock_wait = elapsed_nanos(state_lock_started.elapsed());
+            let value_ref = keyspaces
+                .get(self.name.as_ref())
+                .and_then(|keyspace| keyspace.get(key));
+            let acquire_started = Instant::now();
+            let value = value_ref.cloned();
+            let acquire_duration = elapsed_nanos(acquire_started.elapsed());
+            let lookup_duration = elapsed_nanos(lookup_started.elapsed());
+            drop(keyspaces);
+            self.db.record_ram_lookup_timing(
+                lock_wait,
+                lookup_duration.saturating_sub(lock_wait),
+                lookup_duration,
+                0,
+                acquire_duration,
+            );
+            return Ok(value);
+        }
         let lock_started = Instant::now();
         let inner = self
             .db
@@ -1954,7 +2503,7 @@ impl Keyspace {
             .read()
             .map_err(|_| Error::message("ThingDB RAM state lock poisoned"))?;
         let value_ref = keyspaces
-            .get(&self.name)
+            .get(self.name.as_ref())
             .and_then(|keyspace| keyspace.get(key));
         let lookup_duration = elapsed_nanos(lookup_started.elapsed());
         let acquire_started = Instant::now();
@@ -1962,30 +2511,61 @@ impl Keyspace {
         let acquire_duration = elapsed_nanos(acquire_started.elapsed());
         let held_duration = lookup_duration.saturating_add(acquire_duration);
         drop(keyspaces);
-        let mut inner = self
-            .db
-            .inner
-            .lock()
-            .map_err(|_| Error::message("database lock poisoned"))?;
-        let diagnostics = &mut inner.ram_diagnostics;
-        diagnostics.lookup_count = diagnostics.lookup_count.saturating_add(1);
-        diagnostics.lock_wait_duration_ns =
-            diagnostics.lock_wait_duration_ns.saturating_add(lock_wait);
-        diagnostics.lock_held_duration_ns = diagnostics
-            .lock_held_duration_ns
-            .saturating_add(held_duration);
-        diagnostics.lookup_duration_ns = diagnostics
-            .lookup_duration_ns
-            .saturating_add(lookup_duration);
-        diagnostics.value_acquire_duration_ns = diagnostics
-            .value_acquire_duration_ns
-            .saturating_add(acquire_duration);
+        self.db.record_ram_lookup_timing(
+            lock_wait,
+            held_duration,
+            lookup_duration,
+            0,
+            acquire_duration,
+        );
         Ok(value)
     }
 
     /// Read a value by user key.
     pub fn get(&self, key: impl AsRef<[u8]>) -> Result<Option<Vec<u8>>> {
         let key = key.as_ref();
+        #[cfg(feature = "benchmark")]
+        if let Some(rcu) = &self.db.ram_rcu_keyspaces {
+            let started = Instant::now();
+            let generation = rcu.load_full();
+            let value = generation
+                .get(self.name.as_ref())
+                .and_then(|keyspace| keyspace.get(key))
+                .map(|value| value.as_ref().clone());
+            let elapsed = elapsed_nanos(started.elapsed());
+            self.db
+                .record_ram_lookup_timing(0, elapsed, elapsed, elapsed, 0);
+            return Ok(value);
+        }
+        if self.db.ram_keyspaces.is_some() {
+            let lookup_started = Instant::now();
+            let ram_keyspaces = self
+                .db
+                .ram_keyspaces
+                .as_ref()
+                .ok_or_else(|| Error::message("ThingDB RAM state is unavailable"))?;
+            let state_lock_started = Instant::now();
+            let keyspaces = ram_keyspaces
+                .read()
+                .map_err(|_| Error::message("ThingDB RAM state lock poisoned"))?;
+            let lock_wait = elapsed_nanos(state_lock_started.elapsed());
+            let value = keyspaces
+                .get(self.name.as_ref())
+                .and_then(|keyspace| keyspace.get(key));
+            let clone_started = Instant::now();
+            let value = value.map(|value| value.as_ref().clone());
+            let clone_duration = elapsed_nanos(clone_started.elapsed());
+            let lookup_duration = elapsed_nanos(lookup_started.elapsed());
+            drop(keyspaces);
+            self.db.record_ram_lookup_timing(
+                lock_wait,
+                lookup_duration.saturating_sub(lock_wait),
+                lookup_duration,
+                clone_duration,
+                0,
+            );
+            return Ok(value);
+        }
         let lock_started = Instant::now();
         let inner = self
             .db
@@ -2005,7 +2585,7 @@ impl Keyspace {
                 .read()
                 .map_err(|_| Error::message("ThingDB RAM state lock poisoned"))?;
             let value = keyspaces
-                .get(&self.name)
+                .get(self.name.as_ref())
                 .and_then(|keyspace| keyspace.get(key));
             let lookup_duration = elapsed_nanos(lookup_started.elapsed());
             let clone_started = Instant::now();
@@ -2013,24 +2593,13 @@ impl Keyspace {
             let clone_duration = elapsed_nanos(clone_started.elapsed());
             let held_duration = lookup_duration.saturating_add(clone_duration);
             drop(keyspaces);
-            let mut inner = self
-                .db
-                .inner
-                .lock()
-                .map_err(|_| Error::message("database lock poisoned"))?;
-            let diagnostics = &mut inner.ram_diagnostics;
-            diagnostics.lookup_count = diagnostics.lookup_count.saturating_add(1);
-            diagnostics.lock_wait_duration_ns =
-                diagnostics.lock_wait_duration_ns.saturating_add(lock_wait);
-            diagnostics.lock_held_duration_ns = diagnostics
-                .lock_held_duration_ns
-                .saturating_add(held_duration);
-            diagnostics.lookup_duration_ns = diagnostics
-                .lookup_duration_ns
-                .saturating_add(lookup_duration);
-            diagnostics.value_clone_duration_ns = diagnostics
-                .value_clone_duration_ns
-                .saturating_add(clone_duration);
+            self.db.record_ram_lookup_timing(
+                lock_wait,
+                held_duration,
+                lookup_duration,
+                clone_duration,
+                0,
+            );
             return Ok(value);
         }
         let key_started = Instant::now();
@@ -2038,15 +2607,11 @@ impl Keyspace {
         let key_duration = elapsed_nanos(key_started.elapsed());
         drop(inner);
         let result = self.db.get_durable_value(&physical);
-        let mut inner = self
-            .db
-            .inner
-            .lock()
-            .map_err(|_| Error::message("database lock poisoned"))?;
-        inner.ram_diagnostics.key_encode_duration_ns = inner
-            .ram_diagnostics
-            .key_encode_duration_ns
-            .saturating_add(key_duration);
+        self.db.update_ram_diagnostics(|diagnostics| {
+            diagnostics.key_encode_duration_ns = diagnostics
+                .key_encode_duration_ns
+                .saturating_add(key_duration);
+        });
         result
     }
 
@@ -2142,6 +2707,40 @@ impl Keyspace {
         end: Option<(Vec<u8>, bool)>,
         limit: Option<usize>,
     ) -> Iter {
+        #[cfg(feature = "benchmark")]
+        if let Some(rcu) = &self.db.ram_rcu_keyspaces {
+            return iter_memory_rcu_bounds(
+                &self.db,
+                rcu.load_full(),
+                &self.name,
+                prefix,
+                start,
+                end,
+                limit,
+            );
+        }
+        if self.db.ram_keyspaces.is_some() {
+            let ram_keyspaces = self
+                .db
+                .ram_keyspaces
+                .as_ref()
+                .ok_or_else(|| Error::message("ThingDB RAM state is unavailable"));
+            return match ram_keyspaces {
+                Ok(ram_keyspaces) => iter_memory_bounds(
+                    &self.db,
+                    ram_keyspaces,
+                    &self.name,
+                    prefix,
+                    start,
+                    end,
+                    limit,
+                ),
+                Err(error) => Iter {
+                    entries: Vec::new().into_iter(),
+                    error: Some(error),
+                },
+            };
+        }
         let scan_lock_started = Instant::now();
         let Ok(inner) = self.db.inner.lock() else {
             return Iter {
@@ -2158,14 +2757,24 @@ impl Keyspace {
                 .as_ref()
                 .ok_or_else(|| Error::message("ThingDB RAM state is unavailable"));
             return match ram_keyspaces {
-                Ok(ram_keyspaces) => {
-                    iter_memory_bounds(&self.db, ram_keyspaces, &self.name, prefix, start, end)
-                },
+                Ok(ram_keyspaces) => iter_memory_bounds(
+                    &self.db,
+                    ram_keyspaces,
+                    &self.name,
+                    prefix,
+                    start,
+                    end,
+                    limit,
+                ),
                 Err(error) => Iter {
                     entries: Vec::new().into_iter(),
                     error: Some(error),
                 },
             };
+        }
+        if limit == Some(1) {
+            drop(inner);
+            return self.iter_durable_first(prefix, start, end);
         }
         let state = inner.state.clone();
         let pending_table = inner.pending_table.clone();
@@ -2179,7 +2788,7 @@ impl Keyspace {
         let lower = start
             .as_ref()
             .map(|(key, _)| physical_key_from_namespace(&namespace, key))
-            .unwrap_or_else(|| namespace.clone());
+            .unwrap_or_else(|| namespace.to_vec());
         let upper = end
             .as_ref()
             .map(|(key, _)| physical_key_from_namespace(&namespace, key))
@@ -2188,6 +2797,19 @@ impl Keyspace {
         let cursor_after = start.as_ref().and_then(|(key, inclusive)| {
             (!inclusive).then(|| physical_key_from_namespace(&namespace, key))
         });
+        let layer_entries = match table_layers
+            .iter()
+            .map(TableLayer::loaded_entries)
+            .collect::<Result<Vec<_>>>()
+        {
+            Ok(entries) => entries,
+            Err(error) => {
+                return Iter {
+                    entries: Vec::new().into_iter(),
+                    error: Some(error),
+                };
+            },
+        };
         let mut entries = Vec::new();
         let mut scan_error = None;
         let mut scan_keys_examined = 0u64;
@@ -2201,15 +2823,14 @@ impl Keyspace {
             upper.as_deref(),
             cursor_after.as_deref(),
         );
-        let mut layer_indices = table_layers
+        let mut layer_indices = layer_entries
             .iter()
-            .map(|layer| {
-                let index = layer
-                    .entries
+            .map(|entries| {
+                let index = entries
                     .binary_search_by(|entry| entry.key.as_slice().cmp(lower.as_slice()))
                     .unwrap_or_else(|index| index);
                 if cursor_after.is_some()
-                    && layer.entries.get(index).is_some_and(|entry| {
+                    && entries.get(index).is_some_and(|entry| {
                         cursor_after
                             .as_deref()
                             .is_some_and(|after| entry.key == after)
@@ -2233,8 +2854,8 @@ impl Keyspace {
             }) {
                 next_key.clone_from(&pending_key);
             }
-            for (layer, index) in table_layers.iter().zip(&layer_indices) {
-                if let Some(candidate) = layer.entries.get(*index).map(|entry| &entry.key)
+            for (entries, index) in layer_entries.iter().zip(&layer_indices) {
+                if let Some(candidate) = entries.get(*index).map(|entry| &entry.key)
                     && next_key
                         .as_deref()
                         .is_none_or(|current| candidate.as_slice() < current)
@@ -2254,12 +2875,8 @@ impl Keyspace {
             if pending_key.as_deref() == Some(key.as_slice()) {
                 pending_key = next_map_key(&pending_table, &lower, upper.as_deref(), Some(&key));
             }
-            for (layer, index) in table_layers.iter().zip(&mut layer_indices) {
-                if layer
-                    .entries
-                    .get(*index)
-                    .is_some_and(|entry| entry.key == key)
-                {
+            for (entries, index) in layer_entries.iter().zip(&mut layer_indices) {
+                if entries.get(*index).is_some_and(|entry| entry.key == key) {
                     *index += 1;
                 }
             }
@@ -2279,7 +2896,7 @@ impl Keyspace {
             let Some(value) = value else {
                 continue;
             };
-            let Some(user_key) = key.strip_prefix(namespace.as_slice()) else {
+            let Some(user_key) = key.strip_prefix(namespace.as_ref()) else {
                 continue;
             };
             if let Some(prefix) = prefix
@@ -2371,6 +2988,240 @@ impl Keyspace {
             error: scan_error,
         }
     }
+
+    #[allow(clippy::too_many_lines)]
+    fn iter_durable_first(
+        &self,
+        prefix: Option<&[u8]>,
+        start: Option<(Vec<u8>, bool)>,
+        end: Option<(Vec<u8>, bool)>,
+    ) -> Iter {
+        let namespace = self.namespace.clone();
+        let mut after = start.as_ref().and_then(|(key, inclusive)| {
+            (!inclusive).then(|| physical_key_from_namespace(&namespace, key))
+        });
+        let mut retries = 0;
+        loop {
+            let lock_started = Instant::now();
+            let snapshot = match self.db.inner.lock() {
+                Ok(inner) if !inner.in_memory => {
+                    let lock_wait = elapsed_nanos(lock_started.elapsed());
+                    let lower = durable_scan_lower(&namespace, prefix, start.as_ref());
+                    let upper = durable_scan_upper(&namespace, prefix, end.as_ref());
+                    let state_candidate =
+                        next_map_key(&inner.state, &lower, upper.as_deref(), after.as_deref())
+                            .and_then(|key| {
+                                inner.state.get(&key).map(|value| (key, value.clone()))
+                            });
+                    let pending_candidate = next_map_key(
+                        &inner.pending_table,
+                        &lower,
+                        upper.as_deref(),
+                        after.as_deref(),
+                    )
+                    .and_then(|key| {
+                        inner
+                            .pending_table
+                            .get(&key)
+                            .map(|value| (key, value.clone()))
+                    });
+                    let layers = inner.table_layers.clone();
+                    let generation = inner.state_generation;
+                    let lock_held = elapsed_nanos(lock_started.elapsed());
+                    (
+                        lower,
+                        upper,
+                        state_candidate,
+                        pending_candidate,
+                        layers,
+                        generation,
+                        lock_wait,
+                        lock_held,
+                    )
+                },
+                Ok(_) => {
+                    return Iter {
+                        entries: Vec::new().into_iter(),
+                        error: Some(Error::message("ThingDB durable scan used for RAM state")),
+                    };
+                },
+                Err(_) => {
+                    return Iter {
+                        entries: Vec::new().into_iter(),
+                        error: Some(Error::message("database lock poisoned")),
+                    };
+                },
+            };
+            let (
+                lower,
+                upper,
+                state_candidate,
+                pending_candidate,
+                layers,
+                generation,
+                lock_wait,
+                lock_held,
+            ) = snapshot;
+            let table_candidates = layers
+                .iter()
+                .map(|layer| {
+                    let entries = layer.loaded_entries()?;
+                    let seek = after
+                        .as_deref()
+                        .filter(|key| *key > lower.as_slice())
+                        .unwrap_or(&lower);
+                    let index = entries
+                        .binary_search_by(|entry| entry.key.as_slice().cmp(seek))
+                        .unwrap_or_else(|index| index);
+                    let index = if after.as_deref().is_some_and(|after| {
+                        entries
+                            .get(index)
+                            .is_some_and(|entry| entry.key.as_slice() == after)
+                    }) {
+                        index + 1
+                    } else {
+                        index
+                    };
+                    Ok(entries
+                        .get(index)
+                        .filter(|entry| {
+                            upper
+                                .as_deref()
+                                .is_none_or(|bound| entry.key.as_slice() < bound)
+                        })
+                        .map(|entry| entry.key.clone()))
+                })
+                .collect::<Result<Vec<_>>>();
+            let table_candidates = match table_candidates {
+                Ok(candidates) => candidates,
+                Err(error) => {
+                    return Iter {
+                        entries: Vec::new().into_iter(),
+                        error: Some(error),
+                    };
+                },
+            };
+            let mut key = state_candidate.as_ref().map(|(key, _)| key.clone());
+            if pending_candidate.as_ref().is_some_and(|(candidate, _)| {
+                key.as_deref()
+                    .is_none_or(|current| candidate.as_slice() < current)
+            }) {
+                key = pending_candidate.as_ref().map(|(key, _)| key.clone());
+            }
+            for candidate in table_candidates.iter().flatten() {
+                if key
+                    .as_deref()
+                    .is_none_or(|current| candidate.as_slice() < current)
+                {
+                    key = Some(candidate.clone());
+                }
+            }
+            let Some(key) = key else {
+                return self.finish_durable_first_diagnostics(
+                    lock_wait,
+                    lock_held,
+                    0,
+                    0,
+                    Vec::new(),
+                );
+            };
+            let value = if pending_candidate
+                .as_ref()
+                .is_some_and(|(candidate, _)| candidate == &key)
+            {
+                pending_candidate.and_then(|(_, value)| value)
+            } else if state_candidate
+                .as_ref()
+                .is_some_and(|(candidate, _)| candidate == &key)
+            {
+                state_candidate.map(|(_, value)| value)
+            } else {
+                match get_scan_value_snapshot(&BTreeMap::new(), &BTreeMap::new(), &layers, &key) {
+                    Ok((value, _, _, _)) => value,
+                    Err(error) => {
+                        return Iter {
+                            entries: Vec::new().into_iter(),
+                            error: Some(error),
+                        };
+                    },
+                }
+            };
+            let generation_unchanged = self
+                .db
+                .inner
+                .lock()
+                .map(|inner| inner.state_generation == generation)
+                .unwrap_or(false);
+            if !generation_unchanged {
+                retries += 1;
+                if retries >= 8 {
+                    return Iter {
+                        entries: Vec::new().into_iter(),
+                        error: Some(Error::message(
+                            "ThingDB durable scan changed during point lookup",
+                        )),
+                    };
+                }
+                continue;
+            }
+            after = Some(key.clone());
+            let Some(value) = value else {
+                continue;
+            };
+            let Some(user_key) = key.strip_prefix(namespace.as_ref()) else {
+                return self.finish_durable_first_diagnostics(
+                    lock_wait,
+                    lock_held,
+                    layers.len() as u64,
+                    0,
+                    Vec::new(),
+                );
+            };
+            return self.finish_durable_first_diagnostics(
+                lock_wait,
+                lock_held,
+                layers.len() as u64,
+                1,
+                vec![Entry {
+                    key: user_key.to_vec(),
+                    value,
+                }],
+            );
+        }
+    }
+
+    fn finish_durable_first_diagnostics(
+        &self,
+        lock_wait: u64,
+        lock_held: u64,
+        layers: u64,
+        returned: u64,
+        entries: Vec<Entry>,
+    ) -> Iter {
+        if let Ok(mut inner) = self.db.inner.lock() {
+            inner.diagnostics.scan_count = inner.diagnostics.scan_count.saturating_add(1);
+            inner.diagnostics.scan_lock_wait_duration_ns = inner
+                .diagnostics
+                .scan_lock_wait_duration_ns
+                .saturating_add(lock_wait);
+            inner.diagnostics.scan_lock_held_duration_ns = inner
+                .diagnostics
+                .scan_lock_held_duration_ns
+                .saturating_add(lock_held);
+            inner.diagnostics.scan_layers_consulted = inner
+                .diagnostics
+                .scan_layers_consulted
+                .saturating_add(layers);
+            inner.diagnostics.scan_returned_entries = inner
+                .diagnostics
+                .scan_returned_entries
+                .saturating_add(returned);
+        }
+        Iter {
+            entries: entries.into_iter(),
+            error: None,
+        }
+    }
 }
 
 fn get_scan_value_snapshot(
@@ -2388,21 +3239,16 @@ fn get_scan_value_snapshot(
     let mut layers_consulted = 0;
     for layer in table_layers.iter().rev() {
         layers_consulted += 1;
-        let Ok(index) = layer
-            .entries
+        let entries = layer.loaded_entries()?;
+        let candidate_range = layer.candidate_entry_range(key);
+        let Ok(relative_index) = entries[candidate_range.clone()]
             .binary_search_by(|entry| entry.key.as_slice().cmp(key))
         else {
             continue;
         };
-        return read_table_value_handle(&layer.file, &layer.entries[index], layer.is_v2).map(
-            |(value, _, duration)| {
-                (
-                    value,
-                    layers_consulted,
-                    layer.entries[index].length,
-                    duration,
-                )
-            },
+        let index = candidate_range.start + relative_index;
+        return read_table_value_handle(&layer.file, &entries[index], layer.is_v2).map(
+            |(value, _, duration)| (value, layers_consulted, entries[index].length, duration),
         );
     }
     Ok((None, layers_consulted, 0, 0))
@@ -2422,13 +3268,55 @@ fn next_map_key<V>(
     map.range((start, end)).next().map(|(key, _)| key.clone())
 }
 
+fn durable_scan_lower(
+    namespace: &[u8],
+    prefix: Option<&[u8]>,
+    start: Option<&(Vec<u8>, bool)>,
+) -> Vec<u8> {
+    let user_key = match (prefix, start) {
+        (Some(prefix), Some((start, _))) if start.as_slice() >= prefix => start.as_slice(),
+        (Some(prefix), _) => prefix,
+        (None, Some((start, _))) => start.as_slice(),
+        (None, None) => &[],
+    };
+    physical_key_from_namespace(namespace, user_key)
+}
+
+#[allow(clippy::tuple_array_conversions)]
+fn durable_scan_upper(
+    namespace: &[u8],
+    prefix: Option<&[u8]>,
+    end: Option<&(Vec<u8>, bool)>,
+) -> Option<Vec<u8>> {
+    let namespace_end = successor(namespace);
+    let prefix_end = prefix
+        .and_then(successor)
+        .map(|prefix| physical_key_from_namespace(namespace, &prefix));
+    let explicit_end = end.and_then(|(end, inclusive)| {
+        let physical = physical_key_from_namespace(namespace, end);
+        if *inclusive {
+            successor(&physical)
+        } else {
+            Some(physical)
+        }
+    });
+    match (namespace_end, prefix_end, explicit_end) {
+        (namespace_end, None, None) => namespace_end,
+        (namespace_end, prefix_end, explicit_end) => [namespace_end, prefix_end, explicit_end]
+            .into_iter()
+            .flatten()
+            .min(),
+    }
+}
+
 fn iter_memory_bounds(
     db: &Database,
-    ram_keyspaces: &Arc<RwLock<HashMap<String, BTreeMap<Vec<u8>, Arc<Vec<u8>>>>>>,
+    ram_keyspaces: &Arc<RwLock<HashMap<Arc<str>, BTreeMap<Vec<u8>, Arc<Vec<u8>>>>>>,
     name: &str,
     prefix: Option<&[u8]>,
     start: Option<(Vec<u8>, bool)>,
     end: Option<(Vec<u8>, bool)>,
+    limit: Option<usize>,
 ) -> Iter {
     let iteration_started = Instant::now();
     let mut entries = Vec::new();
@@ -2486,24 +3374,106 @@ fn iter_memory_bounds(
                 value: value.as_ref().clone(),
             });
             entries_returned = entries_returned.saturating_add(1);
+            if limit.is_some_and(|limit| entries.len() >= limit) {
+                break;
+            }
         }
     }
-    if let Ok(mut inner) = db.inner.lock() {
-        inner.ram_diagnostics.iteration_count =
-            inner.ram_diagnostics.iteration_count.saturating_add(1);
-        inner.ram_diagnostics.iteration_duration_ns = inner
-            .ram_diagnostics
-            .iteration_duration_ns
-            .saturating_add(elapsed_nanos(iteration_started.elapsed()));
-        inner.ram_diagnostics.iteration_entries_examined = inner
-            .ram_diagnostics
+    let elapsed = elapsed_nanos(iteration_started.elapsed());
+    db.update_ram_diagnostics(|diagnostics| {
+        diagnostics.iteration_count = diagnostics.iteration_count.saturating_add(1);
+        diagnostics.iteration_duration_ns =
+            diagnostics.iteration_duration_ns.saturating_add(elapsed);
+        diagnostics.iteration_entries_examined = diagnostics
             .iteration_entries_examined
             .saturating_add(entries_examined);
-        inner.ram_diagnostics.iteration_entries_returned = inner
-            .ram_diagnostics
+        diagnostics.iteration_entries_returned = diagnostics
             .iteration_entries_returned
             .saturating_add(entries_returned);
+    });
+    Iter {
+        entries: entries.into_iter(),
+        error: None,
     }
+}
+
+#[cfg(feature = "benchmark")]
+fn iter_memory_rcu_bounds(
+    db: &Database,
+    generation: Arc<RamGeneration>,
+    name: &str,
+    prefix: Option<&[u8]>,
+    start: Option<(Vec<u8>, bool)>,
+    end: Option<(Vec<u8>, bool)>,
+    limit: Option<usize>,
+) -> Iter {
+    let started = Instant::now();
+    let mut entries = Vec::new();
+    let mut examined = 0u64;
+    if let Some(keyspace) = generation.get(name) {
+        let lower = match (start.as_ref(), prefix) {
+            (Some((key, inclusive)), Some(prefix)) if key.as_slice() >= prefix => {
+                if *inclusive {
+                    Bound::Included(key.as_slice())
+                } else {
+                    Bound::Excluded(key.as_slice())
+                }
+            },
+            (_, Some(prefix)) => Bound::Included(prefix),
+            (Some((key, inclusive)), None) => {
+                if *inclusive {
+                    Bound::Included(key.as_slice())
+                } else {
+                    Bound::Excluded(key.as_slice())
+                }
+            },
+            (None, None) => Bound::Unbounded,
+        };
+        let prefix_upper = prefix.and_then(successor);
+        let upper = match (end.as_ref(), prefix_upper.as_deref()) {
+            (Some((key, inclusive)), Some(prefix_upper)) if key.as_slice() <= prefix_upper => {
+                if *inclusive {
+                    Bound::Included(key.as_slice())
+                } else {
+                    Bound::Excluded(key.as_slice())
+                }
+            },
+            (Some((key, inclusive)), None) => {
+                if *inclusive {
+                    Bound::Included(key.as_slice())
+                } else {
+                    Bound::Excluded(key.as_slice())
+                }
+            },
+            (_, Some(prefix_upper)) => Bound::Excluded(prefix_upper),
+            (None, None) => Bound::Unbounded,
+        };
+        for (key, value) in keyspace.range::<[u8], _>((lower, upper)) {
+            examined = examined.saturating_add(1);
+            if prefix.is_some_and(|prefix| !key.starts_with(prefix)) {
+                break;
+            }
+            entries.push(Entry {
+                key: key.clone(),
+                value: value.as_ref().clone(),
+            });
+            if limit.is_some_and(|limit| entries.len() >= limit) {
+                break;
+            }
+        }
+    }
+    let elapsed = elapsed_nanos(started.elapsed());
+    db.update_ram_diagnostics(|diagnostics| {
+        diagnostics.iteration_count = diagnostics.iteration_count.saturating_add(1);
+        diagnostics.iteration_duration_ns =
+            diagnostics.iteration_duration_ns.saturating_add(elapsed);
+        diagnostics.iteration_entries_examined = diagnostics
+            .iteration_entries_examined
+            .saturating_add(examined);
+        diagnostics.iteration_entries_returned = diagnostics
+            .iteration_entries_returned
+            .saturating_add(entries.len() as u64);
+    });
     Iter {
         entries: entries.into_iter(),
         error: None,
@@ -2518,24 +3488,62 @@ impl Batch {
         key: impl AsRef<[u8]>,
         value: impl AsRef<[u8]>,
     ) -> Self {
-        self.operations.push(Operation::Put {
-            key: physical_key_from_namespace(&keyspace.namespace, key.as_ref()),
-            value: value.as_ref().to_vec(),
+        self.operations.push(BatchOperation {
+            keyspace: Arc::clone(&keyspace.name),
+            key: self.batch_key(keyspace, key.as_ref()),
+            value: Some(value.as_ref().to_vec()),
+        });
+        self
+    }
+
+    /// Add an insertion using owned key and value buffers.
+    ///
+    /// This is equivalent to [`Batch::put`] but avoids copying the supplied
+    /// value before the operation is committed. The key is still prefixed
+    /// with the keyspace namespace so keyspace isolation is unchanged.
+    pub fn put_owned(mut self, keyspace: &Keyspace, key: Vec<u8>, value: Vec<u8>) -> Self {
+        self.operations.push(BatchOperation {
+            keyspace: Arc::clone(&keyspace.name),
+            key: self.batch_key(keyspace, &key),
+            value: Some(value),
         });
         self
     }
 
     /// Add a deletion to the batch.
     pub fn delete(mut self, keyspace: &Keyspace, key: impl AsRef<[u8]>) -> Self {
-        self.operations.push(Operation::Delete {
-            key: physical_key_from_namespace(&keyspace.namespace, key.as_ref()),
+        self.operations.push(BatchOperation {
+            keyspace: Arc::clone(&keyspace.name),
+            key: self.batch_key(keyspace, key.as_ref()),
+            value: None,
+        });
+        self
+    }
+
+    /// Add a deletion using an owned key buffer.
+    ///
+    /// This is equivalent to [`Batch::delete`] but avoids copying the supplied
+    /// key before the namespace prefix is applied.
+    pub fn delete_owned(mut self, keyspace: &Keyspace, key: Vec<u8>) -> Self {
+        self.operations.push(BatchOperation {
+            keyspace: Arc::clone(&keyspace.name),
+            key: self.batch_key(keyspace, &key),
+            value: None,
         });
         self
     }
 
     /// Commit all operations atomically and durably.
     pub fn commit(self) -> Result<()> {
-        self.db.commit_operations(self.operations)
+        self.db.commit_batch(self.operations)
+    }
+
+    fn batch_key(&self, keyspace: &Keyspace, key: &[u8]) -> Vec<u8> {
+        if self.memory_mode {
+            key.to_vec()
+        } else {
+            physical_key_from_namespace(&keyspace.namespace, key)
+        }
     }
 }
 
@@ -2756,7 +3764,7 @@ fn apply_operation(state: &mut BTreeMap<Vec<u8>, Vec<u8>>, operation: Operation)
 }
 
 fn apply_memory_operation(
-    keyspaces: &mut HashMap<String, BTreeMap<Vec<u8>, Arc<Vec<u8>>>>,
+    keyspaces: &mut HashMap<Arc<str>, BTreeMap<Vec<u8>, Arc<Vec<u8>>>>,
     operation: Operation,
 ) -> Result<()> {
     let (key, value) = match operation {
@@ -2770,7 +3778,7 @@ fn apply_memory_operation(
     let name = std::str::from_utf8(&key[..separator])
         .map_err(|_| Error::message("invalid ThingDB in-memory keyspace"))?;
     let user_key = &key[separator + 1..];
-    let entries = keyspaces.entry(name.to_string()).or_default();
+    let entries = keyspaces.entry(Arc::from(name)).or_default();
     match value {
         Some(value) => {
             entries.insert(user_key.to_vec(), Arc::new(value));
@@ -2780,6 +3788,28 @@ fn apply_memory_operation(
         },
     }
     Ok(())
+}
+
+fn validate_memory_batch_operation(operation: &BatchOperation) -> Result<()> {
+    if operation.keyspace.is_empty() || operation.keyspace.as_bytes().contains(&0) {
+        return Err(Error::message("invalid ThingDB in-memory keyspace"));
+    }
+    Ok(())
+}
+
+fn apply_memory_batch_operation(
+    keyspaces: &mut HashMap<Arc<str>, BTreeMap<Vec<u8>, Arc<Vec<u8>>>>,
+    operation: BatchOperation,
+) {
+    let entries = keyspaces.entry(operation.keyspace.clone()).or_default();
+    match operation.value {
+        Some(value) => {
+            entries.insert(operation.key, Arc::new(value));
+        },
+        None => {
+            entries.remove(&operation.key);
+        },
+    }
 }
 
 fn validate_memory_operation(operation: &Operation) -> Result<()> {
@@ -2803,28 +3833,32 @@ fn apply_operation_with_pending(
 ) {
     match operation {
         Operation::Put { key, value } => {
+            let key_bytes = key.len() as u64;
+            let value_bytes = value.len() as u64;
             state.insert(key.clone(), value.clone());
-            if let Some(previous) = pending.insert(key.clone(), Some(value.clone())) {
-                *pending_bytes =
-                    pending_bytes.saturating_sub(pending_entry_bytes(&key, previous.as_ref()));
+            if let Some(previous) = pending.insert(key, Some(value)) {
+                *pending_bytes = pending_bytes.saturating_sub(
+                    key_bytes
+                        .saturating_add(1)
+                        .saturating_add(previous.as_ref().map_or(0, |value| value.len() as u64)),
+                );
             }
-            *pending_bytes = pending_bytes.saturating_add(pending_entry_bytes(&key, Some(&value)));
+            *pending_bytes = pending_bytes
+                .saturating_add(key_bytes.saturating_add(1).saturating_add(value_bytes));
         },
         Operation::Delete { key } => {
+            let key_bytes = key.len() as u64;
             state.remove(&key);
-            if let Some(previous) = pending.insert(key.clone(), None) {
-                *pending_bytes =
-                    pending_bytes.saturating_sub(pending_entry_bytes(&key, previous.as_ref()));
+            if let Some(previous) = pending.insert(key, None) {
+                *pending_bytes = pending_bytes.saturating_sub(
+                    key_bytes
+                        .saturating_add(1)
+                        .saturating_add(previous.as_ref().map_or(0, |value| value.len() as u64)),
+                );
             }
-            *pending_bytes = pending_bytes.saturating_add(pending_entry_bytes(&key, None));
+            *pending_bytes = pending_bytes.saturating_add(key_bytes.saturating_add(1));
         },
     }
-}
-
-fn pending_entry_bytes(key: &[u8], value: Option<&Vec<u8>>) -> u64 {
-    (key.len() as u64)
-        .saturating_add(1)
-        .saturating_add(value.map_or(0, |value| value.len() as u64))
 }
 
 fn write_table(
@@ -2836,13 +3870,17 @@ fn write_table(
     const TABLE_WRITE_BUFFER_BYTES: usize = 64 * 1024;
     let mut file = File::create(path)?;
     let mut buffer = Vec::with_capacity(TABLE_WRITE_BUFFER_BYTES);
-    buffer.extend_from_slice(TABLE_MAGIC_V2);
-    buffer.extend_from_slice(&sequence.to_be_bytes());
+    let mut block_first_key = None;
+    let mut block_last_key = None;
+    let mut block_offset = (TABLE_MAGIC_V3.len() + 16) as u64;
+    let mut blocks = Vec::new();
     let entry_count: u64 = entries
         .len()
         .try_into()
         .map_err(|_| Error::message("too many entries in ThingDB table"))?;
-    buffer.extend_from_slice(&entry_count.to_be_bytes());
+    file.write_all(TABLE_MAGIC_V3)?;
+    file.write_all(&sequence.to_be_bytes())?;
+    file.write_all(&entry_count.to_be_bytes())?;
     for (key, value) in entries {
         let mut record = Vec::new();
         write_bytes(&mut record, key)?;
@@ -2855,38 +3893,90 @@ fn write_table(
         }
         let record_checksum = checksum(&record);
         write_u32(&mut record, record_checksum);
+        if block_first_key.is_none() {
+            block_first_key = Some(key.clone());
+        }
+        block_last_key = Some(key.clone());
         if buffer.len().saturating_add(record.len()) > TABLE_WRITE_BUFFER_BYTES
             && !buffer.is_empty()
         {
             file.write_all(&buffer)?;
+            blocks.push((
+                block_offset,
+                buffer.len() as u64,
+                block_first_key
+                    .take()
+                    .ok_or_else(|| Error::message("ThingDB table block has no first key"))?,
+                block_last_key
+                    .take()
+                    .ok_or_else(|| Error::message("ThingDB table block has no last key"))?,
+                checksum(&buffer),
+            ));
+            block_offset = block_offset.saturating_add(buffer.len() as u64);
             buffer.clear();
         }
         buffer.extend_from_slice(&record);
     }
     if !buffer.is_empty() {
         file.write_all(&buffer)?;
+        blocks.push((
+            block_offset,
+            buffer.len() as u64,
+            block_first_key
+                .take()
+                .ok_or_else(|| Error::message("ThingDB table block has no first key"))?,
+            block_last_key
+                .take()
+                .ok_or_else(|| Error::message("ThingDB table block has no last key"))?,
+            checksum(&buffer),
+        ));
     }
+    let footer_start = block_offset.saturating_add(buffer.len() as u64);
+    let mut footer = Vec::new();
+    footer.extend_from_slice(TABLE_FOOTER_MAGIC);
+    footer.extend_from_slice(&(blocks.len() as u64).to_be_bytes());
+    for (offset, length, first_key, last_key, block_checksum) in &blocks {
+        footer.extend_from_slice(&offset.to_be_bytes());
+        footer.extend_from_slice(&length.to_be_bytes());
+        write_bytes(&mut footer, first_key)?;
+        write_bytes(&mut footer, last_key)?;
+        write_u32(&mut footer, *block_checksum);
+    }
+    let footer_checksum = checksum(&footer);
+    write_u32(&mut footer, footer_checksum);
+    debug_assert_eq!(footer_start, file.metadata()?.len());
+    file.write_all(&footer)?;
     if sync {
         file.sync_all()?;
     }
     Ok(())
 }
 
-fn read_table_index(path: &Path) -> Result<(u64, Vec<TableIndexEntry>, bool)> {
+fn read_table_index(path: &Path) -> Result<(u64, Vec<TableIndexEntry>, bool, Vec<TableBlock>)> {
     let bytes = fs::read(path)?;
     if bytes.len() < TABLE_MAGIC.len() + 16
         || (&bytes[..TABLE_MAGIC.len()] != TABLE_MAGIC
-            && &bytes[..TABLE_MAGIC_V2.len()] != TABLE_MAGIC_V2)
+            && &bytes[..TABLE_MAGIC_V2.len()] != TABLE_MAGIC_V2
+            && &bytes[..TABLE_MAGIC_V3.len()] != TABLE_MAGIC_V3)
     {
         return Err(Error::message("invalid ThingDB table"));
     }
     let version = &bytes[..TABLE_MAGIC.len()];
-    let is_v2 = version == TABLE_MAGIC_V2;
+    let is_v2 = version != TABLE_MAGIC;
+    let is_v3 = version == TABLE_MAGIC_V3;
     let mut cursor = TABLE_MAGIC.len();
     let sequence = read_u64(&bytes, &mut cursor)?;
     let count = read_u64(&bytes, &mut cursor)? as usize;
     let mut entries = Vec::with_capacity(count);
     for _ in 0..count {
+        if is_v3
+            && bytes.get(cursor..cursor + TABLE_FOOTER_MAGIC.len())
+                == Some(TABLE_FOOTER_MAGIC.as_slice())
+        {
+            return Err(Error::message(
+                "ThingDB table footer appears before all records",
+            ));
+        }
         let record_start = cursor;
         let key = read_bytes(&bytes, &mut cursor)?;
         let value = if is_v2 {
@@ -2919,10 +4009,105 @@ fn read_table_index(path: &Path) -> Result<(u64, Vec<TableIndexEntry>, bool)> {
             "ThingDB table keys are not strictly ordered",
         ));
     }
+    if is_v3 {
+        let footer_start = bytes
+            .get(cursor..cursor + TABLE_FOOTER_MAGIC.len())
+            .is_some_and(|magic| magic == TABLE_FOOTER_MAGIC.as_slice())
+            .then_some(cursor)
+            .ok_or_else(|| Error::message("ThingDB table is missing its validated footer"))?;
+        let blocks = validate_table_footer(&bytes, footer_start)?;
+        return Ok((sequence, entries, is_v2, blocks));
+    }
     if cursor != bytes.len() {
         return Err(Error::message("trailing bytes in ThingDB table"));
     }
-    Ok((sequence, entries, is_v2))
+    Ok((sequence, entries, is_v2, Vec::new()))
+}
+
+fn read_table_metadata(path: &Path) -> Result<(u64, Vec<TableIndexEntry>, bool, Vec<TableBlock>)> {
+    let bytes = fs::read(path)?;
+    if bytes.len() < TABLE_MAGIC.len() + 16
+        || (&bytes[..TABLE_MAGIC.len()] != TABLE_MAGIC
+            && &bytes[..TABLE_MAGIC_V2.len()] != TABLE_MAGIC_V2
+            && &bytes[..TABLE_MAGIC_V3.len()] != TABLE_MAGIC_V3)
+    {
+        return Err(Error::message("invalid ThingDB table"));
+    }
+    let version = &bytes[..TABLE_MAGIC.len()];
+    let mut cursor = TABLE_MAGIC.len();
+    let sequence = read_u64(&bytes, &mut cursor)?;
+    if version != TABLE_MAGIC_V3 {
+        let (sequence, entries, is_v2, blocks) = read_table_index(path)?;
+        return Ok((sequence, entries, is_v2, blocks));
+    }
+    // Validate record checksums/order during open while discarding the full
+    // index. The durable read path loads the index on first access, keeping
+    // the retained open-state bounded by block metadata.
+    let (_, _, _, blocks) = read_table_index(path)?;
+    Ok((sequence, Vec::new(), true, blocks))
+}
+
+fn validate_table_footer(bytes: &[u8], footer_start: usize) -> Result<Vec<TableBlock>> {
+    let mut cursor = footer_start;
+    if bytes.get(cursor..cursor + TABLE_FOOTER_MAGIC.len()) != Some(TABLE_FOOTER_MAGIC.as_slice()) {
+        return Err(Error::message("invalid ThingDB table footer"));
+    }
+    cursor += TABLE_FOOTER_MAGIC.len();
+    let block_count = read_u64(bytes, &mut cursor)? as usize;
+    let mut previous_offset = None;
+    let mut previous_end = None;
+    let data_start = (TABLE_MAGIC_V3.len() + 16) as u64;
+    let mut blocks = Vec::with_capacity(block_count);
+    for _ in 0..block_count {
+        let offset = read_u64(bytes, &mut cursor)?;
+        let length = read_u64(bytes, &mut cursor)?;
+        let first_key = read_bytes(bytes, &mut cursor)?;
+        let last_key = read_bytes(bytes, &mut cursor)?;
+        let block_checksum = read_u32(bytes, &mut cursor)?;
+        let block_end = offset
+            .checked_add(length)
+            .ok_or_else(|| Error::message("ThingDB table block range overflow"))?;
+        let footer_start_u64 = footer_start as u64;
+        if offset < data_start
+            || block_end > footer_start_u64
+            || previous_offset.is_some_and(|previous| offset <= previous)
+            || previous_end.is_some_and(|previous| offset != previous)
+            || first_key > last_key
+        {
+            return Err(Error::message("invalid ThingDB table block metadata"));
+        }
+        let start: usize = offset
+            .try_into()
+            .map_err(|_| Error::message("ThingDB table block offset is too large"))?;
+        let end: usize = block_end
+            .try_into()
+            .map_err(|_| Error::message("ThingDB table block end is too large"))?;
+        if checksum(&bytes[start..end]) != block_checksum {
+            return Err(Error::message("ThingDB table block checksum mismatch"));
+        }
+        previous_offset = Some(offset);
+        previous_end = Some(block_end);
+        blocks.push(TableBlock {
+            offset,
+            length,
+            first_key,
+            last_key,
+            checksum: block_checksum,
+        });
+    }
+    if block_count > 0 && (previous_end != Some(footer_start as u64)) {
+        return Err(Error::message(
+            "ThingDB table blocks do not cover the data area",
+        ));
+    }
+    let stored_checksum = read_u32(bytes, &mut cursor)?;
+    if stored_checksum != checksum(&bytes[footer_start..cursor - 4]) {
+        return Err(Error::message("ThingDB table footer checksum mismatch"));
+    }
+    if cursor != bytes.len() {
+        return Err(Error::message("trailing bytes after ThingDB table footer"));
+    }
+    Ok(blocks)
 }
 
 #[cfg(not(unix))]
@@ -2989,6 +4174,72 @@ fn read_table_value_handle(
     };
     let read_duration = elapsed_nanos(read_started.elapsed());
     Ok((value?, reader_wait, read_duration))
+}
+
+fn read_table_block_value(
+    file: &Arc<File>,
+    block: &TableBlock,
+    key: &[u8],
+    is_v2: bool,
+) -> Result<(Option<Option<Vec<u8>>>, u64, u64)> {
+    let started = Instant::now();
+    let length: usize = block
+        .length
+        .try_into()
+        .map_err(|_| Error::message("ThingDB table block is too large"))?;
+    let mut bytes = vec![0; length];
+    #[cfg(unix)]
+    file.read_exact_at(&mut bytes, block.offset)?;
+    #[cfg(not(unix))]
+    {
+        let mut reader = file.try_clone()?;
+        reader.seek(SeekFrom::Start(block.offset))?;
+        reader.read_exact(&mut bytes)?;
+    }
+    if checksum(&bytes) != block.checksum {
+        return Err(Error::message("ThingDB table block checksum mismatch"));
+    }
+    let mut cursor = 0;
+    while cursor < bytes.len() {
+        let record_start = cursor;
+        let record_key = read_bytes(&bytes, &mut cursor)?;
+        if is_v2 {
+            match read_byte(&bytes, &mut cursor)? {
+                1 | 2 => {},
+                _ => return Err(Error::message("invalid ThingDB table operation")),
+            }
+            if bytes.get(cursor - 1) == Some(&1) {
+                let _ = read_bytes(&bytes, &mut cursor)?;
+            }
+        } else {
+            let _ = read_bytes(&bytes, &mut cursor)?;
+        }
+        let checksum_end = cursor;
+        let stored = read_u32(&bytes, &mut cursor)?;
+        if stored != checksum(&bytes[record_start..checksum_end]) {
+            return Err(Error::message("ThingDB table checksum mismatch"));
+        }
+        if record_key == key {
+            let mut decode_cursor = 0;
+            let _ = read_bytes(&bytes[record_start..cursor], &mut decode_cursor)?;
+            let value = if !is_v2 {
+                Some(read_bytes(
+                    &bytes[record_start..cursor],
+                    &mut decode_cursor,
+                )?)
+            } else if bytes[record_start + decode_cursor] == 1 {
+                decode_cursor += 1;
+                Some(read_bytes(
+                    &bytes[record_start..cursor],
+                    &mut decode_cursor,
+                )?)
+            } else {
+                None
+            };
+            return Ok((Some(value), block.length, elapsed_nanos(started.elapsed())));
+        }
+    }
+    Ok((None, block.length, elapsed_nanos(started.elapsed())))
 }
 
 #[cfg(unix)]
@@ -3303,6 +4554,29 @@ mod tests {
         assert_eq!(diagnostics.iteration_count, 2);
         assert_eq!(diagnostics.iteration_entries_examined, 3);
         assert_eq!(diagnostics.iteration_entries_returned, 3);
+    }
+
+    #[test]
+    fn in_memory_first_prefix_after_honors_result_limit() {
+        let db = Database::in_memory().unwrap();
+        let objects = db
+            .keyspace("objects", KeyspaceCreateOptions::default)
+            .unwrap();
+        for index in 0..1024u16 {
+            let key = format!("queue\0{index:04}");
+            objects.insert(key.as_bytes(), b"job").unwrap();
+        }
+
+        let entry = objects
+            .first_prefix_after(b"queue\0", None)
+            .unwrap()
+            .expect("prefix should contain an entry");
+        let expected = "queue\0".to_string() + "0000";
+        assert_eq!(entry.key, expected.as_bytes());
+
+        let diagnostics = db.ram_diagnostics().unwrap();
+        assert_eq!(diagnostics.iteration_entries_returned, 1);
+        assert_eq!(diagnostics.iteration_entries_examined, 1);
     }
 
     #[test]
@@ -4083,6 +5357,75 @@ mod tests {
     }
 
     #[test]
+    fn durable_memtable_flushes_in_background_after_acknowledgement() {
+        let directory = tempfile::tempdir().unwrap();
+        let db = Database::builder(directory.path())
+            .max_memtable_bytes(1024)
+            .open()
+            .unwrap();
+        let objects = db
+            .keyspace("objects", KeyspaceCreateOptions::default)
+            .unwrap();
+
+        objects.insert(b"a", vec![b'x'; 2048]).unwrap();
+        assert_eq!(objects.get(b"a").unwrap(), Some(vec![b'x'; 2048]));
+
+        let deadline = Instant::now() + Duration::from_secs(2);
+        loop {
+            let diagnostics = db.wal_diagnostics().unwrap();
+            if diagnostics.flush_count >= 1 {
+                assert_eq!(diagnostics.memtable_bytes, 0);
+                assert_eq!(diagnostics.journal_bytes, 0);
+                assert!(!diagnostics.recovery_required);
+                break;
+            }
+            assert!(Instant::now() < deadline, "background flush did not finish");
+            std::thread::sleep(Duration::from_millis(1));
+        }
+
+        drop(objects);
+        drop(db);
+        let db = Database::open(directory.path()).unwrap();
+        let objects = db
+            .keyspace("objects", KeyspaceCreateOptions::default)
+            .unwrap();
+        assert_eq!(objects.get(b"a").unwrap(), Some(vec![b'x'; 2048]));
+    }
+
+    #[test]
+    fn wal_budget_schedules_background_checkpoint() {
+        let directory = tempfile::tempdir().unwrap();
+        let db = Database::builder(directory.path())
+            .max_journaling_size(1)
+            .max_memtable_bytes(1024 * 1024)
+            .open()
+            .unwrap();
+        let objects = db
+            .keyspace("objects", KeyspaceCreateOptions::default)
+            .unwrap();
+
+        objects.insert(b"a", b"one").unwrap();
+
+        let deadline = Instant::now() + Duration::from_secs(2);
+        loop {
+            let diagnostics = db.wal_diagnostics().unwrap();
+            if diagnostics.flush_count >= 1 {
+                assert_eq!(diagnostics.journal_bytes, 0);
+                assert_eq!(diagnostics.memtable_bytes, 0);
+                assert!(!diagnostics.recovery_required);
+                break;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "WAL-budget checkpoint did not finish"
+            );
+            std::thread::sleep(Duration::from_millis(1));
+        }
+
+        assert_eq!(objects.get(b"a").unwrap(), Some(b"one".to_vec()));
+    }
+
+    #[test]
     fn failed_bounded_memtable_flush_requires_reopen() {
         let directory = tempfile::tempdir().unwrap();
         let db = Database::builder(directory.path())
@@ -4233,6 +5576,76 @@ mod tests {
     }
 
     #[test]
+    fn table_v3_footer_corruption_is_reported() {
+        let directory = tempfile::tempdir().unwrap();
+        let db = Database::open(directory.path()).unwrap();
+        let objects = db
+            .keyspace("objects", KeyspaceCreateOptions::default)
+            .unwrap();
+        objects.insert(b"a", b"one").unwrap();
+        db.compact().unwrap();
+        drop(objects);
+        drop(db);
+
+        let manifest: Manifest =
+            serde_json::from_slice(&std::fs::read(directory.path().join(MANIFEST_FILE)).unwrap())
+                .unwrap();
+        let table_path = directory.path().join(manifest.table_file.unwrap());
+        let mut bytes = std::fs::read(&table_path).unwrap();
+        assert_eq!(&bytes[..TABLE_MAGIC_V3.len()], TABLE_MAGIC_V3);
+        *bytes.last_mut().unwrap() ^= 0xff;
+        std::fs::write(table_path, bytes).unwrap();
+
+        let Err(error) = Database::open(directory.path()) else {
+            panic!("corrupted table footer unexpectedly opened")
+        };
+        assert!(error.to_string().contains("table footer checksum mismatch"));
+    }
+
+    #[test]
+    fn table_v3_reopens_and_scans_multiple_sorted_blocks() {
+        let directory = tempfile::tempdir().unwrap();
+        let db = Database::open(directory.path()).unwrap();
+        let objects = db
+            .keyspace("objects", KeyspaceCreateOptions::default)
+            .unwrap();
+        for index in 0..2_000u32 {
+            let key = format!("key-{index:04}");
+            let value = format!("value-{index:04}-with-padding");
+            objects.insert(key.as_bytes(), value.as_bytes()).unwrap();
+        }
+        db.compact().unwrap();
+        drop(objects);
+        drop(db);
+
+        let manifest: Manifest =
+            serde_json::from_slice(&std::fs::read(directory.path().join(MANIFEST_FILE)).unwrap())
+                .unwrap();
+        let table_path = directory.path().join(manifest.table_file.unwrap());
+        let bytes = std::fs::read(&table_path).unwrap();
+        let footer_start = bytes
+            .windows(TABLE_FOOTER_MAGIC.len())
+            .position(|window| window == TABLE_FOOTER_MAGIC)
+            .unwrap();
+        let mut cursor = footer_start + TABLE_FOOTER_MAGIC.len();
+        let block_count = read_u64(&bytes, &mut cursor).unwrap();
+        assert!(block_count > 1);
+
+        let reopened = Database::open(directory.path()).unwrap();
+        let objects = reopened
+            .keyspace("objects", KeyspaceCreateOptions::default)
+            .unwrap();
+        let start: &[u8] = b"key-0100";
+        let end: &[u8] = b"key-0109";
+        let entries = objects
+            .range::<&[u8], _>(start..=end)
+            .into_result()
+            .unwrap();
+        assert_eq!(entries.len(), 10);
+        assert_eq!(entries[0].value, b"value-0100-with-padding");
+    }
+
+    #[test]
     fn scan_checksum_corruption_is_not_treated_as_an_empty_result() {
         let directory = tempfile::tempdir().unwrap();
         let db = Database::open(directory.path()).unwrap();
@@ -4344,6 +5757,13 @@ mod tests {
                 .map(|entry| entry.key),
             Some(b"ab".to_vec())
         );
+        assert_eq!(
+            objects
+                .first_prefix_after(b"a", Some(b"ab"))
+                .unwrap()
+                .map(|entry| entry.key),
+            Some(b"ac".to_vec())
+        );
     }
 
     #[test]
@@ -4359,6 +5779,68 @@ mod tests {
         assert_eq!(
             snapshot.keyspace("objects").get(b"a"),
             Some(b"one".to_vec())
+        );
+    }
+
+    #[cfg(feature = "benchmark")]
+    #[test]
+    fn rcu_memory_mode_preserves_atomic_batches_and_snapshots() {
+        let db = Database::in_memory_with_rcu().unwrap();
+        let objects = db
+            .keyspace("objects", KeyspaceCreateOptions::default)
+            .unwrap();
+        let events = db
+            .keyspace("events", KeyspaceCreateOptions::default)
+            .unwrap();
+        db.batch()
+            .put(&objects, b"a", b"one")
+            .put(&events, b"e1", b"event")
+            .commit()
+            .unwrap();
+
+        let snapshot = db.snapshot().unwrap();
+        db.batch()
+            .put(&objects, b"a", b"two")
+            .delete(&events, b"e1")
+            .commit()
+            .unwrap();
+
+        assert_eq!(objects.get(b"a").unwrap(), Some(b"two".to_vec()));
+        assert_eq!(events.get(b"e1").unwrap(), None);
+        assert_eq!(
+            snapshot.keyspace("objects").get(b"a"),
+            Some(b"one".to_vec())
+        );
+        assert_eq!(
+            snapshot.keyspace("events").get(b"e1"),
+            Some(b"event".to_vec())
+        );
+    }
+
+    #[cfg(feature = "benchmark")]
+    #[test]
+    fn rcu_memory_mode_keeps_ordered_scans_and_shared_reads() {
+        let db = Database::in_memory_with_rcu().unwrap();
+        let objects = db
+            .keyspace("objects", KeyspaceCreateOptions::default)
+            .unwrap();
+        for key in [b"aa".as_slice(), b"ab", b"ba"] {
+            objects.insert(key, b"value").unwrap();
+        }
+
+        assert_eq!(
+            objects
+                .prefix(b"a")
+                .into_result()
+                .unwrap()
+                .into_iter()
+                .map(|entry| entry.key)
+                .collect::<Vec<_>>(),
+            vec![b"aa".to_vec(), b"ab".to_vec()]
+        );
+        assert_eq!(
+            objects.get_shared(b"aa").unwrap().as_deref(),
+            Some(&b"value".to_vec())
         );
     }
 }

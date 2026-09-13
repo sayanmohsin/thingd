@@ -92,7 +92,9 @@ pub(crate) enum PersistMode {
 
 pub(crate) struct Keyspace {
     db: Arc<Backend>,
+    #[cfg(feature = "rocksdb-backend")]
     name: String,
+    thingdb: Option<thingdb::Keyspace>,
 }
 
 pub(crate) struct Batch {
@@ -102,7 +104,9 @@ pub(crate) struct Batch {
 }
 
 struct BatchWrite {
+    #[cfg(feature = "rocksdb-backend")]
     keyspace: String,
+    thingdb: Option<thingdb::Keyspace>,
     key: Vec<u8>,
     value: Option<Vec<u8>>,
 }
@@ -156,16 +160,30 @@ impl Database {
         {
             return Err(Error(format!("missing RocksDB column family: {name}")));
         }
+        let thingdb = match self.db.as_ref() {
+            Backend::ThingDb(db) => Some(
+                db.keyspace(name, thingdb::KeyspaceCreateOptions::default)
+                    .map_err(|error| Error(error.to_string()))?,
+            ),
+            #[cfg(feature = "rocksdb-backend")]
+            Backend::RocksDb(_) => None,
+        };
         Ok(Keyspace {
             db: Arc::clone(&self.db),
+            #[cfg(feature = "rocksdb-backend")]
             name: name.to_string(),
+            thingdb,
         })
     }
 
     pub(crate) fn batch(&self) -> Batch {
+        self.batch_with_capacity(0)
+    }
+
+    pub(crate) fn batch_with_capacity(&self, capacity: usize) -> Batch {
         Batch {
             db: Arc::clone(&self.db),
-            writes: Vec::new(),
+            writes: Vec::with_capacity(capacity),
             error: None,
         }
     }
@@ -281,6 +299,11 @@ impl DatabaseBuilder {
                 options.create_if_missing(true);
                 options.create_missing_column_families(true);
                 options.set_write_buffer_size(self.max_journaling_size as usize);
+                #[cfg(feature = "benchmark")]
+                if std::env::var("THINGD_BENCH_DURABILITY_PROFILE").as_deref() == Ok("common-fsync")
+                {
+                    options.set_use_fsync(true);
+                }
                 let names = [
                     "default",
                     "objects",
@@ -314,12 +337,19 @@ impl DatabaseBuilder {
                         .to_string(),
                 ));
             },
-            StorageBackend::ThingDb => Backend::ThingDb(
-                thingdb::Database::builder(&self.path)
-                    .max_journaling_size(self.max_journaling_size)
-                    .open()
-                    .map_err(|error| Error(error.to_string()))?,
-            ),
+            StorageBackend::ThingDb => {
+                let builder = thingdb::Database::builder(&self.path)
+                    .max_journaling_size(self.max_journaling_size);
+                #[cfg(feature = "benchmark")]
+                let builder = if std::env::var("THINGD_BENCH_DURABILITY_PROFILE").as_deref()
+                    == Ok("common-fsync")
+                {
+                    builder.benchmark_common_fsync()
+                } else {
+                    builder
+                };
+                Backend::ThingDb(builder.open().map_err(|error| Error(error.to_string()))?)
+            },
         };
         Ok(Database {
             db: Arc::new(backend),
@@ -338,9 +368,10 @@ impl Keyspace {
                 })?;
                 Ok(db.get_cf(cf, key.as_ref())?.map(Slice))
             },
-            Backend::ThingDb(db) => Ok(db
-                .keyspace(&self.name, thingdb::KeyspaceCreateOptions::default)
-                .map_err(|error| Error(error.to_string()))?
+            Backend::ThingDb(_) => Ok(self
+                .thingdb
+                .as_ref()
+                .ok_or_else(|| Error("missing ThingDB keyspace handle".to_string()))?
                 .get(key.as_ref())
                 .map_err(|error| Error(error.to_string()))?
                 .map(Slice)),
@@ -356,9 +387,10 @@ impl Keyspace {
                 })?;
                 Ok(db.get_cf(cf, key.as_ref())?.map(Arc::new))
             },
-            Backend::ThingDb(db) => Ok(db
-                .keyspace(&self.name, thingdb::KeyspaceCreateOptions::default)
-                .map_err(|error| Error(error.to_string()))?
+            Backend::ThingDb(_) => Ok(self
+                .thingdb
+                .as_ref()
+                .ok_or_else(|| Error("missing ThingDB keyspace handle".to_string()))?
                 .get_shared(key.as_ref())
                 .map_err(|error| Error(error.to_string()))?),
         }
@@ -429,10 +461,11 @@ impl Keyspace {
                 }
                 Ok(None)
             },
-            Backend::ThingDb(db) => {
-                let keyspace = db
-                    .keyspace(&self.name, thingdb::KeyspaceCreateOptions::default)
-                    .map_err(|error| Error(error.to_string()))?;
+            Backend::ThingDb(_) => {
+                let keyspace = self
+                    .thingdb
+                    .as_ref()
+                    .ok_or_else(|| Error("missing ThingDB keyspace handle".to_string()))?;
                 let entry = keyspace
                     .first_prefix_after(prefix, after)
                     .map_err(|error| Error(error.to_string()))?
@@ -461,8 +494,8 @@ impl Keyspace {
             Bound::Excluded(value) => Some((value.as_ref().to_vec(), false)),
             Bound::Unbounded => None,
         };
-        if let Backend::ThingDb(db) = self.db.as_ref()
-            && let Ok(keyspace) = db.keyspace(&self.name, thingdb::KeyspaceCreateOptions::default)
+        if let Backend::ThingDb(_) = self.db.as_ref()
+            && let Some(keyspace) = self.thingdb.as_ref()
         {
             let entries: Vec<_> = keyspace
                 .range_bounds(
@@ -537,11 +570,8 @@ impl Keyspace {
                     ))),
                 }],
             },
-            Backend::ThingDb(db) => match db
-                .keyspace(&self.name, thingdb::KeyspaceCreateOptions::default)
-                .map_err(|error| Error(error.to_string()))
-            {
-                Ok(keyspace) => {
+            Backend::ThingDb(_) => match self.thingdb.as_ref() {
+                Some(keyspace) => {
                     let iterator = match prefix {
                         Some(prefix) => keyspace.prefix(prefix),
                         None => keyspace.iter(),
@@ -554,10 +584,10 @@ impl Keyspace {
                         })
                         .collect()
                 },
-                Err(error) => vec![Guard {
+                None => vec![Guard {
                     key: Vec::new(),
                     value: Vec::new(),
-                    error: Some(error),
+                    error: Some(Error("missing ThingDB keyspace handle".to_string())),
                 }],
             },
         };
@@ -589,16 +619,40 @@ impl Batch {
         value: impl AsRef<[u8]>,
     ) {
         self.writes.push(BatchWrite {
+            #[cfg(feature = "rocksdb-backend")]
             keyspace: keyspace.name.clone(),
+            thingdb: keyspace.thingdb.clone(),
             key: key.as_ref().to_vec(),
             value: Some(value.as_ref().to_vec()),
         });
     }
 
+    pub(crate) fn insert_owned(&mut self, keyspace: &Keyspace, key: Vec<u8>, value: Vec<u8>) {
+        self.writes.push(BatchWrite {
+            #[cfg(feature = "rocksdb-backend")]
+            keyspace: keyspace.name.clone(),
+            thingdb: keyspace.thingdb.clone(),
+            key,
+            value: Some(value),
+        });
+    }
+
     pub(crate) fn remove(&mut self, keyspace: &Keyspace, key: impl AsRef<[u8]>) {
         self.writes.push(BatchWrite {
+            #[cfg(feature = "rocksdb-backend")]
             keyspace: keyspace.name.clone(),
+            thingdb: keyspace.thingdb.clone(),
             key: key.as_ref().to_vec(),
+            value: None,
+        });
+    }
+
+    pub(crate) fn remove_owned(&mut self, keyspace: &Keyspace, key: Vec<u8>) {
+        self.writes.push(BatchWrite {
+            #[cfg(feature = "rocksdb-backend")]
+            keyspace: keyspace.name.clone(),
+            thingdb: keyspace.thingdb.clone(),
+            key,
             value: None,
         });
     }
@@ -629,14 +683,14 @@ impl Batch {
                 db.write_opt(writes, &options).map_err(Error::from)
             },
             Backend::ThingDb(db) => {
-                let mut writes = db.batch();
+                let mut writes = db.batch_with_capacity(self.writes.len());
                 for operation in self.writes {
-                    let keyspace = db
-                        .keyspace(&operation.keyspace, thingdb::KeyspaceCreateOptions::default)
-                        .map_err(|error| Error(error.to_string()))?;
+                    let keyspace = operation
+                        .thingdb
+                        .ok_or_else(|| Error("missing ThingDB keyspace handle".to_string()))?;
                     writes = match operation.value {
-                        Some(value) => writes.put(&keyspace, operation.key, value),
-                        None => writes.delete(&keyspace, operation.key),
+                        Some(value) => writes.put_owned(&keyspace, operation.key, value),
+                        None => writes.delete_owned(&keyspace, operation.key),
                     };
                 }
                 writes.commit().map_err(|error| Error(error.to_string()))
@@ -648,6 +702,10 @@ impl Batch {
 impl Slice {
     pub(crate) fn to_vec(&self) -> Vec<u8> {
         self.0.clone()
+    }
+
+    pub(crate) fn into_vec(self) -> Vec<u8> {
+        self.0
     }
 }
 

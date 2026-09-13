@@ -645,6 +645,33 @@ pub trait QueueStore {
         }
     }
 
+    /// Claim and immediately complete up to `limit` jobs in one atomic batch.
+    ///
+    /// This operation is intended for consumers whose work is complete at
+    /// claim time. It has one durability boundary for the whole returned set;
+    /// use [`Self::claim_job`] followed by [`Self::ack_job`] when processing
+    /// must remain independently acknowledged per job.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the backing store cannot atomically claim and
+    /// complete the requested jobs.
+    fn claim_and_ack_batch(
+        &mut self,
+        queue: &str,
+        options: QueueClaimOptions,
+        limit: usize,
+    ) -> ThingdResult<Vec<QueueJob>> {
+        let mut completed = Vec::with_capacity(limit);
+        for _ in 0..limit {
+            let Some(job) = self.claim_and_ack(queue, options)? else {
+                break;
+            };
+            completed.push(job);
+        }
+        Ok(completed)
+    }
+
     /// Reject a leased job for retry or dead-letter routing.
     ///
     /// # Errors

@@ -17,6 +17,19 @@ thingd is a high-performance object-first data engine built for modern applicati
 
 thingd stores versioned JSON objects in collections, with built-in durable queues, append-only event streams, and full-text search — no stitching together separate infrastructure. The same API works in-memory, persisted locally, or connected to a remote sidecar.
 
+### Connector boundary
+
+Thingd connectors import data from external sources into Thingd. The public
+connector contract advertises `validate`, `discover`, `preview`, and `pull`
+operations. Thingd itself is fully read/write for its own objects, events,
+queues, links, vectors, and indexes, but public connectors do not edit the
+original external source.
+
+The public `google-sheets` connector reads a public Google Sheets CSV export
+URL. Authenticated Google Sheets OAuth access and writing rows back to a
+spreadsheet are Thingd Cloud responsibilities, where credentials, tenant
+permissions, approvals, auditing, retries, and conflict handling are managed.
+
 Native persistent storage optionally supports authenticated encryption through
 `THINGD_ENCRYPTION_KEY` (64 hexadecimal characters). Encrypted databases
 require the key on reopen and filesystem backups remain encrypted.

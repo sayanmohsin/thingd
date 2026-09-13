@@ -959,6 +959,16 @@ curl -X POST http://localhost:8757/v1/aggregate/timeseries \
 
 ## Connectors
 
+Connectors are external-source import adapters. They validate a source,
+discover its structure, preview rows, and pull rows into Thingd. This should
+not be confused with Thingd's own storage API: Thingd can create, update, and
+delete its internal objects, events, queues, links, and vectors.
+
+The public connector API does not write changes back to the original external
+provider. Provider-specific authenticated write-back—such as updating a
+Google Sheet through OAuth—is managed by Thingd Cloud and is outside this
+public REST connector contract.
+
 ### `GET /v1/connectors` — List available connectors
 
 Returns connector descriptors for the available connector types. Clients should
