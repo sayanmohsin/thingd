@@ -110,6 +110,26 @@ jobs:
           echo "LIBCLANG_PATH=$(brew --prefix llvm)/lib" >> "$GITHUB_ENV"
       - run: pnpm check:native-toolchain -- --json
 
+  thingdb-standalone:
+    name: Standalone ThingDB crate
+    if: "${{ github.event_name != 'push' || github.ref != 'refs/heads/main' || !startsWith(github.event.head_commit.message, 'chore(main): release') }}"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Check formatting
+        run: cargo fmt --all --check
+      - name: Test standalone crate
+        run: cargo test -p thingdb --all-targets
+      - name: Lint standalone crate
+        run: cargo clippy -p thingdb --all-targets -- -D warnings
+      - name: Build standalone rustdoc
+        env:
+          RUSTDOCFLAGS: -D warnings
+        run: cargo doc -p thingdb --all-features --no-deps
+      - name: Package and run an independent consumer
+        run: node scripts/test-thingdb-package.mjs
+
   # ── Rust runtime: fmt + clippy + test (parallel to node) ─
   rust:
     name: Rust (fmt, clippy, test)

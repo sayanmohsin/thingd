@@ -47,6 +47,7 @@
     "test:node": "pnpm --filter @thingd/sdk test",
     "verify:publish": "node scripts/verify-publish-artifacts.mjs",
     "test:publish-manifests": "node --test scripts/publish-manifest.test.mjs",
+    "test:thingdb-package": "node scripts/test-thingdb-package.mjs",
     "examples": "pnpm --filter \"thingd-node-basic-example\" start && pnpm --filter \"thingd-node-stream-example\" start && pnpm --filter \"thingd-node-queue-example\" start",
     "examples:load": "pnpm --filter \"thingd-node-load-example\" start",
     "examples:check": "pnpm --filter @thingd/sdk build && pnpm examples:check:built",
