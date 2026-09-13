@@ -123,6 +123,8 @@ struct QueueSnapshot {
     driver: String,
     repetition: usize,
     diagnostics: thingd::QueueDiagnostics,
+    wal_before: Option<thingdb::WalDiagnostics>,
+    wal_after: Option<thingdb::WalDiagnostics>,
 }
 
 #[derive(Debug, Serialize)]
@@ -1728,6 +1730,7 @@ fn bench_queue_diagnostics(
         )?,
         None => PersistentEngine::open_in_memory_with_backend(thingd::PersistentBackend::ThingDb)?,
     };
+    let wal_before = engine.wal_diagnostics()?;
     let jobs = (0..64)
         .map(|index| {
             QueueJob::new(
@@ -1751,6 +1754,8 @@ fn bench_queue_diagnostics(
         driver: name.to_string(),
         repetition: CURRENT_REPETITION.load(Ordering::Relaxed),
         diagnostics: engine.queue_diagnostics(),
+        wal_before,
+        wal_after: engine.wal_diagnostics()?,
     });
     Ok(())
 }
