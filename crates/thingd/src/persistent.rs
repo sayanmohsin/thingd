@@ -17,6 +17,10 @@ use std::sync::{
 use std::thread;
 use std::time::{Duration, Instant};
 
+const fn elapsed_nanos(duration: Duration) -> u128 {
+    duration.as_nanos()
+}
+
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -478,6 +482,8 @@ pub struct StorageValidationReport {
 pub struct QueueDiagnostics {
     /// Number of lease-index entries examined for expiration.
     pub lease_entries_examined: u64,
+    /// Number of ready-index entries examined while selecting jobs.
+    pub ready_entries_examined: u64,
     /// Number of stale ready or lease entries removed.
     pub stale_index_repairs: u64,
     /// Number of queue transitions committed atomically.
@@ -498,6 +504,12 @@ pub struct QueueDiagnostics {
     pub nack_duration_ns: u128,
     /// Total time spent in queue transitions, in nanoseconds.
     pub transition_duration_ns: u128,
+    /// Time spent looking up queue records and index entries, in nanoseconds.
+    pub lookup_duration_ns: u128,
+    /// Time spent decoding queue records, in nanoseconds.
+    pub deserialization_duration_ns: u128,
+    /// Time spent encoding queue records, in nanoseconds.
+    pub serialization_duration_ns: u128,
 }
 
 /// Selects the durable backend used by a persistent Thingd engine.
@@ -3917,14 +3929,25 @@ impl PersistentEngine {
             }
             let job_id = self.decode_queue_id(&lease_value)?;
             let queue_key = self.make_queue_key(queue, &job_id);
-            let Some(job_data) = value_to_vec(self.queue_jobs.get(&queue_key)?) else {
+            let lookup_started = Instant::now();
+            let job_data_result = self.queue_jobs.get(&queue_key);
+            self.queue_diagnostics.lookup_duration_ns = self
+                .queue_diagnostics
+                .lookup_duration_ns
+                .saturating_add(elapsed_nanos(lookup_started.elapsed()));
+            let Some(job_data) = value_to_vec(job_data_result?) else {
                 self.queue_diagnostics.stale_index_repairs =
                     self.queue_diagnostics.stale_index_repairs.saturating_add(1);
                 batch.remove_owned(&self.lease_jobs, lease_key);
                 operation_count = operation_count.saturating_add(1);
                 continue;
             };
+            let decode_started = Instant::now();
             let job: QueueJob = self.deserialize(&job_data)?;
+            self.queue_diagnostics.deserialization_duration_ns = self
+                .queue_diagnostics
+                .deserialization_duration_ns
+                .saturating_add(elapsed_nanos(decode_started.elapsed()));
             if job.status != QueueJobStatus::Leased
                 || job.lease_expires_at_ms.is_none_or(|expires| expires > now)
             {
@@ -3939,10 +3962,22 @@ impl PersistentEngine {
         }
 
         let mut after_key = None;
-        while let Some(kv) = self
-            .ready_jobs
-            .first_prefix_after(&ready_prefix, after_key.as_deref())?
-        {
+        loop {
+            let cursor_started = Instant::now();
+            let next = self
+                .ready_jobs
+                .first_prefix_after(&ready_prefix, after_key.as_deref())?;
+            self.queue_diagnostics.lookup_duration_ns = self
+                .queue_diagnostics
+                .lookup_duration_ns
+                .saturating_add(elapsed_nanos(cursor_started.elapsed()));
+            let Some(kv) = next else {
+                break;
+            };
+            self.queue_diagnostics.ready_entries_examined = self
+                .queue_diagnostics
+                .ready_entries_examined
+                .saturating_add(1);
             let (ready_key, value) = guard_data(kv)?;
             after_key = Some(ready_key.clone());
             let job_id = if value.is_empty() {
@@ -3956,14 +3991,25 @@ impl PersistentEngine {
                 self.decode_queue_id(&value)?
             };
             let queue_key = self.make_queue_key(queue, &job_id);
-            let Some(job_data) = value_to_vec(self.queue_jobs.get(&queue_key)?) else {
+            let lookup_started = Instant::now();
+            let job_data_result = self.queue_jobs.get(&queue_key);
+            self.queue_diagnostics.lookup_duration_ns = self
+                .queue_diagnostics
+                .lookup_duration_ns
+                .saturating_add(elapsed_nanos(lookup_started.elapsed()));
+            let Some(job_data) = value_to_vec(job_data_result?) else {
                 self.queue_diagnostics.stale_index_repairs =
                     self.queue_diagnostics.stale_index_repairs.saturating_add(1);
                 batch.remove_owned(&self.ready_jobs, ready_key);
                 operation_count = operation_count.saturating_add(1);
                 continue;
             };
+            let decode_started = Instant::now();
             let job: QueueJob = self.deserialize(&job_data)?;
+            self.queue_diagnostics.deserialization_duration_ns = self
+                .queue_diagnostics
+                .deserialization_duration_ns
+                .saturating_add(elapsed_nanos(decode_started.elapsed()));
             if job.status != QueueJobStatus::Ready {
                 self.queue_diagnostics.stale_index_repairs =
                     self.queue_diagnostics.stale_index_repairs.saturating_add(1);
@@ -4000,7 +4046,12 @@ impl PersistentEngine {
                 job.leased_at_ms = Some(now);
                 job.lease_expires_at_ms = Some(now + options.lease_ms as i64);
                 job.completed_at_ms = Some(now);
+                let encode_started = Instant::now();
                 let data = self.serialize(&job)?;
+                self.queue_diagnostics.serialization_duration_ns = self
+                    .queue_diagnostics
+                    .serialization_duration_ns
+                    .saturating_add(elapsed_nanos(encode_started.elapsed()));
                 batch.insert_owned(&self.queue_jobs, queue_key, data);
                 operation_count = operation_count.saturating_add(2);
                 completed.push(job);
@@ -4008,7 +4059,12 @@ impl PersistentEngine {
                 job.status = QueueJobStatus::Ready;
                 job.leased_at_ms = None;
                 job.lease_expires_at_ms = None;
+                let encode_started = Instant::now();
                 let data = self.serialize(&job)?;
+                self.queue_diagnostics.serialization_duration_ns = self
+                    .queue_diagnostics
+                    .serialization_duration_ns
+                    .saturating_add(elapsed_nanos(encode_started.elapsed()));
                 batch.insert_owned(&self.queue_jobs, queue_key, data);
                 batch.insert_owned(&self.ready_jobs, ready_key, Self::encode_queue_id(&job.id));
                 operation_count = operation_count.saturating_add(2);
@@ -4119,14 +4175,25 @@ impl QueueStore for PersistentEngine {
                 }
                 let job_id = self.decode_queue_id(&lease_value)?;
                 let qkey = self.make_queue_key(queue, &job_id);
-                let Some(job_data) = value_to_vec(self.queue_jobs.get(&qkey)?) else {
+                let lookup_started = Instant::now();
+                let job_data_result = self.queue_jobs.get(&qkey);
+                self.queue_diagnostics.lookup_duration_ns = self
+                    .queue_diagnostics
+                    .lookup_duration_ns
+                    .saturating_add(elapsed_nanos(lookup_started.elapsed()));
+                let Some(job_data) = value_to_vec(job_data_result?) else {
                     self.queue_diagnostics.stale_index_repairs =
                         self.queue_diagnostics.stale_index_repairs.saturating_add(1);
                     expiry_batch.remove(&self.lease_jobs, lease_key);
                     expiry_writes = true;
                     continue;
                 };
+                let decode_started = Instant::now();
                 let mut job: QueueJob = self.deserialize(&job_data)?;
+                self.queue_diagnostics.deserialization_duration_ns = self
+                    .queue_diagnostics
+                    .deserialization_duration_ns
+                    .saturating_add(elapsed_nanos(decode_started.elapsed()));
                 expiry_batch.remove(&self.lease_jobs, lease_key);
                 expiry_writes = true;
                 if job.status == QueueJobStatus::Leased
@@ -4135,7 +4202,12 @@ impl QueueStore for PersistentEngine {
                     job.status = QueueJobStatus::Ready;
                     job.leased_at_ms = None;
                     job.lease_expires_at_ms = None;
+                    let encode_started = Instant::now();
                     let data = self.serialize(&job)?;
+                    self.queue_diagnostics.serialization_duration_ns = self
+                        .queue_diagnostics
+                        .serialization_duration_ns
+                        .saturating_add(elapsed_nanos(encode_started.elapsed()));
                     let rkey =
                         self.make_ready_key(&job.queue, job.priority, &job.created_at, &job.id);
                     let rdata = Self::encode_queue_id(&job.id);
@@ -4159,10 +4231,22 @@ impl QueueStore for PersistentEngine {
             // ready job on each claim.
             let prefix = self.make_ready_prefix(queue);
             let mut after_key = None;
-            while let Some(kv) = self
-                .ready_jobs
-                .first_prefix_after(&prefix, after_key.as_deref())?
-            {
+            loop {
+                let cursor_started = Instant::now();
+                let next = self
+                    .ready_jobs
+                    .first_prefix_after(&prefix, after_key.as_deref())?;
+                self.queue_diagnostics.lookup_duration_ns = self
+                    .queue_diagnostics
+                    .lookup_duration_ns
+                    .saturating_add(elapsed_nanos(cursor_started.elapsed()));
+                let Some(kv) = next else {
+                    break;
+                };
+                self.queue_diagnostics.ready_entries_examined = self
+                    .queue_diagnostics
+                    .ready_entries_examined
+                    .saturating_add(1);
                 let (key, value) = guard_data(kv)?;
                 let job_id = if value.is_empty() {
                     let key_str = String::from_utf8_lossy(&key);
@@ -4178,7 +4262,13 @@ impl QueueStore for PersistentEngine {
 
                 // Read full job from queue_jobs
                 let qkey = self.make_queue_key(queue, &job_id);
-                let Some(job_data) = value_to_vec(self.queue_jobs.get(&qkey)?) else {
+                let lookup_started = Instant::now();
+                let job_data_result = self.queue_jobs.get(&qkey);
+                self.queue_diagnostics.lookup_duration_ns = self
+                    .queue_diagnostics
+                    .lookup_duration_ns
+                    .saturating_add(elapsed_nanos(lookup_started.elapsed()));
+                let Some(job_data) = value_to_vec(job_data_result?) else {
                     // Job record missing — remove stale index entry
                     after_key = Some(rkey.clone());
                     self.queue_diagnostics.stale_index_repairs =
@@ -4190,7 +4280,12 @@ impl QueueStore for PersistentEngine {
                         .map_err(|error| ThingdError::Storage(error.to_string()))?;
                     continue;
                 };
+                let decode_started = Instant::now();
                 let mut job: QueueJob = self.deserialize(&job_data)?;
+                self.queue_diagnostics.deserialization_duration_ns = self
+                    .queue_diagnostics
+                    .deserialization_duration_ns
+                    .saturating_add(elapsed_nanos(decode_started.elapsed()));
                 // Release expired lease if this job was previously leased
                 if job.status == QueueJobStatus::Leased
                     && job.lease_expires_at_ms.is_some_and(|exp| exp <= now)
@@ -4228,7 +4323,12 @@ impl QueueStore for PersistentEngine {
                     job.status = QueueJobStatus::Completed;
                     job.completed_at_ms = Some(now);
                 }
+                let encode_started = Instant::now();
                 let data = self.serialize(&job)?;
+                self.queue_diagnostics.serialization_duration_ns = self
+                    .queue_diagnostics
+                    .serialization_duration_ns
+                    .saturating_add(elapsed_nanos(encode_started.elapsed()));
                 let mut batch =
                     self.db
                         .batch_with_capacity(if acknowledge_immediately { 2 } else { 3 });
@@ -4294,15 +4394,31 @@ impl QueueStore for PersistentEngine {
         let started = Instant::now();
         let result = (|| {
             let key = self.make_queue_key(queue, id);
-            match value_to_vec(self.queue_jobs.get(&key)?) {
+            let lookup_started = Instant::now();
+            let job_data_result = self.queue_jobs.get(&key);
+            self.queue_diagnostics.lookup_duration_ns = self
+                .queue_diagnostics
+                .lookup_duration_ns
+                .saturating_add(elapsed_nanos(lookup_started.elapsed()));
+            match value_to_vec(job_data_result?) {
                 Some(data) => {
+                    let decode_started = Instant::now();
                     let mut job: QueueJob = self.deserialize(&data)?;
+                    self.queue_diagnostics.deserialization_duration_ns = self
+                        .queue_diagnostics
+                        .deserialization_duration_ns
+                        .saturating_add(elapsed_nanos(decode_started.elapsed()));
                     if job.status != QueueJobStatus::Leased {
                         return Ok(None);
                     }
                     job.status = QueueJobStatus::Completed;
                     job.completed_at_ms = Some(unix_timestamp_millis());
+                    let encode_started = Instant::now();
                     let new_data = self.serialize(&job)?;
+                    self.queue_diagnostics.serialization_duration_ns = self
+                        .queue_diagnostics
+                        .serialization_duration_ns
+                        .saturating_add(elapsed_nanos(encode_started.elapsed()));
                     let mut batch = self.db.batch_with_capacity(2);
                     batch.insert_owned(&self.queue_jobs, key, new_data);
                     if let Some(expires_at_ms) = job.lease_expires_at_ms {
@@ -6875,6 +6991,11 @@ mod tests {
                 .count(),
             0
         );
+        let diagnostics = engine.queue_diagnostics();
+        assert!(diagnostics.ready_entries_examined >= 1);
+        assert!(diagnostics.lookup_duration_ns > 0);
+        assert!(diagnostics.deserialization_duration_ns > 0);
+        assert!(diagnostics.serialization_duration_ns > 0);
     }
 
     #[test]
