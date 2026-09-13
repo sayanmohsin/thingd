@@ -2,7 +2,8 @@
 
 `thingd` uses Release Please to calculate versions and create release PRs. Merging
 the release PR tags and publishes four npm packages (`@thingd/sdk`, `@thingd/cli`,
-`@thingd/native`, and `@thingd/client`) plus the Rust crate.
+`@thingd/native`, and `@thingd/client`) plus the Rust crates `thingd` and the
+experimental, standalone `thingdb` crate.
 
 The current version shown in the Rust dependency example below is read from the
 root `package.json` during the VitePress build. Release Please keeps that value,
@@ -90,7 +91,12 @@ The npm package is configured with npm provenance enabled through `publishConfig
 
 ## crates.io Publishing
 
-On every release, the workflow publishes `thingd` to [crates.io](https://crates.io/crates/thingd). The Rust crate version is kept in sync with the npm packages by Release Please.
+On every release, the workflow publishes `thingd` to [crates.io](https://crates.io/crates/thingd)
+and validates and publishes the experimental standalone
+[`thingdb`](https://crates.io/crates/thingdb) crate. Both Rust crate versions are
+kept in sync with the npm packages by Release Please. `thingdb` has no RocksDB
+or native C/C++ dependency and is a separate-format 0.x crate; its durable
+format and API are not stable before 1.0.
 
 ```toml
 [dependencies]
