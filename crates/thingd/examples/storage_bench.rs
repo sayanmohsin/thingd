@@ -1027,39 +1027,7 @@ where
     report(name, "event_list_limit100", 1, elapsed);
 
     let queue_iterations = queue_iterations.unwrap_or(iterations).min(iterations);
-    let elapsed = time_queue_pushes(&mut store, queue_iterations)?;
-    report(name, "queue_push", queue_iterations, elapsed);
-
-    let elapsed = time_queue_push_batch(&mut store, queue_iterations)?;
-    report(name, "queue_batch", queue_iterations, elapsed);
-
-    let elapsed = time_queue_pushes_on_queue(&mut store, QUEUE_COMPONENTS, queue_iterations)?;
-    report(name, "queue_component_push", queue_iterations, elapsed);
-
-    let (elapsed, claimed_ids) =
-        time_queue_claim_only(&mut store, QUEUE_COMPONENTS, queue_iterations)?;
-    report(name, "queue_claim_only", queue_iterations, elapsed);
-
-    let elapsed = time_queue_ack_only(&mut store, QUEUE_COMPONENTS, &claimed_ids)?;
-    report(name, "queue_ack_only", claimed_ids.len(), elapsed);
-
-    let elapsed = time_queue_pushes_on_queue(&mut store, QUEUE_BATCH, queue_iterations)?;
-    report(name, "queue_atomic_batch_setup", queue_iterations, elapsed);
-
-    let (elapsed, completed) =
-        time_queue_claim_and_ack_batch(&mut store, QUEUE_BATCH, queue_iterations)?;
-    report(name, "queue_atomic_batch", completed, elapsed);
-
-    let elapsed = time_queue_claims_and_acks(&mut store, queue_iterations)?;
-    report(
-        name,
-        "queue_sequential_claim_ack",
-        queue_iterations,
-        elapsed,
-    );
-
-    let elapsed = time_queue_claim_and_ack(&mut store, queue_iterations)?;
-    report(name, "queue_atomic_claim_ack", queue_iterations, elapsed);
+    bench_queue_workloads(name, &mut store, queue_iterations)?;
 
     time_search_benchmarks(name, &store)?;
     time_vector_benchmarks(name, &mut store, iterations)?;
@@ -1072,6 +1040,50 @@ where
     report(name, "object_delete", iterations, elapsed);
 
     println!();
+    Ok(())
+}
+
+fn bench_queue_workloads<S>(
+    name: &str,
+    store: &mut S,
+    queue_iterations: usize,
+) -> Result<(), Box<dyn Error>>
+where
+    S: QueueStore,
+{
+    let elapsed = time_queue_pushes(store, queue_iterations)?;
+    report(name, "queue_push", queue_iterations, elapsed);
+
+    let elapsed = time_queue_push_batch(store, queue_iterations)?;
+    report(name, "queue_batch", queue_iterations, elapsed);
+
+    let elapsed = time_queue_pushes_on_queue(store, QUEUE_COMPONENTS, queue_iterations)?;
+    report(name, "queue_component_push", queue_iterations, elapsed);
+
+    let (elapsed, claimed_ids) = time_queue_claim_only(store, QUEUE_COMPONENTS, queue_iterations)?;
+    report(name, "queue_claim_only", queue_iterations, elapsed);
+
+    let elapsed = time_queue_ack_only(store, QUEUE_COMPONENTS, &claimed_ids)?;
+    report(name, "queue_ack_only", claimed_ids.len(), elapsed);
+
+    let elapsed = time_queue_pushes_on_queue(store, QUEUE_BATCH, queue_iterations)?;
+    report(name, "queue_atomic_batch_setup", queue_iterations, elapsed);
+
+    let (elapsed, completed) =
+        time_queue_claim_and_ack_batch(store, QUEUE_BATCH, queue_iterations)?;
+    report(name, "queue_atomic_batch", completed, elapsed);
+
+    let elapsed = time_queue_claims_and_acks(store, queue_iterations)?;
+    report(
+        name,
+        "queue_sequential_claim_ack",
+        queue_iterations,
+        elapsed,
+    );
+
+    let elapsed = time_queue_claim_and_ack(store, queue_iterations)?;
+    report(name, "queue_atomic_claim_ack", queue_iterations, elapsed);
+
     Ok(())
 }
 

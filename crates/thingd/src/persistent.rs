@@ -3880,6 +3880,8 @@ impl EventLog for PersistentEngine {
 
 // ── QueueStore ───────────────────────────────────────────────────────────────
 
+type QueueBatchCandidate = (Vec<u8>, Vec<u8>, Option<Vec<u8>>, QueueJob);
+
 impl PersistentEngine {
     /// Complete ready queue jobs in one atomic storage batch.
     ///
@@ -3899,12 +3901,12 @@ impl PersistentEngine {
 
         let now = unix_timestamp_millis();
         let ready_prefix = self.make_ready_prefix(queue);
-        let mut candidates: Vec<(Vec<u8>, Vec<u8>, Option<Vec<u8>>, QueueJob)> = Vec::new();
+        let mut candidates: Vec<QueueBatchCandidate> = Vec::new();
         let mut expired = Vec::new();
         let mut batch = self.db.batch_with_capacity(limit.saturating_mul(4));
         let mut operation_count = 0_u64;
 
-        for kv in self.lease_jobs.prefix(&self.make_lease_prefix(queue)) {
+        for kv in self.lease_jobs.prefix(self.make_lease_prefix(queue)) {
             self.queue_diagnostics.lease_entries_examined = self
                 .queue_diagnostics
                 .lease_entries_examined
