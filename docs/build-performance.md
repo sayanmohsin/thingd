@@ -76,6 +76,10 @@ native RocksDB build. ThingDB-only Rust builds can use the additive
 `thingdb-backend` feature and do not compile `librocksdb-sys`; the compatibility
 `persistent` feature continues to enable both durable backends.
 
+The standalone [`thingdb`](https://crates.io/crates/thingdb) crate has no
+RocksDB, libclang, or C/C++ build requirement. Its low-level API is documented
+in the [ThingDB API contract](./api-spec/thingdb.md).
+
 Docker binary compilation starts after the release tag is available and does
 not wait for npm publication. Publication jobs remain independently gated by
 their own credentials and verification steps.

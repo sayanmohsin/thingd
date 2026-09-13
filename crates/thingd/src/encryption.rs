@@ -83,6 +83,9 @@ pub(crate) struct StorageCrypto {
 /// Internal codec boundary shared by persistent storage adapters.
 pub(crate) trait StorageCodec: Send + Sync {
     fn encode_value(&self, domain: &str, value: &[u8]) -> ThingdResult<Vec<u8>>;
+    fn encode_value_owned(&self, domain: &str, value: Vec<u8>) -> ThingdResult<Vec<u8>> {
+        self.encode_value(domain, &value)
+    }
     fn decode_value(&self, domain: &str, value: &[u8]) -> ThingdResult<Vec<u8>>;
     fn encode_key(&self, domain: &str, key: &[u8]) -> Vec<u8>;
     fn encode_scoped_key(&self, domain: &str, namespace: &[u8], suffix: &[u8]) -> Vec<u8>;
@@ -95,6 +98,10 @@ pub(crate) struct RawStorageCodec;
 impl StorageCodec for RawStorageCodec {
     fn encode_value(&self, _domain: &str, value: &[u8]) -> ThingdResult<Vec<u8>> {
         Ok(value.to_vec())
+    }
+
+    fn encode_value_owned(&self, _domain: &str, value: Vec<u8>) -> ThingdResult<Vec<u8>> {
+        Ok(value)
     }
 
     fn decode_value(&self, _domain: &str, value: &[u8]) -> ThingdResult<Vec<u8>> {

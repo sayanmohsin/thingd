@@ -1,0 +1,94 @@
+name: Durable benchmark
+
+on:
+  workflow_dispatch:
+    inputs:
+      iterations:
+        description: "Logical records/workload iterations"
+        required: true
+        default: "1000"
+        type: string
+      repetitions:
+        description: "Number of complete repetitions"
+        required: true
+        default: "5"
+        type: string
+      durability_profile:
+        description: "native-sync for production evidence, common-fsync for diagnostics"
+        required: true
+        default: native-sync
+        type: choice
+        options:
+          - native-sync
+          - common-fsync
+
+concurrency:
+  group: durable-benchmark-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+  CARGO_TERM_COLOR: always
+
+jobs:
+  run:
+    name: Durable ThingDB/RocksDB comparison
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          package-manager-cache: false
+
+      - name: Install native build tools
+        run: sudo apt-get update && sudo apt-get install -y clang llvm libclang-dev
+
+      - name: Run reliability preflight and benchmark
+        env:
+          ITERATIONS: ${{ inputs.iterations }}
+          REPETITIONS: ${{ inputs.repetitions }}
+          DURABILITY_PROFILE: ${{ inputs.durability_profile }}
+        run: |
+          set -euo pipefail
+          phase="durable-${DURABILITY_PROFILE}-${ITERATIONS}x${REPETITIONS}"
+          cargo run --release -p thingd --example storage_bench \
+            --features persistent,search,benchmark -- \
+            --iterations "${ITERATIONS}" \
+            --repetitions "${REPETITIONS}" \
+            --seed 42 \
+            --backend durable \
+            --reliability \
+            --qualification \
+            --durability-profile "${DURABILITY_PROFILE}" \
+            --phase "${phase}" \
+            --output target/durable-benchmark.json \
+            --history target/durable-benchmark-history.jsonl
+
+      - name: Validate benchmark metadata
+        env:
+          DURABLE_BENCH_ITERATIONS: ${{ inputs.iterations }}
+          DURABLE_BENCH_REPETITIONS: ${{ inputs.repetitions }}
+        run: |
+          node scripts/check-durable-benchmark.mjs target/durable-benchmark.json
+
+      - name: Upload structured benchmark results
+        uses: actions/upload-artifact@v7
+        with:
+          name: durable-benchmark-${{ github.run_id }}
+          path: |
+            target/durable-benchmark.json
+            target/durable-benchmark-history.jsonl
+          if-no-files-found: error

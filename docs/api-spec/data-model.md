@@ -254,7 +254,11 @@ Authentication credentials for external database connectors.
 
 Connector types are advertised dynamically by `GET /v1/connectors`; current
 built-ins include `file`, `excel`, `google-sheets`, `postgres`, and `mysql`.
-Clients must use the returned descriptors rather than hardcoding this list.
+These public connectors are read/import adapters. The public `google-sheets`
+connector reads a public CSV export URL; it does not authenticate to or write
+back to a spreadsheet. Authenticated Google Sheets OAuth and external
+write-back are Cloud-owned capabilities. Clients must use the returned
+descriptors rather than hardcoding this list.
 
 ### ColumnAnnotation
 

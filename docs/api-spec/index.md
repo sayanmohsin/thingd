@@ -26,6 +26,7 @@ not add Cloud tenancy or authentication to the open-source engine.
 - [Search](search.md) — Tantivy query syntax, filters, scoring
 - [Errors](errors.md) — error codes, HTTP mapping, MCP error format
 - [Replication](replication.md) — provider-neutral Thingd-to-Thingd synchronization
+- [Standalone ThingDB](thingdb.md) — low-level Rust keyspace and durability API
 
 ## Architecture
 

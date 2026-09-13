@@ -103,6 +103,7 @@ export default defineConfig({
           { text: "Data Model", link: "/api-spec/data-model" },
           { text: "MCP Tools", link: "/api-spec/mcp-tools" },
           { text: "Replication", link: "/api-spec/replication" },
+          { text: "Standalone ThingDB", link: "/api-spec/thingdb" },
           { text: "Search", link: "/api-spec/search" },
           { text: "Errors", link: "/api-spec/errors" },
         ],

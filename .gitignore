@@ -42,6 +42,7 @@ thingd-*.tgz
 # ── Scratch / temp files ──
 scratch/
 test*.mjs
+!scripts/test-thingdb-package.mjs
 tmp/
 
 # ── TypeScript build info ──

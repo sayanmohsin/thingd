@@ -3,6 +3,7 @@
 [![npm downloads (SDK)](https://img.shields.io/npm/dm/@thingd/sdk?label=SDK&logo=npm&color=ff6a00)](https://www.npmjs.com/package/@thingd/sdk)
 [![npm downloads (CLI)](https://img.shields.io/npm/dm/@thingd/cli?label=CLI&logo=npm&color=ff6a00)](https://www.npmjs.com/package/@thingd/cli)
 [![Crates.io](https://img.shields.io/crates/v/thingd?label=engine&logo=rust&color=ff6a00)](https://crates.io/crates/thingd)
+[![ThingDB](https://img.shields.io/crates/v/thingdb?label=ThingDB&logo=rust&color=ff6a00)](https://crates.io/crates/thingdb)
 [![Docker pulls](https://img.shields.io/docker/pulls/sayanmohsin/thingd?label=Docker&logo=docker&color=ff6a00)](https://hub.docker.com/r/sayanmohsin/thingd)
 [![GitHub stars](https://img.shields.io/github/stars/sayanmohsin/thingd?label=Stars&logo=github&color=ff6a00)](https://github.com/sayanmohsin/thingd)
 
@@ -17,6 +18,19 @@ thingd is a high-performance object-first data engine built for modern applicati
 
 thingd stores versioned JSON objects in collections, with built-in durable queues, append-only event streams, and full-text search — no stitching together separate infrastructure. The same API works in-memory, persisted locally, or connected to a remote sidecar.
 
+### Connector boundary
+
+Thingd connectors import data from external sources into Thingd. The public
+connector contract advertises `validate`, `discover`, `preview`, and `pull`
+operations. Thingd itself is fully read/write for its own objects, events,
+queues, links, vectors, and indexes, but public connectors do not edit the
+original external source.
+
+The public `google-sheets` connector reads a public Google Sheets CSV export
+URL. Authenticated Google Sheets OAuth access and writing rows back to a
+spreadsheet are Thingd Cloud responsibilities, where credentials, tenant
+permissions, approvals, auditing, retries, and conflict handling are managed.
+
 Native persistent storage optionally supports authenticated encryption through
 `THINGD_ENCRYPTION_KEY` (64 hexadecimal characters). Encrypted databases
 require the key on reopen and filesystem backups remain encrypted.
@@ -26,6 +40,9 @@ backend guide](./docs/storage-backends.md) and [benchmark guide](./docs/benchmar
 RocksDB remains the default durable backend. ThingDB is an experimental,
 opt-in Rust-native backend with a separate format; it is evaluated against
 RocksDB and the in-memory reference engine using the unified benchmark.
+ThingDB is also available as an experimental standalone low-level Rust crate
+for ordered keyspaces, atomic batches, snapshots, RAM storage, and its
+experimental durable format. See the [standalone ThingDB API contract](./docs/api-spec/thingdb.md).
 
 ## Status
 

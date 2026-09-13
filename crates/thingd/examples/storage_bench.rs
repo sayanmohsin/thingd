@@ -5,6 +5,9 @@
 //!   `THINGD_BENCH_ITERS=10000` cargo run --example `storage_bench` --release --features persistent,search
 //!   Add `--reliability` to run the correctness and isolation preflight.
 //!   Add `--qualification` to run durable reopen, compaction, repack, and validation checks.
+//!   `--durability-profile native-sync` records the verified production sync profile.
+//!   The RAM concurrency section includes a benchmark-only RCU probe; it does not
+//!   change the `ThingDB` RAM implementation.
 
 #![allow(unused_crate_dependencies)]
 
@@ -15,12 +18,15 @@ use std::fs;
 use std::hint::black_box;
 use std::io::Write as IoWrite;
 use std::path::{Path, PathBuf};
+#[cfg(feature = "benchmark")]
+use std::process::Command;
 use std::sync::{
     Arc, Barrier, Mutex,
     atomic::{AtomicU64, AtomicUsize, Ordering},
 };
 use std::time::{Duration, Instant};
 
+use arc_swap::ArcSwap;
 use serde::Serialize;
 use thingd::{
     EncryptionConfig, EventLog, ListEventsOptions, ListObjectsOptions, MemoryEngine, MemoryEvent,
@@ -35,6 +41,8 @@ const DEFAULT_ITERATIONS: usize = 5_000;
 const DEFAULT_MEMTABLE_BYTES: u64 = 8 * 1024 * 1024;
 const COLLECTION: &str = "bench_objects";
 const QUEUE: &str = "bench_queue";
+const QUEUE_COMPONENTS: &str = "bench_queue_components";
+const QUEUE_BATCH: &str = "bench_queue_batch";
 const STREAM: &str = "bench:events";
 
 const OBJECT_BODY_ACTIVE: &str =
@@ -46,6 +54,7 @@ const EVENT_BODY: &str = r#"{"text":"benchmark event","project":"thingd","actor"
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum BackendSelection {
     All,
+    Durable,
     InMemory,
     ThingDbMemory,
     RocksDb,
@@ -66,6 +75,7 @@ struct BenchConfig {
     reliability: bool,
     qualification: bool,
     queue_iterations: Option<usize>,
+    durability_profile: String,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -101,6 +111,7 @@ struct BenchOutput {
     metadata: BenchMetadata,
     results: Vec<BenchResult>,
     summaries: Vec<BenchSummary>,
+    comparisons: Vec<BenchComparison>,
     storage: Vec<StorageSnapshot>,
     wal: Vec<WalSnapshot>,
     ram: Vec<RamSnapshot>,
@@ -113,6 +124,8 @@ struct QueueSnapshot {
     driver: String,
     repetition: usize,
     diagnostics: thingd::QueueDiagnostics,
+    wal_before: Option<thingdb::WalDiagnostics>,
+    wal_after: Option<thingdb::WalDiagnostics>,
 }
 
 #[derive(Debug, Serialize)]
@@ -134,6 +147,19 @@ struct BenchSummary {
     minimum_throughput_ops_per_second: u128,
     maximum_throughput_ops_per_second: u128,
     spread_throughput_ops_per_second: u128,
+}
+
+#[derive(Debug, Serialize)]
+struct BenchComparison {
+    reference_driver: String,
+    candidate_driver: String,
+    operation: String,
+    reference_repetitions: usize,
+    candidate_repetitions: usize,
+    reference_median_throughput_ops_per_second: u128,
+    candidate_median_throughput_ops_per_second: u128,
+    candidate_percent_of_reference_basis_points: u128,
+    complete: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -172,6 +198,9 @@ struct BenchMetadata {
     peak_rss_status: String,
     cpu_time_ns: Option<u64>,
     cpu_time_status: String,
+    durability_profile: String,
+    search_mode: String,
+    qualification_status: String,
     cpu_model: String,
     filesystem: String,
 }
@@ -184,6 +213,23 @@ static CPU_TIME_NS: AtomicU64 = AtomicU64::new(0);
 #[allow(clippy::too_many_lines)]
 fn main() -> Result<(), Box<dyn Error>> {
     let config = BenchConfig::from_args()?;
+    #[cfg(feature = "benchmark")]
+    // The storage adapter intentionally reads this benchmark-only setting
+    // without adding a public runtime option. Re-exec with the CLI-selected
+    // value so recorded metadata and actual backend behavior cannot diverge,
+    // while avoiding unsafe process-global environment mutation.
+    if env::var("THINGD_BENCH_DURABILITY_PROFILE").ok().as_deref()
+        != Some(config.durability_profile.as_str())
+    {
+        let status = Command::new(env::current_exe()?)
+            .args(env::args_os().skip(1))
+            .env(
+                "THINGD_BENCH_DURABILITY_PROFILE",
+                &config.durability_profile,
+            )
+            .status()?;
+        std::process::exit(status.code().unwrap_or(1));
+    }
     RESULTS
         .set(Mutex::new(BenchOutput {
             metadata: BenchMetadata {
@@ -207,11 +253,15 @@ fn main() -> Result<(), Box<dyn Error>> {
                 peak_rss_status: "pending".to_string(),
                 cpu_time_ns: None,
                 cpu_time_status: "pending".to_string(),
+                durability_profile: config.durability_profile.clone(),
+                search_mode: benchmark_search_mode(),
+                qualification_status: "pending".to_string(),
                 cpu_model: cpu_model(),
                 filesystem: filesystem_type(),
             },
             results: Vec::new(),
             summaries: Vec::new(),
+            comparisons: Vec::new(),
             storage: Vec::new(),
             wal: Vec::new(),
             ram: Vec::new(),
@@ -275,15 +325,12 @@ fn main() -> Result<(), Box<dyn Error>> {
             bench_queue_diagnostics("thingdb-memory", None, config.seed)?;
         }
 
-        if config.backend.includes(BackendSelection::ThingDb)
-            || config.backend.includes(BackendSelection::ThingDbMemory)
-            || config.backend.includes(BackendSelection::Cache)
-        {
+        if config.backend.includes(BackendSelection::Cache) {
             record_memory_storage("thingdb-cache");
             bench_cache("thingdb-cache", iterations, config.seed)?;
         }
 
-        if config.backend.includes(BackendSelection::RocksDb) {
+        if config.backend.includes_rocksdb() {
             let dir = tempfile::tempdir()?;
             let persistent_options =
                 benchmark_persistent_options(thingd::PersistentBackend::RocksDb);
@@ -309,7 +356,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             )?;
         }
 
-        if config.backend.includes(BackendSelection::ThingDb) {
+        if config.backend.includes_thingdb() {
             let thingdb_dir = tempfile::tempdir()?;
             let thingdb_options = benchmark_persistent_options(thingd::PersistentBackend::ThingDb);
             let thingdb_engine =
@@ -346,7 +393,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             )?;
         }
 
-        if config.backend.includes(BackendSelection::RocksDb) {
+        if config.backend.includes_rocksdb() {
             let conc_dir = tempfile::tempdir()?;
             let persistent_options =
                 benchmark_persistent_options(thingd::PersistentBackend::RocksDb);
@@ -363,7 +410,19 @@ fn main() -> Result<(), Box<dyn Error>> {
             )?;
         }
 
-        if config.backend.includes(BackendSelection::ThingDb) {
+        if config.backend.includes_thingdb_memory() {
+            bench_concurrent(
+                "thingdb-memory",
+                || {
+                    Ok(PersistentEngine::open_in_memory_with_backend(
+                        thingd::PersistentBackend::ThingDb,
+                    )?)
+                },
+                iterations,
+            )?;
+        }
+
+        if config.backend.includes_thingdb() {
             let thingdb_conc_dir = tempfile::tempdir()?;
             let thingdb_options = benchmark_persistent_options(thingd::PersistentBackend::ThingDb);
             bench_concurrent(
@@ -377,18 +436,9 @@ fn main() -> Result<(), Box<dyn Error>> {
                 },
                 iterations,
             )?;
-            bench_concurrent(
-                "thingdb-memory",
-                || {
-                    Ok(PersistentEngine::open_in_memory_with_backend(
-                        thingd::PersistentBackend::ThingDb,
-                    )?)
-                },
-                iterations,
-            )?;
         }
 
-        if config.backend.includes(BackendSelection::RocksDb) {
+        if config.backend.includes_rocksdb() {
             let encrypted_dir = tempfile::tempdir()?;
             let encrypted_options = PersistentOpenOptions {
                 backend: thingd::PersistentBackend::RocksDb,
@@ -407,7 +457,26 @@ fn main() -> Result<(), Box<dyn Error>> {
             record_storage("persistent-encrypted", encrypted_dir.path());
         }
 
-        if config.backend.includes(BackendSelection::RocksDb) {
+        if config.backend.includes_thingdb() {
+            let encrypted_dir = tempfile::tempdir()?;
+            let encrypted_options = PersistentOpenOptions {
+                backend: thingd::PersistentBackend::ThingDb,
+                encryption: Some(EncryptionConfig::from_key(&[0x42_u8; 32])?),
+                ..PersistentOpenOptions::default()
+            };
+            let encrypted_engine =
+                PersistentEngine::open_with_options(encrypted_dir.path(), encrypted_options)?;
+            bench_store(
+                "thingdb-experimental-encrypted",
+                encrypted_engine,
+                iterations,
+                config.seed,
+                config.queue_iterations,
+            )?;
+            record_storage("thingdb-experimental-encrypted", encrypted_dir.path());
+        }
+
+        if config.backend.includes_rocksdb() {
             let encrypted_conc_dir = tempfile::tempdir()?;
             let encrypted_options = PersistentOpenOptions {
                 backend: thingd::PersistentBackend::RocksDb,
@@ -426,12 +495,19 @@ fn main() -> Result<(), Box<dyn Error>> {
             )?;
         }
 
-        if config.backend == BackendSelection::ThingDbMemory {
+        if config.backend.includes_thingdb() {
+            let encrypted_conc_dir = tempfile::tempdir()?;
+            let encrypted_options = PersistentOpenOptions {
+                backend: thingd::PersistentBackend::ThingDb,
+                encryption: Some(EncryptionConfig::from_key(&[0x42_u8; 32])?),
+                ..PersistentOpenOptions::default()
+            };
             bench_concurrent(
-                "thingdb-memory",
+                "thingdb-experimental-encrypted",
                 || {
-                    Ok(PersistentEngine::open_in_memory_with_backend(
-                        thingd::PersistentBackend::ThingDb,
+                    Ok(PersistentEngine::open_with_options(
+                        encrypted_conc_dir.path(),
+                        encrypted_options.clone(),
                     )?)
                 },
                 iterations,
@@ -459,9 +535,9 @@ fn main() -> Result<(), Box<dyn Error>> {
 }
 
 fn benchmark_persistent_options(backend: thingd::PersistentBackend) -> PersistentOpenOptions {
-    let search_mode = match env::var("THINGD_BENCH_SEARCH_MODE").as_deref() {
-        Ok("disabled") => thingd::PersistentSearchMode::Disabled,
-        Ok("persistent-no-rebuild") => thingd::PersistentSearchMode::PersistentNoRebuild,
+    let search_mode = match benchmark_search_mode().as_str() {
+        "disabled" => thingd::PersistentSearchMode::Disabled,
+        "persistent-no-rebuild" => thingd::PersistentSearchMode::PersistentNoRebuild,
         _ => thingd::PersistentSearchMode::Persistent,
     };
     PersistentOpenOptions {
@@ -469,6 +545,10 @@ fn benchmark_persistent_options(backend: thingd::PersistentBackend) -> Persisten
         search_mode,
         ..PersistentOpenOptions::default()
     }
+}
+
+fn benchmark_search_mode() -> String {
+    env::var("THINGD_BENCH_SEARCH_MODE").unwrap_or_else(|_| "persistent".to_string())
 }
 
 #[allow(clippy::too_many_lines)]
@@ -736,6 +816,8 @@ impl BenchConfig {
         let mut queue_iterations: Option<usize> = env::var("THINGD_BENCH_QUEUE_ITERS")
             .ok()
             .and_then(|value| value.parse().ok());
+        let mut durability_profile = env::var("THINGD_BENCH_DURABILITY_PROFILE")
+            .unwrap_or_else(|_| "native-sync".to_string());
         let mut positional_iterations = None;
         let mut args = env::args().skip(1);
         while let Some(argument) = args.next() {
@@ -756,9 +838,13 @@ impl BenchConfig {
                 "--queue-iterations" => {
                     queue_iterations = Some(value("--queue-iterations")?.parse()?);
                 },
+                "--durability-profile" => {
+                    durability_profile = value("--durability-profile")?;
+                },
                 "--backend" => {
                     backend = match value("--backend")?.as_str() {
                         "all" => BackendSelection::All,
+                        "durable" => BackendSelection::Durable,
                         "memory" => BackendSelection::InMemory,
                         "rocksdb" => BackendSelection::RocksDb,
                         "thingdb" => BackendSelection::ThingDb,
@@ -776,6 +862,16 @@ impl BenchConfig {
         if let Some(value) = positional_iterations {
             iterations = value;
         }
+        let common_fsync_requested = durability_profile == "common-fsync";
+        if durability_profile != "native-sync"
+            && !(common_fsync_requested && cfg!(feature = "benchmark"))
+        {
+            return Err(format!(
+                "unsupported durability profile {durability_profile:?}; use native-sync or build with the benchmark feature for common-fsync"
+            )
+                .into());
+        }
+        validate_benchmark_config(qualification, queue_iterations)?;
         Ok(Self {
             iterations,
             repetitions: repetitions.max(1),
@@ -788,8 +884,22 @@ impl BenchConfig {
             reliability,
             qualification,
             queue_iterations: queue_iterations.map(|value| value.max(1)),
+            durability_profile,
         })
     }
+}
+
+fn validate_benchmark_config(
+    qualification: bool,
+    queue_iterations: Option<usize>,
+) -> Result<(), Box<dyn Error>> {
+    if qualification && queue_iterations.is_some() {
+        return Err(
+            "--queue-iterations cannot be combined with --qualification; reduced queue runs are exploratory only"
+                .into(),
+        );
+    }
+    Ok(())
 }
 
 impl BackendSelection {
@@ -798,12 +908,21 @@ impl BackendSelection {
     }
 
     fn includes_thingdb_memory(self) -> bool {
-        self.includes(Self::ThingDb) || self.includes(Self::ThingDbMemory)
+        self.includes(Self::ThingDbMemory)
+    }
+
+    const fn includes_rocksdb(self) -> bool {
+        matches!(self, Self::All | Self::Durable | Self::RocksDb)
+    }
+
+    const fn includes_thingdb(self) -> bool {
+        matches!(self, Self::All | Self::Durable | Self::ThingDb)
     }
 
     const fn name(self) -> &'static str {
         match self {
             Self::All => "all",
+            Self::Durable => "durable",
             Self::InMemory => "memory",
             Self::ThingDbMemory => "thingdb-memory",
             Self::RocksDb => "rocksdb",
@@ -908,17 +1027,7 @@ where
     report(name, "event_list_limit100", 1, elapsed);
 
     let queue_iterations = queue_iterations.unwrap_or(iterations).min(iterations);
-    let elapsed = time_queue_pushes(&mut store, queue_iterations)?;
-    report(name, "queue_push", queue_iterations, elapsed);
-
-    let elapsed = time_queue_push_batch(&mut store, queue_iterations)?;
-    report(name, "queue_batch", queue_iterations, elapsed);
-
-    let elapsed = time_queue_claims_and_acks(&mut store, queue_iterations)?;
-    report(name, "queue_claim_ack", queue_iterations, elapsed);
-
-    let elapsed = time_queue_claim_and_ack(&mut store, queue_iterations)?;
-    report(name, "queue_claim_ack2", queue_iterations, elapsed);
+    bench_queue_workloads(name, &mut store, queue_iterations)?;
 
     time_search_benchmarks(name, &store)?;
     time_vector_benchmarks(name, &mut store, iterations)?;
@@ -931,6 +1040,50 @@ where
     report(name, "object_delete", iterations, elapsed);
 
     println!();
+    Ok(())
+}
+
+fn bench_queue_workloads<S>(
+    name: &str,
+    store: &mut S,
+    queue_iterations: usize,
+) -> Result<(), Box<dyn Error>>
+where
+    S: QueueStore,
+{
+    let elapsed = time_queue_pushes(store, queue_iterations)?;
+    report(name, "queue_push", queue_iterations, elapsed);
+
+    let elapsed = time_queue_push_batch(store, queue_iterations)?;
+    report(name, "queue_batch", queue_iterations, elapsed);
+
+    let elapsed = time_queue_pushes_on_queue(store, QUEUE_COMPONENTS, queue_iterations)?;
+    report(name, "queue_component_push", queue_iterations, elapsed);
+
+    let (elapsed, claimed_ids) = time_queue_claim_only(store, QUEUE_COMPONENTS, queue_iterations)?;
+    report(name, "queue_claim_only", queue_iterations, elapsed);
+
+    let elapsed = time_queue_ack_only(store, QUEUE_COMPONENTS, &claimed_ids)?;
+    report(name, "queue_ack_only", claimed_ids.len(), elapsed);
+
+    let elapsed = time_queue_pushes_on_queue(store, QUEUE_BATCH, queue_iterations)?;
+    report(name, "queue_atomic_batch_setup", queue_iterations, elapsed);
+
+    let (elapsed, completed) =
+        time_queue_claim_and_ack_batch(store, QUEUE_BATCH, queue_iterations)?;
+    report(name, "queue_atomic_batch", completed, elapsed);
+
+    let elapsed = time_queue_claims_and_acks(store, queue_iterations)?;
+    report(
+        name,
+        "queue_sequential_claim_ack",
+        queue_iterations,
+        elapsed,
+    );
+
+    let elapsed = time_queue_claim_and_ack(store, queue_iterations)?;
+    report(name, "queue_atomic_claim_ack", queue_iterations, elapsed);
+
     Ok(())
 }
 
@@ -1190,6 +1343,8 @@ fn bench_thingdb_concurrent_writes(
     }
     report(name, "wal-concurrent-write", completed, started.elapsed());
 
+    bench_raw_queue_claim_ack(name, &path.join("queue-group-commit"), iterations, seed)?;
+
     let before_reopen = db.wal_diagnostics()?;
     drop(keyspace);
     drop(db);
@@ -1202,6 +1357,75 @@ fn bench_thingdb_concurrent_writes(
         repetition: CURRENT_REPETITION.load(Ordering::Relaxed),
         diagnostics: WalDiagnosticsSnapshot::merge(before_reopen, after_reopen),
     });
+    Ok(())
+}
+
+fn bench_raw_queue_claim_ack(
+    name: &str,
+    path: &Path,
+    iterations: usize,
+    seed: u64,
+) -> Result<(), Box<dyn Error>> {
+    let db = thingdb::Database::open(path)?;
+    let queue_jobs = db.keyspace("queue_jobs", thingdb::KeyspaceCreateOptions::default)?;
+    let ready_jobs = db.keyspace("ready_jobs", thingdb::KeyspaceCreateOptions::default)?;
+    let lease_jobs = db.keyspace("lease_jobs", thingdb::KeyspaceCreateOptions::default)?;
+    let workers = iterations.clamp(1, 16);
+    let per_worker = iterations.div_ceil(workers);
+    let mut initial = db.batch_with_capacity(per_worker.saturating_mul(workers).saturating_mul(2));
+    for worker in 0..workers {
+        for offset in 0..per_worker {
+            let id = format!("{seed}-{worker}-{offset}");
+            initial = initial.put(&queue_jobs, id.as_bytes(), b"ready").put(
+                &ready_jobs,
+                id.as_bytes(),
+                id.as_bytes(),
+            );
+        }
+    }
+    initial.commit()?;
+
+    let barrier = Arc::new(Barrier::new(workers));
+    let started = Instant::now();
+    let handles: Vec<_> = (0..workers)
+        .map(|worker| {
+            let db = db.clone();
+            let queue_jobs = queue_jobs.clone();
+            let ready_jobs = ready_jobs.clone();
+            let lease_jobs = lease_jobs.clone();
+            let barrier = Arc::clone(&barrier);
+            std::thread::spawn(move || -> thingdb::Result<usize> {
+                barrier.wait();
+                let mut completed = 0;
+                for offset in 0..per_worker {
+                    let id = format!("{seed}-{worker}-{offset}");
+                    db.batch_with_capacity(3)
+                        .delete(&ready_jobs, id.as_bytes())
+                        .put(&queue_jobs, id.as_bytes(), b"leased")
+                        .put(&lease_jobs, id.as_bytes(), b"lease")
+                        .commit()?;
+                    db.batch_with_capacity(2)
+                        .put(&queue_jobs, id.as_bytes(), b"completed")
+                        .delete(&lease_jobs, id.as_bytes())
+                        .commit()?;
+                    completed += 1;
+                }
+                Ok(completed)
+            })
+        })
+        .collect();
+    let mut completed = 0;
+    for handle in handles {
+        completed += handle
+            .join()
+            .map_err(|_| "ThingDB concurrent queue worker panicked")??;
+    }
+    report(
+        name,
+        "wal-concurrent-queue-claim-ack-raw",
+        completed,
+        started.elapsed(),
+    );
     Ok(())
 }
 
@@ -1372,10 +1596,16 @@ impl WalDiagnosticsSnapshot {
 }
 
 fn run_correctness_smoke(seed: u64) -> Result<(), Box<dyn Error>> {
-    for backend in [
-        thingd::PersistentBackend::RocksDb,
-        thingd::PersistentBackend::ThingDb,
-    ] {
+    #[cfg(feature = "rocksdb-backend")]
+    let backends = {
+        let mut backends = vec![thingd::PersistentBackend::ThingDb];
+        backends.insert(0, thingd::PersistentBackend::RocksDb);
+        backends
+    };
+    #[cfg(not(feature = "rocksdb-backend"))]
+    let backends = vec![thingd::PersistentBackend::ThingDb];
+
+    for backend in backends {
         let directory = tempfile::tempdir()?;
         let options = PersistentOpenOptions {
             backend,
@@ -1470,6 +1700,7 @@ fn run_reliability_preflight(seed: u64) -> Result<(), Box<dyn Error>> {
 }
 
 #[allow(clippy::too_many_lines)]
+#[cfg(feature = "rocksdb-backend")]
 fn run_durable_qualification(seed: u64) -> Result<(), Box<dyn Error>> {
     for (source_backend, destination_backend) in [
         (
@@ -1578,6 +1809,11 @@ fn run_durable_qualification(seed: u64) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+#[cfg(not(feature = "rocksdb-backend"))]
+fn run_durable_qualification(_seed: u64) -> Result<(), Box<dyn Error>> {
+    Err("durable cross-backend qualification requires the rocksdb-backend feature".into())
+}
+
 fn bench_queue_diagnostics(
     name: &str,
     path: Option<&Path>,
@@ -1590,6 +1826,7 @@ fn bench_queue_diagnostics(
         )?,
         None => PersistentEngine::open_in_memory_with_backend(thingd::PersistentBackend::ThingDb)?,
     };
+    let wal_before = engine.wal_diagnostics()?;
     let jobs = (0..64)
         .map(|index| {
             QueueJob::new(
@@ -1613,6 +1850,8 @@ fn bench_queue_diagnostics(
         driver: name.to_string(),
         repetition: CURRENT_REPETITION.load(Ordering::Relaxed),
         diagnostics: engine.queue_diagnostics(),
+        wal_before,
+        wal_after: engine.wal_diagnostics()?,
     });
     Ok(())
 }
@@ -1797,6 +2036,7 @@ const fn percentile(samples: &[u128], percentile: usize) -> u128 {
     samples[index]
 }
 
+#[allow(clippy::too_many_lines)]
 fn update_summaries() {
     let mut output = results().lock().unwrap();
     let mut grouped = std::collections::BTreeMap::<(String, String), Vec<u128>>::new();
@@ -1829,6 +2069,82 @@ fn update_summaries() {
             }
         })
         .collect();
+
+    let summary_by_key = output
+        .summaries
+        .iter()
+        .map(|summary| {
+            (
+                (summary.driver.as_str(), summary.operation.as_str()),
+                summary,
+            )
+        })
+        .collect::<std::collections::BTreeMap<_, _>>();
+    let comparison_pairs = [
+        ("persistent", "thingdb-experimental"),
+        ("persistent-encrypted", "thingdb-experimental-encrypted"),
+    ];
+    let configured_repetitions = output.metadata.repetitions;
+    let mut comparisons = Vec::new();
+    for (reference_driver, candidate_driver) in comparison_pairs {
+        for candidate in &output.summaries {
+            if candidate.driver != candidate_driver {
+                continue;
+            }
+            let Some(reference) =
+                summary_by_key.get(&(reference_driver, candidate.operation.as_str()))
+            else {
+                continue;
+            };
+            let reference_throughput = reference.median_throughput_ops_per_second;
+            let candidate_throughput = candidate.median_throughput_ops_per_second;
+            let complete = reference.repetitions == candidate.repetitions
+                && candidate.repetitions == configured_repetitions
+                && output.metadata.queue_iterations.is_none();
+            let candidate_percent_basis_points = if reference_throughput == 0 {
+                0
+            } else {
+                candidate_throughput
+                    .saturating_mul(10_000)
+                    .saturating_div(reference_throughput)
+            };
+            comparisons.push(BenchComparison {
+                reference_driver: reference_driver.to_string(),
+                candidate_driver: candidate_driver.to_string(),
+                operation: candidate.operation.clone(),
+                reference_repetitions: reference.repetitions,
+                candidate_repetitions: candidate.repetitions,
+                reference_median_throughput_ops_per_second: reference_throughput,
+                candidate_median_throughput_ops_per_second: candidate_throughput,
+                candidate_percent_of_reference_basis_points: candidate_percent_basis_points,
+                complete,
+            });
+        }
+    }
+    output.comparisons = comparisons;
+    println!("\nThingDB vs RocksDB median throughput (unencrypted and encrypted pairs)");
+    for comparison in &output.comparisons {
+        println!(
+            "{:<34} | {:<30} {:>8} ops/s | {:<24} {:>8} ops/s | {:>7} | reps {}/{} | {}",
+            comparison.operation,
+            comparison.candidate_driver,
+            comparison.candidate_median_throughput_ops_per_second,
+            comparison.reference_driver,
+            comparison.reference_median_throughput_ops_per_second,
+            format_percent(comparison.candidate_percent_of_reference_basis_points),
+            comparison.candidate_repetitions,
+            comparison.reference_repetitions,
+            if comparison.complete {
+                "complete"
+            } else {
+                "incomplete"
+            },
+        );
+    }
+}
+
+fn format_percent(basis_points: u128) -> String {
+    format!("{}.{:02}%", basis_points / 100, basis_points % 100)
 }
 
 const fn deterministic_index(seed: u64, index: usize, count: usize) -> usize {
@@ -1867,14 +2183,18 @@ where
         }
     }
 
+    // ObjectStore currently exposes mutating operations through `&mut self`,
+    // so this adapter-level probe must not be presented as engine concurrency.
+    // The raw keyspace and WAL-coordinator probes below measure concurrency
+    // without this outer semantic lock.
     for &threads in &[1, 2, 4, 8] {
         let (elapsed, actual) = measure_concurrent_reads(&shared, iterations, threads);
-        let label = format!("concurrent_read_{threads}t");
+        let label = format!("semantic_serialized_read_{threads}t");
         report(name, &label, actual, elapsed);
     }
 
     let (elapsed, actual) = measure_lock_contention(&shared, iterations);
-    report(name, "contention_4r1w", actual, elapsed);
+    report(name, "semantic_serialized_contention_4r1w", actual, elapsed);
 
     println!();
     Ok(())
@@ -1940,7 +2260,116 @@ fn bench_raw_thingdb_concurrency(iterations: usize) -> Result<(), Box<dyn Error>
         readers * 5,
         started.elapsed(),
     );
+
+    bench_rcu_probe(iterations);
+    #[cfg(feature = "benchmark")]
+    bench_thingdb_rcu_storage(iterations)?;
     Ok(())
+}
+
+#[cfg(feature = "benchmark")]
+fn bench_thingdb_rcu_storage(iterations: usize) -> Result<(), Box<dyn Error>> {
+    let db = thingdb::Database::in_memory_with_rcu()?;
+    let keyspace = Arc::new(db.keyspace("bench", KeyspaceCreateOptions::default)?);
+    let mut batch = db.batch_with_capacity(iterations);
+    for index in 0..iterations {
+        let key = format!("object-{index}").into_bytes();
+        batch = batch.put_owned(&keyspace, key, OBJECT_BODY_ACTIVE.as_bytes().to_vec());
+    }
+    batch.commit()?;
+
+    for &threads in &[1, 2, 4, 8] {
+        let ops_per_thread = iterations / threads;
+        let started = Instant::now();
+        std::thread::scope(|scope| {
+            for thread in 0..threads {
+                let keyspace = Arc::clone(&keyspace);
+                scope.spawn(move || {
+                    for offset in 0..ops_per_thread {
+                        let index = thread * ops_per_thread + offset;
+                        let key = format!("object-{index}");
+                        black_box(keyspace.get(key.as_bytes()).unwrap());
+                    }
+                });
+            }
+        });
+        report(
+            "thingdb-memory-rcu",
+            &format!("semantic_concurrent_read_{threads}t"),
+            ops_per_thread * threads,
+            started.elapsed(),
+        );
+    }
+    Ok(())
+}
+
+/// Benchmark-only read-copy-update probe. This intentionally does not replace
+/// `ThingDB`'s RAM implementation: it measures whether immutable generations
+/// are worth pursuing before any semantic storage change is attempted.
+fn bench_rcu_probe(iterations: usize) {
+    let mut initial = std::collections::HashMap::with_capacity(iterations);
+    for index in 0..iterations {
+        initial.insert(
+            format!("object-{index}").into_bytes(),
+            Arc::new(OBJECT_BODY_ACTIVE.as_bytes().to_vec()),
+        );
+    }
+    let state = Arc::new(ArcSwap::from_pointee(initial));
+
+    for &threads in &[1, 2, 4, 8] {
+        let ops_per_thread = iterations / threads;
+        let started = Instant::now();
+        std::thread::scope(|scope| {
+            for thread in 0..threads {
+                let state = Arc::clone(&state);
+                scope.spawn(move || {
+                    for offset in 0..ops_per_thread {
+                        let index = thread * ops_per_thread + offset;
+                        let key = format!("object-{index}").into_bytes();
+                        let snapshot = state.load();
+                        black_box(snapshot.get(&key));
+                    }
+                });
+            }
+        });
+        report(
+            "thingdb-memory",
+            &format!("raw_concurrent_read_rcu_{threads}t"),
+            ops_per_thread * threads,
+            started.elapsed(),
+        );
+    }
+
+    let readers = iterations / 5;
+    let started = Instant::now();
+    std::thread::scope(|scope| {
+        for thread in 0..4 {
+            let state = Arc::clone(&state);
+            scope.spawn(move || {
+                for offset in 0..readers {
+                    let index = thread * readers + offset;
+                    let key = format!("object-{index}").into_bytes();
+                    let snapshot = state.load();
+                    black_box(snapshot.get(&key));
+                }
+            });
+        }
+        let state = Arc::clone(&state);
+        scope.spawn(move || {
+            for index in 0..readers {
+                let key = format!("contention-{index}").into_bytes();
+                let mut next = (*state.load_full()).clone();
+                next.insert(key, Arc::new(OBJECT_BODY_INACTIVE.as_bytes().to_vec()));
+                state.store(Arc::new(next));
+            }
+        });
+    });
+    report(
+        "thingdb-memory",
+        "raw_contention_rcu_4r1w",
+        readers * 5,
+        started.elapsed(),
+    );
 }
 
 fn time_object_puts<S>(store: &mut S, iterations: usize) -> Result<Duration, Box<dyn Error>>
@@ -2058,15 +2487,73 @@ fn time_queue_pushes<S>(store: &mut S, iterations: usize) -> Result<Duration, Bo
 where
     S: QueueStore,
 {
+    time_queue_pushes_on_queue(store, QUEUE, iterations)
+}
+
+fn time_queue_pushes_on_queue<S>(
+    store: &mut S,
+    queue: &str,
+    iterations: usize,
+) -> Result<Duration, Box<dyn Error>>
+where
+    S: QueueStore,
+{
     let started = Instant::now();
 
     for index in 0..iterations {
-        let job = QueueJob::new(QUEUE, format!("job-{index}"), format!("payload-{index}"), 3);
+        let job = QueueJob::new(queue, format!("job-{index}"), format!("payload-{index}"), 3);
         let stored = store.push_job(job)?;
         black_box(stored.status);
     }
 
     Ok(started.elapsed())
+}
+
+fn time_queue_claim_only<S>(
+    store: &mut S,
+    queue: &str,
+    iterations: usize,
+) -> Result<(Duration, Vec<String>), Box<dyn Error>>
+where
+    S: QueueStore,
+{
+    let started = Instant::now();
+    let mut ids = Vec::with_capacity(iterations);
+    for _ in 0..iterations {
+        if let Some(job) = store.claim_job(queue)? {
+            ids.push(job.id);
+        }
+    }
+    Ok((started.elapsed(), ids))
+}
+
+fn time_queue_ack_only<S>(
+    store: &mut S,
+    queue: &str,
+    ids: &[String],
+) -> Result<Duration, Box<dyn Error>>
+where
+    S: QueueStore,
+{
+    let started = Instant::now();
+    for id in ids {
+        black_box(store.ack_job(queue, id)?);
+    }
+    Ok(started.elapsed())
+}
+
+fn time_queue_claim_and_ack_batch<S>(
+    store: &mut S,
+    queue: &str,
+    limit: usize,
+) -> Result<(Duration, usize), Box<dyn Error>>
+where
+    S: QueueStore,
+{
+    let started = Instant::now();
+    let completed = store.claim_and_ack_batch(queue, QueueClaimOptions::default(), limit)?;
+    black_box(completed.len());
+    Ok((started.elapsed(), completed.len()))
 }
 
 fn time_queue_push_batch<S>(store: &mut S, iterations: usize) -> Result<Duration, Box<dyn Error>>
@@ -2530,6 +3017,14 @@ fn write_output(path: &Path) -> Result<(), Box<dyn Error>> {
                 Some(nanos)
             },
         };
+        output.metadata.qualification_status = if output.metadata.queue_iterations.is_some() {
+            "incomplete: queue workload was reduced; exploratory evidence only".to_string()
+        } else if output.metadata.peak_rss_bytes.is_some() && output.metadata.cpu_time_ns.is_some()
+        {
+            "complete: RSS and CPU measurements available".to_string()
+        } else {
+            "incomplete: RSS and/or CPU measurement unavailable".to_string()
+        };
     }
     if let Some(parent) = path
         .parent()
@@ -2541,7 +3036,7 @@ fn write_output(path: &Path) -> Result<(), Box<dyn Error>> {
         let csv = {
             let output = results().lock().unwrap();
             let mut csv = String::from(
-                "date,phase,branch,commit,rust,os,arch,cpu_model,filesystem,iterations,repetitions,seed,backend,peak_rss_bytes,peak_rss_status,cpu_time_ns,cpu_time_status,repetition,driver,operation,operations,total_ns,throughput_ops_per_second,min_ns,p50_ns,p95_ns,p99_ns,max_ns,latency_sampled,error_count\n",
+                "date,phase,branch,commit,rust,os,arch,cpu_model,filesystem,iterations,repetitions,seed,backend,peak_rss_bytes,peak_rss_status,cpu_time_ns,cpu_time_status,durability_profile,search_mode,qualification_status,repetition,driver,operation,operations,total_ns,throughput_ops_per_second,min_ns,p50_ns,p95_ns,p99_ns,max_ns,latency_sampled,error_count\n",
             );
             for result in &output.results {
                 let fields = [
@@ -2562,6 +3057,9 @@ fn write_output(path: &Path) -> Result<(), Box<dyn Error>> {
                     csv_escape(&output.metadata.peak_rss_status),
                     option_csv_u64(output.metadata.cpu_time_ns),
                     csv_escape(&output.metadata.cpu_time_status),
+                    csv_escape(&output.metadata.durability_profile),
+                    csv_escape(&output.metadata.search_mode),
+                    csv_escape(&output.metadata.qualification_status),
                     result.repetition.to_string(),
                     csv_escape(&result.driver),
                     csv_escape(&result.operation),
@@ -2623,7 +3121,7 @@ fn option_csv_u64(value: Option<u64>) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{option_csv, parse_process_duration_ns};
+    use super::{option_csv, parse_process_duration_ns, validate_benchmark_config};
 
     #[test]
     fn parses_process_cpu_time_without_floating_point_rounding() {
@@ -2638,5 +3136,12 @@ mod tests {
     fn leaves_unsampled_percentiles_empty_in_csv() {
         assert_eq!(option_csv(None), "");
         assert_eq!(option_csv(Some(42)), "42");
+    }
+
+    #[test]
+    fn rejects_reduced_queue_qualification() {
+        assert!(validate_benchmark_config(true, Some(1)).is_err());
+        assert!(validate_benchmark_config(true, None).is_ok());
+        assert!(validate_benchmark_config(false, Some(1)).is_ok());
     }
 }

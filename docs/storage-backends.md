@@ -56,6 +56,10 @@ directly. Switching between formats is a logical repack, not a file rename.
 Keep RocksDB as the default until the experimental backend passes the
 large-store durability and performance gates.
 
+ThingDB can also be consumed independently of Thingd as the low-level
+`thingdb` Rust crate. See the [standalone ThingDB API contract](./api-spec/thingdb.md)
+for its keyspace, batch, scan, snapshot, recovery, and `MemoryCache` APIs.
+
 ## ThingDB development phase
 
 Durable ThingDB is in **Phase 5: scale and performance validation**. The 1K
@@ -91,9 +95,11 @@ snapshot. The current implementation still keeps substantial state in memory.
 Phase 2 validates old-versus-new manifest recovery, table rename boundaries,
 temporary artifact cleanup, manifest path safety, and directory durability.
 Phase 3 added explicit mutable-table byte accounting and a bounded automatic
-flush boundary. A successful write still waits for its WAL sync and any
-required flush before acknowledgement; a failed post-sync flush requires
-reopen and recovery rather than allowing ambiguous in-memory state.
+flush boundary. A normal successful write waits for its WAL sync and state
+application before acknowledgement; table flushing may continue in the
+background. Explicit persistence requests and hard backpressure may wait for
+maintenance. A failed post-sync flush requires reopen and recovery rather than
+allowing ambiguous in-memory state.
 Phase 4 retained table paths and sorted key indexes instead of loading table
 values into the active write state during open. Point reads seek the newest
 matching layer first; scans and compaction materialize a merged view with

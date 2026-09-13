@@ -4,11 +4,13 @@
 // unreachable from outside the crate, so we allow the lint.
 #![allow(unreachable_pub)]
 
+#[cfg(feature = "rocksdb-backend")]
+use crate::ListEventsOptions;
 use crate::store::*;
 use crate::{
-    IndexDefinition, Link, LinkDirection, LinkQueryOptions, ListEventsOptions, ListObjectsOptions,
-    MemoryEvent, MemoryObject, MigrationRecord, PutObjectOptions, QueueClaimOptions, QueueJob,
-    QueueJobStatus, QueueNackOptions, SearchOptions, StoredSchema,
+    IndexDefinition, Link, LinkDirection, LinkQueryOptions, ListObjectsOptions, MemoryEvent,
+    MemoryObject, MigrationRecord, PutObjectOptions, QueueClaimOptions, QueueJob, QueueJobStatus,
+    QueueNackOptions, SearchOptions, StoredSchema,
 };
 #[cfg(feature = "vectors")]
 use crate::{VectorSearchHit, VectorSearchOptions};
@@ -269,6 +271,7 @@ pub fn test_contract_event_idempotency(engine: &mut impl ThingStore) {
 /// Timestamps and backend-specific search scores are intentionally excluded so
 /// the digest compares semantics rather than clock or indexing implementation
 /// details.
+#[cfg(feature = "rocksdb-backend")]
 pub fn run_differential_scenario(
     engine: &mut impl ThingStore,
 ) -> crate::ThingdResult<serde_json::Value> {
