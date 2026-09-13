@@ -41,6 +41,7 @@ const DEFAULT_ITERATIONS: usize = 5_000;
 const DEFAULT_MEMTABLE_BYTES: u64 = 8 * 1024 * 1024;
 const COLLECTION: &str = "bench_objects";
 const QUEUE: &str = "bench_queue";
+const QUEUE_COMPONENTS: &str = "bench_queue_components";
 const STREAM: &str = "bench:events";
 
 const OBJECT_BODY_ACTIVE: &str =
@@ -1028,6 +1029,16 @@ where
 
     let elapsed = time_queue_push_batch(&mut store, queue_iterations)?;
     report(name, "queue_batch", queue_iterations, elapsed);
+
+    let elapsed = time_queue_pushes_on_queue(&mut store, QUEUE_COMPONENTS, queue_iterations)?;
+    report(name, "queue_component_push", queue_iterations, elapsed);
+
+    let (elapsed, claimed_ids) =
+        time_queue_claim_only(&mut store, QUEUE_COMPONENTS, queue_iterations)?;
+    report(name, "queue_claim_only", queue_iterations, elapsed);
+
+    let elapsed = time_queue_ack_only(&mut store, QUEUE_COMPONENTS, &claimed_ids)?;
+    report(name, "queue_ack_only", claimed_ids.len(), elapsed);
 
     let elapsed = time_queue_claims_and_acks(&mut store, queue_iterations)?;
     report(name, "queue_claim_ack", queue_iterations, elapsed);
@@ -2375,14 +2386,58 @@ fn time_queue_pushes<S>(store: &mut S, iterations: usize) -> Result<Duration, Bo
 where
     S: QueueStore,
 {
+    time_queue_pushes_on_queue(store, QUEUE, iterations)
+}
+
+fn time_queue_pushes_on_queue<S>(
+    store: &mut S,
+    queue: &str,
+    iterations: usize,
+) -> Result<Duration, Box<dyn Error>>
+where
+    S: QueueStore,
+{
     let started = Instant::now();
 
     for index in 0..iterations {
-        let job = QueueJob::new(QUEUE, format!("job-{index}"), format!("payload-{index}"), 3);
+        let job = QueueJob::new(queue, format!("job-{index}"), format!("payload-{index}"), 3);
         let stored = store.push_job(job)?;
         black_box(stored.status);
     }
 
+    Ok(started.elapsed())
+}
+
+fn time_queue_claim_only<S>(
+    store: &mut S,
+    queue: &str,
+    iterations: usize,
+) -> Result<(Duration, Vec<String>), Box<dyn Error>>
+where
+    S: QueueStore,
+{
+    let started = Instant::now();
+    let mut ids = Vec::with_capacity(iterations);
+    for _ in 0..iterations {
+        if let Some(job) = store.claim_job(queue)? {
+            ids.push(job.id);
+        }
+    }
+    Ok((started.elapsed(), ids))
+}
+
+fn time_queue_ack_only<S>(
+    store: &mut S,
+    queue: &str,
+    ids: &[String],
+) -> Result<Duration, Box<dyn Error>>
+where
+    S: QueueStore,
+{
+    let started = Instant::now();
+    for id in ids {
+        black_box(store.ack_job(queue, id)?);
+    }
     Ok(started.elapsed())
 }
 
