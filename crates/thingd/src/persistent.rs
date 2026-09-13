@@ -1337,7 +1337,7 @@ impl PersistentEngine {
                 && let Some(expires_at_ms) = job.lease_expires_at_ms
             {
                 let key = self.make_lease_key(&job.queue, expires_at_ms, &job.id);
-                let data = Self::encode_queue_id(&job.id);
+                let data = self.encode_queue_id(&job.id)?;
                 batch.insert(&self.lease_jobs, key, data);
             }
         }
@@ -1919,13 +1919,13 @@ impl PersistentEngine {
                         &job.created_at,
                         &job.id,
                     );
-                    let ready_data = Self::encode_queue_id(&job.id);
+                    let ready_data = destination.encode_queue_id(&job.id)?;
                     destination.ready_jobs.insert(&ready_key, &ready_data)?;
                 } else if job.status == QueueJobStatus::Leased
                     && let Some(expires_at_ms) = job.lease_expires_at_ms
                 {
                     let lease_key = destination.make_lease_key(&job.queue, expires_at_ms, &job.id);
-                    let lease_data = Self::encode_queue_id(&job.id);
+                    let lease_data = destination.encode_queue_id(&job.id)?;
                     destination.lease_jobs.insert(&lease_key, &lease_data)?;
                 }
             }
@@ -2225,16 +2225,25 @@ impl PersistentEngine {
         serde_json::from_slice(&data).map_err(|e| ThingdError::Storage(e.to_string()))
     }
 
-    fn encode_queue_id(id: &str) -> Vec<u8> {
+    fn encode_queue_id(&self, id: &str) -> ThingdResult<Vec<u8>> {
+        if self.codec.encrypted() {
+            return self.codec.encode_value("queue_index_id", id.as_bytes());
+        }
         let mut encoded = Vec::with_capacity(RAW_QUEUE_ID_PREFIX.len() + id.len());
         encoded.extend_from_slice(RAW_QUEUE_ID_PREFIX);
         encoded.extend_from_slice(id.as_bytes());
-        encoded
+        Ok(encoded)
     }
 
     fn decode_queue_id(&self, value: &[u8]) -> ThingdResult<String> {
         if let Some(raw_id) = value.strip_prefix(RAW_QUEUE_ID_PREFIX) {
             return String::from_utf8(raw_id.to_vec())
+                .map_err(|error| ThingdError::Storage(error.to_string()));
+        }
+        if self.codec.encrypted()
+            && let Ok(decoded) = self.codec.decode_value("queue_index_id", value)
+        {
+            return String::from_utf8(decoded)
                 .map_err(|error| ThingdError::Storage(error.to_string()));
         }
         self.deserialize(value)
@@ -4066,7 +4075,7 @@ impl PersistentEngine {
                     .serialization_duration_ns
                     .saturating_add(elapsed_nanos(encode_started.elapsed()));
                 batch.insert_owned(&self.queue_jobs, queue_key, data);
-                batch.insert_owned(&self.ready_jobs, ready_key, Self::encode_queue_id(&job.id));
+                batch.insert_owned(&self.ready_jobs, ready_key, self.encode_queue_id(&job.id)?);
                 operation_count = operation_count.saturating_add(2);
             }
         }
@@ -4098,7 +4107,7 @@ impl QueueStore for PersistentEngine {
         batch.insert_owned(&self.queue_jobs, key, data);
         if job.status == QueueJobStatus::Ready {
             let rkey = self.make_ready_key(&job.queue, job.priority, &job.created_at, &job.id);
-            let rdata = Self::encode_queue_id(&job.id);
+            let rdata = self.encode_queue_id(&job.id)?;
             batch.insert_owned(&self.ready_jobs, rkey, rdata);
         }
         batch
@@ -4130,7 +4139,7 @@ impl QueueStore for PersistentEngine {
             batch.insert_owned(&self.queue_jobs, key, data);
             if job.status == QueueJobStatus::Ready {
                 let rkey = self.make_ready_key(&job.queue, job.priority, &job.created_at, &job.id);
-                let rdata = Self::encode_queue_id(&job.id);
+                let rdata = self.encode_queue_id(&job.id)?;
                 batch.insert_owned(&self.ready_jobs, rkey, rdata);
             }
             results.push(job);
@@ -4210,7 +4219,7 @@ impl QueueStore for PersistentEngine {
                         .saturating_add(elapsed_nanos(encode_started.elapsed()));
                     let rkey =
                         self.make_ready_key(&job.queue, job.priority, &job.created_at, &job.id);
-                    let rdata = Self::encode_queue_id(&job.id);
+                    let rdata = self.encode_queue_id(&job.id)?;
                     expiry_batch.insert(&self.queue_jobs, &qkey, &data);
                     expiry_batch.insert(&self.ready_jobs, &rkey, &rdata);
                 }
@@ -4340,7 +4349,7 @@ impl QueueStore for PersistentEngine {
                         job.lease_expires_at_ms.unwrap_or_default(),
                         &job.id,
                     );
-                    let lease_value = Self::encode_queue_id(&job.id);
+                    let lease_value = self.encode_queue_id(&job.id)?;
                     batch.insert_owned(&self.lease_jobs, lease_key, lease_value);
                 }
                 batch
@@ -4493,7 +4502,7 @@ impl QueueStore for PersistentEngine {
                     if !is_dead {
                         let rkey =
                             self.make_ready_key(&job.queue, job.priority, &job.created_at, &job.id);
-                        let rdata = Self::encode_queue_id(&job.id);
+                        let rdata = self.encode_queue_id(&job.id)?;
                         batch.insert_owned(&self.ready_jobs, rkey, rdata);
                     }
 
@@ -6261,7 +6270,8 @@ mod tests {
                 assert!(
                     !bytes
                         .windows(identifier.len())
-                        .any(|w| w == identifier.as_bytes())
+                        .any(|w| w == identifier.as_bytes()),
+                    "plaintext identifier leaked: {identifier}"
                 );
             }
         }
@@ -6950,7 +6960,7 @@ mod tests {
     #[test]
     fn thingdb_queue_index_ids_accept_raw_and_legacy_values() {
         let (engine, _dir) = setup_thingdb();
-        let raw = PersistentEngine::encode_queue_id("job-raw");
+        let raw = engine.encode_queue_id("job-raw").unwrap();
         assert_eq!(engine.decode_queue_id(&raw).unwrap(), "job-raw");
 
         let legacy = serde_json::to_vec("job-legacy").unwrap();
