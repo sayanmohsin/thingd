@@ -13,6 +13,29 @@
 - server: harden security boundaries (0961ffe)
 - complete public SDK type exports (8a8889a)
 
+## [0.87.0](https://github.com/sayanmohsin/thingd/compare/thingd-v0.86.8...thingd-v0.87.0) (2026-09-13)
+
+
+### Features
+
+* prepare thingdb standalone crate ([4d7dffc](https://github.com/sayanmohsin/thingd/commit/4d7dffc28986aa12ecf8b4c52c7e2de9adcc1254))
+* publish thingd with standalone thingdb ([48b1152](https://github.com/sayanmohsin/thingd/commit/48b1152bac70fc485b80590aa691ad3bbb234bd2))
+
+
+### Bug Fixes
+
+* encrypt ThingDB queue index values ([6ebfcc0](https://github.com/sayanmohsin/thingd/commit/6ebfcc0b95839c9ed64943063df577b7431844a0))
+
+
+### Performance Improvements
+
+* batch ThingDB queue completions ([c4b8039](https://github.com/sayanmohsin/thingd/commit/c4b8039641bfcc63d3cb8ffc674bef1de6a0fd87))
+* batch ThingDB queue completions ([8dd08bd](https://github.com/sayanmohsin/thingd/commit/8dd08bd76731fd345abcc0d17a3096a8122e3864))
+* improve ThingDB storage benchmarks ([76f42b1](https://github.com/sayanmohsin/thingd/commit/76f42b14a6c961592bc9b4012d11c2c15c4dba72))
+* instrument ThingDB queue lookup costs ([048533b](https://github.com/sayanmohsin/thingd/commit/048533bd3443fd6573faf622a4d10527495b3deb))
+* instrument ThingDB queue transitions ([5e345a4](https://github.com/sayanmohsin/thingd/commit/5e345a4e705fa02489e07633cf019a307ac77c8d))
+* reduce queue index serialization ([70c73da](https://github.com/sayanmohsin/thingd/commit/70c73dabbf45e9f035b79e351603e22bb697aa99))
+
 ## [0.86.8](https://github.com/sayanmohsin/thingd/compare/thingd-v0.86.7...thingd-v0.86.8) (2026-09-06)
 
 
