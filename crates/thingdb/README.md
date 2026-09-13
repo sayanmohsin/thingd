@@ -25,6 +25,7 @@ eviction. It is not a durable database and does not change Thingd's backend
 selection.
 
 ThingDB is experimental and should not be the only copy of important data.
-See the [ThingDB API documentation](https://docs.rs/thingdb), the [Thingd
-storage backend guide](https://github.com/sayanmohsin/thingd/blob/main/docs/storage-backends.md),
+See the [ThingDB API documentation](https://docs.rs/thingdb), the [ThingDB
+API contract](https://github.com/sayanmohsin/thingd/blob/main/docs/api-spec/thingdb.md),
+the [Thingd storage backend guide](https://github.com/sayanmohsin/thingd/blob/main/docs/storage-backends.md),
 and the [benchmark methodology](https://github.com/sayanmohsin/thingd/blob/main/docs/benchmarks.md).

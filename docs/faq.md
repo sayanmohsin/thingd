@@ -45,6 +45,7 @@ prebuilt native artifacts and do not need to install RocksDB, LLVM, or Clang.
 HTTP deployments require a Thingd server process for transport, but do not
 require a PostgreSQL, Redis, RocksDB, or other database container. Memory mode
 remains process-local and non-durable. See [Storage backends](./storage-backends.md).
+For direct Rust keyspace usage, see the [standalone ThingDB API](./api-spec/thingdb.md).
 
 ### What happens on crash during a queue ack or object write?
 

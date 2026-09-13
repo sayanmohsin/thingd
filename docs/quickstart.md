@@ -64,6 +64,7 @@ The explicit `memory` driver is the portable TypeScript/reference store. In
 Node.js, `ThingD.open(":memory:")` uses the ThingDB RAM engine when the native
 addon is available and never creates durable files; data is lost on process
 exit.
+For direct Rust usage, see the [standalone ThingDB API contract](./api-spec/thingdb.md).
 
 ### Optional encrypted native database
 

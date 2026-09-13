@@ -56,6 +56,10 @@ directly. Switching between formats is a logical repack, not a file rename.
 Keep RocksDB as the default until the experimental backend passes the
 large-store durability and performance gates.
 
+ThingDB can also be consumed independently of Thingd as the low-level
+`thingdb` Rust crate. See the [standalone ThingDB API contract](./api-spec/thingdb.md)
+for its keyspace, batch, scan, snapshot, recovery, and `MemoryCache` APIs.
+
 ## ThingDB development phase
 
 Durable ThingDB is in **Phase 5: scale and performance validation**. The 1K

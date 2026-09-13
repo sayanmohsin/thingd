@@ -64,6 +64,10 @@ single reproducible harness used to compare ThingDB RAM, the `MemoryEngine`
 reference, RocksDB, and durable ThingDB. Results are local development signals,
 not production performance claims.
 
+ThingDB is also available as an experimental standalone Rust crate with its
+own low-level [API contract](/api-spec/thingdb). It is separate from Thingd's
+semantic object, event, queue, and search APIs.
+
 ### ☁️ Need managed hosting?
 
 [**thingd Cloud**](https://thingd.cloud) runs thingd for you — hosted MCP endpoints, API key management, team dashboard, tenant isolation, and backups.
