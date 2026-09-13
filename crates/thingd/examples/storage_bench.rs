@@ -1043,10 +1043,15 @@ where
     report(name, "queue_ack_only", claimed_ids.len(), elapsed);
 
     let elapsed = time_queue_claims_and_acks(&mut store, queue_iterations)?;
-    report(name, "queue_claim_ack", queue_iterations, elapsed);
+    report(
+        name,
+        "queue_sequential_claim_ack",
+        queue_iterations,
+        elapsed,
+    );
 
     let elapsed = time_queue_claim_and_ack(&mut store, queue_iterations)?;
-    report(name, "queue_claim_ack2", queue_iterations, elapsed);
+    report(name, "queue_atomic_claim_ack", queue_iterations, elapsed);
 
     time_search_benchmarks(name, &store)?;
     time_vector_benchmarks(name, &mut store, iterations)?;

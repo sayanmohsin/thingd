@@ -799,6 +799,8 @@ fn value_to_vec(v: Option<Slice>) -> Option<Vec<u8>> {
     v.map(Slice::into_vec)
 }
 
+const RAW_QUEUE_ID_PREFIX: &[u8] = b"TDBQID1\0";
+
 impl PersistentEngine {
     #[cfg(feature = "search")]
     const fn should_run_async_search_worker(&self) -> bool {
@@ -1323,7 +1325,7 @@ impl PersistentEngine {
                 && let Some(expires_at_ms) = job.lease_expires_at_ms
             {
                 let key = self.make_lease_key(&job.queue, expires_at_ms, &job.id);
-                let data = self.serialize(&job.id)?;
+                let data = Self::encode_queue_id(&job.id);
                 batch.insert(&self.lease_jobs, key, data);
             }
         }
@@ -1905,13 +1907,13 @@ impl PersistentEngine {
                         &job.created_at,
                         &job.id,
                     );
-                    let ready_data = destination.serialize(&job.id)?;
+                    let ready_data = Self::encode_queue_id(&job.id);
                     destination.ready_jobs.insert(&ready_key, &ready_data)?;
                 } else if job.status == QueueJobStatus::Leased
                     && let Some(expires_at_ms) = job.lease_expires_at_ms
                 {
                     let lease_key = destination.make_lease_key(&job.queue, expires_at_ms, &job.id);
-                    let lease_data = destination.serialize(&job.id)?;
+                    let lease_data = Self::encode_queue_id(&job.id);
                     destination.lease_jobs.insert(&lease_key, &lease_data)?;
                 }
             }
@@ -2209,6 +2211,21 @@ impl PersistentEngine {
     fn deserialize<T: for<'a> serde::Deserialize<'a>>(&self, bytes: &[u8]) -> ThingdResult<T> {
         let data = self.codec.decode_value("record", bytes)?;
         serde_json::from_slice(&data).map_err(|e| ThingdError::Storage(e.to_string()))
+    }
+
+    fn encode_queue_id(id: &str) -> Vec<u8> {
+        let mut encoded = Vec::with_capacity(RAW_QUEUE_ID_PREFIX.len() + id.len());
+        encoded.extend_from_slice(RAW_QUEUE_ID_PREFIX);
+        encoded.extend_from_slice(id.as_bytes());
+        encoded
+    }
+
+    fn decode_queue_id(&self, value: &[u8]) -> ThingdResult<String> {
+        if let Some(raw_id) = value.strip_prefix(RAW_QUEUE_ID_PREFIX) {
+            return String::from_utf8(raw_id.to_vec())
+                .map_err(|error| ThingdError::Storage(error.to_string()));
+        }
+        self.deserialize(value)
     }
 
     fn persist_event_metadata(&self, stream: &str) -> ThingdResult<()> {
@@ -3874,7 +3891,7 @@ impl QueueStore for PersistentEngine {
         batch.insert_owned(&self.queue_jobs, key, data);
         if job.status == QueueJobStatus::Ready {
             let rkey = self.make_ready_key(&job.queue, job.priority, &job.created_at, &job.id);
-            let rdata = self.serialize(&job.id)?;
+            let rdata = Self::encode_queue_id(&job.id);
             batch.insert_owned(&self.ready_jobs, rkey, rdata);
         }
         batch
@@ -3906,7 +3923,7 @@ impl QueueStore for PersistentEngine {
             batch.insert_owned(&self.queue_jobs, key, data);
             if job.status == QueueJobStatus::Ready {
                 let rkey = self.make_ready_key(&job.queue, job.priority, &job.created_at, &job.id);
-                let rdata = self.serialize(&job.id)?;
+                let rdata = Self::encode_queue_id(&job.id);
                 batch.insert_owned(&self.ready_jobs, rkey, rdata);
             }
             results.push(job);
@@ -3949,7 +3966,7 @@ impl QueueStore for PersistentEngine {
                 if expires_at_ms > now {
                     break;
                 }
-                let job_id: String = self.deserialize(&lease_value)?;
+                let job_id = self.decode_queue_id(&lease_value)?;
                 let qkey = self.make_queue_key(queue, &job_id);
                 let Some(job_data) = value_to_vec(self.queue_jobs.get(&qkey)?) else {
                     self.queue_diagnostics.stale_index_repairs =
@@ -3970,7 +3987,7 @@ impl QueueStore for PersistentEngine {
                     let data = self.serialize(&job)?;
                     let rkey =
                         self.make_ready_key(&job.queue, job.priority, &job.created_at, &job.id);
-                    let rdata = self.serialize(&job.id)?;
+                    let rdata = Self::encode_queue_id(&job.id);
                     expiry_batch.insert(&self.queue_jobs, &qkey, &data);
                     expiry_batch.insert(&self.ready_jobs, &rkey, &rdata);
                 }
@@ -4004,7 +4021,7 @@ impl QueueStore for PersistentEngine {
                     }
                     parts[3].to_string()
                 } else {
-                    self.deserialize::<String>(&value)?
+                    self.decode_queue_id(&value)?
                 };
                 let rkey = key;
 
@@ -4072,7 +4089,7 @@ impl QueueStore for PersistentEngine {
                         job.lease_expires_at_ms.unwrap_or_default(),
                         &job.id,
                     );
-                    let lease_value = self.serialize(&job.id)?;
+                    let lease_value = Self::encode_queue_id(&job.id);
                     batch.insert_owned(&self.lease_jobs, lease_key, lease_value);
                 }
                 batch
@@ -4200,7 +4217,7 @@ impl QueueStore for PersistentEngine {
                     if !is_dead {
                         let rkey =
                             self.make_ready_key(&job.queue, job.priority, &job.created_at, &job.id);
-                        let rdata = self.serialize(&job.id)?;
+                        let rdata = Self::encode_queue_id(&job.id);
                         batch.insert_owned(&self.ready_jobs, rkey, rdata);
                     }
 
@@ -6652,6 +6669,16 @@ mod tests {
         assert_eq!(claimed.status, QueueJobStatus::Leased);
         assert_eq!(claimed.attempts, 1);
         assert_eq!(acked.status, QueueJobStatus::Completed);
+    }
+
+    #[test]
+    fn thingdb_queue_index_ids_accept_raw_and_legacy_values() {
+        let (engine, _dir) = setup_thingdb();
+        let raw = PersistentEngine::encode_queue_id("job-raw");
+        assert_eq!(engine.decode_queue_id(&raw).unwrap(), "job-raw");
+
+        let legacy = serde_json::to_vec("job-legacy").unwrap();
+        assert_eq!(engine.decode_queue_id(&legacy).unwrap(), "job-legacy");
     }
 
     #[test]

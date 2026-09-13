@@ -50,8 +50,10 @@ const requiredOperations = [
   "event_batch",
   "queue_push",
   "queue_batch",
-  "queue_claim_ack",
-  "queue_claim_ack2",
+  "queue_claim_only",
+  "queue_ack_only",
+  "queue_sequential_claim_ack",
+  "queue_atomic_claim_ack",
   "list_objects",
   "list_objects_limit100",
 ];
