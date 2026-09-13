@@ -2951,7 +2951,7 @@ dependencies = [
 
 [[package]]
 name = "thingd"
-version = "0.86.8"
+version = "0.87.0"
 dependencies = [
  "arc-swap",
  "calamine",
@@ -2974,7 +2974,7 @@ dependencies = [
 
 [[package]]
 name = "thingd-native"
-version = "0.86.8"
+version = "0.87.0"
 dependencies = [
  "napi",
  "napi-build",
@@ -2988,7 +2988,7 @@ dependencies = [
 
 [[package]]
 name = "thingd-schema"
-version = "0.86.8"
+version = "0.87.0"
 dependencies = [
  "pest",
  "pest_derive",
@@ -2999,7 +2999,7 @@ dependencies = [
 
 [[package]]
 name = "thingd-server"
-version = "0.86.8"
+version = "0.87.0"
 dependencies = [
  "axum",
  "bytes",
@@ -3024,7 +3024,7 @@ dependencies = [
 
 [[package]]
 name = "thingdb"
-version = "0.86.8"
+version = "0.87.0"
 dependencies = [
  "arc-swap",
  "crc32fast",
