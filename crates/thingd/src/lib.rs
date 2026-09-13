@@ -15,6 +15,7 @@
     clippy::option_if_let_else,
     clippy::manual_let_else
 )]
+#![cfg_attr(test, allow(unused_crate_dependencies))]
 //! |---------|---------|-------------|
 //! | `persistent` | Yes | Compatibility feature enabling both durable backends |
 //! | `rocksdb-backend` | No | Enables the `RocksDB` durable backend |

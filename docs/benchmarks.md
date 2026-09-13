@@ -53,13 +53,21 @@ branch, commit, environment, selected backend, and all measured RocksDB,
 ThingDB, or in-memory workload rows. This makes repeated runs comparable by
 phase and date without committing machine-specific results.
 
-The benchmark selects `--backend all|rocksdb|thingdb|memory|cache`; `all` is the
-default and is the required comparison mode. It measures object, event, queue,
+The benchmark selects `--backend all|durable|rocksdb|thingdb|memory|cache`; `all` is the
+default and is the required comparison mode. Use `--backend durable` to run only
+the synchronous RocksDB and durable ThingDB pair. It measures object, event, queue,
 search, vector search, batch, count, delete, concurrent-read, and
 lock-contention operations for the selected adapters. In comparison mode, `all`
 includes the reference memory engine, ThingDB RAM mode, durable RocksDB, and
 durable ThingDB. It also includes the standalone ThingDB RAM cache as
 `thingdb-cache`.
+
+The semantic `semantic_serialized_read_*` and
+`semantic_serialized_contention_4r1w` rows use the adapter's current `&mut`
+storage contract and an outer mutex, so they are adapter-serialization probes,
+not engine-concurrency results. Use the `raw_concurrent_*` ThingDB keyspace
+rows and `wal-concurrent-write` diagnostics for concurrency evidence; never
+compare the serialized rows as proof that a backend's engine is concurrent.
 
 ThingDB RAM runs also record internal pipeline diagnostics in the structured
 output: keyspace lookup, lock wait/hold time, value cloning, mutation,
@@ -99,6 +107,47 @@ metadata reports peak RSS and process CPU time when the host permits `ps`
 sampling; otherwise it records an explicit `unsupported: ...` status. This
 avoids treating missing host instrumentation as zero usage or a passing scale
 qualification.
+
+Durable comparisons support two explicitly different durability profiles:
+
+- `--durability-profile native-sync` is production-equivalent: RocksDB uses
+  synchronous writes and ThingDB acknowledges only after its WAL sync boundary.
+- `--durability-profile common-fsync` is a benchmark-only diagnostic profile
+  that uses full-file synchronization for both backends to help separate
+  filesystem-sync cost from engine overhead. It must not be used as a
+  production-performance claim.
+
+For a durable comparison with reliability and qualification preflight:
+
+```bash
+cargo run --release -p thingd --example storage_bench \
+  --features persistent,search,benchmark -- \
+  --iterations 1000 --repetitions 5 --seed 42 --backend durable \
+  --reliability --qualification --phase durable-native-sync-1k \
+  --output target/durable-native-sync-1k.json \
+  --history target/durable-benchmark-history.jsonl
+```
+
+Encrypted RocksDB and ThingDB runs are reported as a separate comparison pair
+in the same output. Every backend uses a fresh directory, the same seed, and
+the same release binary. Full qualification must omit `--queue-iterations` and
+include the complete queue workload; reduced or interrupted runs are
+exploratory evidence only.
+
+For supported Linux resource measurements, the repository also provides a
+manual GitHub Actions workflow. It uploads the structured JSON and JSONL
+results as artifacts and fails if RSS/CPU sampling or the reliability and
+qualification preflights are incomplete:
+
+```bash
+gh workflow run "Durable benchmark" --ref development \
+  -f iterations=1000 -f repetitions=5 -f durability_profile=native-sync
+```
+
+Use `durability_profile=common-fsync` only for diagnostic comparisons. The
+workflow is not part of the release or deployment workflows, and generated
+benchmark artifacts are not committed.
+
 For exploratory large-record runs whose queue transitions would otherwise
 dominate local runtime, use `--queue-iterations <n>` or
 `THINGD_BENCH_QUEUE_ITERS=<n>`. The limit is recorded in benchmark metadata and
@@ -119,9 +168,11 @@ compacted read correctness against the Phase 1B history. Phase 2 adds
 interrupted-maintenance fault tests and compares recovery time and final
 logical state after each deterministic fault boundary.
 Phase 3 additionally records mutable-table bytes, automatic flush count, total
-flush time, and whether the configured mutable-table bound was exceeded. A
-bounded-memtable run must verify that acknowledged writes survive reopen and
-that an injected post-WAL flush failure blocks further writes until recovery.
+flush time, and whether the configured mutable-table bound was exceeded. Normal
+durable commits acknowledge after WAL sync and state application; bounded
+background flushing may complete afterward. A bounded-memtable run must verify
+that acknowledged writes survive reopen and that an injected flush failure
+blocks further writes until recovery.
 Use `--memtable-bytes <bytes>` (or `THINGD_BENCH_MEMTABLE_BYTES`) to make the
 bound explicit and reproducible. For example:
 

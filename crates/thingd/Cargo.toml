@@ -20,6 +20,7 @@ search = ["dep:tantivy"]
 persistent = ["rocksdb-backend", "thingdb-backend"]
 rocksdb-backend = ["persistent-engine", "dep:rocksdb"]
 thingdb-backend = ["persistent-engine", "dep:thingdb"]
+benchmark = ["thingdb/benchmark"]
 persistent-engine = [
     "dep:chacha20poly1305",
     "dep:getrandom",
@@ -48,6 +49,7 @@ hmac = { version = "0.13", optional = true }
 sha2 = { version = "0.11", optional = true }
 
 [dev-dependencies]
+arc-swap = "1.9.2"
 tempfile = "3.27.0"
 
 [lib]

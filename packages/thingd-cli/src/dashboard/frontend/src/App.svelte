@@ -58,6 +58,21 @@
   let nlqApiKey = localStorage.getItem('thingd_nlq_api_key') || '';
   let nlqShowSettings = false;
 
+  // Theme preference: system, light, or dark.
+  let themePreference = localStorage.getItem('thingd_theme') || 'system';
+  let themeMode = themePreference === 'system'
+    ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
+    : themePreference;
+
+  function applyTheme(preference) {
+    themePreference = preference;
+    themeMode = preference === 'system'
+      ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
+      : preference;
+    document.documentElement.dataset.theme = themeMode;
+    localStorage.setItem('thingd_theme', preference);
+  }
+
   // Schema inspector
   let databaseSchema = [];
   let schemaLoading = false;
@@ -800,6 +815,12 @@
   let viewInterval = null;
 
   onMount(() => {
+    applyTheme(themePreference);
+    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+    const handleSystemTheme = () => {
+      if (themePreference === 'system') applyTheme('system');
+    };
+    mediaQuery.addEventListener('change', handleSystemTheme);
     fetchStatus();
     logDiagnostic('DB Connection resolved: Active local Tantivy search context.', 'success');
     pollingInterval = setInterval(fetchStatus, 4000);
@@ -812,6 +833,8 @@
         fetchQueueJobs();
       }
     }, 3000);
+
+    return () => mediaQuery.removeEventListener('change', handleSystemTheme);
   });
 
   onDestroy(() => {
@@ -822,22 +845,22 @@
 
 <!-- Security Portal (Authorized Gate) -->
 {#if authGateActive}
-  <div class="modal-overlay active" style="z-index: 10000; background: rgba(5, 6, 12, 0.95);">
-    <div class="modal-card" style="border-color: rgba(99, 102, 241, 0.3); box-shadow: 0 0 40px rgba(99, 102, 241, 0.25);">
-      <div class="modal-header" style="justify-content: center; border-bottom: none; padding-top: 30px;">
-        <span class="brand-logo" style="width: 44px; height: 44px; font-size: 18px;">tg</span>
+  <div class="modal-overlay active auth-overlay">
+    <div class="modal-card auth-card">
+      <div class="modal-header auth-header">
+        <span class="brand-logo brand-logo-large">tg</span>
       </div>
-      <div class="modal-body" style="padding-top: 10px;">
-        <h2 class="text-center" style="font-size: 20px; font-weight: 700; margin-bottom: 8px;">thingd Security Shield</h2>
-        <p class="text-muted text-center" style="font-size: 13.5px; margin-bottom: 24px;">This database instance is protected. Enter the authorization bearer token to gain access.</p>
+      <div class="modal-body auth-body">
+        <h2 class="text-center">thingd Security Shield</h2>
+        <p class="text-muted text-center">This database instance is protected. Enter the authorization bearer token to gain access.</p>
         
         <form on:submit={handleLogin}>
           <div class="form-group">
             <label for="auth-key">Authorization Bearer Token *</label>
-            <input type="password" id="auth-key" bind:value={inputAuthToken} placeholder="Enter auth token..." class="form-input text-center" style="letter-spacing: 2px;" required>
+            <input type="password" id="auth-key" bind:value={inputAuthToken} placeholder="Enter auth token..." class="form-input auth-token-input" required>
           </div>
-          <div class="modal-footer" style="justify-content: center; margin-top: 20px;">
-            <button type="submit" class="btn btn-primary" style="width: 100%; height: 42px;">Unlock Dashboard</button>
+          <div class="modal-footer auth-footer">
+            <button type="submit" class="btn btn-primary auth-submit">Unlock Dashboard</button>
           </div>
         </form>
       </div>
@@ -850,7 +873,8 @@
   <aside class="sidebar">
     <div class="sidebar-brand">
       <span class="brand-logo">tg</span>
-      <span class="brand-text">thingd<span class="version-badge">{serverVersion || 'v0.3.0'}</span></span>
+      <div class="brand-lockup"><span class="brand-text">thingd</span><span class="brand-caption">local data engine</span></div>
+      <span class="version-badge">{serverVersion || 'v0.3.0'}</span>
     </div>
     
     <nav class="sidebar-nav">
@@ -892,14 +916,22 @@
       </button>
     </nav>
 
-    <div class="sidebar-footer" style="display: flex; flex-direction: column; gap: 10px;">
+    <div class="sidebar-footer">
       <div class="status-indicator">
         <span class="pulse-dot"></span>
         <span class="status-text">{dbStatus}</span>
       </div>
       {#if authToken}
-        <button class="btn btn-sm btn-secondary" on:click={handleLogout} style="width: 100%;">Lock Session</button>
+        <button class="btn btn-sm btn-secondary full-width" on:click={handleLogout}>Lock Session</button>
       {/if}
+      <div class="theme-control">
+        <span>Appearance</span>
+        <div class="theme-options" role="group" aria-label="Appearance">
+          <button class:active={themePreference === 'light'} class="theme-option" aria-label="Use light theme" on:click={() => applyTheme('light')}>Light</button>
+          <button class:active={themePreference === 'dark'} class="theme-option" aria-label="Use dark theme" on:click={() => applyTheme('dark')}>Dark</button>
+          <button class:active={themePreference === 'system'} class="theme-option" aria-label="Use system theme" on:click={() => applyTheme('system')}>Auto</button>
+        </div>
+      </div>
     </div>
   </aside>
 
@@ -908,6 +940,7 @@
     <!-- Topbar Header -->
     <header class="topbar">
       <div class="topbar-left">
+        <div class="eyebrow">THINGD / LOCAL WORKBENCH</div>
         <h1>
           {#if currentTab === 'metrics'}Dashboard Status{/if}
           {#if currentTab === 'collections'}Collections & Objects{/if}

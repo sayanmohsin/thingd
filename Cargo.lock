@@ -2953,6 +2953,7 @@ dependencies = [
 name = "thingd"
 version = "0.86.7"
 dependencies = [
+ "arc-swap",
  "calamine",
  "chacha20poly1305",
  "chrono",
@@ -3025,6 +3026,7 @@ dependencies = [
 name = "thingdb"
 version = "0.86.7"
 dependencies = [
+ "arc-swap",
  "crc32fast",
  "serde",
  "serde_json",
