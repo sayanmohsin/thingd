@@ -24,7 +24,7 @@ You run the sidecar separately. Your Bun app connects to it via `HttpThingStore`
 pnpm add --global @thingd/cli
 
 # Start the sidecar on port 8757
-thingd serve --http :8757
+thingd mcp-http --port 8757 --path ./data
 ```
 
 Or via Docker:

@@ -142,7 +142,7 @@ export default defineConfig({
           { text: "Security", link: "/security" },
           { text: "Runtime Environment", link: "/runtime-env" },
           { text: "Storage Backends", link: "/storage-backends" },
-          { text: "Sidecar & Cluster", link: "/sidecar-cluster" },
+          { text: "Sidecar & Cluster", link: "/docker-runtime" },
         ],
       },
       {

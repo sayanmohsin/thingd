@@ -120,7 +120,7 @@ server {
 
 **Option 2: Caddy**
 
-```caddyfile
+```text
 thingd.example.com {
     reverse_proxy 127.0.0.1:8757
 }

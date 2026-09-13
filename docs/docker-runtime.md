@@ -229,7 +229,7 @@ THINGD_ADVERTISE_URL=http://thingd-1:8757
 The election is static-config based — no Raft or distributed consensus. Best
 suited for StatefulSets or environments with ordered, predictable pod names.
 
-For full details, see [sidecar-cluster.md](./sidecar-cluster.md).
+The cluster settings above cover the supported sidecar deployment modes.
 
 ## Current Limitations
 
@@ -239,4 +239,5 @@ For full details, see [sidecar-cluster.md](./sidecar-cluster.md).
 - static-config leader election only (no consensus)
 
 Put TLS, domains, and public exposure behind a proper reverse proxy or hosted
-gateway. For cluster details, see [sidecar-cluster.md](./sidecar-cluster.md).
+gateway. The cluster settings above are separate from provider-neutral
+Thingd-to-Thingd replication.

@@ -2,7 +2,7 @@
 
 [![Crates.io](https://img.shields.io/crates/v/thingd?logo=rust&color=ff6a00)](https://crates.io/crates/thingd)
 [![Documentation](https://img.shields.io/docsrs/thingd?logo=rust&color=00c4d4)](https://docs.rs/thingd)
-[![License](https://img.shields.io/crates/l/thingd?color=ff6a00)](./LICENSE)
+[![License](https://img.shields.io/crates/l/thingd?color=ff6a00)](../../LICENSE)
 
 Core engine for [thingd](https://github.com/sayanmohsin/thingd) — an
 object-first data engine for applications and AI agents.

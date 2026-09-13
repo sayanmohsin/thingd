@@ -1,4 +1,5 @@
 import { access, readFile } from "node:fs/promises";
+import { execFileSync } from "node:child_process";
 import path from "node:path";
 
 const files = {
@@ -12,6 +13,8 @@ const files = {
 const source = await readFile("packages/thingd/src/mcp/tools.ts", "utf8");
 const rust = await readFile("crates/thingd-server/src/mcp.rs", "utf8");
 const server = await readFile("crates/thingd-server/src/server.rs", "utf8");
+const serverConfig = await readFile("crates/thingd-server/src/config.rs", "utf8");
+const packageVersion = JSON.parse(await readFile("package.json", "utf8")).version;
 const metadata = JSON.parse(await readFile("docs/.generated/mcp-metadata.json", "utf8"));
 const docs = Object.fromEntries(
   await Promise.all(
@@ -45,6 +48,25 @@ if (docs.readme.includes("### What's next\n\n- In-process vector search")) {
 if (docs.release.includes("v0.19.0")) {
   errors.push("Release documentation contains the stale v0.19.0 image example.");
 }
+if (!docs.readme.includes(`thingd = { version = "${packageVersion}"`)) {
+  errors.push(`README Rust dependency example is not aligned with workspace ${packageVersion}.`);
+}
+const defaultPort = serverConfig.match(/fn default_port\(\) -> u16 \{\s+(\d+)/)?.[1];
+if (defaultPort && !docs.serverReadme.includes(`THINGD_PORT\` | \`${defaultPort}\``)) {
+  errors.push(`Server README does not document the configured default port ${defaultPort}.`);
+}
+const allMarkdown = execFileSync("git", ["ls-files", "--", "*.md", "*.mdx"], { encoding: "utf8" })
+  .trim()
+  .split("\n")
+  .filter(Boolean);
+const allMarkdownDocs = await Promise.all(
+  allMarkdown.map(async (file) => [file, await readFile(file, "utf8")]),
+);
+for (const [file, text] of allMarkdownDocs) {
+  if (/\bthingd serve\b/.test(text)) {
+    errors.push(`${file} documents the removed 'thingd serve' command; use 'thingd mcp-http'.`);
+  }
+}
 const normalizeRoute = (value) => value.replace(/:([a-zA-Z_]+)/g, "{$1}");
 const restRoutes = [...server.matchAll(/\.route\("(\/v1\/[^"?]+)"/g)].map((match) => normalizeRoute(match[1]));
 const restDocs = normalizeRoute(
@@ -56,9 +78,7 @@ for (const route of [...new Set(restRoutes)]) {
   }
 }
 
-const markdownFiles = ["README.md", ...Object.values(files), "docs/api-spec/rest-api.md"];
-for (const file of [...new Set(markdownFiles)]) {
-  const text = await readFile(file, "utf8");
+for (const [file, text] of allMarkdownDocs) {
   for (const match of text.matchAll(/\]\((\.{1,2}\/[^)#]+)(?:#[^)]*)?\)/g)) {
     const target = path.resolve(path.dirname(file), match[1]);
     try {
