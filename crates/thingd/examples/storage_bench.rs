@@ -42,6 +42,7 @@ const DEFAULT_MEMTABLE_BYTES: u64 = 8 * 1024 * 1024;
 const COLLECTION: &str = "bench_objects";
 const QUEUE: &str = "bench_queue";
 const QUEUE_COMPONENTS: &str = "bench_queue_components";
+const QUEUE_BATCH: &str = "bench_queue_batch";
 const STREAM: &str = "bench:events";
 
 const OBJECT_BODY_ACTIVE: &str =
@@ -1041,6 +1042,13 @@ where
 
     let elapsed = time_queue_ack_only(&mut store, QUEUE_COMPONENTS, &claimed_ids)?;
     report(name, "queue_ack_only", claimed_ids.len(), elapsed);
+
+    let elapsed = time_queue_pushes_on_queue(&mut store, QUEUE_BATCH, queue_iterations)?;
+    report(name, "queue_atomic_batch_setup", queue_iterations, elapsed);
+
+    let (elapsed, completed) =
+        time_queue_claim_and_ack_batch(&mut store, QUEUE_BATCH, queue_iterations)?;
+    report(name, "queue_atomic_batch", completed, elapsed);
 
     let elapsed = time_queue_claims_and_acks(&mut store, queue_iterations)?;
     report(
@@ -2520,6 +2528,20 @@ where
         black_box(store.ack_job(queue, id)?);
     }
     Ok(started.elapsed())
+}
+
+fn time_queue_claim_and_ack_batch<S>(
+    store: &mut S,
+    queue: &str,
+    limit: usize,
+) -> Result<(Duration, usize), Box<dyn Error>>
+where
+    S: QueueStore,
+{
+    let started = Instant::now();
+    let completed = store.claim_and_ack_batch(queue, QueueClaimOptions::default(), limit)?;
+    black_box(completed.len());
+    Ok((started.elapsed(), completed.len()))
 }
 
 fn time_queue_push_batch<S>(store: &mut S, iterations: usize) -> Result<Duration, Box<dyn Error>>
