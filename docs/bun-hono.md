@@ -33,7 +33,7 @@ thingd runs as a **sidecar** — a separate Rust binary that you start once. You
 npm install -g @thingd/cli
 
 # Start on port 8757
-thingd mcp-http --port 8757 --path ./data
+thingd serve --http :8757
 ```
 
 Or via Docker:
@@ -109,7 +109,7 @@ export default { fetch: app.fetch, port: 3000 };
 
 ```bash
 # Start sidecar
-thingd mcp-http --port 8757 --path ./data &
+thingd serve --http :8757 --data-dir ./data &
 
 # Start Bun app
 bun run index.ts

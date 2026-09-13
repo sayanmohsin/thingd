@@ -21,10 +21,10 @@ cargo run -p thingd-server
 
 # or pull the Docker image
 docker pull ghcr.io/sayanmohsin/thingd-server
-docker run -p 8757:8757 -v ./data:/data ghcr.io/sayanmohsin/thingd-server
+docker run -p 7377:7377 -v ./data:/data ghcr.io/sayanmohsin/thingd-server
 ```
 
-Starts on `http://0.0.0.0:8757` by default. Point your MCP client at `http://localhost:8757/mcp`.
+Starts on `http://0.0.0.0:7377` by default. Point your MCP client at `http://localhost:7377/mcp`.
 
 ## What it serves
 
@@ -69,7 +69,7 @@ Configure via environment variables or a YAML config file pointed at by `THINGD_
 | Variable | Default | Description |
 |---|---|---|
 | `THINGD_HOST` | `0.0.0.0` | Bind address |
-| `THINGD_PORT` | `8757` | HTTP port |
+| `THINGD_PORT` | `7377` | HTTP port |
 | `THINGD_DATABASE` | `thingd.db` | persistent database directory |
 | `THINGD_STORAGE_BACKEND` | `rocksdb` | durable backend: `rocksdb` or experimental `thingdb` |
 | `THINGD_ENCRYPTION_KEY` | — | optional 64-character hexadecimal key for encrypted persistent storage |

@@ -347,11 +347,11 @@ The tradeoff is: simpler deployment + unified API vs. less operational maturity 
 
 ### How do I enable authentication?
 
-Set `THINGD_AUTH_TOKEN` env var or `auth.token` in config. Minimum 16 characters when `allow_unauthenticated` is false. See [Security](./security.md).
+Set `THINGD_AUTH_TOKEN` env var or `auth.token` in config. Minimum 16 characters when `allow_unauthenticated` is false. See [Security](../security.md).
 
 ### Does thingd support TLS?
 
-Not built-in. Deploy behind nginx or Caddy for TLS termination. See [Security](./security.md#tls--https).
+Not built-in. Deploy behind nginx or Caddy for TLS termination. See [Security](../security.md#tls--https).
 
 ### What rate limiting is available?
 
@@ -372,7 +372,7 @@ thingd backup --out /path/to/backup.db
 For the current native backend, use `thingd db backup --out /path/to/backup.tar`
 and `thingd db restore --in /path/to/backup.tar --destination /path/to/thingd.db`.
 The native archive remains encrypted when the source is encrypted and requires
-exclusive access during checkpoint/backup. See [Operations](./operations.md).
+exclusive access during checkpoint/backup. See [Operations](../operations.md).
 
 ### How do I check database integrity?
 

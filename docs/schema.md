@@ -4,7 +4,7 @@
 that want explicit collections, fields, indexes, search annotations, and links.
 Existing applications can continue using thingd without a schema file.
 
-```text
+```thingd
 version 1
 
 project "shop"
