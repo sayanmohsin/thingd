@@ -1323,6 +1323,8 @@ fn bench_thingdb_concurrent_writes(
     }
     report(name, "wal-concurrent-write", completed, started.elapsed());
 
+    bench_raw_queue_claim_ack(name, &path.join("queue-group-commit"), iterations, seed)?;
+
     let before_reopen = db.wal_diagnostics()?;
     drop(keyspace);
     drop(db);
@@ -1335,6 +1337,75 @@ fn bench_thingdb_concurrent_writes(
         repetition: CURRENT_REPETITION.load(Ordering::Relaxed),
         diagnostics: WalDiagnosticsSnapshot::merge(before_reopen, after_reopen),
     });
+    Ok(())
+}
+
+fn bench_raw_queue_claim_ack(
+    name: &str,
+    path: &Path,
+    iterations: usize,
+    seed: u64,
+) -> Result<(), Box<dyn Error>> {
+    let db = thingdb::Database::open(path)?;
+    let queue_jobs = db.keyspace("queue_jobs", thingdb::KeyspaceCreateOptions::default)?;
+    let ready_jobs = db.keyspace("ready_jobs", thingdb::KeyspaceCreateOptions::default)?;
+    let lease_jobs = db.keyspace("lease_jobs", thingdb::KeyspaceCreateOptions::default)?;
+    let workers = iterations.clamp(1, 16);
+    let per_worker = iterations.div_ceil(workers);
+    let mut initial = db.batch_with_capacity(per_worker.saturating_mul(workers).saturating_mul(2));
+    for worker in 0..workers {
+        for offset in 0..per_worker {
+            let id = format!("{seed}-{worker}-{offset}");
+            initial = initial.put(&queue_jobs, id.as_bytes(), b"ready").put(
+                &ready_jobs,
+                id.as_bytes(),
+                id.as_bytes(),
+            );
+        }
+    }
+    initial.commit()?;
+
+    let barrier = Arc::new(Barrier::new(workers));
+    let started = Instant::now();
+    let handles: Vec<_> = (0..workers)
+        .map(|worker| {
+            let db = db.clone();
+            let queue_jobs = queue_jobs.clone();
+            let ready_jobs = ready_jobs.clone();
+            let lease_jobs = lease_jobs.clone();
+            let barrier = Arc::clone(&barrier);
+            std::thread::spawn(move || -> thingdb::Result<usize> {
+                barrier.wait();
+                let mut completed = 0;
+                for offset in 0..per_worker {
+                    let id = format!("{seed}-{worker}-{offset}");
+                    db.batch_with_capacity(3)
+                        .delete(&ready_jobs, id.as_bytes())
+                        .put(&queue_jobs, id.as_bytes(), b"leased")
+                        .put(&lease_jobs, id.as_bytes(), b"lease")
+                        .commit()?;
+                    db.batch_with_capacity(2)
+                        .put(&queue_jobs, id.as_bytes(), b"completed")
+                        .delete(&lease_jobs, id.as_bytes())
+                        .commit()?;
+                    completed += 1;
+                }
+                Ok(completed)
+            })
+        })
+        .collect();
+    let mut completed = 0;
+    for handle in handles {
+        completed += handle
+            .join()
+            .map_err(|_| "ThingDB concurrent queue worker panicked")??;
+    }
+    report(
+        name,
+        "wal-concurrent-queue-claim-ack-raw",
+        completed,
+        started.elapsed(),
+    );
     Ok(())
 }
 
