@@ -13,6 +13,13 @@
 - server: harden security boundaries (0961ffe)
 - complete public SDK type exports (8a8889a)
 
+## [0.87.1](https://github.com/sayanmohsin/thingd/compare/thingd-v0.87.0...thingd-v0.87.1) (2026-09-16)
+
+
+### Bug Fixes
+
+* **server:** configure JWT crypto backend ([#242](https://github.com/sayanmohsin/thingd/issues/242)) ([d0fabd7](https://github.com/sayanmohsin/thingd/commit/d0fabd7324d793bf95cf208239ff823e6c2484b5))
+
 ## [0.87.0](https://github.com/sayanmohsin/thingd/compare/thingd-v0.86.8...thingd-v0.87.0) (2026-09-13)
 
 
