@@ -30,7 +30,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 uuid = { version = "1", features = ["v4", "v5"] }
 parking_lot = "0.12"
 reqwest = { version = "0.13", default-features = false, features = ["json", "rustls"] }
-jsonwebtoken = { version = "11", features = ["rust_crypto"] }
+jsonwebtoken = { version = "11", features = ["aws_lc_rs"] }
 
 [dev-dependencies]
 http-body-util = "0.1"

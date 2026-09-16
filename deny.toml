@@ -75,6 +75,9 @@ skip = [
     { name = "crypto-common", version = "0.1" },
     { name = "digest", version = "0.10" },
     { name = "sha2", version = "0.10" },
+    # Rustls uses Ring's untrusted 0.9 while AWS-LC-RS retains untrusted 0.7;
+    # the two crypto backends cannot currently share this dependency version.
+    { name = "untrusted", version = "0.7" },
 ]
 
 [sources]
