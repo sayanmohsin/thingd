@@ -71,6 +71,7 @@ deployment environment or the Cloud dashboard.
 Multi-tenant mode supports either static per-tenant bearer tokens or
 `tenant-jwt` authentication. For hosted gateways, `tenant-jwt` is preferred:
 the engine validates a signed tenant claim from the configured JWKS endpoint,
+using the explicitly selected `jsonwebtoken` Rust crypto backend at build time.
 and a caller-supplied tenant header is never trusted by itself.
 
 ```yaml
