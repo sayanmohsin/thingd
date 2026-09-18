@@ -102,6 +102,7 @@ export default defineConfig({
           { text: "REST API", link: "/api-spec/rest-api" },
           { text: "Data Model", link: "/api-spec/data-model" },
           { text: "MCP Tools", link: "/api-spec/mcp-tools" },
+          { text: "App Backend", link: "/app-backend" },
           { text: "Replication", link: "/api-spec/replication" },
           { text: "Standalone ThingDB", link: "/api-spec/thingdb" },
           { text: "Search", link: "/api-spec/search" },
@@ -113,6 +114,7 @@ export default defineConfig({
         items: [
           { text: "CLI Reference", link: "/cli-reference" },
           { text: "Schema Files", link: "/schema" },
+          { text: "Nice Rep / Expo Setup", link: "/nice-rep" },
         ],
       },
       {

@@ -87,6 +87,13 @@ cache. Neither mode writes durable files or survives process exit. See
 For browsers, edge runtimes, and non-Node.js environments, use the standalone
 `@thingd/client` package — a zero-dependency REST client.
 
+For a mobile or web app without a custom application backend, use
+`createThingdAppClient` with a Cloud publishable key. The [Nice Rep CLI-first
+guide](./docs/nice-rep.md) documents project and instance setup,
+`nice-rep.app.json`, `schema.thingd`, Publish lifecycle commands, Expo
+configuration, and the public release order. The [app backend contract](./docs/app-backend.md)
+defines the routes and headers.
+
 | Entry point | Driver | Protocol |
 | --- | --- | --- |
 | `ThingD.open()` (Node.js) | memory / native / cloud | In-process / napi / HTTP REST |

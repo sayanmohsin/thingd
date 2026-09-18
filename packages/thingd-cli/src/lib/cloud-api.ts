@@ -56,6 +56,35 @@ export type CloudOrganizationMember = {
   joinedAt: string;
 };
 
+export type CloudAppConfig = {
+  projectId: string;
+  publishableKey: string;
+};
+
+export type CloudAppFunction = {
+  name: string;
+  description?: string;
+  auth?: string;
+  roles?: string[];
+  inputSchema?: Record<string, unknown>;
+  outputSchema?: Record<string, unknown>;
+  version?: number;
+  status?: string;
+  idempotency?: string;
+};
+
+export type CloudPublishApp = {
+  id: string;
+  name: string;
+  slug: string;
+  description?: string;
+  instanceId: string;
+  status: string;
+  version?: number;
+  hostedUrl?: string;
+  [key: string]: unknown;
+};
+
 export class CloudApiError extends Error {
   status: number;
 
@@ -68,6 +97,27 @@ export class CloudApiError extends Error {
 
 function resolveAuthToken(config: CloudConfig): string {
   return config.userToken ?? config.token ?? config.apiKey ?? "";
+}
+
+function errorMessage(body: unknown, fallback: string): string {
+  if (!body || typeof body !== "object") {
+    return fallback;
+  }
+  const record = body as Record<string, unknown>;
+  for (const value of [record.message, record.detail, record.error, record.title]) {
+    if (typeof value === "string" && value.length > 0) {
+      return value;
+    }
+  }
+  if (record.error && typeof record.error === "object") {
+    const nested = record.error as Record<string, unknown>;
+    for (const value of [nested.message, nested.detail, nested.code, nested.type]) {
+      if (typeof value === "string" && value.length > 0) {
+        return value;
+      }
+    }
+  }
+  return fallback;
 }
 
 async function request<T>(config: CloudConfig, path: string, opts: ApiOptions = {}): Promise<T> {
@@ -88,8 +138,8 @@ async function request<T>(config: CloudConfig, path: string, opts: ApiOptions = 
     if (res.status === 401) {
       throw new CloudApiError(401, "Token expired or invalid. Run `thingd cloud login` again.");
     }
-    const body = await res.json().catch(() => ({ message: res.statusText }));
-    throw new CloudApiError(res.status, body.message ?? res.statusText);
+    const body = await res.json().catch(() => undefined);
+    throw new CloudApiError(res.status, errorMessage(body, res.statusText));
   }
 
   return res.json() as Promise<T>;
@@ -144,6 +194,139 @@ export async function createApiKey(
     method: "POST",
     body: { name: name ?? "thingd CLI" },
   });
+}
+
+function projectPath(projectId: string, suffix: string): string {
+  return `/projects/${encodeURIComponent(projectId)}${suffix}`;
+}
+
+function appPath(projectId: string, appId: string, suffix = ""): string {
+  return `${projectPath(projectId, "/publish/apps")}/${encodeURIComponent(appId)}${suffix}`;
+}
+
+function functionPath(projectId: string, name: string, suffix = ""): string {
+  return `${projectPath(projectId, "/app-functions")}/${encodeURIComponent(name)}${suffix}`;
+}
+
+export async function getAppConfig(
+  config: CloudConfig,
+  projectId: string
+): Promise<{ app: CloudAppConfig }> {
+  return request(config, projectPath(projectId, "/app-config"));
+}
+
+export async function validateRuntimeSchema(
+  config: CloudConfig,
+  projectId: string,
+  instanceId: string,
+  source: string
+): Promise<Record<string, unknown>> {
+  return request(config, `${projectPath(projectId, "/runtime-schema/schema/validate")}`, {
+    method: "POST",
+    body: { instanceId, source },
+  });
+}
+
+export async function listAppFunctions(
+  config: CloudConfig,
+  projectId: string
+): Promise<{ functions: CloudAppFunction[] }> {
+  return request(config, projectPath(projectId, "/app-functions"));
+}
+
+export async function createAppFunction(
+  config: CloudConfig,
+  projectId: string,
+  definition: Record<string, unknown>
+): Promise<{ function: CloudAppFunction }> {
+  return request(config, projectPath(projectId, "/app-functions"), {
+    method: "POST",
+    body: definition,
+  });
+}
+
+export async function updateAppFunction(
+  config: CloudConfig,
+  projectId: string,
+  name: string,
+  definition: Record<string, unknown>
+): Promise<{ function: CloudAppFunction }> {
+  return request(config, functionPath(projectId, name), {
+    method: "PUT",
+    body: definition,
+  });
+}
+
+export async function transitionAppFunction(
+  config: CloudConfig,
+  projectId: string,
+  name: string,
+  transition: "test" | "publish" | "disable" | "rollback",
+  version?: number
+): Promise<{ function: CloudAppFunction }> {
+  if (transition === "rollback") {
+    return request(config, functionPath(projectId, name, "/rollback"), {
+      method: "POST",
+      body: { version },
+    });
+  }
+  return request(config, functionPath(projectId, name, `/${transition}`), {
+    method: "POST",
+  });
+}
+
+export async function listPublishApps(
+  config: CloudConfig,
+  projectId: string
+): Promise<{ apps: CloudPublishApp[] }> {
+  return request(config, projectPath(projectId, "/publish/apps"));
+}
+
+export async function createPublishApp(
+  config: CloudConfig,
+  projectId: string,
+  definition: Record<string, unknown>
+): Promise<{ app: CloudPublishApp }> {
+  return request(config, projectPath(projectId, "/publish/apps"), {
+    method: "POST",
+    body: definition,
+  });
+}
+
+export async function updatePublishApp(
+  config: CloudConfig,
+  projectId: string,
+  appId: string,
+  definition: Record<string, unknown>
+): Promise<{ app: CloudPublishApp }> {
+  return request(config, appPath(projectId, appId), {
+    method: "PUT",
+    body: definition,
+  });
+}
+
+export async function validatePublishApp(
+  config: CloudConfig,
+  projectId: string,
+  appId: string
+): Promise<{ report: Record<string, unknown> }> {
+  return request(config, appPath(projectId, appId, "/validate"), { method: "POST" });
+}
+
+export async function transitionPublishApp(
+  config: CloudConfig,
+  projectId: string,
+  appId: string,
+  transition: "test" | "publish" | "disable" | "rollback",
+  version?: number
+): Promise<{ app: CloudPublishApp; hostedUrl?: string }> {
+  if (transition === "rollback") {
+    return request(config, appPath(projectId, appId, "/rollback"), {
+      method: "POST",
+      body: { version },
+    });
+  }
+  return request(config, appPath(projectId, appId, `/${transition}`), { method: "POST" });
 }
 
 // ── Organization API ─────────────────────────────────────────────────
@@ -207,8 +390,8 @@ async function requestUnauthenticated<T>(apiUrl: string, path: string, body: unk
     body: JSON.stringify(body),
   });
   if (!res.ok) {
-    const errBody = await res.json().catch(() => ({ message: res.statusText }));
-    throw new CloudApiError(res.status, errBody.message ?? res.statusText);
+    const errBody = await res.json().catch(() => undefined);
+    throw new CloudApiError(res.status, errorMessage(errBody, res.statusText));
   }
   return res.json() as Promise<T>;
 }

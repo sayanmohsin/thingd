@@ -37,6 +37,19 @@ mobile bundles; never embed a Cloud secret API key or engine runtime token in
 an app. Project-user access tokens are scoped to one Cloud project and should
 be stored with the platform's secure storage facilities.
 
+The credentials have separate responsibilities:
+
+| Credential | Boundary | Safe for a public app bundle? |
+|---|---|---|
+| Cloud operator CLI token | `thingd cloud` administration | No |
+| Project secret API key | trusted automation | No |
+| Project publishable key | hosted app-client discovery and requests | Yes |
+| Project-user access token | one signed-in app user | No; store securely |
+| Thingd runtime token | direct engine or sidecar access | No |
+
+The [Nice Rep mobile setup](./nice-rep.md) shows how the CLI returns the
+publishable key without placing the operator token in an Expo bundle.
+
 **Configuring a token:**
 
 ```yaml

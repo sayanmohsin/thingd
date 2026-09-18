@@ -175,6 +175,11 @@ export async function runCloud(context: CliContext): Promise<void> {
     case "org":
       await runOrg(context);
       return;
+    case "app": {
+      const { runCloudApp } = await import("./cloud-app.js");
+      await runCloudApp(context);
+      return;
+    }
     default:
       context.stderr.write(
         `Unknown cloud subcommand: ${sub}\n` +

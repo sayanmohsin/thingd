@@ -3,6 +3,11 @@
 This example uses the public `@thingd/client` transport directly from an Expo
 application. There is no application server in the mobile project.
 
+For a complete project setup, first follow the [Nice Rep CLI-first mobile
+guide](../../docs/nice-rep.md) to create the project, instance, declarative
+`nice-rep.app.json`, and `schema.thingd`. This example starts at the Expo
+client step.
+
 ```bash
 pnpm dlx create-expo-app my-thingd-app
 cd my-thingd-app

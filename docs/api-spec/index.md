@@ -15,7 +15,8 @@ and [MCP Tools](mcp-tools.md#encrypted-storage-and-mcp) for the runtime and
 failure contract.
 
 The hosted mobile/web app backend contract is documented in
-[App Backend](../app-backend.md). It is implemented by thingd Cloud and does
+[App Backend](../app-backend.md). The [Nice Rep setup guide](../nice-rep.md)
+shows the CLI-first Expo workflow. It is implemented by thingd Cloud and does
 not add Cloud tenancy or authentication to the open-source engine.
 
 ## Sections

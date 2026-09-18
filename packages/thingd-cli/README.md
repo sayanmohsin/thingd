@@ -61,6 +61,27 @@ thingd export --collection <name> --out <path>
 thingd import --collection <name> --in <path>
 thingd snapshot create --out <path>
 thingd snapshot restore --in <path>
+
+# Cloud app setup for mobile/web projects
+thingd cloud login
+thingd cloud project create nice-rep
+thingd cloud instance create nice-rep nice-rep
+thingd cloud instance use nice-rep nice-rep
+thingd cloud app init --file nice-rep.app.json --name "Nice Rep" --slug nice-rep
+thingd schema check schema.thingd
+thingd cloud app bootstrap --project nice-rep --instance nice-rep --file nice-rep.app.json --schema schema.thingd --dry-run
+thingd cloud app config --project nice-rep
 ```
 
-Full reference: [docs/cli-reference.md](https://github.com/sayanmohsin/thingd/blob/main/docs/cli-reference.md)
+For mobile and web apps, use `createThingdAppClient` from `@thingd/client`.
+The Cloud CLI token is an operator credential and must never be bundled in an
+Expo application. `thingd cloud app config` returns the publishable key that is
+safe to configure in a mobile app; app-user access tokens are issued by the
+app backend after signup or login.
+
+The app definition is a versioned `thingd.app/v1` JSON document. The CLI checks
+its JSON shape and delegates full policy validation to Cloud. `schema.thingd`
+is the runtime schema and is validated locally before a non-dry-run bootstrap.
+
+Full reference: [CLI Reference](https://sayanmohsin.github.io/thingd/cli-reference) ·
+[Nice Rep mobile setup](https://sayanmohsin.github.io/thingd/nice-rep)

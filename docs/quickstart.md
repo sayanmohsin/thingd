@@ -218,6 +218,11 @@ npx thingd cloud login
 npx thingd mcp connect
 ```
 
+For a React Native or Expo application that does not need a custom API server,
+follow the [Nice Rep CLI-first mobile setup](./nice-rep.md). It covers the
+declarative app definition, `schema.thingd`, Publish lifecycle, publishable-key
+configuration, and the `createThingdAppClient` flow.
+
 ## 5. Secure your deployment (optional)
 
 ```bash
@@ -238,6 +243,7 @@ See [Security](./security.md) and [Operations](./operations.md) for full documen
 - **Why thingd?** — the full rationale: [why-thingd.md](./why-thingd.md)
 - **Queue deep dive** — durable background jobs: [guides/queues.md](./guides/queues.md)
 - **Why agents use thingd** — agent value proposition: [why-agents.md](./why-agents.md)
+- **Mobile app backend** — CLI-first Expo setup: [nice-rep.md](./nice-rep.md)
 - **Agent patterns** — scheduler, multi-agent blackboard, search-before-put: [agent-patterns.md](./agent-patterns.md)
 - **MCP server** — hardening, bridge mode, env reference: [mcp-server.md](./mcp-server.md)
 - **API spec** — REST and MCP reference: [api-spec/](./api-spec/)
