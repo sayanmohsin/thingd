@@ -13,6 +13,13 @@
 - server: harden security boundaries (0961ffe)
 - complete public SDK type exports (8a8889a)
 
+## [0.88.1](https://github.com/sayanmohsin/thingd/compare/thingd-v0.88.0...thingd-v0.88.1) (2026-09-18)
+
+
+### Bug Fixes
+
+* map @thingd/client workspace protocol in publish manifests ([#246](https://github.com/sayanmohsin/thingd/issues/246)) ([f1a2898](https://github.com/sayanmohsin/thingd/commit/f1a289832e0149663bf5b021aa53030d23b4fae3))
+
 ## [0.88.0](https://github.com/sayanmohsin/thingd/compare/thingd-v0.87.1...thingd-v0.88.0) (2026-09-18)
 
 
