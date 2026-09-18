@@ -63,8 +63,9 @@ const profile = await app.functions.invoke("createProfile", { timezone: "UTC" },
 ```
 
 The publishable key is safe for app bundles. Do not use a secret Cloud API key
-or engine runtime token in a browser or mobile application. See
-`docs/app-backend.md` for the public contract.
+or engine runtime token in a browser or mobile application. See the public
+[app backend contract](https://sayanmohsin.github.io/thingd/app-backend) and
+[Nice Rep mobile setup](https://sayanmohsin.github.io/thingd/nice-rep).
 
 ### Objects
 

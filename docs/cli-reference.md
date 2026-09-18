@@ -315,6 +315,12 @@ thingd cloud app publish --project <project> --app <id-or-slug>
 thingd cloud app disable --project <project> --app <id-or-slug>
 thingd cloud app rollback --project <project> --app <id-or-slug> --version <n>
 thingd cloud app functions list --project <project>
+thingd cloud app functions create --project <project> --file <path>
+thingd cloud app functions update --project <project> --name <name> --file <path>
+thingd cloud app functions test --project <project> --name <name>
+thingd cloud app functions publish --project <project> --name <name>
+thingd cloud app functions disable --project <project> --name <name>
+thingd cloud app functions rollback --project <project> --name <name> --version <n>
 thingd cloud app smoke --project <project> --file <path> --email <email> --password <password> [--signup]
 ```
 
@@ -325,6 +331,10 @@ slug, supports `--dry-run`, and publishes only when `--publish` is explicit.
 `cloud app config` returns the app endpoint and project publishable key for
 `createThingdAppClient`. Publishable keys are safe for browser/mobile bundles;
 Cloud CLI tokens, project API keys, and Thingd runtime tokens are not.
+
+See the [Nice Rep CLI-first mobile setup](./nice-rep.md) for the complete
+Expo workflow and the [app backend contract](./app-backend.md) for routes,
+headers, sessions, and idempotent named actions.
 
 ## Environment
 

@@ -83,4 +83,5 @@ The app definition is a versioned `thingd.app/v1` JSON document. The CLI checks
 its JSON shape and delegates full policy validation to Cloud. `schema.thingd`
 is the runtime schema and is validated locally before a non-dry-run bootstrap.
 
-Full reference: [docs/cli-reference.md](https://github.com/sayanmohsin/thingd/blob/main/docs/cli-reference.md)
+Full reference: [CLI Reference](https://sayanmohsin.github.io/thingd/cli-reference) ·
+[Nice Rep mobile setup](https://sayanmohsin.github.io/thingd/nice-rep)

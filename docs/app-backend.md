@@ -5,6 +5,10 @@ apps. The open-source `@thingd/client` package contains the portable REST
 client; authentication, project users, policies, and hosted named actions are
 Cloud capabilities.
 
+For the complete CLI-first Expo walkthrough, see [Nice Rep: CLI-first mobile
+setup](./nice-rep.md). This page defines the public client contract shared by
+that workflow and other hosted applications.
+
 ## Client setup
 
 ```ts
@@ -65,6 +69,8 @@ published named actions with input validation, ownership checks, idempotency,
 and audit logging. Arbitrary customer code execution is not part of this
 contract.
 
-See the private Cloud Serve plan for publication and policy implementation.
+Cloud owns the hosted publication and policy implementation. The public
+repository documents the client contract and CLI integration without exposing
+Cloud-only operational details.
 
-For a mobile-first walkthrough, see the [React Native / Expo example](../examples/react-native-expo/README.md).
+For a mobile-first walkthrough, see the [React Native / Expo example](https://github.com/sayanmohsin/thingd/tree/main/examples/react-native-expo).

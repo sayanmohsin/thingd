@@ -13,6 +13,12 @@ The hosted app-backend client is released as part of the public client package.
 Deploy its compatible Cloud API only after the public contract release and the
 Cloud compatibility matrix has been updated.
 
+For mobile apps, the release order is: merge the public CLI/client/docs change,
+publish the compatible `@thingd/client` and `@thingd/cli` versions, deploy the
+matching Cloud API, then run `thingd cloud app smoke`. Documentation changes
+under `docs/` are built and deployed to GitHub Pages by
+`.github/workflows/deploy-docs.yml` after they reach `main`.
+
 ## Versioning
 
 Versions follow standard SemVer through conventional commits:
