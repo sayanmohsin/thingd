@@ -13,6 +13,13 @@
 - server: harden security boundaries (0961ffe)
 - complete public SDK type exports (8a8889a)
 
+## [0.88.0](https://github.com/sayanmohsin/thingd/compare/thingd-v0.87.1...thingd-v0.88.0) (2026-09-18)
+
+
+### Features
+
+* **cli:** add Cloud app bootstrap workflow ([#244](https://github.com/sayanmohsin/thingd/issues/244)) ([760300c](https://github.com/sayanmohsin/thingd/commit/760300c1ad019a18b513b02d2cbcd6157e5f9eea))
+
 ## [0.87.1](https://github.com/sayanmohsin/thingd/compare/thingd-v0.87.0...thingd-v0.87.1) (2026-09-16)
 
 
