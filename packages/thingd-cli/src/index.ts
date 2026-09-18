@@ -178,6 +178,12 @@ Usage:
   thingd cloud project list
   thingd cloud instance list <project>
   thingd cloud api-key create <project> <name>
+  thingd cloud app init --file <path> [--name <name>] [--slug <slug>]
+  thingd cloud app bootstrap --project <project> --instance <instance> --file <path> [--schema <path>] [--publish] [--dry-run]
+  thingd cloud app config --project <project>
+  thingd cloud app list|create|update|validate|test|publish|disable|rollback
+  thingd cloud app functions list|create|update|test|publish|disable|rollback
+  thingd cloud app smoke --project <project> --file <path> --email <email> --password <password> [--signup]
   thingd db checkpoint [--path <path>]
   thingd db compact [--path <path>]
   thingd db repack --path <source> --destination <path>
@@ -212,6 +218,9 @@ const BOOLEAN_FLAGS = new Set([
   "events",
   "allow-cloud-target",
   "confirm-target",
+  "dry-run",
+  "publish",
+  "signup",
   "replace",
 ]);
 

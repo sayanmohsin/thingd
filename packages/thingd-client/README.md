@@ -2,6 +2,11 @@
 
 Zero-dependency HTTP client for thingd — works in **browsers**, Cloudflare Workers, AWS Lambda, Bun, Deno, and Node.js 18+.
 
+For mobile and web application backends, use `createThingdAppClient` rather
+than the raw `ThingdClient` shown below. The raw client is for operator/runtime
+access to a Thingd REST endpoint; it must not receive a Cloud CLI token, secret
+project API key, or engine runtime token in an Expo or browser bundle.
+
 ```ts
 import { ThingdClient } from "@thingd/client";
 
