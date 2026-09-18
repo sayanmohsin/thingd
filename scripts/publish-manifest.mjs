@@ -10,7 +10,7 @@ export const publishPackages = [
   {
     name: "@thingd/cli",
     path: "packages/thingd-cli",
-    dependencies: { "@thingd/sdk": "dependencies" },
+    dependencies: { "@thingd/sdk": "dependencies", "@thingd/client": "dependencies" },
   },
   { name: "@thingd/native", path: "packages/thingd-native", dependencies: {} },
   { name: "@thingd/client", path: "packages/thingd-client", dependencies: {} },
