@@ -13,6 +13,14 @@
 - server: harden security boundaries (0961ffe)
 - complete public SDK type exports (8a8889a)
 
+## [0.88.2](https://github.com/sayanmohsin/thingd/compare/thingd-v0.88.1...thingd-v0.88.2) (2026-09-20)
+
+
+### Bug Fixes
+
+* avoid regex in cloud URL normalization ([c92be34](https://github.com/sayanmohsin/thingd/commit/c92be34593d257c3660eb9427c9eb34040decf63))
+* recover capped journals automatically ([e92416b](https://github.com/sayanmohsin/thingd/commit/e92416bd522b13bd6d91133397ea00b101eba68c))
+
 ## [0.88.1](https://github.com/sayanmohsin/thingd/compare/thingd-v0.88.0...thingd-v0.88.1) (2026-09-18)
 
 
