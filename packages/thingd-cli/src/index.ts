@@ -1705,7 +1705,9 @@ function buildMemoryEvent(parsed: ParsedArgs, type: string): MemoryEvent {
 }
 
 export function resolveConnection(context: CliContext): ConnectionOptions {
-  const url = stringFlag(context.parsed, "url") ?? context.env.THINGD_URL;
+  const explicitUrl = stringFlag(context.parsed, "url");
+  const environmentUrl = context.env.THINGD_URL;
+  const url = explicitUrl ?? environmentUrl;
   const path =
     url ?? stringFlag(context.parsed, "path") ?? context.env.THINGD_PATH ?? defaultThingdDbPath();
   let cloud = isCloudPath(path);
@@ -1730,7 +1732,10 @@ export function resolveConnection(context: CliContext): ConnectionOptions {
   }
 
   // Fall back to saved cloud config when no explicit URL/token is provided
-  const cloudCfg = cloud && !url ? readCloudConfig() : null;
+  // An environment URL commonly points at the Cloud API base. It must not
+  // disable the saved project/instance routing; only an explicit --url is a
+  // request to bypass that routing.
+  const cloudCfg = cloud && !explicitUrl ? readCloudConfig() : null;
 
   if (driver === "cloud" && !url && !cloudCfg) {
     context.stderr.write(
@@ -1750,9 +1755,17 @@ export function resolveConnection(context: CliContext): ConnectionOptions {
   const resolvedCloudUrl = cloudCfg ? resolveCloudUrl(cloudCfg) : undefined;
   const effectiveCloudUrl =
     resolvedCloudUrl && driver === "cloud" ? deriveRestUrl(resolvedCloudUrl) : resolvedCloudUrl;
+  const normalized = (value: string | undefined): string | undefined =>
+    value?.replace(/\/+$/, "").toLowerCase();
+  const useSavedInstance = Boolean(
+    effectiveCloudUrl &&
+      !explicitUrl &&
+      (!environmentUrl || !cloudCfg?.url || normalized(environmentUrl) === normalized(cloudCfg.url))
+  );
+  const savedInstanceUrl = useSavedInstance ? effectiveCloudUrl : undefined;
 
   return {
-    path: effectiveCloudUrl && !url ? effectiveCloudUrl : path,
+    path: savedInstanceUrl ?? path,
     driver,
     authToken: resolvedAuthToken,
     cloud,

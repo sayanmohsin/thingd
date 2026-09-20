@@ -1183,9 +1183,9 @@ impl PersistentEngine {
                 false
             }
         };
-        let initial_compaction_required =
-            db.journal_disk_space().unwrap_or_default() > options.max_journal_bytes;
         let initial_journal_bytes = db.journal_disk_space().unwrap_or_default();
+        let initial_compaction_required =
+            options.max_journal_bytes > 0 && initial_journal_bytes >= options.max_journal_bytes;
         let initial_journal_count = db.journal_count() as u64;
 
         let mut engine = Self {
@@ -1387,6 +1387,28 @@ impl PersistentEngine {
             status.total = progress.total;
         }
         status
+    }
+
+    /// Request durable maintenance when the journal is at or above its
+    /// configured ceiling. The hosting server starts its bounded recovery
+    /// worker after this transition; callers must continue rejecting writes
+    /// until that worker reports the store idle again.
+    pub fn request_storage_recovery(&mut self) -> bool {
+        if self.db.is_in_memory()
+            || self.max_journal_bytes == 0
+            || self.maintenance.state != "idle"
+            || self.journal_bytes() < self.max_journal_bytes
+        {
+            return false;
+        }
+
+        self.maintenance.state = "compacting".to_string();
+        self.maintenance.phase = "primary".to_string();
+        self.maintenance.processed = 0;
+        self.maintenance.total = 0;
+        self.maintenance.error = None;
+        self.maintenance.generation = self.maintenance.generation.saturating_add(1);
+        true
     }
 
     /// Return bounded queue-index diagnostics.
@@ -6062,6 +6084,28 @@ mod tests {
         engine.compact_storage().unwrap();
         assert_eq!(engine.storage_maintenance_status().state, "idle");
         assert!(engine.journal_count() >= 1);
+    }
+
+    #[test]
+    fn journal_ceiling_request_transitions_idle_store_to_compacting() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut engine = PersistentEngine::open_with_options(
+            dir.path(),
+            PersistentOpenOptions {
+                max_journal_bytes: 1,
+                search_mode: PersistentSearchMode::Disabled,
+                ..PersistentOpenOptions::default()
+            },
+        )
+        .unwrap();
+        engine
+            .put_object(MemoryObject::new("notes", "one", r#"{"text":"hello"}"#))
+            .unwrap();
+        engine.maintenance.state = "idle".to_string();
+        assert_eq!(engine.storage_maintenance_status().state, "idle");
+        assert!(engine.request_storage_recovery());
+        assert!(!engine.request_storage_recovery());
+        assert_eq!(engine.storage_maintenance_status().state, "compacting");
     }
 
     #[test]

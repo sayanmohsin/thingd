@@ -77,7 +77,7 @@ Configure via environment variables or a YAML config file pointed at by `THINGD_
 | `THINGD_SEARCH_COMMIT_INTERVAL_MS` | `250` | Maximum debounce before coalesced Tantivy commits |
 | `THINGD_SEARCH_COMMIT_BATCH_SIZE` | `32` | Maximum mutations per Tantivy commit |
 | `THINGD_SEARCH_QUEUE_MAX_KEYS` | `10000` | Bounded distinct search keys before fallback/rebuild |
-| `THINGD_JOURNAL_MAX_BYTES` | `33554432` | Soft journal threshold before recovery backpressure |
+| `THINGD_JOURNAL_MAX_BYTES` | `33554432` | Journal ceiling; reaching it starts bounded compaction and temporarily backpressures writes |
 | `THINGD_RECOVERY_BATCH_SIZE` | `32` | Maximum records per recovery batch |
 | `THINGD_RECOVERY_PAUSE_MS` | `50` | Yield interval between recovery batches |
 | `THINGD_RECOVERY_MAX_RETRIES` | `3` | Maximum automatic search-rebuild retries |

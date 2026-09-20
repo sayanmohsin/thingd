@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
-import { existsSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { Readable } from "node:stream";
 import test from "node:test";
-import { runCli } from "../dist/index.js";
+import { resolveConnection, runCli } from "../dist/index.js";
 
 const CLOUD_CONFIG_PATH = join(homedir(), ".thingd", "cloud-config.json");
 
@@ -30,7 +30,19 @@ function removeCloudConfig() {
 }
 
 function withCloudConfig(token = "test-token", email = "test@example.com") {
+  mkdirSync(join(homedir(), ".thingd"), { recursive: true });
   writeFileSync(CLOUD_CONFIG_PATH, JSON.stringify({ token, email }), "utf-8");
+}
+
+function connectionContext(env) {
+  return {
+    parsed: { tokens: [], flags: new Map(), booleans: new Set() },
+    env,
+    stdout: { write() {} },
+    stderr: { write() {} },
+    stdin: Readable.from([]),
+    pretty: false,
+  };
 }
 
 function listen(server) {
@@ -69,6 +81,25 @@ test("cloud logout removes config", async () => {
   const result = await run(["cloud", "logout"]);
   assert.equal(result.code, 0);
   assert.equal(existsSync(CLOUD_CONFIG_PATH), false);
+});
+
+test("base THINGD_URL preserves saved Cloud instance routing", () => {
+  mkdirSync(join(homedir(), ".thingd"), { recursive: true });
+  writeFileSync(
+    CLOUD_CONFIG_PATH,
+    JSON.stringify({
+      url: "https://api.thingd.cloud/",
+      instanceUrl: "https://runtime.thingd.cloud/mcp",
+      instanceSlug: "dev",
+      token: "test-token",
+    }),
+    "utf-8"
+  );
+  const connection = resolveConnection(
+    connectionContext({ THINGD_URL: "https://api.thingd.cloud" })
+  );
+  assert.equal(connection.path, "https://runtime.thingd.cloud");
+  assert.equal(connection.instanceSlug, "dev");
 });
 
 test("cloud login with --code and --token verifies against API", async () => {

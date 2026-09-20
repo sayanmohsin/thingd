@@ -71,17 +71,10 @@ fn ensure_source_writable(state: &AppState, headers: &HeaderMap) -> Result<(), A
 fn ensure_storage_writable(state: &AppState, headers: &HeaderMap) -> Result<(), AppError> {
     let tenant_id = crate::auth::extract_tenant_id(headers, &state.tenant_config)?;
     let db_path = state.tenant_config.resolve_db_path(tenant_id.as_deref());
-    let status = state.pool.storage_maintenance_status(&db_path);
-    let journal_capped =
-        status.journal_limit_bytes > 0 && status.journal_bytes >= status.journal_limit_bytes;
-    if status.state != "idle" || journal_capped {
-        let reason = if journal_capped {
-            "journal ceiling reached"
-        } else {
-            "storage maintenance is active"
-        };
+    let status = state.pool.ensure_storage_recovery(&db_path);
+    if status.state != "idle" {
         return Err(AppError::overloaded(format!(
-            "{reason} (state: {}); writes are temporarily paused",
+            "storage maintenance is active (state: {}); writes are temporarily paused",
             status.state,
         )));
     }
