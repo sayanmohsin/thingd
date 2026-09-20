@@ -48,6 +48,12 @@ maintenance returns to `idle`; reads use the bounded fallback search where
 necessary. Normal asynchronous search lag after startup does not make this
 endpoint fail while the primary store is healthy.
 
+When the journal reaches `journalLimitBytes`, the first maintenance or
+mutation status check transitions an otherwise idle durable store into bounded
+primary compaction. The request returns `503` while that work runs; clients
+should retry after the advertised interval rather than treating an idle status
+with a capped journal as a permanent pause.
+
 ```json
 {
   "data": {

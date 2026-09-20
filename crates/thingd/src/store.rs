@@ -932,6 +932,13 @@ pub trait ThingStore:
         crate::StorageMaintenanceStatus::default()
     }
 
+    /// Request bounded durable maintenance when the backend has reached its
+    /// configured journal ceiling. Returns `true` when the request changed
+    /// the backend state and a recovery worker should be started.
+    fn request_storage_recovery(&mut self) -> bool {
+        false
+    }
+
     /// Compact the primary durable store when supported.
     ///
     /// # Errors
@@ -993,6 +1000,10 @@ impl ThingStore for crate::PersistentEngine {
 
     fn storage_maintenance_status(&self) -> crate::StorageMaintenanceStatus {
         self.storage_maintenance_status()
+    }
+
+    fn request_storage_recovery(&mut self) -> bool {
+        self.request_storage_recovery()
     }
 
     fn compact_storage(&mut self) -> ThingdResult<()> {

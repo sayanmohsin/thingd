@@ -40,8 +40,7 @@ fn spawn_storage_recovery(engine: SharedEngine) {
                     let maintenance = guard.storage_maintenance_status();
                     if !guard.search_rebuild_required() && maintenance.state == "idle" {
                         drop(guard);
-                        thread::sleep(Duration::from_millis(100));
-                        continue;
+                        break;
                     }
                     if !compacted {
                         let result = guard.compact_storage();
@@ -428,7 +427,24 @@ impl EnginePool {
     }
 
     pub fn storage_maintenance_status(&self, db_path: &str) -> thingd::StorageMaintenanceStatus {
-        self.get_reader(db_path).lock().storage_maintenance_status()
+        let engine = self.get_reader(db_path);
+        let (requested, status) = {
+            let mut guard = engine.lock();
+            let requested = guard.request_storage_recovery();
+            let status = guard.storage_maintenance_status();
+            (requested, status)
+        };
+        if requested {
+            spawn_storage_recovery(engine);
+        }
+        status
+    }
+
+    /// Start recovery when a durable journal reaches its configured ceiling.
+    /// The request is idempotent: only the idle-to-compacting transition
+    /// starts a new worker.
+    pub fn ensure_storage_recovery(&self, db_path: &str) -> thingd::StorageMaintenanceStatus {
+        self.storage_maintenance_status(db_path)
     }
 
     /// Remove the default engine from the pool and delete its database file.
