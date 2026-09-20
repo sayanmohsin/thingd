@@ -1755,8 +1755,16 @@ export function resolveConnection(context: CliContext): ConnectionOptions {
   const resolvedCloudUrl = cloudCfg ? resolveCloudUrl(cloudCfg) : undefined;
   const effectiveCloudUrl =
     resolvedCloudUrl && driver === "cloud" ? deriveRestUrl(resolvedCloudUrl) : resolvedCloudUrl;
-  const normalized = (value: string | undefined): string | undefined =>
-    value?.replace(/\/+$/, "").toLowerCase();
+  const normalized = (value: string | undefined): string | undefined => {
+    if (value === undefined) {
+      return undefined;
+    }
+    let end = value.length;
+    while (end > 0 && value.charCodeAt(end - 1) === 47) {
+      end -= 1;
+    }
+    return value.slice(0, end).toLowerCase();
+  };
   const useSavedInstance = Boolean(
     effectiveCloudUrl &&
       !explicitUrl &&
