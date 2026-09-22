@@ -49,7 +49,7 @@ export type AppAuthResponse = {
   expiresIn: number;
 };
 
-export type AppFunction = {
+export type AppAction = {
   name: string;
   description: string;
   auth: "public" | "user" | "role";
@@ -60,10 +60,35 @@ export type AppFunction = {
   idempotency: "optional" | "required";
 };
 
+/** @deprecated Use AppAction. */
+export type AppFunction = AppAction;
+
+export type AppEntity = Record<string, unknown>;
+export type AppAudience = Record<string, unknown>;
+export type AppRole = Record<string, unknown>;
+export type AppView = Record<string, unknown>;
+export type AppPolicy = Record<string, unknown>;
+export type AppDistribution = Record<string, unknown>;
+export type AppPresentation = Record<string, unknown>;
+
 export type AppManifest = {
+  schemaVersion: "thingd.app/v1";
   version: string;
   project: { id: string; slug: string };
-  functions: AppFunction[];
+  app: { id: string; slug: string; name?: string };
+  instance: { id: string; slug: string; name?: string };
+  entities: AppEntity[];
+  audiences: AppAudience[];
+  roles: AppRole[];
+  actions: AppAction[];
+  /** @deprecated Use actions. */
+  functions: AppAction[];
+  views: AppView[];
+  workflows: Record<string, unknown>[];
+  integrations: Record<string, unknown>[];
+  policies: AppPolicy;
+  distribution: AppDistribution;
+  presentation: AppPresentation;
   capabilities: { reads: boolean; namedWrites: boolean };
 };
 

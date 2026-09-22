@@ -2,29 +2,18 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, dirname, resolve } from "node:path";
 import { createThingdAppClient } from "@thingd/client";
 import { parseSchema } from "@thingd/sdk";
+import { type CliContext, hasFlag, requiredFlag, stringFlag, writeJson } from "../index.js";
 import {
-  type CliContext,
-  hasFlag,
-  requiredFlag,
-  requiredToken,
-  stringFlag,
-  writeJson,
-} from "../index.js";
-import {
-  type CloudAppFunction,
   type CloudInstance,
   type CloudProject,
   type CloudPublishApp,
-  createAppFunction,
   createPublishApp,
+  createPublishAppVersion,
   getAppConfig,
-  listAppFunctions,
   listInstances,
   listProjects,
   listPublishApps,
-  transitionAppFunction,
   transitionPublishApp,
-  updateAppFunction,
   updatePublishApp,
   validatePublishApp,
   validateRuntimeSchema,
@@ -42,6 +31,7 @@ type AppDefinition = Record<string, unknown> & {
 
 type AppReference = {
   project: CloudProject;
+  instance: CloudInstance;
   app: CloudPublishApp;
 };
 
@@ -54,13 +44,13 @@ const APP_HELP = {
     list: "List Publish apps in a project",
     create: "Create a Publish app from a definition file",
     update: "Update a Publish app from a definition file",
+    version: "Create a draft from the current published Publish app version",
     validate: "Validate an existing Publish app",
     test: "Move a Publish app to test status",
     publish: "Publish a Publish app",
     disable: "Disable a Publish app",
     rollback: "Roll back a Publish app to a version",
-    functions: "Manage project app-backend functions",
-    smoke: "Run an app-client signup/login/manifest smoke test",
+    smoke: "Run an app-client manifest/auth/read/search/action smoke test",
   },
 };
 
@@ -105,24 +95,6 @@ function readDefinition(file: string): AppDefinition {
   }
 
   return definition;
-}
-
-function readJsonObject(file: string): Record<string, unknown> {
-  if (!existsSync(file)) {
-    throw new Error(`Definition not found: ${file}`);
-  }
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(readFileSync(file, "utf8"));
-  } catch (error) {
-    throw new Error(
-      `Invalid JSON in ${file}: ${error instanceof Error ? error.message : String(error)}`
-    );
-  }
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-    throw new Error(`Definition must be a JSON object: ${file}`);
-  }
-  return parsed as Record<string, unknown>;
 }
 
 function defaultSlug(file: string): string {
@@ -201,16 +173,21 @@ function output(context: CliContext, value: unknown): void {
 async function resolveApp(context: CliContext): Promise<AppReference> {
   const config = requireCloudConfig();
   const project = await getProject(config, context);
+  const instance = await getInstance(config, project, context);
   const appValue = stringFlag(context.parsed, "app") ?? stringFlag(context.parsed, "slug");
   if (!appValue) {
     throw new Error("Missing required flag: --app or --slug");
   }
   const { apps } = await listPublishApps(config, project.id);
-  const app = apps.find((candidate) => candidate.id === appValue || candidate.slug === appValue);
+  const app = apps.find(
+    (candidate) =>
+      candidate.instanceId === instance.id &&
+      (candidate.id === appValue || candidate.slug === appValue)
+  );
   if (!app) {
-    throw new Error(`Publish app not found in ${project.slug}: ${appValue}`);
+    throw new Error(`Publish app not found in ${project.slug}/${instance.slug}: ${appValue}`);
   }
-  return { project, app };
+  return { project, instance, app };
 }
 
 async function runInit(context: CliContext): Promise<void> {
@@ -228,13 +205,18 @@ async function runInit(context: CliContext): Promise<void> {
 async function runConfig(context: CliContext): Promise<void> {
   const config = requireCloudConfig();
   const project = await getProject(config, context);
-  const result = await getAppConfig(config, project.id);
+  const instance = await getInstance(config, project, context);
+  const result = await getAppConfig(config, project.id, instance.id);
+  if (result.app.instanceId !== instance.id) {
+    throw new Error(`Cloud app configuration is not bound to instance ${instance.id}`);
+  }
   const baseUrl = (config.url ?? "https://api.thingd.cloud").replace(/\/+$/, "");
   output(context, {
     baseUrl,
     appBaseUrl: `${baseUrl}/v1`,
     appEndpoint: `${baseUrl}/v1/app`,
     project: { id: project.id, slug: project.slug },
+    instance: { id: instance.id, slug: instance.slug },
     credentialType: "publishable_key",
     publishableKey: result.app.publishableKey,
     mobileClient: "createThingdAppClient",
@@ -272,7 +254,9 @@ async function runBootstrap(context: CliContext): Promise<void> {
   const file = appFilePath(context);
   const definition = readDefinition(file);
   const { apps } = await listPublishApps(config, project.id);
-  const existing = apps.find((candidate) => candidate.slug === definition.slug);
+  const existing = apps.find(
+    (candidate) => candidate.slug === definition.slug && candidate.instanceId === instance.id
+  );
   const action = existing ? "update" : "create";
   const schema = await validateSchemaIfRequested(
     config,
@@ -302,8 +286,10 @@ async function runBootstrap(context: CliContext): Promise<void> {
     : await createPublishApp(config, project.id, payload);
   const app = result.app;
   const validation = await validatePublishApp(config, project.id, app.id);
+  let tested: { app: CloudPublishApp; hostedUrl?: string } | undefined;
   let published: { app: CloudPublishApp; hostedUrl?: string } | undefined;
   if (hasFlag(context.parsed, "publish")) {
+    tested = await transitionPublishApp(config, project.id, app.id, "test");
     published = await transitionPublishApp(config, project.id, app.id, "publish");
   }
 
@@ -314,28 +300,36 @@ async function runBootstrap(context: CliContext): Promise<void> {
     app,
     schema: schema ?? null,
     validation: validation.report,
+    tested: tested ?? null,
     published: published ?? null,
   });
 }
 
 async function runCreateOrUpdate(context: CliContext, action: "create" | "update"): Promise<void> {
   const config = requireCloudConfig();
-  const project = await getProject(config, context);
   const definition = readDefinition(appFilePath(context));
-  const instance = stringFlag(context.parsed, "instance");
-  if (action === "create" && !instance) {
-    throw new Error("create requires --instance <instance>");
-  }
-  const instanceId = instance ? (await getInstance(config, project, context)).id : undefined;
-  const payload = instanceId ? { ...definition, instanceId } : definition;
 
   if (action === "create") {
+    const project = await getProject(config, context);
+    const instance = await getInstance(config, project, context);
+    const payload = { ...definition, instanceId: instance.id };
     output(context, await createPublishApp(config, project.id, payload));
     return;
   }
 
-  const { app } = await resolveApp(context);
+  const { project, instance, app } = await resolveApp(context);
+  const payload = { ...definition, instanceId: instance.id };
   output(context, await updatePublishApp(config, project.id, app.id, payload));
+}
+
+async function runVersion(context: CliContext): Promise<void> {
+  const subcommand = context.parsed.tokens[3];
+  if (subcommand !== "create") {
+    throw new Error("Use `thingd cloud app version create --project <project> --app <app>`");
+  }
+  const config = requireCloudConfig();
+  const { project, app } = await resolveApp(context);
+  output(context, await createPublishAppVersion(config, project.id, app.id));
 }
 
 async function runLifecycle(
@@ -355,58 +349,27 @@ async function runLifecycle(
   output(context, await transitionPublishApp(config, project.id, app.id, action, version));
 }
 
-async function runFunctions(context: CliContext): Promise<void> {
-  const config = requireCloudConfig();
-  const project = await getProject(config, context);
-  const action = requiredToken(context.parsed, 3, "function action");
-  if (action === "list") {
-    output(context, await listAppFunctions(config, project.id));
-    return;
-  }
-  const name = stringFlag(context.parsed, "name") ?? context.parsed.tokens[4];
-  if (!name && action !== "create") {
-    throw new Error("Missing function name; use --name <name>");
-  }
-  if (action === "create" || action === "update") {
-    const definition = readJsonObject(resolve(requiredFlag(context.parsed, "file")));
-    output(
-      context,
-      action === "create"
-        ? await createAppFunction(config, project.id, definition)
-        : await updateAppFunction(config, project.id, name as string, definition)
-    );
-    return;
-  }
-  if (action === "rollback") {
-    const version = Number(requiredFlag(context.parsed, "version"));
-    if (!Number.isSafeInteger(version) || version < 1) {
-      throw new Error("rollback requires a positive --version");
-    }
-    output(
-      context,
-      await transitionAppFunction(config, project.id, name as string, "rollback", version)
-    );
-    return;
-  }
-  if (action === "test" || action === "publish" || action === "disable") {
-    output(context, await transitionAppFunction(config, project.id, name as string, action));
-    return;
-  }
-  throw new Error(`Unknown function action: ${action}`);
-}
-
 async function runSmoke(context: CliContext): Promise<void> {
   const config = requireCloudConfig();
   const project = await getProject(config, context);
+  const instance = await getInstance(config, project, context);
   const file = appFilePath(context);
   const definition = readDefinition(file);
-  const appConfig = await getAppConfig(config, project.id);
+  const appConfig = await getAppConfig(config, project.id, instance.id);
+  if (appConfig.app.instanceId !== instance.id) {
+    throw new Error(`Cloud app configuration is not bound to instance ${instance.id}`);
+  }
   const client = createThingdAppClient({
     baseUrl: config.url ?? "https://api.thingd.cloud",
     publishableKey: appConfig.app.publishableKey,
   });
   const checks: string[] = [];
   const manifest = await client.manifest();
+  if (manifest.instance && manifest.instance.id !== instance.id) {
+    throw new Error(
+      `Manifest instance mismatch: expected ${instance.id}, received ${manifest.instance.id}`
+    );
+  }
   checks.push(`manifest:${manifest.version}`);
 
   const email = requiredFlag(context.parsed, "email");
@@ -424,12 +387,38 @@ async function runSmoke(context: CliContext): Promise<void> {
   }
   await client.auth.getCurrentUser();
   checks.push("me");
+
+  const collection = requiredFlag(context.parsed, "collection");
+  const objectId = requiredFlag(context.parsed, "object-id");
+  const query = stringFlag(context.parsed, "query") ?? collection;
+  await client.objects.get(collection, objectId);
+  checks.push("object");
+  await client.search(query, { collections: [collection], limit: 1 });
+  checks.push("search");
+
+  const actionName = requiredFlag(context.parsed, "action");
+  if (!manifest.actions.some((action) => action.name === actionName)) {
+    throw new Error(`Action '${actionName}' is not present in the published manifest`);
+  }
+  const inputText = stringFlag(context.parsed, "input") ?? "{}";
+  let input: unknown;
+  try {
+    input = JSON.parse(inputText);
+  } catch (error) {
+    throw new Error(
+      `Invalid JSON for --input: ${error instanceof Error ? error.message : String(error)}`
+    );
+  }
+  await client.actions.invoke(actionName, input);
+  checks.push(`action:${actionName}`);
+
   await client.auth.signOut();
   checks.push("logout");
 
   output(context, {
     ok: true,
     project: { id: project.id, slug: project.slug },
+    instance: { id: instance.id, slug: instance.slug },
     app: { slug: definition.slug },
     checks,
     credentialType: "publishable_key",
@@ -464,12 +453,12 @@ export async function runCloudApp(context: CliContext): Promise<void> {
     await runCreateOrUpdate(context, action);
     return;
   }
-  if (["validate", "test", "publish", "disable", "rollback"].includes(action)) {
-    await runLifecycle(context, action as "validate" | "test" | "publish" | "disable" | "rollback");
+  if (action === "version") {
+    await runVersion(context);
     return;
   }
-  if (action === "functions") {
-    await runFunctions(context);
+  if (["validate", "test", "publish", "disable", "rollback"].includes(action)) {
+    await runLifecycle(context, action as "validate" | "test" | "publish" | "disable" | "rollback");
     return;
   }
   if (action === "smoke") {
@@ -478,5 +467,3 @@ export async function runCloudApp(context: CliContext): Promise<void> {
   }
   throw new Error(`Unknown cloud app action: ${action}`);
 }
-
-export type { CloudAppFunction };

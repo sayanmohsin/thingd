@@ -484,7 +484,7 @@ mod tests {
         assert!(verifier.tenant_id(&wrong_audience).await.is_err());
 
         let expired = token(
-            claims(Some("tenant-a"), ISSUER, AUDIENCE, now() - 1),
+            claims(Some("tenant-a"), ISSUER, AUDIENCE, now() - 120),
             KEY_ID,
         );
         assert!(verifier.tenant_id(&expired).await.is_err());

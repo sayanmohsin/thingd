@@ -41,12 +41,12 @@
     "url": "git+https://github.com/sayanmohsin/thingd.git"
   },
   "dependencies": {
-    "@thingd/client": "workspace:^",
     "@modelcontextprotocol/sdk": "^1.30.0",
+    "@thingd/client": "workspace:^",
     "@thingd/sdk": "workspace:^",
     "cli-table3": "^0.6.5",
     "picocolors": "^1.1.1",
-    "zod": "^4.5.4"
+    "zod": "^4.6.5"
   },
   "scripts": {
     "build": "pnpm --filter frontend build && tsc -p tsconfig.json && node -e \"fs.mkdirSync('dist/dashboard', { recursive: true }); fs.cpSync('src/dashboard/public', 'dist/dashboard/public', { recursive: true })\"",

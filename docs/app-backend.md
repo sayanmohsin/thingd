@@ -2,7 +2,7 @@
 
 thingd Cloud can expose a project as an application backend for mobile and web
 apps. The open-source `@thingd/client` package contains the portable REST
-client; authentication, project users, policies, and hosted named actions are
+client; authentication, project users, policies, and hosted actions are
 Cloud capabilities.
 
 For the complete CLI-first Expo walkthrough, see [Nice Rep: CLI-first mobile
@@ -29,7 +29,7 @@ const result = await client.auth.signUp({
   name: "Alice",
 });
 
-await client.functions.invoke("createProfile", { timezone: "America/Toronto" }, {
+await client.actions.invoke("createProfile", { timezone: "America/Toronto" }, {
   idempotencyKey: "profile:create:alice",
 });
 ```
@@ -43,15 +43,15 @@ Hosted app backends use these routes below `/v1`:
 
 | Method | Route | Purpose |
 |---|---|---|
-| GET | `/app/manifest` | Discover project capabilities and function versions |
+| GET | `/app/manifest` | Discover the immutable project/app/instance snapshot |
 | POST | `/app/auth/signup` | Create a project user |
 | POST | `/app/auth/login` | Create a project-user session |
 | POST | `/app/auth/refresh` | Rotate a project-user refresh token |
 | GET | `/app/auth/me` | Read the authenticated project user |
 | POST | `/app/auth/logout` | Revoke the project user's refresh sessions |
-| GET | `/app/functions` | List published named actions |
-| GET | `/app/functions/:name` | Read one action definition |
-| POST | `/app/functions/:name` | Invoke a named action |
+| GET | `/app/functions` | List published actions (compatibility route) |
+| GET | `/app/functions/:name` | Read one action definition (compatibility route) |
+| POST | `/app/functions/:name` | Invoke an action (compatibility route) |
 | GET | `/app/objects/:collection/:id` | Read an allowed object |
 | POST | `/app/search` | Search allowed objects |
 
@@ -62,10 +62,18 @@ use `Idempotency-Key`.
 Responses use `{ "data": ... }`. Errors contain a stable `error.code`, a safe
 message, and may include a `requestId` for support.
 
+The manifest is the published `thingd.app/v1` snapshot. It is identified by
+the project, app, and instance and contains the app's entities, audiences,
+roles, actions, views, policies, distribution, and presentation metadata.
+`actions` is canonical. The SDK exposes `functions` as a compatibility alias
+while older clients migrate; both names use the same routes and snapshot.
+There is no second app-function registry: the checked-in app definition and its
+published manifest are the sole action source.
+
 ## Access model
 
 App clients can read public or user-owned objects. Sensitive writes go through
-published named actions with input validation, ownership checks, idempotency,
+published actions with input validation, ownership checks, idempotency,
 and audit logging. Arbitrary customer code execution is not part of this
 contract.
 

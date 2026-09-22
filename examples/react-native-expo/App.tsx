@@ -14,7 +14,7 @@ export default function App() {
     void client
       .manifest()
       .then((manifest) =>
-        setMessage(`${manifest.project.slug}: ${manifest.functions.length} functions available`)
+        setMessage(`${manifest.project.slug}: ${manifest.actions.length} actions available`)
       )
       .catch(() => setMessage("Unable to reach thingd Cloud"));
   }, []);

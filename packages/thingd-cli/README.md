@@ -70,7 +70,8 @@ thingd cloud instance use nice-rep nice-rep
 thingd cloud app init --file nice-rep.app.json --name "Nice Rep" --slug nice-rep
 thingd schema check schema.thingd
 thingd cloud app bootstrap --project nice-rep --instance nice-rep --file nice-rep.app.json --schema schema.thingd --dry-run
-thingd cloud app config --project nice-rep
+thingd cloud app config --project nice-rep --instance nice-rep
+thingd cloud app version create --project nice-rep --instance nice-rep --app nice-rep
 ```
 
 For mobile and web apps, use `createThingdAppClient` from `@thingd/client`.
@@ -79,9 +80,11 @@ Expo application. `thingd cloud app config` returns the publishable key that is
 safe to configure in a mobile app; app-user access tokens are issued by the
 app backend after signup or login.
 
-The app definition is a versioned `thingd.app/v1` JSON document. The CLI checks
-its JSON shape and delegates full policy validation to Cloud. `schema.thingd`
-is the runtime schema and is validated locally before a non-dry-run bootstrap.
+The app definition is a versioned `thingd.app/v1` JSON document. Its
+`actions` field is the sole action source; the SDK's deprecated `functions`
+alias uses the same published routes for compatibility. The CLI checks the
+JSON shape and delegates full policy validation to Cloud. `schema.thingd` is
+the runtime schema and is validated locally before a non-dry-run bootstrap.
 
 Full reference: [CLI Reference](https://sayanmohsin.github.io/thingd/cli-reference) ·
 [Nice Rep mobile setup](https://sayanmohsin.github.io/thingd/nice-rep)

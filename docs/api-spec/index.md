@@ -18,6 +18,10 @@ The hosted mobile/web app backend contract is documented in
 [App Backend](../app-backend.md). The [Nice Rep setup guide](../nice-rep.md)
 shows the CLI-first Expo workflow. It is implemented by thingd Cloud and does
 not add Cloud tenancy or authentication to the open-source engine.
+The published `thingd.app/v1` manifest is an immutable project/app/instance
+snapshot. Its canonical named-action field and client API are `actions`; the
+SDK's `functions` name is a deprecated compatibility alias backed by the same
+routes, not a separate registry.
 
 ## Sections
 
