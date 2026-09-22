@@ -71,6 +71,7 @@ thingd cloud app init --file nice-rep.app.json --name "Nice Rep" --slug nice-rep
 thingd schema check schema.thingd
 thingd cloud app bootstrap --project nice-rep --instance nice-rep --file nice-rep.app.json --schema schema.thingd --dry-run
 thingd cloud app config --project nice-rep
+thingd cloud app version create --project nice-rep --app nice-rep
 ```
 
 For mobile and web apps, use `createThingdAppClient` from `@thingd/client`.

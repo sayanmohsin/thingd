@@ -17,6 +17,7 @@ import {
   type CloudPublishApp,
   createAppFunction,
   createPublishApp,
+  createPublishAppVersion,
   getAppConfig,
   listAppFunctions,
   listInstances,
@@ -54,6 +55,7 @@ const APP_HELP = {
     list: "List Publish apps in a project",
     create: "Create a Publish app from a definition file",
     update: "Update a Publish app from a definition file",
+    version: "Create a draft from the current published Publish app version",
     validate: "Validate an existing Publish app",
     test: "Move a Publish app to test status",
     publish: "Publish a Publish app",
@@ -228,13 +230,16 @@ async function runInit(context: CliContext): Promise<void> {
 async function runConfig(context: CliContext): Promise<void> {
   const config = requireCloudConfig();
   const project = await getProject(config, context);
-  const result = await getAppConfig(config, project.id);
+  const instanceValue = stringFlag(context.parsed, "instance");
+  const instance = instanceValue ? await getInstance(config, project, context) : undefined;
+  const result = await getAppConfig(config, project.id, instance?.id);
   const baseUrl = (config.url ?? "https://api.thingd.cloud").replace(/\/+$/, "");
   output(context, {
     baseUrl,
     appBaseUrl: `${baseUrl}/v1`,
     appEndpoint: `${baseUrl}/v1/app`,
     project: { id: project.id, slug: project.slug },
+    ...(instance ? { instance: { id: instance.id, slug: instance.slug } } : {}),
     credentialType: "publishable_key",
     publishableKey: result.app.publishableKey,
     mobileClient: "createThingdAppClient",
@@ -272,7 +277,9 @@ async function runBootstrap(context: CliContext): Promise<void> {
   const file = appFilePath(context);
   const definition = readDefinition(file);
   const { apps } = await listPublishApps(config, project.id);
-  const existing = apps.find((candidate) => candidate.slug === definition.slug);
+  const existing = apps.find(
+    (candidate) => candidate.slug === definition.slug && candidate.instanceId === instance.id
+  );
   const action = existing ? "update" : "create";
   const schema = await validateSchemaIfRequested(
     config,
@@ -336,6 +343,16 @@ async function runCreateOrUpdate(context: CliContext, action: "create" | "update
 
   const { app } = await resolveApp(context);
   output(context, await updatePublishApp(config, project.id, app.id, payload));
+}
+
+async function runVersion(context: CliContext): Promise<void> {
+  const subcommand = context.parsed.tokens[3];
+  if (subcommand !== "create") {
+    throw new Error("Use `thingd cloud app version create --project <project> --app <app>`");
+  }
+  const config = requireCloudConfig();
+  const { project, app } = await resolveApp(context);
+  output(context, await createPublishAppVersion(config, project.id, app.id));
 }
 
 async function runLifecycle(
@@ -462,6 +479,10 @@ export async function runCloudApp(context: CliContext): Promise<void> {
   }
   if (action === "create" || action === "update") {
     await runCreateOrUpdate(context, action);
+    return;
+  }
+  if (action === "version") {
+    await runVersion(context);
     return;
   }
   if (["validate", "test", "publish", "disable", "rollback"].includes(action)) {

@@ -243,6 +243,10 @@ test("cloud app lifecycle commands map to Publish and function routes", async ()
       json(res, { app: { id: "a1", name: "Nice Rep", slug: "nice-rep", instanceId: "i1", status: "draft" } });
       return;
     }
+    if (req.method === "POST" && req.url === "/projects/p1/publish/apps/a1/versions") {
+      json(res, { app: { id: "a2", appId: "a1", name: "Nice Rep", slug: "nice-rep", instanceId: "i1", status: "draft", version: 2 } });
+      return;
+    }
     if (req.method === "POST" && req.url === "/projects/p1/publish/apps/a1/validate") {
       json(res, { report: { compatible: true } });
       return;
@@ -280,6 +284,7 @@ test("cloud app lifecycle commands map to Publish and function routes", async ()
     for (const args of [
       ["cloud", "app", "create", "--project", "nice-rep", "--instance", "nice-rep", "--file", file],
       ["cloud", "app", "update", "--project", "nice-rep", "--app", "a1", "--file", file],
+      ["cloud", "app", "version", "create", "--project", "nice-rep", "--app", "a1"],
       ["cloud", "app", "validate", "--project", "nice-rep", "--app", "a1"],
       ["cloud", "app", "test", "--project", "nice-rep", "--app", "a1"],
       ["cloud", "app", "publish", "--project", "nice-rep", "--app", "a1"],

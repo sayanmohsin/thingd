@@ -181,7 +181,7 @@ Usage:
   thingd cloud app init --file <path> [--name <name>] [--slug <slug>]
   thingd cloud app bootstrap --project <project> --instance <instance> --file <path> [--schema <path>] [--publish] [--dry-run]
   thingd cloud app config --project <project>
-  thingd cloud app list|create|update|validate|test|publish|disable|rollback
+  thingd cloud app list|create|update|version create|validate|test|publish|disable|rollback
   thingd cloud app functions list|create|update|test|publish|disable|rollback
   thingd cloud app smoke --project <project> --file <path> --email <email> --password <password> [--signup]
   thingd db checkpoint [--path <path>]

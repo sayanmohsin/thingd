@@ -58,6 +58,7 @@ export type CloudOrganizationMember = {
 
 export type CloudAppConfig = {
   projectId: string;
+  instanceId?: string;
   publishableKey: string;
 };
 
@@ -210,9 +211,11 @@ function functionPath(projectId: string, name: string, suffix = ""): string {
 
 export async function getAppConfig(
   config: CloudConfig,
-  projectId: string
+  projectId: string,
+  instanceId?: string
 ): Promise<{ app: CloudAppConfig }> {
-  return request(config, projectPath(projectId, "/app-config"));
+  const suffix = instanceId ? `?instanceId=${encodeURIComponent(instanceId)}` : "";
+  return request(config, projectPath(projectId, `/app-config${suffix}`));
 }
 
 export async function validateRuntimeSchema(
@@ -303,6 +306,14 @@ export async function updatePublishApp(
     method: "PUT",
     body: definition,
   });
+}
+
+export async function createPublishAppVersion(
+  config: CloudConfig,
+  projectId: string,
+  appId: string
+): Promise<{ app: CloudPublishApp }> {
+  return request(config, appPath(projectId, appId, "/versions"), { method: "POST" });
 }
 
 export async function validatePublishApp(
