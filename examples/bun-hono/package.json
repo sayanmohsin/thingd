@@ -9,10 +9,10 @@
   },
   "dependencies": {
     "@thingd/sdk": "workspace:*",
-    "hono": "^4.13.5"
+    "hono": "^4.13.8"
   },
   "devDependencies": {
-    "@types/bun": "^1.4.0",
+    "@types/bun": "^1.4.2",
     "typescript": "7.0.2"
   }
 }

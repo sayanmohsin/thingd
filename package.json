@@ -63,13 +63,13 @@
     "verify:pr": "pnpm check:cargo-versions && pnpm check && pnpm check:docs && pnpm verify:rust && pnpm build:node && pnpm test:node:built && pnpm test:package:built && pnpm test:cli:built"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.5.13",
+    "@biomejs/biome": "2.5.14",
     "@modelcontextprotocol/sdk": "^1.30.0",
-    "@sayanmohsin/nice-code": "0.2.0",
+    "@sayanmohsin/nice-code": "0.3.2",
     "@thingd/native": "file:packages/thingd-native",
-    "@types/node": "26.5.1",
+    "@types/node": "26.6.2",
     "cross-spawn": "^7.0.6",
-    "lefthook": "^2.1.12",
+    "lefthook": "^2.1.14",
     "typescript": "7.0.2"
   }
 }
