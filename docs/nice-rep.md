@@ -46,7 +46,7 @@ thingd cloud app init \
 ```
 
 The generated file uses the public `thingd.app/v1` format. Edit its entities,
-audiences, roles, named actions, views, workflows, integrations, policies,
+audiences, roles, canonical `actions`, views, workflows, integrations, policies,
 distribution, and presentation fields. The CLI checks the public envelope and
 Cloud performs the complete hosted policy validation.
 
@@ -112,30 +112,20 @@ thingd cloud app bootstrap \
 
 Bootstrap resolves the project and instance by ID or slug, validates the local
 schema, asks Cloud to validate the runtime schema, and creates or updates the
-Publish app by its slug. Re-running it does not create a second app. Publishing
-is explicit:
+Publish app by its instance-scoped slug. Re-running it does not create a
+second app. Publishing is explicit:
 
 ```bash
-thingd cloud app publish --project nice-rep --app nice-rep
+thingd cloud app publish --project nice-rep --instance nice-rep --app nice-rep
 ```
 
 Other lifecycle commands are available for testing, disabling, and rollback:
 
 ```bash
-thingd cloud app validate --project nice-rep --app nice-rep
-thingd cloud app test --project nice-rep --app nice-rep
-thingd cloud app disable --project nice-rep --app nice-rep
-thingd cloud app rollback --project nice-rep --app nice-rep --version 1
-```
-
-Named app-backend functions can be managed from the same CLI:
-
-```bash
-thingd cloud app functions list --project nice-rep
-thingd cloud app functions create --project nice-rep --file function.json
-thingd cloud app functions update --project nice-rep --name generateWorkout --file function.json
-thingd cloud app functions test --project nice-rep --name generateWorkout
-thingd cloud app functions publish --project nice-rep --name generateWorkout
+thingd cloud app validate --project nice-rep --instance nice-rep --app nice-rep
+thingd cloud app test --project nice-rep --instance nice-rep --app nice-rep
+thingd cloud app disable --project nice-rep --instance nice-rep --app nice-rep
+thingd cloud app rollback --project nice-rep --instance nice-rep --app nice-rep --version 1
 ```
 
 ## 4. Configure Expo
@@ -143,7 +133,7 @@ thingd cloud app functions publish --project nice-rep --name generateWorkout
 Retrieve the mobile-safe configuration from Cloud:
 
 ```bash
-thingd cloud app config --project nice-rep --json
+thingd cloud app config --project nice-rep --instance nice-rep --json
 ```
 
 The response includes `baseUrl`, `appBaseUrl`, `appEndpoint`, and
@@ -175,7 +165,7 @@ const session = await client.auth.signIn({
   password: passwordFromYourLoginForm,
 });
 
-const workout = await client.functions.invoke("generateWorkout", {
+const workout = await client.actions.invoke("generateWorkout", {
   goal: "strength",
 }, { idempotencyKey: `generate-workout:${session.user.id}:today` });
 ```
@@ -189,9 +179,13 @@ The CLI smoke test exercises the same public client contract:
 ```bash
 thingd cloud app smoke \
   --project nice-rep \
+  --instance nice-rep \
   --file nice-rep.app.json \
   --email test@example.com \
   --password "$NICE_REP_SMOKE_PASSWORD" \
+  --collection profiles \
+  --object-id smoke-profile \
+  --action getProfile \
   --json
 ```
 

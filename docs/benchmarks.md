@@ -320,6 +320,37 @@ filesystem-free process-local path, while durable ThingDB is relatively strong
 on some reads and batches but remains substantially slower for synchronous
 isolated writes than RocksDB.
 
+### Latest development structured run
+
+On 2026-09-22, the `development` checkout completed the deterministic
+structured run from `49d1a6f` with 1,000 iterations, five repetitions, seed 42,
+all backends, native-sync durability, and the reliability preflight enabled.
+Both RocksDB and ThingDB correctness checks passed, and the reliability
+preflight passed. The host did not expose RSS or CPU-time sampling, so this is
+not a qualification datapoint.
+
+| Workload | RocksDB durable | ThingDB durable | ThingDB/RocksDB |
+| --- | ---: | ---: | ---: |
+| `object_put` | 3,243 ops/s | 112 ops/s | 3.45% |
+| `object_get` | 515,785 ops/s | 503,926 ops/s | 97.70% |
+| `object_batch` | 246,490 ops/s | 79,480 ops/s | 32.24% |
+| `event_append` | 2,572 ops/s | 113 ops/s | 4.39% |
+| `event_batch` | 291,562 ops/s | 106,205 ops/s | 36.42% |
+| `queue_push` | 2,931 ops/s | 114 ops/s | 3.88% |
+| `queue_batch` | 240,606 ops/s | 93,473 ops/s | 38.84% |
+| `search` | 91 ops/s | 7,866 ops/s | 8643.95% |
+| `search_filtered` | 126 ops/s | 17,830 ops/s | 14150.79% |
+| `vector_search_top10` | 2,666,666 ops/s | 3,424,657 ops/s | 128.42% |
+
+The run indicates that ThingDB's strongest current areas are point reads,
+full-text search, vector search, and the batched workload family. The main
+improvement targets remain synchronous isolated writes, queue claim/ack paths,
+and durable batch throughput. Compared with the previous 1,000-iteration,
+five-repetition history record, the current run improved ThingDB `object_batch`
+by 10.32%, `event_batch` by 23.52%, `queue_batch` by 27.62%, and
+`put_batch_1000` by 21.41%; these are directional comparisons because that
+record was from a different branch and commit.
+
 These findings are development evidence, not universal throughput claims. The
 full five-repeat 10K and 100K qualification gates remain separate and must be
 run on the same machine, filesystem, dataset, and build before results can be

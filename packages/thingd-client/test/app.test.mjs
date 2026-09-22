@@ -19,9 +19,12 @@ test("app client normalizes the base URL and sends app credentials", async () =>
       requests.push({ url: String(input), init: init ?? {} });
       return response({
         data: {
+          schemaVersion: "thingd.app/v1",
           version: "thingd.app/v1",
           project: { id: "project-1", slug: "nice-rep" },
-          functions: [],
+          app: { id: "app-1", slug: "nice-rep" },
+          instance: { id: "instance-1", slug: "nice-rep" },
+          actions: [],
           capabilities: { reads: true, namedWrites: true },
         },
       });
@@ -36,7 +39,21 @@ test("app client normalizes the base URL and sends app credentials", async () =>
   assert.equal(headers.get("authorization"), "Bearer app-access-token");
 });
 
-test("app client sends idempotency keys for named actions", async () => {
+test("app client exposes canonical actions and a compatibility functions alias", async () => {
+  const client = createThingdAppClient({
+    baseUrl: "https://cloud.example",
+    publishableKey: "pk_nice_rep",
+    fetch: async (input) => {
+      assert.equal(String(input), "https://cloud.example/v1/app/functions");
+      return response({ data: [{ name: "getProfile", description: "Read profile", auth: "user", inputSchema: {}, outputSchema: {}, version: 1, idempotency: "optional" }] });
+    },
+  });
+
+  assert.strictEqual(client.functions, client.actions);
+  assert.equal((await client.actions.list())[0].name, "getProfile");
+});
+
+test("app client sends idempotency keys for canonical actions", async () => {
   let captured;
   const client = createThingdAppClient({
     baseUrl: "https://cloud.example/v1",
@@ -47,7 +64,7 @@ test("app client sends idempotency keys for named actions", async () => {
     },
   });
 
-  await client.functions.invoke("createProfile", { timezone: "UTC" }, {
+  await client.actions.invoke("createProfile", { timezone: "UTC" }, {
     idempotencyKey: "profile:create:user-1",
   });
 
@@ -99,6 +116,24 @@ test("app client exposes structured Cloud errors", async () => {
       assert.equal(error.status, 403);
       assert.equal(error.code, "app_forbidden");
       assert.equal(error.requestId, "req-1");
+      return true;
+    }
+  );
+});
+
+test("app client rejects manifests without explicit app and instance identity", async () => {
+  const client = createThingdAppClient({
+    baseUrl: "https://cloud.example",
+    publishableKey: "pk_nice_rep",
+    fetch: async () => response({ data: { version: "thingd.app/v1", project: { id: "p1", slug: "nice-rep" }, actions: [] } }),
+  });
+
+  await assert.rejects(
+    () => client.manifest(),
+    (error) => {
+      assert.ok(error instanceof ThingdAppError);
+      assert.equal(error.status, 502);
+      assert.equal(error.code, "invalid_app_manifest");
       return true;
     }
   );

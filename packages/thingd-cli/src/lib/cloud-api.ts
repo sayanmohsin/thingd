@@ -58,20 +58,8 @@ export type CloudOrganizationMember = {
 
 export type CloudAppConfig = {
   projectId: string;
-  instanceId?: string;
+  instanceId: string;
   publishableKey: string;
-};
-
-export type CloudAppFunction = {
-  name: string;
-  description?: string;
-  auth?: string;
-  roles?: string[];
-  inputSchema?: Record<string, unknown>;
-  outputSchema?: Record<string, unknown>;
-  version?: number;
-  status?: string;
-  idempotency?: string;
 };
 
 export type CloudPublishApp = {
@@ -205,16 +193,12 @@ function appPath(projectId: string, appId: string, suffix = ""): string {
   return `${projectPath(projectId, "/publish/apps")}/${encodeURIComponent(appId)}${suffix}`;
 }
 
-function functionPath(projectId: string, name: string, suffix = ""): string {
-  return `${projectPath(projectId, "/app-functions")}/${encodeURIComponent(name)}${suffix}`;
-}
-
 export async function getAppConfig(
   config: CloudConfig,
   projectId: string,
-  instanceId?: string
+  instanceId: string
 ): Promise<{ app: CloudAppConfig }> {
-  const suffix = instanceId ? `?instanceId=${encodeURIComponent(instanceId)}` : "";
+  const suffix = `?instanceId=${encodeURIComponent(instanceId)}`;
   return request(config, projectPath(projectId, `/app-config${suffix}`));
 }
 
@@ -227,54 +211,6 @@ export async function validateRuntimeSchema(
   return request(config, `${projectPath(projectId, "/runtime-schema/schema/validate")}`, {
     method: "POST",
     body: { instanceId, source },
-  });
-}
-
-export async function listAppFunctions(
-  config: CloudConfig,
-  projectId: string
-): Promise<{ functions: CloudAppFunction[] }> {
-  return request(config, projectPath(projectId, "/app-functions"));
-}
-
-export async function createAppFunction(
-  config: CloudConfig,
-  projectId: string,
-  definition: Record<string, unknown>
-): Promise<{ function: CloudAppFunction }> {
-  return request(config, projectPath(projectId, "/app-functions"), {
-    method: "POST",
-    body: definition,
-  });
-}
-
-export async function updateAppFunction(
-  config: CloudConfig,
-  projectId: string,
-  name: string,
-  definition: Record<string, unknown>
-): Promise<{ function: CloudAppFunction }> {
-  return request(config, functionPath(projectId, name), {
-    method: "PUT",
-    body: definition,
-  });
-}
-
-export async function transitionAppFunction(
-  config: CloudConfig,
-  projectId: string,
-  name: string,
-  transition: "test" | "publish" | "disable" | "rollback",
-  version?: number
-): Promise<{ function: CloudAppFunction }> {
-  if (transition === "rollback") {
-    return request(config, functionPath(projectId, name, "/rollback"), {
-      method: "POST",
-      body: { version },
-    });
-  }
-  return request(config, functionPath(projectId, name, `/${transition}`), {
-    method: "POST",
   });
 }
 

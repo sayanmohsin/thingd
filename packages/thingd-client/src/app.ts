@@ -1,6 +1,6 @@
 import type {
+  AppAction,
   AppAuthResponse,
-  AppFunction,
   AppManifest,
   AppObject,
   AppSearchOptions,
@@ -45,12 +45,49 @@ type AppErrorEnvelope = {
   requestId?: string;
 };
 
+type AppManifestPayload = Partial<AppManifest> & {
+  schemaVersion?: string;
+  version?: string;
+  functions?: AppAction[];
+  actions?: AppAction[];
+};
+
 function appPath(baseUrl: string): string {
   let normalized = baseUrl;
   while (normalized.endsWith("/")) {
     normalized = normalized.slice(0, -1);
   }
   return normalized.endsWith("/v1") ? normalized : `${normalized}/v1`;
+}
+
+function normalizeManifest(payload: AppManifestPayload): AppManifest {
+  if (!payload.project || !payload.app || !payload.instance) {
+    throw new ThingdAppError(
+      502,
+      "invalid_app_manifest",
+      "The published app manifest is missing project, app, or instance identity"
+    );
+  }
+  const actions = payload.actions ?? payload.functions ?? [];
+  return {
+    schemaVersion: "thingd.app/v1",
+    version: payload.version ?? payload.schemaVersion ?? "thingd.app/v1",
+    project: payload.project,
+    app: payload.app,
+    instance: payload.instance,
+    entities: payload.entities ?? [],
+    audiences: payload.audiences ?? [],
+    roles: payload.roles ?? [],
+    actions,
+    functions: actions,
+    views: payload.views ?? [],
+    workflows: payload.workflows ?? [],
+    integrations: payload.integrations ?? [],
+    policies: payload.policies ?? {},
+    distribution: payload.distribution ?? {},
+    presentation: payload.presentation ?? {},
+    capabilities: payload.capabilities ?? { reads: false, namedWrites: false },
+  };
 }
 
 /**
@@ -113,7 +150,8 @@ export class ThingdAppClient {
   }
 
   async manifest(): Promise<AppManifest> {
-    return this.request("GET", "/app/manifest");
+    const payload = await this.request<AppManifestPayload>("GET", "/app/manifest");
+    return normalizeManifest(payload);
   }
 
   readonly auth = {
@@ -150,10 +188,10 @@ export class ThingdAppClient {
     },
   };
 
-  readonly functions = {
-    list: () => this.request<AppFunction[]>("GET", "/app/functions"),
+  readonly actions = {
+    list: () => this.request<AppAction[]>("GET", "/app/functions"),
     get: (name: string) =>
-      this.request<AppFunction>("GET", `/app/functions/${encodeURIComponent(name)}`),
+      this.request<AppAction>("GET", `/app/functions/${encodeURIComponent(name)}`),
     invoke: <T = unknown>(name: string, input: unknown, options?: { idempotencyKey?: string }) =>
       this.request<T>(
         "POST",
@@ -162,6 +200,9 @@ export class ThingdAppClient {
         options?.idempotencyKey
       ),
   };
+
+  /** @deprecated Use actions. */
+  readonly functions = this.actions;
 
   readonly objects = {
     get: <T extends AppObject = AppObject>(collection: string, id: string) =>

@@ -57,7 +57,7 @@ const app = createThingdAppClient({
 });
 
 await app.auth.signUp({ email, password, name });
-const profile = await app.functions.invoke("createProfile", { timezone: "UTC" }, {
+const profile = await app.actions.invoke("createProfile", { timezone: "UTC" }, {
   idempotencyKey: "profile:create:user-1",
 });
 ```
@@ -66,6 +66,10 @@ The publishable key is safe for app bundles. Do not use a secret Cloud API key
 or engine runtime token in a browser or mobile application. See the public
 [app backend contract](https://sayanmohsin.github.io/thingd/app-backend) and
 [Nice Rep mobile setup](https://sayanmohsin.github.io/thingd/nice-rep).
+
+`actions` is the canonical app API. `functions` remains available as a
+deprecated compatibility alias for existing clients; both APIs invoke the
+same published action routes.
 
 ### Objects
 

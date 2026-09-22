@@ -305,28 +305,22 @@ into the application bundle.
 ```txt
 thingd cloud app init --file <path> [--name <name>] [--slug <slug>]
 thingd cloud app bootstrap --project <project> --instance <instance> --file <path> [--schema <path>] [--dry-run] [--publish]
-thingd cloud app config --project <project>
+thingd cloud app config --project <project> --instance <instance>
 thingd cloud app list --project <project>
 thingd cloud app create --project <project> --instance <instance> --file <path>
-thingd cloud app update --project <project> --app <id-or-slug> --file <path>
-thingd cloud app validate --project <project> --app <id-or-slug>
-thingd cloud app test --project <project> --app <id-or-slug>
-thingd cloud app publish --project <project> --app <id-or-slug>
-thingd cloud app disable --project <project> --app <id-or-slug>
-thingd cloud app rollback --project <project> --app <id-or-slug> --version <n>
-thingd cloud app functions list --project <project>
-thingd cloud app functions create --project <project> --file <path>
-thingd cloud app functions update --project <project> --name <name> --file <path>
-thingd cloud app functions test --project <project> --name <name>
-thingd cloud app functions publish --project <project> --name <name>
-thingd cloud app functions disable --project <project> --name <name>
-thingd cloud app functions rollback --project <project> --name <name> --version <n>
-thingd cloud app smoke --project <project> --file <path> --email <email> --password <password> [--signup]
+thingd cloud app update --project <project> --instance <instance> --app <id-or-slug> --file <path>
+thingd cloud app validate --project <project> --instance <instance> --app <id-or-slug>
+thingd cloud app test --project <project> --instance <instance> --app <id-or-slug>
+thingd cloud app publish --project <project> --instance <instance> --app <id-or-slug>
+thingd cloud app disable --project <project> --instance <instance> --app <id-or-slug>
+thingd cloud app rollback --project <project> --instance <instance> --app <id-or-slug> --version <n>
+thingd cloud app smoke --project <project> --instance <instance> --file <path> --email <email> --password <password> --collection <name> --object-id <id> --action <name> [--input <json>] [--query <text>] [--signup]
 ```
 
 `nice-rep.app.json` is a `thingd.app/v1` application definition. `schema.thingd`
-describes the runtime schema. `bootstrap` is idempotent by project and app
-slug, supports `--dry-run`, and publishes only when `--publish` is explicit.
+describes the runtime schema. `bootstrap` is idempotent by project, instance,
+and app slug, supports `--dry-run`, and when `--publish` is supplied it runs
+validation, test, and publish in order.
 
 `cloud app config` returns the app endpoint and project publishable key for
 `createThingdAppClient`. Publishable keys are safe for browser/mobile bundles;
@@ -334,7 +328,7 @@ Cloud CLI tokens, project API keys, and Thingd runtime tokens are not.
 
 See the [Nice Rep CLI-first mobile setup](./nice-rep.md) for the complete
 Expo workflow and the [app backend contract](./app-backend.md) for routes,
-headers, sessions, and idempotent named actions.
+headers, sessions, and idempotent actions.
 
 ## Environment
 

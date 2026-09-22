@@ -57,7 +57,7 @@ See the [public documentation index](https://github.com/sayanmohsin/thingd/blob/
 - **Rust engine** (`thingd` — crates.io) — memory + persistent adapters, opt-in authenticated persistent encryption, Tantivy FTS, cosine vector search, queue lifecycle, graph links, aggregate analytics, NLQ
 - **Node.js SDK** (`@thingd/sdk`) — three drivers: memory (explicit pure-TS reference store), native (napi-rs Rust engine with ThingDB RAM for `:memory:` and RocksDB durable storage by default), cloud (remote HTTP REST)
 - **Browser/Edge client** (`@thingd/client`) — zero-dependency REST client for browsers, Cloudflare Workers, AWS Lambda, Bun, Deno
-- **App backend client** (`createThingdAppClient`) — project-user auth and named actions for hosted mobile/web apps
+- **App backend client** (`createThingdAppClient`) — project-user auth and canonical `actions` for hosted mobile/web apps
 - **CLI** (`@thingd/cli`) — TUI dashboard, 30+ subcommands (search, objects, events, queues, export/import/snapshot/backup, doctor, bench, db maintenance). Support for importing from Postgres/MySQL via sidecar REST.
 - **Optional schema files** — custom `schema.thingd` syntax, Rust parsing, validation, canonical JSON, and stable schema hashes via `thingd schema check`.
 - **Provider-neutral replication** — synchronize one explicit Thingd source to one replica, including objects, deletes, tombstones, events, cursors, snapshots, provenance, and quarantined conflicts.
@@ -92,7 +92,8 @@ For a mobile or web app without a custom application backend, use
 guide](./docs/nice-rep.md) documents project and instance setup,
 `nice-rep.app.json`, `schema.thingd`, Publish lifecycle commands, Expo
 configuration, and the public release order. The [app backend contract](./docs/app-backend.md)
-defines the routes and headers.
+defines the immutable project/app/instance snapshot, canonical `actions` API,
+compatibility `functions` alias, routes, and headers.
 
 | Entry point | Driver | Protocol |
 | --- | --- | --- |

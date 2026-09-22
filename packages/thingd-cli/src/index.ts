@@ -180,10 +180,9 @@ Usage:
   thingd cloud api-key create <project> <name>
   thingd cloud app init --file <path> [--name <name>] [--slug <slug>]
   thingd cloud app bootstrap --project <project> --instance <instance> --file <path> [--schema <path>] [--publish] [--dry-run]
-  thingd cloud app config --project <project>
+  thingd cloud app config --project <project> --instance <instance>
   thingd cloud app list|create|update|version create|validate|test|publish|disable|rollback
-  thingd cloud app functions list|create|update|test|publish|disable|rollback
-  thingd cloud app smoke --project <project> --file <path> --email <email> --password <password> [--signup]
+  thingd cloud app smoke --project <project> --instance <instance> --file <path> --email <email> --password <password> --collection <name> --object-id <id> --action <name> [--input <json>] [--query <text>] [--signup]
   thingd db checkpoint [--path <path>]
   thingd db compact [--path <path>]
   thingd db repack --path <source> --destination <path>
