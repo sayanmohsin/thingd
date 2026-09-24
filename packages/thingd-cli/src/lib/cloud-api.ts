@@ -7,6 +7,22 @@ type ApiOptions = {
   body?: unknown;
 };
 
+function secureApiBase(value: string): string {
+  const url = new URL(value);
+  const loopback = ["localhost", "127.0.0.1", "::1", "[::1]"].includes(url.hostname);
+  if (url.protocol !== "https:" && !(url.protocol === "http:" && loopback)) {
+    throw new Error(
+      "Thingd Cloud API must use HTTPS (HTTP is allowed only for loopback development)"
+    );
+  }
+  if (url.username || url.password || url.search || url.hash) {
+    throw new Error(
+      "Thingd Cloud API URL must not contain credentials, query parameters, or fragments"
+    );
+  }
+  return value.replace(/\/$/, "");
+}
+
 export type CloudProject = {
   id: string;
   name: string;
@@ -74,6 +90,19 @@ export type CloudPublishApp = {
   [key: string]: unknown;
 };
 
+export type CloudAppAsset = {
+  id: string;
+  projectId: string;
+  fileName: string;
+  contentType: string;
+  sizeBytes: number;
+  sha256: string;
+  status: "ready";
+  url: string;
+  createdAt: string;
+  readyAt?: string;
+};
+
 export class CloudApiError extends Error {
   status: number;
 
@@ -110,7 +139,7 @@ function errorMessage(body: unknown, fallback: string): string {
 }
 
 async function request<T>(config: CloudConfig, path: string, opts: ApiOptions = {}): Promise<T> {
-  const url = `${config.url ?? DEFAULT_API_URL}${path}`;
+  const url = `${secureApiBase(config.url ?? DEFAULT_API_URL)}${path}`;
   const authToken = resolveAuthToken(config);
   const headers: Record<string, string> = {
     authorization: `Bearer ${authToken}`,
@@ -121,6 +150,7 @@ async function request<T>(config: CloudConfig, path: string, opts: ApiOptions = 
     method: opts.method ?? "GET",
     headers,
     body: opts.body ? JSON.stringify(opts.body) : undefined,
+    redirect: "error",
   });
 
   if (!res.ok) {
@@ -200,6 +230,56 @@ export async function getAppConfig(
 ): Promise<{ app: CloudAppConfig }> {
   const suffix = `?instanceId=${encodeURIComponent(instanceId)}`;
   return request(config, projectPath(projectId, `/app-config${suffix}`));
+}
+
+export async function listAppAssets(
+  config: CloudConfig,
+  projectId: string,
+  cursor?: string
+): Promise<{ assets: CloudAppAsset[]; nextCursor: string | null }> {
+  const suffix = cursor ? `?limit=100&cursor=${encodeURIComponent(cursor)}` : "?limit=100";
+  return request(config, projectPath(projectId, `/assets${suffix}`));
+}
+
+export async function beginAppAssetUpload(
+  config: CloudConfig,
+  projectId: string,
+  input: { fileName: string; contentType: string; sizeBytes: number; idempotencyKey: string }
+): Promise<
+  { uploadId: string; expiresAt: string; maxBytes: number } | { asset: CloudAppAsset; reused: true }
+> {
+  return request(config, projectPath(projectId, "/assets/uploads"), {
+    method: "POST",
+    body: input,
+  });
+}
+
+export async function uploadAppAsset(
+  config: CloudConfig,
+  projectId: string,
+  uploadId: string,
+  contentType: string,
+  bytes: Buffer
+): Promise<{ asset: CloudAppAsset; reused: boolean }> {
+  const url = `${secureApiBase(config.url ?? DEFAULT_API_URL)}${projectPath(projectId, `/assets/uploads/${encodeURIComponent(uploadId)}`)}`;
+  const res = await fetch(url, {
+    method: "PUT",
+    headers: {
+      authorization: `Bearer ${resolveAuthToken(config)}`,
+      "content-type": "application/octet-stream",
+      "x-asset-content-type": contentType,
+    },
+    body: bytes as unknown as BodyInit,
+    redirect: "error",
+  });
+  if (!res.ok) {
+    if (res.status === 401) {
+      throw new CloudApiError(401, "Token expired or invalid. Run `thingd cloud login` again.");
+    }
+    const body = await res.json().catch(() => undefined);
+    throw new CloudApiError(res.status, errorMessage(body, res.statusText));
+  }
+  return res.json() as Promise<{ asset: CloudAppAsset; reused: boolean }>;
 }
 
 export async function validateRuntimeSchema(
@@ -330,11 +410,12 @@ export async function removeOrganizationMember(
 // ── CLI device code auth (unauthenticated) ──────────────────────────
 
 async function requestUnauthenticated<T>(apiUrl: string, path: string, body: unknown): Promise<T> {
-  const url = `${apiUrl}${path}`;
+  const url = `${secureApiBase(apiUrl)}${path}`;
   const res = await fetch(url, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
+    redirect: "error",
   });
   if (!res.ok) {
     const errBody = await res.json().catch(() => undefined);

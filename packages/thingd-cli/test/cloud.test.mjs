@@ -1,12 +1,15 @@
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
-import { existsSync, mkdirSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { homedir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { Readable } from "node:stream";
 import test from "node:test";
 import { resolveConnection, runCli } from "../dist/index.js";
 
+const ORIGINAL_HOME = process.env.HOME;
+const TEST_HOME = mkdtempSync(join(tmpdir(), "thingd-cli-cloud-test-"));
+process.env.HOME = TEST_HOME;
 const CLOUD_CONFIG_PATH = join(homedir(), ".thingd", "cloud-config.json");
 
 async function run(args, env = {}, stdin) {
@@ -69,6 +72,11 @@ function close(server) {
 
 test.beforeEach(() => removeCloudConfig());
 test.afterEach(() => removeCloudConfig());
+test.after(() => {
+  if (ORIGINAL_HOME === undefined) delete process.env.HOME;
+  else process.env.HOME = ORIGINAL_HOME;
+  rmSync(TEST_HOME, { recursive: true, force: true });
+});
 
 test("cloud status without config shows not logged in", async () => {
   const result = await run(["cloud", "status"]);
@@ -143,6 +151,86 @@ test("cloud project list without login shows error", async () => {
   assert.match(result.stderr, /Not logged in/);
 });
 
+test("cloud assets upload sends bounded bytes through authenticated Cloud", async () => {
+  const file = join(tmpdir(), `thingd-test-${process.pid}.webp`);
+  const bytes = Buffer.from("RIFF0000WEBPtest");
+  writeFileSync(file, bytes);
+  const calls = [];
+  const asset = {
+    id: "ast_0123456789abcdef0123456789abcdef",
+    projectId: "p1",
+    fileName: "exercise.webp",
+    contentType: "image/webp",
+    sizeBytes: bytes.byteLength,
+    sha256: "test-sha",
+    status: "ready",
+    url: "https://api.thingd.cloud/v1/assets/ast_0123456789abcdef0123456789abcdef/exercise.webp",
+    createdAt: "2026-09-23T00:00:00.000Z",
+  };
+  const server = createServer(async (req, res) => {
+    const chunks = [];
+    for await (const chunk of req) chunks.push(chunk);
+    calls.push({ method: req.method, url: req.url, headers: req.headers, body: Buffer.concat(chunks) });
+    res.setHeader("Content-Type", "application/json");
+    if (req.method === "GET" && req.url === "/projects") {
+      res.end(JSON.stringify({ projects: [{ id: "p1", slug: "nice-rep" }] }));
+    } else if (req.method === "POST" && req.url === "/projects/p1/assets/uploads") {
+      res.end(JSON.stringify({ uploadId: "upl_0123456789abcdef0123456789abcdef", expiresAt: "2026-09-23T00:10:00Z", maxBytes: 2097152 }));
+    } else if (req.method === "PUT" && req.url === "/projects/p1/assets/uploads/upl_0123456789abcdef0123456789abcdef") {
+      res.end(JSON.stringify({ asset, reused: false }));
+    } else {
+      res.statusCode = 404;
+      res.end(JSON.stringify({ error: "not_found" }));
+    }
+  });
+  await listen(server);
+  try {
+    withCloudConfig();
+    const port = server.address().port;
+    const config = JSON.parse(readFileSync(CLOUD_CONFIG_PATH, "utf8"));
+    config.url = `http://127.0.0.1:${port}`;
+    writeFileSync(CLOUD_CONFIG_PATH, JSON.stringify(config), "utf-8");
+    const result = await run(["cloud", "assets", "upload", "--project", "nice-rep", "--file", file]);
+    assert.equal(result.code, 0, result.stderr);
+    assert.match(result.stdout, /https:\/\/api\.thingd\.cloud\/v1\/assets/);
+    assert.deepEqual(calls.map((call) => `${call.method} ${call.url}`), [
+      "GET /projects",
+      "POST /projects/p1/assets/uploads",
+      "PUT /projects/p1/assets/uploads/upl_0123456789abcdef0123456789abcdef",
+    ]);
+    assert.equal(calls[2].body.toString(), bytes.toString());
+    assert.equal(calls[2].headers["content-type"], "application/octet-stream");
+    assert.equal(calls[2].headers.authorization, "Bearer test-token");
+    assert.equal(calls[1].headers.authorization, "Bearer test-token");
+    assert.equal(JSON.stringify(calls).includes("uploadUrl"), false);
+    assert.doesNotMatch(result.stdout, /mock-token|uploadUrl/);
+  } finally {
+    unlinkSync(file);
+    await close(server);
+  }
+});
+
+test("cloud assets reject a mismatched local image signature before making requests", async () => {
+  const file = join(tmpdir(), `thingd-invalid-image-${process.pid}.png`);
+  writeFileSync(file, Buffer.from("not a png"));
+  withCloudConfig();
+  const originalFetch = globalThis.fetch;
+  let fetchCount = 0;
+  globalThis.fetch = async (...args) => {
+    fetchCount += 1;
+    return originalFetch(...args);
+  };
+  try {
+    const result = await run(["cloud", "assets", "upload", "--project", "nice-rep", "--file", file]);
+    assert.notEqual(result.code, 0);
+    assert.match(result.stderr, /signature/);
+    assert.equal(fetchCount, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+    unlinkSync(file);
+  }
+});
+
 test("cloud login auto-selects single instance", async () => {
   const server = createServer((req, res) => {
     res.setHeader("Content-Type", "application/json");
@@ -175,6 +263,7 @@ test("cloud login auto-selects single instance", async () => {
     assert.match(result.stdout, /mock@test\.com/);
     assert.match(result.stdout, /test-proj.*main/);
     assert.doesNotMatch(result.stderr, /Select an instance/);
+    assert.equal(statSync(CLOUD_CONFIG_PATH).mode & 0o077, 0);
   } finally {
     await close(server);
   }

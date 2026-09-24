@@ -183,6 +183,8 @@ Usage:
   thingd cloud app config --project <project> --instance <instance>
   thingd cloud app list|create|update|version create|validate|test|publish|disable|rollback
   thingd cloud app smoke --project <project> --instance <instance> --file <path> --email <email> --password <password> --collection <name> --object-id <id> --action <name> [--input <json>] [--query <text>] [--signup]
+  thingd cloud assets list --project <project>
+  thingd cloud assets upload --project <project> --file <path>
   thingd db checkpoint [--path <path>]
   thingd db compact [--path <path>]
   thingd db repack --path <source> --destination <path>

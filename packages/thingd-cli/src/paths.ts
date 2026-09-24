@@ -1,4 +1,4 @@
-import { mkdirSync } from "node:fs";
+import { chmodSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -14,5 +14,6 @@ export function defaultThingdDbPath(): string {
 }
 
 export function ensureThingdDir(): void {
-  mkdirSync(defaultThingdDir(), { recursive: true });
+  mkdirSync(defaultThingdDir(), { recursive: true, mode: 0o700 });
+  chmodSync(defaultThingdDir(), 0o700);
 }
