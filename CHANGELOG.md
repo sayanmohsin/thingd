@@ -13,6 +13,14 @@
 - server: harden security boundaries (0961ffe)
 - complete public SDK type exports (8a8889a)
 
+## [0.90.0](https://github.com/sayanmohsin/thingd/compare/thingd-v0.89.0...thingd-v0.90.0) (2026-09-24)
+
+
+### Features
+
+* **cli:** add project app asset commands ([55d1c35](https://github.com/sayanmohsin/thingd/commit/55d1c3542936350ea61057620978426fcb67056f))
+* **cli:** add project app asset commands ([b71104a](https://github.com/sayanmohsin/thingd/commit/b71104a0156edebf044b3e6e754154052d537531))
+
 ## [0.89.0](https://github.com/sayanmohsin/thingd/compare/thingd-v0.88.2...thingd-v0.89.0) (2026-09-22)
 
 
