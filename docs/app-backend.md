@@ -52,15 +52,22 @@ Hosted app backends use these routes below `/v1`:
 | GET | `/app/functions` | List published actions (compatibility route) |
 | GET | `/app/functions/:name` | Read one action definition (compatibility route) |
 | POST | `/app/functions/:name` | Invoke an action (compatibility route) |
+| GET | `/app/actions/:name/usage` | Read the authenticated user's lifetime action quota |
 | GET | `/app/objects/:collection/:id` | Read an allowed object |
+| GET | `/app/objects/:collection` | List allowed objects with `limit` and `offset` pagination |
 | POST | `/app/search` | Search allowed objects |
 
 Requests use `X-Thingd-Publishable-Key`. Authenticated requests additionally
 use `Authorization: Bearer <project-user-access-token>`. Mutating actions may
 use `Idempotency-Key`.
 
-Responses use `{ "data": ... }`. Errors contain a stable `error.code`, a safe
-message, and may include a `requestId` for support.
+Successful responses use `{ "data": ... }`. App errors use the stable envelope
+`{ "error": { "code": "...", "message": "...", "details": [...] }, "requestId": "..." }`;
+`details` and `requestId` are optional. The Cloud response also carries
+`X-Request-Id` during migration. The SDK accepts older `{ "error": "code" }`
+responses and reads request IDs from either location. Error messages and
+details must not expose prompts, credentials, private records, or provider
+responses.
 
 The manifest is the published `thingd.app/v1` snapshot. It is identified by
 the project, app, and instance and contains the app's entities, audiences,
@@ -70,12 +77,54 @@ while older clients migrate; both names use the same routes and snapshot.
 There is no second app-function registry: the checked-in app definition and its
 published manifest are the sole action source.
 
+## Named AI JSON actions
+
+An action may declare provider-neutral `execution.kind: "ai_json"` policy.
+The declaration contains an operation, system prompt, allowlisted input fields,
+output schema (`outputSchema`), optional principal lifetime `usageLimit`,
+bounded output-token limit, generated-ID paths, retrieval sources, and a
+trusted write target. These server-side execution details are not returned in
+the client manifest. The manifest exposes the action's public input/output
+schemas and idempotency contract.
+
+Retrieval accepts the existing single-source form (`collection`,
+`queryFields`, `fields`, `limit`) and the `sources` array form, but not both at
+once. A declaration may include up to 8 sources; each source may use up to 12
+query fields, return up to 32 named fields, and request at most 50 results.
+Cloud must check collection ownership and readable-field policy separately for
+each source before using its records as model context. Local
+`thingd cloud app check` validates deterministic shape, bounds, and declared
+entity/field references; Cloud validation remains authoritative for the
+published schema, policy, and authenticated ownership context.
+
+An authenticated `GET /app/actions/:name/usage` response is:
+
+```json
+{
+  "data": {
+    "action": "generateWorkout",
+    "limit": 3,
+    "used": 1,
+    "remaining": 2,
+    "period": "lifetime"
+  }
+}
+```
+
+The route reports a principal-scoped lifetime limit declared by the action.
+Actions without a configured limit do not have a usage summary. Usage
+inspection does not reserve quota or guarantee that a subsequent invocation
+will succeed.
+
 ## Access model
 
-App clients can read public or user-owned objects. Sensitive writes go through
-published actions with input validation, ownership checks, idempotency,
-and audit logging. Arbitrary customer code execution is not part of this
-contract.
+App clients can read public or user-owned objects. Collection listing and
+object reads use the published entity policy: ownership is enforced by the
+server and results contain only fields readable by the authenticated audience.
+Listing is exact collection enumeration; use search only for full-text queries.
+Sensitive writes go through published actions with input validation, ownership
+checks, idempotency, and audit logging. Arbitrary customer code execution is
+not part of this contract.
 
 Cloud owns the hosted publication and policy implementation. The public
 repository documents the client contract and CLI integration without exposing

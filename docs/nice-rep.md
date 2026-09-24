@@ -18,6 +18,14 @@ only a project publishable key and project-user session tokens. Never copy the
 CLI token, a project secret API key, or a Thingd runtime token into an Expo
 application.
 
+This is an integration pattern, not a copy of Nice Rep's published app
+definition or evidence that a Nice Rep Cloud instance is currently deployed.
+The `users` and `workouts` schema below is intentionally small. Add the actual
+collections and actions required by your app definition before bootstrapping.
+Action names, collections, and record IDs in the client and smoke-test examples
+are placeholders; replace them with values declared in that definition and
+verify them against the target Cloud deployment.
+
 ## 1. Create the Cloud resources
 
 Install the public CLI and log in as the operator who owns the project:
@@ -152,27 +160,46 @@ import { createThingdAppClient } from "@thingd/client";
 const client = createThingdAppClient({
   baseUrl: process.env.EXPO_PUBLIC_THINGD_URL!,
   publishableKey: process.env.EXPO_PUBLIC_THINGD_PUBLISHABLE_KEY!,
-  accessToken: undefined,
+  expectedIdentity: {
+    projectId: process.env.EXPO_PUBLIC_THINGD_PROJECT_ID!,
+    appId: process.env.EXPO_PUBLIC_THINGD_APP_ID!,
+    instanceId: process.env.EXPO_PUBLIC_THINGD_INSTANCE_ID!,
+  },
+  accessToken: await SecureStore.getItemAsync("thingd_access_token") ?? undefined,
   onSessionChange: (session) => {
-    void (session
-      ? SecureStore.setItemAsync("thingd_access_token", session.accessToken)
-      : SecureStore.deleteItemAsync("thingd_access_token"));
+    void Promise.all(session
+      ? [
+          SecureStore.setItemAsync("thingd_access_token", session.accessToken),
+          SecureStore.setItemAsync("thingd_refresh_token", session.refreshToken),
+        ]
+      : [
+          SecureStore.deleteItemAsync("thingd_access_token"),
+          SecureStore.deleteItemAsync("thingd_refresh_token"),
+        ]);
   },
 });
+
+// Verify project, app, and instance before auth or data requests.
+const manifest = await client.manifest();
 
 const session = await client.auth.signIn({
   email: "alice@example.com",
   password: passwordFromYourLoginForm,
 });
 
-const workout = await client.actions.invoke("generateWorkout", {
+const result = await client.actions.invoke("<declared-action-key>", {
   goal: "strength",
-}, { idempotencyKey: `generate-workout:${session.user.id}:today` });
+}, { idempotencyKey: `app-action:${session.user.id}:today` });
+const usage = await client.actions.getUsage("<declared-action-key>");
 ```
 
-Load a previously stored access token before creating the client in a real
-application. Access and refresh tokens belong in platform secure storage; the
-publishable key is the only credential intended for the application bundle.
+On launch, validate `manifest()` before using stored session tokens. Check the
+stored access token with `client.auth.getCurrentUser()`; if it is expired, call
+`client.auth.refresh(refreshToken)` and persist the rotated session. Logout
+clears both SecureStore values. Access and refresh tokens belong in platform
+secure storage; the publishable key is the only credential intended for the
+application bundle. Keep development and production IDs, URLs, and publishable
+keys in separate Expo build environments.
 
 The CLI smoke test exercises the same public client contract:
 
@@ -183,11 +210,15 @@ thingd cloud app smoke \
   --file nice-rep.app.json \
   --email test@example.com \
   --password "$NICE_REP_SMOKE_PASSWORD" \
-  --collection profiles \
-  --object-id smoke-profile \
-  --action getProfile \
+  --collection "<declared-collection>" \
+  --object-id "<existing-readable-object-id>" \
+  --action "<declared-action-key>" \
   --json
 ```
+
+Replace the placeholders with an entity and action from the app definition,
+plus an object that exists in the selected instance. The smoke command does not
+create the app data for you.
 
 ## Credential boundaries
 

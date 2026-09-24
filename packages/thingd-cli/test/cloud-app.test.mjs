@@ -78,6 +78,160 @@ test("cloud app init creates a thingd.app/v1 definition without overwriting", as
   }
 });
 
+test("cloud app check validates locally without Cloud credentials", async () => {
+  const file = join(tmpdir(), `nice-rep-${Date.now()}.app.json`);
+  try {
+    const init = await run(["cloud", "app", "init", "--file", file, "--slug", "nice-rep"]);
+    assert.equal(init.code, 0, init.stderr);
+    removeCloudConfig();
+
+    const result = await run(["cloud", "app", "check", "--file", file]);
+    assert.equal(result.code, 0, result.stderr);
+    assert.equal(JSON.parse(result.stdout).hostedValidation, "not_run");
+
+    const definition = JSON.parse(readFileSync(file, "utf8"));
+    definition.entities = [{
+      name: "Workout",
+      collection: "workouts",
+      ownershipField: "userId",
+      fields: [{ name: "id" }, { name: "userId" }, { name: "title" }],
+    }];
+    definition.actions = [{
+      key: "generate_workout",
+      entity: "Workout",
+      inputSchema: { type: "object", properties: { goal: { type: "string" } } },
+      outputSchema: { type: "object" },
+      execution: {
+        kind: "ai_json",
+        operation: "agent_reasoning",
+        systemPrompt: "Generate a workout",
+        promptFields: ["goal"],
+        usageLimit: { scope: "principal", period: "lifetime", limit: 3 },
+        retrieval: {
+          sources: [{
+            collection: "workouts",
+            queryFields: ["goal"],
+            fields: ["title"],
+            limit: 50,
+          }],
+        },
+        write: { collection: "workouts", ownerField: "userId" },
+      },
+    }];
+    writeFileSync(file, JSON.stringify(definition), "utf8");
+    const validAi = await run(["cloud", "app", "check", "--file", file]);
+    assert.equal(validAi.code, 0, validAi.stderr);
+
+    definition.actions[0].execution.retrieval = {
+      collection: "workouts",
+      queryFields: ["goal"],
+      fields: ["title"],
+      limit: 50,
+    };
+    writeFileSync(file, JSON.stringify(definition), "utf8");
+    const validLegacy = await run(["cloud", "app", "check", "--file", file]);
+    assert.equal(validLegacy.code, 0, validLegacy.stderr);
+
+    definition.actions[0].execution.retrieval = {
+      sources: [{
+        collection: "workouts",
+        queryFields: ["goal"],
+        fields: ["title"],
+        limit: 50,
+      }],
+    };
+    definition.actions[0].execution.retrieval.sources[0].queryFields = Array.from(
+      { length: 13 },
+      (_, index) => `field${index}`
+    );
+    writeFileSync(file, JSON.stringify(definition), "utf8");
+    const invalidAi = await run(["cloud", "app", "check", "--file", file]);
+    assert.equal(invalidAi.code, 1);
+    assert.match(invalidAi.stderr, /queryFields/);
+
+    delete definition.actions[0].execution.retrieval.sources;
+    definition.actions[0].execution.write.ownerField = "id";
+    writeFileSync(file, JSON.stringify(definition), "utf8");
+    const invalidOwnership = await run(["cloud", "app", "check", "--file", file]);
+    assert.equal(invalidOwnership.code, 1);
+    assert.match(invalidOwnership.stderr, /ownership field/);
+  } finally {
+    try { unlinkSync(file); } catch {}
+  }
+});
+
+test("cloud app diff compares only an explicitly targeted published version", async () => {
+  const calls = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (input, init = {}) => {
+    const url = new URL(String(input));
+    const method = init.method ?? "GET";
+    calls.push(`${method} ${url.pathname}`);
+    const respond = (value, status = 200) => new Response(JSON.stringify(value), {
+      status,
+      headers: { "content-type": "application/json" },
+    });
+    if (method === "GET" && url.pathname === "/projects") {
+      return respond({ projects: [{ id: "p1", slug: "nice-rep", name: "Nice Rep" }] });
+    }
+    if (method === "GET" && url.pathname === "/projects/p1/instances") {
+      return respond({ instances: [{ id: "i1", slug: "development", name: "Development" }] });
+    }
+    if (method === "GET" && url.pathname === "/projects/p1/publish/apps") {
+      return respond({ apps: [{ id: "a1", slug: "nice-rep", name: "Nice Rep", instanceId: "i1", status: "published" }] });
+    }
+    if (method === "GET" && url.pathname === "/projects/p1/publish/apps/a1/versions") {
+      return respond({ versions: [{
+        id: "v1",
+        appId: "a1",
+        version: 7,
+        definitionHash: "sha256:test",
+        isCurrent: true,
+        status: "published",
+        instanceId: "i1",
+        name: "Nice Rep",
+        slug: "nice-rep",
+        description: "",
+        entities: [],
+        audiences: [],
+        roles: [],
+        actions: [],
+        views: [
+          { key: "search", kind: "search", label: "Search", placeholder: "Search…" },
+          { key: "results", kind: "results", label: "Results" },
+        ],
+        workflows: [],
+        integrations: [],
+        policies: {},
+        distribution: { hosted: true, embed: true, api: true, mcp: true, standalone: false, adapters: [] },
+        presentation: {},
+      }] });
+    }
+    return respond({ error: "unexpected" }, 404);
+  };
+  const file = join(tmpdir(), `nice-rep-${Date.now()}.app.json`);
+  try {
+    withCloudConfig("https://cloud.example");
+    const init = await run([
+      "cloud", "app", "init", "--file", file, "--name", "Nice Rep", "--slug", "nice-rep",
+    ]);
+    assert.equal(init.code, 0, init.stderr);
+    const result = await run([
+      "cloud", "app", "diff", "--file", file, "--project", "p1",
+      "--instance", "development", "--app", "a1", "--version", "7",
+    ]);
+    assert.equal(result.code, 0, result.stderr);
+    const diff = JSON.parse(result.stdout);
+    assert.equal(diff.publishedVersion, 7);
+    assert.equal(diff.readOnly, true);
+    assert.deepEqual(diff.changes, []);
+    assert.ok(calls.every((call) => call.startsWith("GET ")));
+  } finally {
+    globalThis.fetch = originalFetch;
+    try { unlinkSync(file); } catch {}
+  }
+});
+
 test("cloud app bootstrap dry-run performs no mutation", async () => {
   const calls = [];
   const server = createServer((req, res) => {
@@ -157,7 +311,8 @@ test("cloud app bootstrap publishes only after validation and test", async () =>
   const file = join(tmpdir(), `nice-rep-${Date.now()}.app.json`);
   try {
     withCloudConfig(`http://127.0.0.1:${port}`);
-    writeFileSync(file, JSON.stringify({ schemaVersion: "thingd.app/v1", name: "Nice Rep", slug: "nice-rep" }), "utf8");
+    const init = await run(["cloud", "app", "init", "--file", file, "--slug", "nice-rep"]);
+    assert.equal(init.code, 0, init.stderr);
     const result = await run([
       "cloud", "app", "bootstrap", "--project", "nice-rep", "--instance", "nice-rep",
       "--file", file, "--publish",

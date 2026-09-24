@@ -60,6 +60,82 @@ export type AppAction = {
   idempotency: "optional" | "required";
 };
 
+/** Public authoring fragment for a hosted named action definition. */
+export type AppNamedActionDefinition = {
+  key: string;
+  label: string;
+  description: string;
+  entity: string;
+  inputSchema: Record<string, unknown>;
+  outputSchema: Record<string, unknown>;
+  allowedRoles: string[];
+  effects: string[];
+  riskClass: "descriptive" | "analytical" | "operational" | "access" | "consequential";
+  requiresConfirmation: boolean;
+  requiresApproval: boolean;
+  idempotencyRequired: boolean;
+  emits: string[];
+  execution?: AppActionExecution;
+};
+
+export type AppActionExecution = {
+  kind: "ai_json";
+  operation: "agent_reasoning" | "complex_agent_planning";
+  systemPrompt: string;
+  promptFields: string[];
+  usageLimit?: {
+    scope: "principal";
+    limit: number;
+    period: "lifetime";
+  };
+  maxOutputTokens?: number;
+  generatedIdPaths?: string[];
+  retrieval?: AppActionRetrieval;
+  write?: {
+    collection: string;
+    ownerField?: string;
+    createdAtField?: string;
+    updatedAtField?: string;
+  };
+};
+
+export type AppActionRetrievalSource = {
+  collection: string;
+  queryFields: string[];
+  fields: string[];
+  limit: number;
+};
+
+export type AppActionRetrieval = {
+  /** Legacy single-source configuration. */
+  collection?: string;
+  queryFields?: string[];
+  fields?: string[];
+  limit?: number;
+  /** Bounded multi-source retrieval. */
+  sources?: AppActionRetrievalSource[];
+  resultEnrichment?: {
+    arrayPath: string;
+    matchOutputField: string;
+    matchContextField: string;
+    fields: string[];
+  };
+};
+
+export type AppActionUsage = {
+  action: string;
+  limit: number;
+  used: number;
+  remaining: number;
+  period: "lifetime";
+};
+
+export type AppErrorDetail = {
+  path: string;
+  keyword: string;
+  params?: Record<string, string | number | boolean>;
+};
+
 /** @deprecated Use AppAction. */
 export type AppFunction = AppAction;
 
@@ -95,6 +171,11 @@ export type AppManifest = {
 export type AppObject = {
   id: string;
   [key: string]: unknown;
+};
+
+export type AppObjectListOptions = {
+  limit?: number;
+  offset?: number;
 };
 
 export type AppSearchOptions = {
