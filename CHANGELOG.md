@@ -13,6 +13,15 @@
 - server: harden security boundaries (0961ffe)
 - complete public SDK type exports (8a8889a)
 
+## [0.89.0](https://github.com/sayanmohsin/thingd/compare/thingd-v0.88.2...thingd-v0.89.0) (2026-09-22)
+
+
+### Features
+
+* add instance-aware cloud app versioning ([3df98eb](https://github.com/sayanmohsin/thingd/commit/3df98eb4d55351d993d333b2ca63849b6aff1bf2))
+* migrate app contract to canonical actions ([f1bb497](https://github.com/sayanmohsin/thingd/commit/f1bb497103487da27dcb85dcb367c978258dbfa8))
+* migrate app contract to canonical actions ([c7e21fd](https://github.com/sayanmohsin/thingd/commit/c7e21fd0dc48f7004f1d1550ce6e2ac0ce9128de))
+
 ## [0.88.2](https://github.com/sayanmohsin/thingd/compare/thingd-v0.88.1...thingd-v0.88.2) (2026-09-20)
 
 
