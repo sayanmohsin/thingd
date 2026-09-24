@@ -1,8 +1,11 @@
 import type {
   AppAction,
+  AppActionUsage,
   AppAuthResponse,
+  AppErrorDetail,
   AppManifest,
   AppObject,
+  AppObjectListOptions,
   AppSearchOptions,
   AppSearchResult,
   AppUser,
@@ -14,34 +17,37 @@ export type ThingdAppClientOptions = {
   fetch?: typeof globalThis.fetch;
   accessToken?: string;
   onSessionChange?: (session: AppAuthResponse | null) => void;
+  expectedIdentity?: {
+    projectId?: string;
+    appId?: string;
+    instanceId?: string;
+  };
 };
 
 export class ThingdAppError extends Error {
   readonly status: number;
   readonly code: string;
   readonly requestId?: string;
+  readonly details?: AppErrorDetail[];
 
-  constructor(status: number, code: string, message: string, requestId?: string) {
+  constructor(
+    status: number,
+    code: string,
+    message: string,
+    requestId?: string,
+    details?: AppErrorDetail[]
+  ) {
     super(message);
     this.name = "ThingdAppError";
     this.status = status;
     this.code = code;
     this.requestId = requestId;
+    this.details = details;
   }
 }
 
 type AppEnvelope<T> = {
   data: T;
-  requestId?: string;
-};
-
-type AppErrorEnvelope = {
-  error?: {
-    type?: string;
-    code?: string;
-    detail?: string;
-    message?: string;
-  };
   requestId?: string;
 };
 
@@ -60,8 +66,53 @@ function appPath(baseUrl: string): string {
   return normalized.endsWith("/v1") ? normalized : `${normalized}/v1`;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function safeErrorDetails(value: unknown): AppErrorDetail[] | undefined {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+  const details = value.slice(0, 12).flatMap((candidate): AppErrorDetail[] => {
+    if (!isRecord(candidate)) {
+      return [];
+    }
+    if (typeof candidate.path !== "string" || typeof candidate.keyword !== "string") {
+      return [];
+    }
+    const params: Record<string, string | number | boolean> = {};
+    if (isRecord(candidate.params)) {
+      for (const [key, item] of Object.entries(candidate.params).slice(0, 12)) {
+        if (
+          (typeof item === "string" && item.length <= 160) ||
+          typeof item === "number" ||
+          typeof item === "boolean"
+        ) {
+          params[key.slice(0, 80)] = item;
+        }
+      }
+    }
+    return [
+      {
+        path: candidate.path.slice(0, 256),
+        keyword: candidate.keyword.slice(0, 80),
+        ...(Object.keys(params).length > 0 ? { params } : {}),
+      },
+    ];
+  });
+  return details.length > 0 ? details : undefined;
+}
+
 function normalizeManifest(payload: AppManifestPayload): AppManifest {
-  if (!payload.project || !payload.app || !payload.instance) {
+  if (
+    !payload.project ||
+    typeof payload.project.id !== "string" ||
+    !payload.app ||
+    typeof payload.app.id !== "string" ||
+    !payload.instance ||
+    typeof payload.instance.id !== "string"
+  ) {
     throw new ThingdAppError(
       502,
       "invalid_app_manifest",
@@ -136,22 +187,74 @@ export class ThingdAppClient {
       headers,
       body: body === undefined ? undefined : JSON.stringify(body),
     });
-    const payload = (await response.json()) as AppEnvelope<T> & AppErrorEnvelope;
+    let payload: unknown;
+    try {
+      payload = await response.json();
+    } catch {
+      payload = undefined;
+    }
+    const responseRecord = isRecord(payload) ? payload : {};
+    const errorPayload = responseRecord.error;
     if (!response.ok) {
-      const error = payload.error;
+      const error = isRecord(errorPayload) ? errorPayload : undefined;
+      const code =
+        typeof errorPayload === "string"
+          ? errorPayload
+          : typeof error?.code === "string"
+            ? error.code
+            : typeof error?.type === "string"
+              ? error.type
+              : "app_request_failed";
+      const message =
+        (typeof error?.message === "string" && error.message) ||
+        (typeof error?.detail === "string" && error.detail) ||
+        (typeof responseRecord.message === "string" && responseRecord.message) ||
+        (typeof errorPayload === "string" && errorPayload) ||
+        `HTTP ${response.status}`;
+      const requestId =
+        (typeof responseRecord.requestId === "string" && responseRecord.requestId) ||
+        response.headers.get("x-request-id") ||
+        undefined;
       throw new ThingdAppError(
         response.status,
-        error?.code ?? error?.type ?? "app_request_failed",
-        error?.detail ?? error?.message ?? `HTTP ${response.status}`,
-        payload.requestId
+        code,
+        message,
+        requestId,
+        safeErrorDetails(error?.details)
       );
     }
-    return payload.data;
+    if (!isRecord(payload) || !("data" in payload)) {
+      throw new ThingdAppError(
+        502,
+        "invalid_app_response",
+        "The app backend returned an invalid response",
+        response.headers.get("x-request-id") ?? undefined
+      );
+    }
+    return (payload as AppEnvelope<T>).data;
   }
 
   async manifest(): Promise<AppManifest> {
     const payload = await this.request<AppManifestPayload>("GET", "/app/manifest");
-    return normalizeManifest(payload);
+    const manifest = normalizeManifest(payload);
+    const expected = this.options.expectedIdentity;
+    const mismatches = [
+      expected?.projectId && manifest.project.id !== expected.projectId
+        ? `project ${manifest.project.id}`
+        : undefined,
+      expected?.appId && manifest.app.id !== expected.appId ? `app ${manifest.app.id}` : undefined,
+      expected?.instanceId && manifest.instance.id !== expected.instanceId
+        ? `instance ${manifest.instance.id}`
+        : undefined,
+    ].filter((value): value is string => Boolean(value));
+    if (mismatches.length > 0) {
+      throw new ThingdAppError(
+        409,
+        "app_identity_mismatch",
+        `The published app identity does not match the configured identity (${mismatches.join(", ")})`
+      );
+    }
+    return manifest;
   }
 
   readonly auth = {
@@ -199,6 +302,8 @@ export class ThingdAppClient {
         input,
         options?.idempotencyKey
       ),
+    getUsage: (name: string) =>
+      this.request<AppActionUsage>("GET", `/app/actions/${encodeURIComponent(name)}/usage`),
   };
 
   /** @deprecated Use actions. */
@@ -210,6 +315,20 @@ export class ThingdAppClient {
         "GET",
         `/app/objects/${encodeURIComponent(collection)}/${encodeURIComponent(id)}`
       ),
+    list: <T extends AppObject = AppObject>(
+      collection: string,
+      options: AppObjectListOptions = {}
+    ) => {
+      const params = new URLSearchParams();
+      if (options.limit !== undefined) {
+        params.set("limit", String(options.limit));
+      }
+      if (options.offset !== undefined) {
+        params.set("offset", String(options.offset));
+      }
+      const query = params.size > 0 ? `?${params.toString()}` : "";
+      return this.request<T[]>("GET", `/app/objects/${encodeURIComponent(collection)}${query}`);
+    },
   };
 
   readonly search = (query: string, options?: AppSearchOptions) =>

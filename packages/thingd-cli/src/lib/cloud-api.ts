@@ -90,6 +90,23 @@ export type CloudPublishApp = {
   [key: string]: unknown;
 };
 
+export type CloudPublishAppVersion = CloudPublishApp & {
+  appId?: string;
+  version: number;
+  definitionHash: string;
+  isCurrent: boolean;
+  entities: unknown[];
+  audiences: unknown[];
+  roles: unknown[];
+  actions: unknown[];
+  views: unknown[];
+  workflows: unknown[];
+  integrations: unknown[];
+  policies: Record<string, unknown>;
+  distribution: Record<string, unknown>;
+  presentation: Record<string, unknown>;
+};
+
 export type CloudAppAsset = {
   id: string;
   projectId: string;
@@ -330,6 +347,14 @@ export async function createPublishAppVersion(
   appId: string
 ): Promise<{ app: CloudPublishApp }> {
   return request(config, appPath(projectId, appId, "/versions"), { method: "POST" });
+}
+
+export async function listPublishAppVersions(
+  config: CloudConfig,
+  projectId: string,
+  appId: string
+): Promise<{ versions: CloudPublishAppVersion[] }> {
+  return request(config, appPath(projectId, appId, "/versions"));
 }
 
 export async function validatePublishApp(

@@ -16,8 +16,12 @@ failure contract.
 
 The hosted mobile/web app backend contract is documented in
 [App Backend](../app-backend.md). The [Nice Rep setup guide](../nice-rep.md)
-shows the CLI-first Expo workflow. It is implemented by thingd Cloud and does
-not add Cloud tenancy or authentication to the open-source engine.
+shows the CLI-first Expo integration pattern. The public client and CLI provide
+the integration path; thingd Cloud supplies hosted authentication, project
+users, and policy enforcement. Confirm that the target Cloud deployment has the
+compatible release and passes the documented smoke flow before relying on it.
+This contract does not add Cloud tenancy or authentication to the open-source
+engine.
 The published `thingd.app/v1` manifest is an immutable project/app/instance
 snapshot. Its canonical named-action field and client API are `actions`; the
 SDK's `functions` name is a deprecated compatibility alias backed by the same
@@ -83,6 +87,11 @@ All REST API responses follow a consistent format:
 ```json
 { "error": { "code": "<error_code>", "message": "<description>" } }
 ```
+
+The hosted app routes documented in [App Backend](../app-backend.md) also
+include an optional top-level `requestId`, and app validation errors may
+include bounded safe `details`. `@thingd/client` additionally reads
+`X-Request-Id` while Cloud migrates to the body field.
 
 ## Authentication
 

@@ -3,16 +3,19 @@ import { basename, dirname, resolve } from "node:path";
 import { createThingdAppClient } from "@thingd/client";
 import { parseSchema } from "@thingd/sdk";
 import { type CliContext, hasFlag, requiredFlag, stringFlag, writeJson } from "../index.js";
+import { canonicalJson, validateAppDefinition } from "../lib/app-definition.js";
 import {
   type CloudInstance,
   type CloudProject,
   type CloudPublishApp,
+  type CloudPublishAppVersion,
   createPublishApp,
   createPublishAppVersion,
   getAppConfig,
   listInstances,
   listProjects,
   listPublishApps,
+  listPublishAppVersions,
   transitionPublishApp,
   updatePublishApp,
   validatePublishApp,
@@ -39,6 +42,8 @@ const APP_HELP = {
   usage: "thingd cloud app <command>",
   commands: {
     init: "Create a declarative thingd.app/v1 definition file",
+    check: "Validate a local app definition without Cloud credentials",
+    diff: "Compare a local app definition with a published version",
     bootstrap: "Validate and create or update a Publish app",
     config: "Show the mobile app backend configuration",
     list: "List Publish apps in a project",
@@ -53,6 +58,15 @@ const APP_HELP = {
     smoke: "Run an app-client manifest/auth/read/search/action smoke test",
   },
 };
+
+function assertValidDefinition(definition: AppDefinition): void {
+  const issues = validateAppDefinition(definition);
+  if (issues.length > 0) {
+    throw new Error(
+      `App definition check failed:\n${issues.map((item) => `- ${item.path}: ${item.message}`).join("\n")}`
+    );
+  }
+}
 
 function requireCloudConfig(): CloudConfig {
   const config = readCloudConfig();
@@ -202,6 +216,92 @@ async function runInit(context: CliContext): Promise<void> {
   output(context, { created: file, schemaVersion: APP_SCHEMA_VERSION, name, slug });
 }
 
+async function runCheck(context: CliContext): Promise<void> {
+  const file = appFilePath(context);
+  const definition = readDefinition(file);
+  assertValidDefinition(definition);
+  output(context, {
+    valid: true,
+    file,
+    schemaVersion: APP_SCHEMA_VERSION,
+    hostedValidation: "not_run",
+  });
+}
+
+function appVersionDefinition(version: CloudPublishAppVersion): AppDefinition {
+  return {
+    schemaVersion: version.schemaVersion,
+    name: version.name,
+    slug: version.slug,
+    description: version.description,
+    entities: version.entities,
+    audiences: version.audiences,
+    roles: version.roles,
+    actions: version.actions,
+    views: version.views,
+    workflows: version.workflows,
+    integrations: version.integrations,
+    policies: version.policies,
+    distribution: version.distribution,
+    presentation: version.presentation,
+  };
+}
+
+async function runDiff(context: CliContext): Promise<void> {
+  const file = appFilePath(context);
+  const local = readDefinition(file);
+  assertValidDefinition(local);
+  const { project, instance, app } = await resolveApp(context);
+  const versionNumber = Number(requiredFlag(context.parsed, "version"));
+  if (!Number.isSafeInteger(versionNumber) || versionNumber < 1) {
+    throw new Error("diff requires a positive integer --version");
+  }
+  const { versions } = await listPublishAppVersions(requireCloudConfig(), project.id, app.id);
+  const version = versions.find((candidate) => candidate.version === versionNumber);
+  if (!version) {
+    throw new Error(
+      `Published version ${versionNumber} was not found for ${project.slug}/${app.slug}`
+    );
+  }
+  if (version.status !== "published") {
+    throw new Error(`Version ${versionNumber} for ${project.slug}/${app.slug} is not published`);
+  }
+  if (version.instanceId !== instance.id) {
+    throw new Error(`Published version ${versionNumber} is not bound to instance ${instance.id}`);
+  }
+  const published = appVersionDefinition(version);
+  const sections = [
+    "name",
+    "slug",
+    "description",
+    "entities",
+    "audiences",
+    "roles",
+    "actions",
+    "views",
+    "workflows",
+    "integrations",
+    "policies",
+    "distribution",
+    "presentation",
+  ] as const;
+  const changes = sections.flatMap((section) =>
+    canonicalJson(local[section]) === canonicalJson(published[section])
+      ? []
+      : [{ section, published: published[section] ?? null, local: local[section] ?? null }]
+  );
+  output(context, {
+    readOnly: true,
+    project: { id: project.id, slug: project.slug },
+    instance: { id: instance.id, slug: instance.slug },
+    app: { id: app.id, slug: app.slug },
+    publishedVersion: version.version,
+    definitionHash: version.definitionHash,
+    localFile: file,
+    changes,
+  });
+}
+
 async function runConfig(context: CliContext): Promise<void> {
   const config = requireCloudConfig();
   const project = await getProject(config, context);
@@ -253,6 +353,7 @@ async function runBootstrap(context: CliContext): Promise<void> {
   const instance = await getInstance(config, project, context);
   const file = appFilePath(context);
   const definition = readDefinition(file);
+  assertValidDefinition(definition);
   const { apps } = await listPublishApps(config, project.id);
   const existing = apps.find(
     (candidate) => candidate.slug === definition.slug && candidate.instanceId === instance.id
@@ -429,6 +530,14 @@ export async function runCloudApp(context: CliContext): Promise<void> {
   const action = context.parsed.tokens[2];
   if (!action) {
     output(context, APP_HELP);
+    return;
+  }
+  if (action === "check") {
+    await runCheck(context);
+    return;
+  }
+  if (action === "diff") {
+    await runDiff(context);
     return;
   }
   if (action === "init") {

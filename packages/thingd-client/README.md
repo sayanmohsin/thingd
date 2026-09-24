@@ -54,12 +54,14 @@ import { createThingdAppClient } from "@thingd/client";
 const app = createThingdAppClient({
   baseUrl: "https://api.thingd.cloud",
   publishableKey: "pk_...",
+  expectedIdentity: { projectId: "...", appId: "...", instanceId: "..." },
 });
 
 await app.auth.signUp({ email, password, name });
 const profile = await app.actions.invoke("createProfile", { timezone: "UTC" }, {
   idempotencyKey: "profile:create:user-1",
 });
+const sessions = await app.objects.list("workout_sessions", { limit: 100 });
 ```
 
 The publishable key is safe for app bundles. Do not use a secret Cloud API key
@@ -70,6 +72,21 @@ or engine runtime token in a browser or mobile application. See the public
 `actions` is the canonical app API. `functions` remains available as a
 deprecated compatibility alias for existing clients; both APIs invoke the
 same published action routes.
+
+`app.objects.list(collection, { limit, offset })` performs an exact, paginated
+collection read through the published app policy. Ownership and readable-field
+projection are enforced by the hosted service. Use `app.search(query, options)`
+for full-text retrieval, not as a substitute for listing history or records.
+
+`expectedIdentity` is optional. When set, `app.manifest()` checks the returned
+project, app, and instance IDs before the app proceeds. `app.actions.getUsage(name)`
+returns the authenticated user's configured lifetime limit, successful uses,
+and remaining uses; it does not reserve quota for a later invocation.
+
+Failures are `ThingdAppError` values with `status`, stable `code`, safe
+`message`, optional `requestId`, and optional sanitized `details`. The client
+reads request IDs from the response body or `X-Request-Id` and accepts the
+legacy string-valued `error` envelope during Cloud rollout.
 
 ### Objects
 

@@ -304,6 +304,8 @@ into the application bundle.
 
 ```txt
 thingd cloud app init --file <path> [--name <name>] [--slug <slug>]
+thingd cloud app check --file <path>
+thingd cloud app diff --file <path> --project <project> --instance <instance> --app <app> --version <n>
 thingd cloud app bootstrap --project <project> --instance <instance> --file <path> [--schema <path>] [--dry-run] [--publish]
 thingd cloud app config --project <project> --instance <instance>
 thingd cloud app list --project <project>
@@ -317,10 +319,15 @@ thingd cloud app rollback --project <project> --instance <instance> --app <id-or
 thingd cloud app smoke --project <project> --instance <instance> --file <path> --email <email> --password <password> --collection <name> --object-id <id> --action <name> [--input <json>] [--query <text>] [--signup]
 ```
 
-`nice-rep.app.json` is a `thingd.app/v1` application definition. `schema.thingd`
-describes the runtime schema. `bootstrap` is idempotent by project, instance,
-and app slug, supports `--dry-run`, and when `--publish` is supplied it runs
-validation, test, and publish in order.
+`nice-rep.app.json` is a `thingd.app/v1` application definition. Run
+`thingd cloud app check --file nice-rep.app.json` to validate its deterministic
+contract rules locally without Cloud credentials. `diff` requires an explicit
+project, instance, app, and published version; it is read-only and compares the
+local definition to that selected snapshot. Cloud remains authoritative for
+hosted policy validation. `schema.thingd` describes the runtime schema.
+`bootstrap` is idempotent by project, instance, and app slug, supports
+`--dry-run`, and when `--publish` is supplied it runs validation, test, and
+publish in order.
 
 `cloud app config` returns the app endpoint and project publishable key for
 `createThingdAppClient`. Publishable keys are safe for browser/mobile bundles;
