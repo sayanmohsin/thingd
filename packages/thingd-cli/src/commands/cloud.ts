@@ -180,10 +180,15 @@ export async function runCloud(context: CliContext): Promise<void> {
       await runCloudApp(context);
       return;
     }
+    case "assets": {
+      const { runCloudAssets } = await import("./cloud-assets.js");
+      await runCloudAssets(context);
+      return;
+    }
     default:
       context.stderr.write(
         `Unknown cloud subcommand: ${sub}\n` +
-          "Available: login, logout, status, token, org, project, instance, api-key\n"
+          "Available: login, logout, status, token, org, project, instance, api-key, app, assets\n"
       );
   }
 }

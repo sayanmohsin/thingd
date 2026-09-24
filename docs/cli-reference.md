@@ -330,6 +330,27 @@ See the [Nice Rep CLI-first mobile setup](./nice-rep.md) for the complete
 Expo workflow and the [app backend contract](./app-backend.md) for routes,
 headers, sessions, and idempotent actions.
 
+### Project app assets
+
+Project app assets use Cloud's dedicated app-assets object bucket, separate
+from Studio connector sources. Uploads are project-scoped, sent through an
+authenticated Cloud endpoint, and capped at 2 MiB. Cloud decodes and normalizes
+PNG/JPEG/WebP input to metadata-stripped static WebP before storage. The returned
+immutable URL is public/cacheable; do not upload private content. Ready assets
+cannot be deleted, so keep only approved artwork.
+
+```txt
+thingd cloud assets list --project <project>
+thingd cloud assets upload --project <project> --file <path>
+```
+
+The commands require `thingd cloud login`; the operator token remains in the
+local CLI config. Applications receive only the published asset URL, never
+bucket credentials or object keys. Assets belong to the Cloud project, not an
+individual Thingd instance, so development and production instances in that
+project can reuse the same approved URL. Upload retries are idempotent for the
+same file bytes. The CLI checks the file type signature before contacting Cloud.
+
 ## Environment
 
 ```txt

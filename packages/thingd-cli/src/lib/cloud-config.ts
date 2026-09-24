@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { defaultThingdDir, ensureThingdDir } from "../paths.js";
 
@@ -45,7 +45,11 @@ export function readCloudConfig(): CloudConfig | null {
 
 export function writeCloudConfig(config: CloudConfig): void {
   ensureThingdDir();
-  writeFileSync(cloudConfigPath(), JSON.stringify(config, null, 2), "utf-8");
+  writeFileSync(cloudConfigPath(), JSON.stringify(config, null, 2), {
+    encoding: "utf-8",
+    mode: 0o600,
+  });
+  chmodSync(cloudConfigPath(), 0o600);
 }
 
 /**
