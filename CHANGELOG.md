@@ -13,6 +13,13 @@
 - server: harden security boundaries (0961ffe)
 - complete public SDK type exports (8a8889a)
 
+## [0.91.1](https://github.com/sayanmohsin/thingd/compare/thingd-v0.91.0...thingd-v0.91.1) (2026-09-28)
+
+
+### Bug Fixes
+
+* **search:** apply filters before result limit ([aacbbe7](https://github.com/sayanmohsin/thingd/commit/aacbbe7781f7bb00e8c2bd6e6fc4354861f5b773))
+
 ## [0.91.0](https://github.com/sayanmohsin/thingd/compare/thingd-v0.90.0...thingd-v0.91.0) (2026-09-24)
 
 
