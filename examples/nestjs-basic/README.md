@@ -72,7 +72,7 @@ For sidecar mode:
 
 ```bash
 THINGD_URL=http://127.0.0.1:8757
-THINGD_AUTH_TOKEN=change-me
+THINGD_AUTH_TOKEN=<strong-random-token>
 ```
 
 ```ts

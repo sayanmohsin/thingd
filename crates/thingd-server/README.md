@@ -21,10 +21,18 @@ cargo run -p thingd-server
 
 # or pull the Docker image
 docker pull ghcr.io/sayanmohsin/thingd-server
-docker run -p 7377:7377 -v ./data:/data ghcr.io/sayanmohsin/thingd-server
+export THINGD_AUTH_TOKEN="$(openssl rand -hex 32)"
+docker run -p 127.0.0.1:7377:7377 \
+  -e THINGD_AUTH_TOKEN \
+  -e THINGD_ALLOW_UNAUTHENTICATED=false \
+  -v ./data:/data \
+  ghcr.io/sayanmohsin/thingd-server
 ```
 
-Starts on `http://0.0.0.0:7377` by default. Point your MCP client at `http://localhost:7377/mcp`.
+The server listens on `0.0.0.0:7377` inside the container and requires a
+bearer token. Docker publishes the host port only on loopback. Point your MCP
+client at `http://localhost:7377/mcp` and send the token in the Authorization
+header.
 
 ## What it serves
 

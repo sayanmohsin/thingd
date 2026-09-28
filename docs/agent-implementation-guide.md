@@ -106,7 +106,7 @@ For sidecar mode:
 
 ```bash
 THINGD_URL=http://127.0.0.1:8757
-THINGD_AUTH_TOKEN=change-me
+THINGD_AUTH_TOKEN=<strong-random-token>
 ```
 
 ```ts
@@ -303,7 +303,7 @@ For agent value and patterns, read [why-agents.md](./why-agents.md) and
 - For CLI work, create a dedicated package and use the public SDK instead of reaching into internal stores.
 - Keep CLI command behavior documented in [cli-reference.md](./cli-reference.md).
 
-## For a 5-minute working example: **[QUICKSTART.md](./QUICKSTART.md)**
+## For a 5-minute working example: **[Quickstart](./quickstart.md)**
 
 ## Required Checks
 

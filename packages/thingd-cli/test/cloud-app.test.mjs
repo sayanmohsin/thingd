@@ -122,6 +122,15 @@ test("cloud app check validates locally without Cloud credentials", async () => 
     const validAi = await run(["cloud", "app", "check", "--file", file]);
     assert.equal(validAi.code, 0, validAi.stderr);
 
+    definition.actions[0].execution.retrieval.sources = [
+      ...definition.actions[0].execution.retrieval.sources,
+      "malformed source",
+    ];
+    writeFileSync(file, JSON.stringify(definition), "utf8");
+    const invalidSource = await run(["cloud", "app", "check", "--file", file]);
+    assert.equal(invalidSource.code, 1);
+    assert.match(invalidSource.stderr, /retrieval\.sources\[1\].*must be an object/);
+
     definition.actions[0].execution.retrieval = {
       collection: "workouts",
       queryFields: ["goal"],

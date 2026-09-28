@@ -1,12 +1,4 @@
 apiVersion: v1
-kind: Secret
-metadata:
-  name: thingd-cluster-auth
-type: Opaque
-stringData:
-  THINGD_AUTH_TOKEN: change-me
----
-apiVersion: v1
 kind: Service
 metadata:
   name: thingd-leader
@@ -48,6 +40,8 @@ spec:
               value: leader
             - name: THINGD_ADVERTISE_URL
               value: http://thingd-leader:8757
+            - name: THINGD_ALLOW_UNAUTHENTICATED
+              value: "false"
             - name: THINGD_AUTH_TOKEN
               valueFrom:
                 secretKeyRef:
@@ -109,6 +103,8 @@ spec:
               value: follower
             - name: THINGD_CLUSTER_LEADER_URL
               value: http://thingd-leader:8757
+            - name: THINGD_ALLOW_UNAUTHENTICATED
+              value: "false"
             - name: THINGD_CLUSTER_FORWARD_AUTH_TOKEN
               valueFrom:
                 secretKeyRef:

@@ -32,6 +32,6 @@ token through the environment. Never commit credentials to an example:
 
 ```bash
 THINGD_MCP_URL="https://your-thingd-host/mcp/your-project/your-instance" \
-THINGD_AUTH_TOKEN="your-token" \
+THINGD_AUTH_TOKEN="$(openssl rand -hex 32)" \
 node query-sales-via-mcp.mjs
 ```

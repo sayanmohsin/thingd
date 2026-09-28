@@ -10,7 +10,6 @@ export default defineConfig({
   title: "thingd — Open-Source Rust Data Engine for AI Agents",
   description: `thingd is an open-source Rust data engine for AI agents. Object-shaped storage, durable queues, event streams, full-text search, and ${mcpToolCount} MCP tools — all in one binary. Deploy via Docker, embed in Node.js, or run as a sidecar. Built by Sayan Mohsin.`,
   base: "/",
-  ignoreDeadLinks: true,
   lang: "en-US",
 
   head: [
@@ -102,6 +101,7 @@ export default defineConfig({
           { text: "REST API", link: "/api-spec/rest-api" },
           { text: "Data Model", link: "/api-spec/data-model" },
           { text: "MCP Tools", link: "/api-spec/mcp-tools" },
+          { text: "Scheduler", link: "/api-spec/scheduler" },
           { text: "App Backend", link: "/app-backend" },
           { text: "Replication", link: "/api-spec/replication" },
           { text: "Standalone ThingDB", link: "/api-spec/thingdb" },
@@ -145,7 +145,7 @@ export default defineConfig({
           { text: "Security", link: "/security" },
           { text: "Runtime Environment", link: "/runtime-env" },
           { text: "Storage Backends", link: "/storage-backends" },
-          { text: "Sidecar & Cluster", link: "/sidecar-cluster" },
+          { text: "Sidecar & Cluster", link: "/docker-runtime#bridge-mode" },
         ],
       },
       {

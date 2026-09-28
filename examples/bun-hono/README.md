@@ -23,14 +23,19 @@ You run the sidecar separately. Your Bun app connects to it via `HttpThingStore`
 # Install the CLI (any runtime)
 pnpm add --global @thingd/cli
 
-# Start the sidecar on port 8757
-thingd serve --http :8757
+# Start the REST/MCP sidecar on loopback with a strong token
+export THINGD_AUTH_TOKEN="$(openssl rand -hex 32)"
+thingd mcp-http --host 127.0.0.1 --port 8757 --auth-token "$THINGD_AUTH_TOKEN"
 ```
 
 Or via Docker:
 
 ```bash
-docker run -p 8757:8757 sayanmohsin/thingd
+export THINGD_AUTH_TOKEN="$(openssl rand -hex 32)"
+docker run -p 127.0.0.1:8757:8757 \
+  -e THINGD_AUTH_TOKEN \
+  -e THINGD_ALLOW_UNAUTHENTICATED=false \
+  sayanmohsin/thingd
 ```
 
 ### 2. Run the Bun app
@@ -105,7 +110,7 @@ If your sidecar has auth enabled, set the token:
 ```ts
 const thingd = await HttpThingStore.open({
   url: "http://localhost:8757",
-  authToken: "your-secret-token",
+  authToken: process.env.THINGD_AUTH_TOKEN,
 });
 ```
 

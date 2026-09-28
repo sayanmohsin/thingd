@@ -60,64 +60,28 @@ ThingDB can also be consumed independently of Thingd as the low-level
 `thingdb` Rust crate. See the [standalone ThingDB API contract](./api-spec/thingdb.md)
 for its keyspace, batch, scan, snapshot, recovery, and `MemoryCache` APIs.
 
-## ThingDB development phase
+## Experimental durable ThingDB
 
-Durable ThingDB is in **Phase 5: scale and performance validation**. The 1K
-all-backend smoke and 100-operation write-path smoke pass their correctness
-and recovery preflights, but the five-repeat 10K and 100K gates remain
-pending because synchronous durable writes are currently too slow locally.
-Phases 0
-through 4 are complete enough for opt-in development, differential testing,
-and safe logical repack, but ThingDB is not a production replacement for
-RocksDB. The separate ThingDB RAM path is being optimized and benchmarked for
-process-local workloads; that work does not change durable backend selection or
-make a performance claim against Redis or another cache product.
+RocksDB remains the default durable backend. ThingDB is a separate, experimental
+format selected explicitly with `THINGD_STORAGE_BACKEND=thingdb`; it is not a
+production replacement for RocksDB. ThingDB does not open RocksDB files, so
+switching formats requires a logical repack rather than renaming a directory or
+changing the setting in place.
 
-| Phase | Goal | Status |
-| --- | --- | --- |
-| 0. Foundation | WAL, checksums, manifests, ordered access, batches, snapshots, repack, shared Thingd contracts | Complete; experimental and opt-in |
-| 1A. WAL hardening | Sync-before-ack writes, WAL timing diagnostics, batch-path measurement, deterministic WAL fault tests | Complete; no promotion claim |
-| 1B. Durable group commit | Bounded writer queue, one physical sync for nearby durable frames, grouped-write recovery and diagnostics | Complete; no promotion claim |
-| 1C. Immutable table layers | Incremental immutable tables, tombstones, multi-table manifests, bounded flushes, and safe full compaction | Complete; no promotion claim |
-| 2. Manifest and compaction recovery | Atomic manifest replacement, temporary-artifact cleanup, interrupted flush/compaction recovery, corruption validation, and fault-injection tests | Complete; no promotion claim |
-| 3. Bounded memtables and flush backpressure | Bound mutable table memory, flush automatically after durable commits, preserve restart recovery, and measure flush cost | Complete; no promotion claim |
-| 4. Layered table reads | Retain immutable table indexes, seek point reads by key, merge layers for scans, and reduce startup resident state | Complete; no promotion claim |
-| 5. Scale and performance | Large-data benchmarks, memory/disk amplification limits, restart and recovery budgets | Active; 1K smoke passed, 10K/100K pending |
-| 6. Controlled adoption | Soak testing, operational rollback, backup/restore validation, limited opt-in deployments | Planned |
-| 7. Default-candidate review | Compare against RocksDB gates and decide whether the default should change | Not scheduled |
+ThingDB uses a checksummed WAL, ordered keyspaces, atomic batches, snapshots,
+and compacted table files. A successful single write is acknowledged after WAL
+sync and state application. Background table flushing may continue afterward,
+and scans merge immutable layers with tombstone precedence. The implementation
+still keeps substantial state in memory. Keep the source database and verify a
+repacked destination before switching traffic; do not rely on experimental
+ThingDB as the only copy of important production data.
 
-Single writes remain synchronously WAL-backed before acknowledgement. Explicit
-multi-key batches share one WAL frame and one sync boundary. Phase 1B additionally
-groups nearby independent frames into one physical sync while preserving their
-individual atomicity. Phase 1C writes only changed keys and tombstones into new
-immutable table layers; explicit compaction merges those layers into one
-snapshot. The current implementation still keeps substantial state in memory.
-Phase 2 validates old-versus-new manifest recovery, table rename boundaries,
-temporary artifact cleanup, manifest path safety, and directory durability.
-Phase 3 added explicit mutable-table byte accounting and a bounded automatic
-flush boundary. A normal successful write waits for its WAL sync and state
-application before acknowledgement; table flushing may continue in the
-background. Explicit persistence requests and hard backpressure may wait for
-maintenance. A failed post-sync flush requires reopen and recovery rather than
-allowing ambiguous in-memory state.
-Phase 4 retained table paths and sorted key indexes instead of loading table
-values into the active write state during open. Point reads seek the newest
-matching layer first; scans and compaction materialize a merged view with
-tombstone precedence. This phase does not claim full production qualification.
-The next phase measures large-data behavior before any durable-backend adoption
-decision. Until Phases 1A–5 pass, do not use
-ThingDB as the only copy of important production data. Keep the RocksDB source
-directory during repack and validate the destination before switching traffic.
+ThingDB RAM is available for disposable process-local state and creates no
+database files. It does not change the durable backend default. `MemoryEngine`
+remains available as the portable reference implementation.
 
-The separate in-memory qualification track completed **combined Phase 5/6:
-benchmark, reliability, and soak validation**. The unified benchmark includes
-`thingdb-memory`, and its reliability preflight covers semantic operations,
-search cleanup, concurrent access, repeated-instance isolation, and zero
-filesystem/journal usage. Phase 7 now makes ThingDB RAM the default for native
-and server disposable memory mode. `MemoryEngine` remains available as a
-portable reference, cache, WASM, and differential-test implementation.
-
-See [Benchmarks](./benchmarks.md) for the workload matrix and promotion gates.
+See [Benchmarks](./benchmarks.md) for local comparison methodology. Benchmark
+results are environment-specific and are not a production performance claim.
 
 ## Legacy storage formats
 

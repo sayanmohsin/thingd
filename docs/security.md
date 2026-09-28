@@ -55,14 +55,14 @@ publishable key without placing the operator token in an Expo bundle.
 ```yaml
 # config.yaml
 auth:
-  token: "your-secure-token-here-min-16-chars"
+  token: "replace-with-a-strong-random-token"
   allow_unauthenticated: false
 ```
 
 Or via environment variable:
 
 ```bash
-export THINGD_AUTH_TOKEN="your-secure-token-here-min-16-chars"
+export THINGD_AUTH_TOKEN="$(openssl rand -hex 32)"
 ```
 
 Static documentation and GitHub Pages are public and never receive runtime

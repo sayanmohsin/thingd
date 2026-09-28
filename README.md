@@ -225,7 +225,11 @@ import { ThingdClient } from "@thingd/client";
 
 ```bash
 docker pull sayanmohsin/thingd
-docker run -p 8757:8757 sayanmohsin/thingd
+export THINGD_AUTH_TOKEN="$(openssl rand -hex 32)"
+docker run -p 127.0.0.1:8757:8757 \
+  -e THINGD_AUTH_TOKEN \
+  -e THINGD_ALLOW_UNAUTHENTICATED=false \
+  sayanmohsin/thingd
 ```
 
 See the [Docker Hub](https://hub.docker.com/r/sayanmohsin/thingd) page for all tags and [deploy/docker-compose.yml](./deploy/docker-compose.yml) for production configuration.
@@ -282,7 +286,7 @@ For sidecar mode, point the SDK at the HTTP REST endpoint:
 
 ```bash
 THINGD_URL=http://127.0.0.1:8757
-THINGD_AUTH_TOKEN=change-me
+THINGD_AUTH_TOKEN=<strong-random-token>
 ```
 
 ```ts
@@ -295,7 +299,7 @@ Or configure it explicitly:
 const db = await ThingD.open({
   url: "http://127.0.0.1:8757",
   driver: "cloud",
-  authToken: "change-me",
+  authToken: process.env.THINGD_AUTH_TOKEN,
 });
 ```
 

@@ -40,11 +40,12 @@ docker buildx build \
 ## Run
 
 ```bash
+export THINGD_AUTH_TOKEN="$(openssl rand -hex 32)"
 docker run --rm \
-  -p 8757:8757 \
+  -p 127.0.0.1:8757:8757 \
   -v thingd-data:/data \
-  -e THINGD_AUTH_TOKEN=change-me \
-  -e THINGD_ENCRYPTION_KEY=<64-hex-characters> \
+  -e THINGD_AUTH_TOKEN \
+  -e THINGD_ALLOW_UNAUTHENTICATED=false \
   thingd:local
 ```
 
@@ -87,6 +88,10 @@ Authorization: Bearer <token>
 ```
 
 Do not set `THINGD_ALLOW_UNAUTHENTICATED=true` in a public or shared runtime.
+The container image listens on `0.0.0.0` inside its network namespace. The
+example limits the published host port to loopback and still requires bearer
+authentication. Startup validation rejects a non-loopback bind without an auth
+token; `THINGD_ALLOW_UNAUTHENTICATED` does not bypass that validation.
 
 The encryption key is a startup secret for the native persistent directory. It
 is not sent to MCP clients or included in MCP requests. Inject it through a
@@ -114,7 +119,7 @@ Node apps can use the SDK remote driver through the sidecar:
 
 ```bash
 THINGD_URL=http://127.0.0.1:8757
-THINGD_AUTH_TOKEN=change-me
+THINGD_AUTH_TOKEN=<the-token-exported-before-starting-the-container>
 ```
 
 ```ts
@@ -157,7 +162,7 @@ The container accepts bridge/cluster env vars:
 THINGD_CLUSTER_MODE=single|leader|follower
 THINGD_CLUSTER_LEADER_URL=http://thingd-leader:8757
 THINGD_CLUSTER_LEADER_FALLBACK_URL=http://thingd-leader-2:8757
-THINGD_CLUSTER_FORWARD_AUTH_TOKEN=change-me
+THINGD_CLUSTER_FORWARD_AUTH_TOKEN=<same-strong-token-as-THINGD_AUTH_TOKEN>
 THINGD_CLUSTER_DISCOVERY=none|static|kubernetes
 THINGD_CLUSTER_PEERS=http://thingd-0:8757,http://thingd-1:8757
 THINGD_CLUSTER_LEADER_ELECTION=false
@@ -205,13 +210,13 @@ HTTP request using the standard library.
 
 ## Compose And Kubernetes
 
-- [deploy/docker-compose.yml](../deploy/docker-compose.yml) runs a local
+- [deploy/docker-compose.yml](https://github.com/sayanmohsin/thingd/blob/main/deploy/docker-compose.yml) runs a local
   leader/follower pair.
-- [deploy/kubernetes/sidecar.yaml](../deploy/kubernetes/sidecar.yaml) shows an
+- [deploy/kubernetes/sidecar.yaml](https://github.com/sayanmohsin/thingd/blob/main/deploy/kubernetes/sidecar.yaml) shows an
   app container with a local `thingd` sidecar.
-- [deploy/kubernetes/leader-follower.yaml](../deploy/kubernetes/leader-follower.yaml)
+- [deploy/kubernetes/leader-follower.yaml](https://github.com/sayanmohsin/thingd/blob/main/deploy/kubernetes/leader-follower.yaml)
   shows explicit leader/follower runtime env.
-- [deploy/proxy/Caddyfile](../deploy/proxy/Caddyfile) shows a TLS reverse proxy
+- [deploy/proxy/Caddyfile](https://github.com/sayanmohsin/thingd/blob/main/deploy/proxy/Caddyfile) shows a TLS reverse proxy
   shape.
 
 ## Failover
@@ -229,7 +234,7 @@ THINGD_ADVERTISE_URL=http://thingd-1:8757
 The election is static-config based — no Raft or distributed consensus. Best
 suited for StatefulSets or environments with ordered, predictable pod names.
 
-For full details, see [sidecar-cluster.md](./sidecar-cluster.md).
+For full details, see [Bridge Mode](./docker-runtime.md#bridge-mode).
 
 ## Current Limitations
 
@@ -239,4 +244,4 @@ For full details, see [sidecar-cluster.md](./sidecar-cluster.md).
 - static-config leader election only (no consensus)
 
 Put TLS, domains, and public exposure behind a proper reverse proxy or hosted
-gateway. For cluster details, see [sidecar-cluster.md](./sidecar-cluster.md).
+gateway. For cluster details, see [Bridge Mode](./docker-runtime.md#bridge-mode).

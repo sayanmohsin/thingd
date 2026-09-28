@@ -1,7 +1,7 @@
 import { createThingdAppClient, ThingdAppError } from "@thingd/client";
 import * as SecureStore from "expo-secure-store";
 import { useEffect, useState } from "react";
-import { Button, SafeAreaView, Text, View } from "react-native";
+import { Button, SafeAreaView, Text, TextInput, View } from "react-native";
 
 const ACCESS_TOKEN_KEY = "thingd_access_token";
 const REFRESH_TOKEN_KEY = "thingd_refresh_token";
@@ -22,8 +22,8 @@ const client = createThingdAppClient({
     appId: requiredEnvironmentVariable("EXPO_PUBLIC_THINGD_APP_ID"),
     instanceId: requiredEnvironmentVariable("EXPO_PUBLIC_THINGD_INSTANCE_ID"),
   },
-  onSessionChange: (session) => {
-    void Promise.all(
+  onSessionChange: async (session) => {
+    await Promise.all(
       session
         ? [
             SecureStore.setItemAsync(ACCESS_TOKEN_KEY, session.accessToken),
@@ -49,6 +49,8 @@ function errorMessage(error: unknown): string {
 export default function App() {
   const [message, setMessage] = useState("Checking app configuration…");
   const [ready, setReady] = useState(false);
+  const [demoEmail, setDemoEmail] = useState("");
+  const [demoPassword, setDemoPassword] = useState("");
 
   useEffect(() => {
     let active = true;
@@ -110,18 +112,18 @@ export default function App() {
   }, []);
 
   async function signUp() {
-    const password = process.env.EXPO_PUBLIC_DEMO_PASSWORD;
-    if (!password) {
-      setMessage("Set EXPO_PUBLIC_DEMO_PASSWORD to try the demo signup.");
+    if (!demoEmail.trim() || !demoPassword) {
+      setMessage("Enter an email and password to try the demo signup.");
       return;
     }
     setMessage("Creating account…");
     try {
       const session = await client.auth.signUp({
-        email: "demo@example.com",
-        password,
+        email: demoEmail.trim(),
+        password: demoPassword,
         name: "Demo User",
       });
+      setDemoPassword("");
       setMessage(`Signed in as ${session.user.name}`);
     } catch (error) {
       setMessage(errorMessage(error));
@@ -165,6 +167,21 @@ export default function App() {
       <View style={{ padding: 24, gap: 16 }}>
         <Text>thingd app backend</Text>
         <Text>{message}</Text>
+        <TextInput
+          autoCapitalize="none"
+          autoComplete="email"
+          keyboardType="email-address"
+          onChangeText={setDemoEmail}
+          placeholder="Demo email"
+          value={demoEmail}
+        />
+        <TextInput
+          autoComplete="new-password"
+          onChangeText={setDemoPassword}
+          placeholder="Demo password"
+          secureTextEntry
+          value={demoPassword}
+        />
         <Button title="Sign up" onPress={() => void signUp()} disabled={!ready} />
         <Button title="Run named action" onPress={() => void runNamedAction()} disabled={!ready} />
         <Button title="Check action usage" onPress={() => void showUsage()} disabled={!ready} />

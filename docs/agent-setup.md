@@ -1,16 +1,16 @@
 # Agent Setup — thingd as your AI agent's memory
 
-Three ways to give your AI agent (Cursor, Claude Desktop, GPT) a persistent
+Three ways to give your AI agent (Cursor, Claude Desktop, or ChatGPT) a persistent
 memory store with search, events, and queues.
 
 ## Which mode for which agent
 
-| Agent | stdio MCP | HTTP MCP (Docker) | Cloud MCP (thingd Cloud) | HTTP MCP (remote) |
-|---|---|---|---|---|
-| Cursor | ✅ recommended | ✅ | ✅ `thingd mcp connect` | ❌ localhost only |
-| Claude Desktop | ✅ recommended | ✅ | ✅ `thingd mcp connect` | ❌ localhost only |
-| Antigravity IDE | ✅ | ✅ | ✅ `thingd mcp connect` | ❌ localhost only |
-| ChatGPT | ❌ | ❌ | ❌ | ✅ needs public URL |
+| Agent | Local stdio MCP | Remote Streamable HTTP MCP |
+|---|---|---|
+| Cursor | ✅ recommended | ✅ |
+| Claude Desktop | ✅ recommended | ✅ |
+| Antigravity IDE | ✅ | ✅ |
+| ChatGPT | Not directly | ✅ custom MCP app; availability depends on plan and workspace settings |
 
 ---
 
@@ -25,7 +25,7 @@ Claude Desktop setup. The install, config, and verification steps are identical.
 npx thingd install
 ```
 
-Your agent can then call all 36 `thing_*` tools (search, objects, events, queues,
+Your agent can then call the Node MCP server's 49 `thing_*` tools (search, objects, events, queues,
 links, counts, aggregate, schema, NLQ, vector, discovery). See the [MCP tools reference](api-spec/mcp-tools.md)
 for the full list.
 
@@ -69,16 +69,19 @@ Run thingd as a Docker sidecar and connect your agent over HTTP.
 ### Start the container
 
 ```bash
+export THINGD_AUTH_TOKEN="$(openssl rand -hex 32)"
 docker run -d \
   --name thingd \
-  -p 8757:8757 \
+  -p 127.0.0.1:8757:8757 \
   -v thingd-data:/data \
-  -e THINGD_AUTH_TOKEN=my-token \
-  -e THINGD_ENCRYPTION_KEY=<64-hex-characters> \
+  -e THINGD_AUTH_TOKEN \
+  -e THINGD_ALLOW_UNAUTHENTICATED=false \
   sayanmohsin/thingd
 ```
 
-The server is now at `http://localhost:8757/mcp`.
+The host publishes the port only on loopback; the server listens on all
+interfaces inside the container and requires the configured bearer token. The
+server is available at `http://localhost:8757/mcp`.
 
 ### Cursor HTTP MCP config
 
@@ -90,25 +93,9 @@ In **Cursor Settings → Features → MCP → + Add New MCP Tool**:
 | Type | `url` |
 | URL | `http://localhost:8757/mcp` |
 
-Cursor sends the `Authorization` header automatically when you add a token in
-the URL field — include it as `http://localhost:8757/mcp` and add the header
-manually via Cursor's MCP headers setting, or use an MCP proxy that injects the
-bearer token. Alternatively, run without auth on localhost:
-
-```bash
-docker run -d \
-  --name thingd \
-  -p 8757:8757 \
-  -v thingd-data:/data \
-  -e THINGD_ALLOW_UNAUTHENTICATED=true \
-  sayanmohsin/thingd
-```
-
-> **Safety**: Without auth, the endpoint listens on `127.0.0.1` inside the
-> container but Docker maps it to `0.0.0.0` on the host. Only use
-> `ALLOW_UNAUTHENTICATED=true` on a single-user machine. For shared or
-> production use, set `THINGD_AUTH_TOKEN` and configure Cursor to send
-> `Authorization: Bearer <token>`.
+Configure Cursor to send `Authorization: Bearer <your-token>` using its MCP
+headers setting. Keep the token in a local secret store and do not put it in
+the MCP URL or commit it to configuration files.
 
 ### Docker Compose (shared store between app + agent)
 
@@ -118,19 +105,20 @@ services:
   thingd:
     image: sayanmohsin/thingd
     ports:
-      - "8757:8757"
+      - "127.0.0.1:8757:8757"
     volumes:
       - thingd-data:/data
     environment:
-      - THINGD_AUTH_TOKEN=my-token
+      THINGD_AUTH_TOKEN: ${THINGD_AUTH_TOKEN:?Set a strong token}
+      THINGD_ALLOW_UNAUTHENTICATED: "false"
 
   your-app:
     build: .
     ports:
       - "3000:3000"
     environment:
-      - THINGD_URL=http://thingd:8757
-      - THINGD_AUTH_TOKEN=my-token
+      THINGD_URL: http://thingd:8757
+      THINGD_AUTH_TOKEN: ${THINGD_AUTH_TOKEN:?Set a strong token}
     depends_on:
       - thingd
 
@@ -147,39 +135,36 @@ curl http://localhost:8757/healthz
 # → OK
 
 curl -X POST http://localhost:8757/mcp \
-  -H "Authorization: Bearer my-token" \
+  -H "Authorization: Bearer $THINGD_AUTH_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
 ```
 
 ---
 
-## 3. GPT / ChatGPT (remote HTTP MCP)
+## 3. ChatGPT custom MCP app
 
-ChatGPT supports MCP over HTTPS. thingd's Streamable HTTP endpoint works
-directly — but your local machine is not reachable from ChatGPT's servers.
+ChatGPT connects to MCP servers through custom apps. Developer-mode access and
+write-capable MCP support depend on your ChatGPT plan, workspace settings, and
+administrator permissions. See [OpenAI's current developer-mode and MCP apps
+guide](https://help.openai.com/en/articles/12584461-developer-mode-and-mcp-apps-in-chatgpt)
+for availability and current setup steps.
 
-### Option A: SSH tunnel (quick test)
+For an externally reachable server, configure its HTTPS `/mcp` URL and bearer
+authentication in a custom app, scan its tools, and test the app before
+publishing it to a workspace. Select the app in a chat when you want to use it;
+available actions depend on the app's permissions and workspace settings.
 
-```bash
-# On your server or a public machine:
-docker run -d \
-  --name thingd \
-  -p 8757:8757 \
-  -v thingd-data:/data \
-  -e THINGD_AUTH_TOKEN=strong-random-token \
-  sayanmohsin/thingd
+### Local or private thingd server
 
-# From your local machine:
-ssh -L 8757:localhost:8757 your-server
-```
+ChatGPT does not connect directly to a local MCP server. OpenAI documents
+[Secure MCP Tunnel](https://developers.openai.com/api/docs/guides/secure-mcp-tunnels) for connecting private or
+developer-machine MCP servers to supported OpenAI products without exposing
+the server publicly. Check that guide for current product support and setup.
 
-ChatGPT needs a public HTTPS URL, so a plain tunnel isn't enough by itself. Use
-a reverse proxy with TLS.
+### Configure a public HTTPS endpoint
 
-### Option B: Reverse proxy with TLS (recommended)
-
-```nginx
+```text
 # deploy/proxy/Caddyfile
 example.com {
   reverse_proxy /mcp* localhost:8757
@@ -188,25 +173,21 @@ example.com {
 ```
 
 ```bash
+export THINGD_AUTH_TOKEN="$(openssl rand -hex 32)"
 docker run -d \
   --name thingd \
-  --network host \
+  -p 127.0.0.1:8757:8757 \
   -v thingd-data:/data \
-  -e THINGD_AUTH_TOKEN=strong-random-token \
+  -e THINGD_AUTH_TOKEN \
+  -e THINGD_ALLOW_UNAUTHENTICATED=false \
   sayanmohsin/thingd
 ```
 
-Your MCP endpoint: `https://example.com/mcp`
-
-### Register with ChatGPT
-
-1. Open ChatGPT → Settings → MCP servers
-2. Add new server:
-   - **Name**: `thingd`
-   - **URL**: `https://example.com/mcp`
-   - **Bearer token**: `strong-random-token`
-
-ChatGPT can now call all 36 thingd tools in any conversation.
+Configure the reverse proxy to reach `127.0.0.1:8757` and publish only its
+HTTPS endpoint.
+Then follow OpenAI's current custom-app setup flow with
+`https://example.com/mcp` and the bearer token. Avoid placing the token in the
+URL or source control.
 
 ---
 

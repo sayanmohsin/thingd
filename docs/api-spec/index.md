@@ -1,6 +1,8 @@
 # thingd API Specification
 
-This is the language-agnostic API contract for thingd. Any SDK (Node.js, Go, Rust, Flutter) implements this spec in its own language.
+This is the language-neutral public contract for thingd. This repository
+provides Node.js and Rust interfaces; other clients can implement the documented
+wire contracts independently.
 
 thingd is a fast, object-first data engine for applications and AI agents. It supports in-memory, file-based (persistent), Docker, and hosted HTTP instances.
 
@@ -34,6 +36,7 @@ routes, not a separate registry.
 - [MCP Tools](mcp-tools.md) — tool schemas for AI agents
 - [Search](search.md) — Tantivy query syntax, filters, scoring
 - [Errors](errors.md) — error codes, HTTP mapping, MCP error format
+- [Scheduler](scheduler.md) — Node SDK scheduler API and MCP tools
 - [Replication](replication.md) — provider-neutral Thingd-to-Thingd synchronization
 - [Standalone ThingDB](thingdb.md) — low-level Rust keyspace and durability API
 
@@ -49,23 +52,23 @@ routes, not a separate registry.
           ┌────────────┼────────────┬────────────┬────────────┐
           │            │            │            │            │
     ┌─────▼────┐ ┌─────▼────┐ ┌────▼─────┐ ┌───▼──────┐ ┌───▼──────┐
-    │ thingd   │ │ thingd-  │ │ thingd-  │ │ thingd-  │ │ thingd-  │
-    │ (Node)   │ │ client   │ │ go       │ │ rust     │ │ flutter  │
-    │ napi-rs  │ │ fetch    │ │ cgo FFI  │ │ direct   │ │ dart FFI │
+    │ thingd   │ │ thingd-  │ │ thingd-  │ │ thingd   │ │ thingd   │
+    │ (Node)   │ │ client   │ │ server   │ │ (Rust)   │ │ CLI      │
+    │ napi-rs  │ │ fetch    │ │ REST/MCP │ │ direct   │ │ MCP      │
     └─────┬────┘ └─────┬────┘ └────┬─────┘ └───┬──────┘ └───┬──────┘
           │            │            │            │            │
           ▼            ▼            ▼            ▼            ▼
     ┌─────────────────────────────────────────────────────────────┐
     │           Protocol Adapters (per-language)                   │
-    │  REST API (/v1/*)  │  MCP Server (39 Rust / 49 SDK tools)   │
+    │  REST API (/v1/*)  │  MCP Server (39 sidecar / 49 Node tools) │
     └─────────────────────────┬───────────────────────────────────┘
                               │
                   ┌───────────┼───────────┐
                   │           │           │
            ┌──────▼──┐  ┌─────▼─────┐ ┌──▼──────┐
-           │ CLI     │  │ Cloud     │ │ Web UI  │
-           │ + TUI   │  │ Hosted    │ │ Local + │
-           │ + MCP   │  │ Auth+Billing│ │ Cloud  │
+           │ CLI     │  │ MCP       │ │ Apps   │
+           │ + TUI   │  │ clients   │ │        │
+           │         │  │           │ │        │
            └─────────┘  └───────────┘ └─────────┘
 ```
 

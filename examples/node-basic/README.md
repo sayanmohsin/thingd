@@ -114,7 +114,7 @@ be selected with `THINGD_STORAGE_BACKEND=thingdb`; it uses a separate format.
 To use `thingd` running as a background service or remote instance, set the following environment variables:
 ```bash
 export THINGD_URL="http://127.0.0.1:8757"
-export THINGD_AUTH_TOKEN="your-secret-token"
+export THINGD_AUTH_TOKEN="$(openssl rand -hex 32)"
 ```
 Then initialize the SDK; with `THINGD_URL` set this connects to the sidecar,
 otherwise it uses the local in-memory mode described above:

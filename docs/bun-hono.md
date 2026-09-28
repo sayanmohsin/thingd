@@ -32,14 +32,19 @@ thingd runs as a **sidecar** — a separate Rust binary that you start once. You
 # Install the CLI
 npm install -g @thingd/cli
 
-# Start on port 8757
-thingd serve --http :8757
+# Start the REST/MCP sidecar on loopback with a strong token
+export THINGD_AUTH_TOKEN="$(openssl rand -hex 32)"
+thingd mcp-http --host 127.0.0.1 --port 8757 --auth-token "$THINGD_AUTH_TOKEN"
 ```
 
 Or via Docker:
 
 ```bash
-docker run -p 8757:8757 thingd/thingd
+export THINGD_AUTH_TOKEN="$(openssl rand -hex 32)"
+docker run -p 127.0.0.1:8757:8757 \
+  -e THINGD_AUTH_TOKEN \
+  -e THINGD_ALLOW_UNAUTHENTICATED=false \
+  thingd/thingd
 ```
 
 Or as a Kubernetes sidecar (same pod, container port 8757).
@@ -109,7 +114,8 @@ export default { fetch: app.fetch, port: 3000 };
 
 ```bash
 # Start sidecar
-thingd serve --http :8757 --data-dir ./data &
+export THINGD_AUTH_TOKEN="$(openssl rand -hex 32)"
+thingd mcp-http --host 127.0.0.1 --port 8757 --path ./data/thingd.db --auth-token "$THINGD_AUTH_TOKEN" &
 
 # Start Bun app
 bun run index.ts
@@ -121,14 +127,18 @@ bun run index.ts
 services:
   thingd:
     image: thingd/thingd
-    ports: ["8757:8757"]
+    ports: ["127.0.0.1:8757:8757"]
     volumes: ["./data:/data"]
+    environment:
+      THINGD_AUTH_TOKEN: ${THINGD_AUTH_TOKEN:?Set a strong token}
+      THINGD_ALLOW_UNAUTHENTICATED: "false"
 
   app:
     build: .
     ports: ["3000:3000"]
     environment:
       THINGD_URL: http://thingd:8757
+      THINGD_AUTH_TOKEN: ${THINGD_AUTH_TOKEN:?Set a strong token}
 ```
 
 ### Option C: Kubernetes sidecar

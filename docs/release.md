@@ -132,7 +132,7 @@ docker pull sayanmohsin/thingd
 ```
 
 The Docker image includes the native persistent driver pre-built for supported Linux targets.
-See [docker-context/Dockerfile](../docker-context/Dockerfile) and [deploy/docker-compose.yml](../deploy/docker-compose.yml) for the runtime shape.
+See the [Dockerfile](https://github.com/sayanmohsin/thingd/blob/main/docker-context/Dockerfile) and [Compose example](https://github.com/sayanmohsin/thingd/blob/main/deploy/docker-compose.yml) for the runtime shape.
 
 The workspace uses `workspace:^` dependency specs during development so pnpm links
 the local SDK and native packages. These specs must never reach npm. The release

@@ -23,7 +23,6 @@ EXPO_PUBLIC_THINGD_PROJECT_ID=your_project_id \
 EXPO_PUBLIC_THINGD_APP_ID=your_app_id \
 EXPO_PUBLIC_THINGD_INSTANCE_ID=your_development_instance_id \
 EXPO_PUBLIC_DEMO_ACTION=generateWorkout \
-EXPO_PUBLIC_DEMO_PASSWORD='use-a-local-demo-password' \
 pnpm exec expo start
 ```
 
@@ -33,9 +32,8 @@ or calling authenticated app routes. Keep development and production values in
 separate Expo environments; use the production IDs and publishable key only in
 the production build profile.
 
-`EXPO_PUBLIC_DEMO_PASSWORD` is optional and is required only for the example
-signup button. Use a throwaway local account password; never place a real
-production credential in the example or an app bundle.
+The example signup form asks for a demo email and password at runtime. Use a
+throwaway account; do not reuse production credentials.
 
 The example restores the access token from SecureStore, refreshes an expired
 session with the stored refresh token, and clears both tokens on logout. It

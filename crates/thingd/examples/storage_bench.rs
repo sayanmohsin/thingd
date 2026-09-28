@@ -38,6 +38,7 @@ use thingdb::KeyspaceCreateOptions;
 use thingdb::{CacheOptions, MemoryCache};
 
 const DEFAULT_ITERATIONS: usize = 5_000;
+const BENCHMARK_QUEUE_LEASE_MS: u64 = 86_400_000;
 const DEFAULT_MEMTABLE_BYTES: u64 = 8 * 1024 * 1024;
 const COLLECTION: &str = "bench_objects";
 const QUEUE: &str = "bench_queue";
@@ -2520,7 +2521,9 @@ where
     let started = Instant::now();
     let mut ids = Vec::with_capacity(iterations);
     for _ in 0..iterations {
-        if let Some(job) = store.claim_job(queue)? {
+        if let Some(job) =
+            store.claim_job_with_options(queue, QueueClaimOptions::new(BENCHMARK_QUEUE_LEASE_MS))?
+        {
             ids.push(job.id);
         }
     }

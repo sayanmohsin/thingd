@@ -1,4 +1,4 @@
-import { access, readFile } from "node:fs/promises";
+import { readFile, readdir, stat } from "node:fs/promises";
 import path from "node:path";
 
 const files = {
@@ -56,16 +56,66 @@ for (const route of [...new Set(restRoutes)]) {
   }
 }
 
-const markdownFiles = ["README.md", ...Object.values(files), "docs/api-spec/rest-api.md"];
-for (const file of [...new Set(markdownFiles)]) {
-  const text = await readFile(file, "utf8");
-  for (const match of text.matchAll(/\]\((\.{1,2}\/[^)#]+)(?:#[^)]*)?\)/g)) {
-    const target = path.resolve(path.dirname(file), match[1]);
-    try {
-      await access(target);
-    } catch {
-      errors.push(`${file} contains a broken local link: ${match[1]}`);
+async function markdownFilesUnder(directory) {
+  const entries = await readdir(directory, { withFileTypes: true });
+  const found = [];
+  for (const entry of entries) {
+    const relative = path.join(directory, entry.name);
+    if (entry.isDirectory()) {
+      if (![".vitepress", "node_modules", "dist", ".cache"].includes(entry.name)) {
+        found.push(...(await markdownFilesUnder(relative)));
+      }
+    } else if (entry.isFile() && /\.mdx?$/.test(entry.name)) {
+      found.push(relative);
     }
+  }
+  return found;
+}
+
+const allMarkdown = ["README.md", ...(await markdownFilesUnder("docs"))];
+const routeExists = async (candidate, allowDirectory = false) => {
+  const choices = [candidate, `${candidate}.md`, `${candidate}.mdx`, path.join(candidate, "index.md")];
+  for (const choice of choices) {
+    try {
+      const details = await stat(choice);
+      if (details.isFile() || (allowDirectory && details.isDirectory() && choice === candidate)) {
+        return true;
+      }
+    } catch {
+      continue;
+    }
+  }
+  return false;
+};
+
+for (const file of allMarkdown) {
+  const raw = await readFile(file, "utf8");
+  const text = raw.replace(/^\s*(```|~~~)[^\n]*\n[\s\S]*?^\s*\1\s*$/gm, "");
+  for (const match of text.matchAll(/!?\[[^\]]*\]\((<[^>]+>|[^)]+)\)/g)) {
+    const destination = match[1].replace(/^<|>$/g, "").trim().split(/\s+/, 1)[0];
+    if (!destination || /^(?:[a-z][a-z\d+.-]*:|\/\/)/i.test(destination)) {
+      continue;
+    }
+    const pathname = decodeURIComponent(destination.split(/[?#]/, 1)[0]);
+    const target = pathname.startsWith("/")
+      ? path.resolve("docs", `.${pathname}`)
+      : path.resolve(path.dirname(file), pathname || path.basename(file));
+    if (!(await routeExists(target, true))) {
+      errors.push(`${file} contains a broken local link: ${destination}`);
+    }
+  }
+}
+
+const vitepressConfig = await readFile("docs/.vitepress/config.ts", "utf8");
+for (const match of vitepressConfig.matchAll(/\blink\s*:\s*["']([^"']+)["']/g)) {
+  const route = match[1];
+  if (/^(?:[a-z][a-z\d+.-]*:|\/\/)/i.test(route)) {
+    continue;
+  }
+  const pathname = decodeURIComponent(route.split(/[?#]/, 1)[0]);
+  const target = path.resolve("docs", `.${pathname.startsWith("/") ? pathname : `/${pathname}`}`);
+  if (!(await routeExists(target))) {
+    errors.push(`VitePress navigation contains a broken local route: ${route}`);
   }
 }
 for (const [path, text] of Object.entries(docs)) {

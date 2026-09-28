@@ -322,7 +322,7 @@ thingd targets a different point on the complexity curve. If you already operate
 - AI agents that need MCP-native memory and queues without custom integrations.
 - Single-node and small-cluster deployments where operational overhead of multiple services is disproportionate.
 
-See the [comparison table](../README.md#comparison) in the README.
+See the [comparison table](https://github.com/sayanmohsin/thingd#comparison) in the README.
 
 ### What's the real novelty?
 
@@ -348,11 +348,11 @@ The tradeoff is: simpler deployment + unified API vs. less operational maturity 
 
 ### How do I enable authentication?
 
-Set `THINGD_AUTH_TOKEN` env var or `auth.token` in config. Minimum 16 characters when `allow_unauthenticated` is false. See [Security](../security.md).
+Set `THINGD_AUTH_TOKEN` env var or `auth.token` in config. Minimum 16 characters when `allow_unauthenticated` is false. See [Security](./security.md).
 
 ### Does thingd support TLS?
 
-Not built-in. Deploy behind nginx or Caddy for TLS termination. See [Security](../security.md#tls--https).
+Not built-in. Deploy behind nginx or Caddy for TLS termination. See [Security](./security.md#tls--https).
 
 ### What rate limiting is available?
 
@@ -373,7 +373,7 @@ thingd backup --out /path/to/backup.db
 For the current native backend, use `thingd db backup --out /path/to/backup.tar`
 and `thingd db restore --in /path/to/backup.tar --destination /path/to/thingd.db`.
 The native archive remains encrypted when the source is encrypted and requires
-exclusive access during checkpoint/backup. See [Operations](../operations.md).
+exclusive access during checkpoint/backup. See [Operations](./operations.md).
 
 ### How do I check database integrity?
 

@@ -362,7 +362,7 @@ same file bytes. The CLI checks the file type signature before contacting Cloud.
 
 ```txt
 THINGD_URL=http://127.0.0.1:8757
-THINGD_AUTH_TOKEN=change-me
+THINGD_AUTH_TOKEN=<strong-random-token>
 THINGD_PATH=/data/thingd.db
 THINGD_DRIVER=native|memory|cloud
 ```
