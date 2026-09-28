@@ -9,18 +9,27 @@ thingd is a high-performance object-first data engine that combines persistent s
 ## Quick start
 
 ```bash
-docker run -p 8757:8757 sayanmohsin/thingd
+export THINGD_AUTH_TOKEN="$(openssl rand -hex 32)"
+docker run -p 127.0.0.1:8757:8757 \
+  -e THINGD_AUTH_TOKEN \
+  -e THINGD_ALLOW_UNAUTHENTICATED=false \
+  sayanmohsin/thingd
 ```
 
-This starts an HTTP MCP server at `http://localhost:8757/mcp`.
+This starts an authenticated HTTP MCP server at `http://localhost:8757/mcp`.
+The server listens on all interfaces inside the container; the host port is
+published only on loopback.
 
 Multi-arch images are available for `linux/amd64` and `linux/arm64`.
 
 ## Persist data
 
 ```bash
-docker run -p 8757:8757 \
+export THINGD_AUTH_TOKEN="$(openssl rand -hex 32)"
+docker run -p 127.0.0.1:8757:8757 \
   -v ./data:/data \
+  -e THINGD_AUTH_TOKEN \
+  -e THINGD_ALLOW_UNAUTHENTICATED=false \
   sayanmohsin/thingd
 ```
 
@@ -29,13 +38,17 @@ Data is stored at `/data/thingd.db` inside the container.
 ## Securing the server
 
 ```bash
-docker run -p 8757:8757 \
-  -e THINGD_AUTH_TOKEN=your-secret \
-  -e THINGD_ENCRYPTION_KEY=<64-hex-characters> \
+export THINGD_AUTH_TOKEN="$(openssl rand -hex 32)"
+docker run -p 127.0.0.1:8757:8757 \
+  -e THINGD_AUTH_TOKEN \
+  -e THINGD_ALLOW_UNAUTHENTICATED=false \
   sayanmohsin/thingd
 ```
 
-Without an auth token, the server only binds to loopback (127.0.0.1). Setting `THINGD_AUTH_TOKEN` enables non-loopback binding.
+The server listens on `0.0.0.0` inside the container. Startup validation
+rejects a non-loopback bind without an auth token; setting
+`THINGD_ALLOW_UNAUTHENTICATED=true` does not bypass that validation. This
+example publishes the host port only on loopback.
 
 The encryption key is consumed at database startup and is never sent to MCP
 clients. Use an orchestration secret rather than committing it to a Compose
@@ -57,7 +70,7 @@ memory database. Encrypted directory backups require the same key to restore.
 | `THINGD_HOST` | `0.0.0.0` | Bind address |
 | `THINGD_PORT` | `8757` | HTTP server port |
 | `THINGD_AUTH_TOKEN` | — | Bearer token for `/mcp` endpoint. Required for non-loopback binding |
-| `THINGD_ALLOW_UNAUTHENTICATED` | `false` | Set to `true` to allow non-loopback binding without auth (local experiments only) |
+| `THINGD_ALLOW_UNAUTHENTICATED` | `false` | Disables request authentication when `true`; does not bypass the requirement for a token on wildcard binds |
 | `THINGD_MCP_AUDIT` | `true` | Enable audit events for MCP write tools |
 | `THINGD_MCP_ACTOR` | — | Default actor name for MCP audit events |
 | `THINGD_MCP_SOURCE` | — | Default source name for MCP audit events |
@@ -76,15 +89,23 @@ repack guidance.
 thingd supports leader/follower cluster deployments.
 
 ```bash
+# Set a strong token shared by the cluster before starting containers.
+export THINGD_AUTH_TOKEN="$(openssl rand -hex 32)"
+
 # Leader
-docker run -p 8757:8757 \
+docker run -p 127.0.0.1:8757:8757 \
+  -e THINGD_AUTH_TOKEN \
+  -e THINGD_ALLOW_UNAUTHENTICATED=false \
   -e THINGD_CLUSTER_MODE=leader \
   sayanmohsin/thingd
 
 # Follower
-docker run -p 8757:8757 \
+docker run -p 127.0.0.1:8758:8757 \
+  -e THINGD_AUTH_TOKEN \
+  -e THINGD_ALLOW_UNAUTHENTICATED=false \
   -e THINGD_CLUSTER_MODE=follower \
   -e THINGD_CLUSTER_LEADER_URL=http://leader:8757 \
+  -e THINGD_CLUSTER_FORWARD_AUTH_TOKEN="$THINGD_AUTH_TOKEN" \
   sayanmohsin/thingd
 ```
 
@@ -107,16 +128,23 @@ docker run -p 8757:8757 \
 
 ## Docker Compose
 
+Export a strong token before starting the Compose service:
+
+```bash
+export THINGD_AUTH_TOKEN="$(openssl rand -hex 32)"
+```
+
 ```yaml
 services:
   thingd:
     image: sayanmohsin/thingd
     ports:
-      - "8757:8757"
+      - "127.0.0.1:8757:8757"
     volumes:
       - ./data:/data
     environment:
-      - THINGD_AUTH_TOKEN=change-me
+      THINGD_AUTH_TOKEN: ${THINGD_AUTH_TOKEN:?Set a strong token}
+      THINGD_ALLOW_UNAUTHENTICATED: "false"
 ```
 
 See the [deploy/docker-compose.yml](https://github.com/sayanmohsin/thingd/blob/main/deploy/docker-compose.yml) for a full leader/follower example.
@@ -126,9 +154,12 @@ See the [deploy/docker-compose.yml](https://github.com/sayanmohsin/thingd/blob/m
 Enable automatic failover for static deployments:
 
 ```bash
-docker run -p 8757:8757 \
+docker run -p 127.0.0.1:8758:8757 \
+  -e THINGD_AUTH_TOKEN \
+  -e THINGD_ALLOW_UNAUTHENTICATED=false \
   -e THINGD_CLUSTER_MODE=follower \
   -e THINGD_CLUSTER_LEADER_URL=http://leader:8757 \
+  -e THINGD_CLUSTER_FORWARD_AUTH_TOKEN="$THINGD_AUTH_TOKEN" \
   -e THINGD_CLUSTER_LEADER_ELECTION=true \
   -e THINGD_CLUSTER_PEERS=http://leader:8757,http://follower:8757 \
   -e THINGD_ADVERTISE_URL=http://follower:8757 \
@@ -148,7 +179,7 @@ import { ThingD } from "@thingd/sdk";
 
 const db = await ThingD.open({
   url: "http://localhost:8757/mcp",
-  authToken: "change-me",
+  authToken: process.env.THINGD_AUTH_TOKEN,
   driver: "cloud",
 });
 ```

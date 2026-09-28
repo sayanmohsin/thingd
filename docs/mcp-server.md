@@ -49,7 +49,10 @@ Implemented:
 
 ### Search behavior
 
-`thing_search` uses Tantivy — a pure Rust full-text search engine with BM25 ranking, custom metadata key-value filters, and dynamic recency-weighted ranking.
+Persistent `thing_search` uses Tantivy BM25 ranking when the index is
+available; fallback search uses simpler matching. Collection and metadata
+filters are applied before the requested result limit. Recency-weighted ranking
+is not currently part of the search API.
 
 ## Tool Surface
 
@@ -225,7 +228,7 @@ Run the HTTP MCP server:
 
 ```bash
 pnpm build
-THINGD_AUTH_TOKEN=change-me pnpm serve:mcp
+THINGD_AUTH_TOKEN="$(openssl rand -hex 32)" pnpm serve:mcp
 ```
 
 Default local URL:
@@ -237,12 +240,13 @@ http://127.0.0.1:8757/mcp
 Direct command:
 
 ```bash
+export THINGD_AUTH_TOKEN="$(openssl rand -hex 32)"
 node packages/thingd-cli/dist/index.js mcp-http \
   --path ./thingd.db \
   --driver native \
   --host 127.0.0.1 \
   --port 8757 \
-  --auth-token change-me
+  --auth-token "$THINGD_AUTH_TOKEN"
 ```
 
 Environment variables:
@@ -252,7 +256,7 @@ THINGD_PATH=/data/thingd.db
 THINGD_DRIVER=native
 THINGD_HOST=0.0.0.0
 THINGD_PORT=8757
-THINGD_AUTH_TOKEN=change-me
+THINGD_AUTH_TOKEN=<strong-random-token>
 THINGD_ALLOW_UNAUTHENTICATED=false
 THINGD_MCP_AUDIT=true
 THINGD_MCP_ACTOR=mcp-client
@@ -276,8 +280,10 @@ curl http://127.0.0.1:8757/cluster/peers
 ```
 
 When the HTTP runtime binds to a non-loopback host such as `0.0.0.0`, it
-requires `THINGD_AUTH_TOKEN`. Set `THINGD_ALLOW_UNAUTHENTICATED=true` only for
-local experiments.
+requires a configured `THINGD_AUTH_TOKEN` at startup. Setting
+`THINGD_ALLOW_UNAUTHENTICATED=true` disables request-time authentication but
+does not bypass the token requirement for wildcard binds; use it only for
+isolated local experiments.
 
 ## MCP Hardening
 
@@ -299,7 +305,7 @@ THINGD_MCP_COLLECTIONS=memories,decisions thingd mcp --driver native
 THINGD_MCP_READ_ONLY=true thingd mcp-http --driver native
 
 # Tighter payload limit for untrusted networks
-THINGD_MCP_MAX_PAYLOAD_BYTES=65536 THINGD_AUTH_TOKEN=secret thingd mcp-http
+THINGD_MCP_MAX_PAYLOAD_BYTES=65536 THINGD_AUTH_TOKEN="$(openssl rand -hex 32)" thingd mcp-http
 ```
 
 ## MCP Resources
@@ -355,7 +361,7 @@ The HTTP MCP runtime can run as `single`, `leader`, or `follower`:
 ```txt
 THINGD_CLUSTER_MODE=single|leader|follower
 THINGD_CLUSTER_LEADER_URL=http://thingd-leader:8757
-THINGD_CLUSTER_FORWARD_AUTH_TOKEN=change-me
+THINGD_CLUSTER_FORWARD_AUTH_TOKEN=<same-strong-token-as-THINGD_AUTH_TOKEN>
 THINGD_CLUSTER_DISCOVERY=none|static|kubernetes
 THINGD_CLUSTER_PEERS=http://thingd-0:8757,http://thingd-1:8757
 THINGD_ADVERTISE_URL=http://thingd-0:8757
@@ -376,7 +382,7 @@ Node apps can use the same SDK against the sidecar's HTTP REST API:
 
 ```bash
 THINGD_URL=http://127.0.0.1:8757
-THINGD_AUTH_TOKEN=change-me
+THINGD_AUTH_TOKEN=<strong-random-token>
 ```
 
 ```ts
@@ -414,7 +420,7 @@ Bridge mode is env-driven:
 ```txt
 THINGD_CLUSTER_MODE=single|leader|follower
 THINGD_CLUSTER_LEADER_URL=http://thingd-leader:8757
-THINGD_CLUSTER_FORWARD_AUTH_TOKEN=change-me
+THINGD_CLUSTER_FORWARD_AUTH_TOKEN=<same-strong-token-as-THINGD_AUTH_TOKEN>
 THINGD_CLUSTER_DISCOVERY=none|static|kubernetes
 THINGD_CLUSTER_PEERS=http://thingd-0:8757,http://thingd-1:8757
 THINGD_CLUSTER_LEADER_ELECTION=false
@@ -453,4 +459,4 @@ ChatGPT / agent
 ```
 
 See [docker-runtime.md](./docker-runtime.md), [runtime-env.md](./runtime-env.md),
-[api-spec/mcp-tools.md](./api-spec/mcp-tools.md), and the [deploy examples](../deploy).
+[api-spec/mcp-tools.md](./api-spec/mcp-tools.md), and the [deployment examples](https://github.com/sayanmohsin/thingd/tree/main/deploy).

@@ -145,7 +145,7 @@ The crate is built around composable traits:
 | `ObjectStore` | CRUD for versioned JSON objects in named collections |
 | `EventLog` | Append-only event streams with sequence numbers |
 | `QueueStore` | Job queues with lease/ack/nack lifecycle, retries, dead-letter |
-| `Searcher` | Full-text search with collection filters and recency ranking |
+| `Searcher` | Full-text search with collection and metadata filters |
 | `LinkStore` | Typed graph links between objects |
 | `ThingStore` | Super-trait combining all of the above |
 

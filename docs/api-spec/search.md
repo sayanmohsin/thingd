@@ -27,6 +27,10 @@ correctness. `disabled` does not open Tantivy.
 
 ## Query Syntax
 
+The syntax below applies when the persistent Tantivy index is active. In-memory
+and fallback search use simpler all-terms matching and do not implement every
+Tantivy query operator.
+
 ### Basic keywords
 
 Separate words with spaces. All words must match (AND logic).
@@ -97,10 +101,11 @@ This means you don't need to match exact conjugations.
 
 ## Scoring
 
-The persistent Tantivy path is the source of full-text matching and stemming.
-BM25 score propagation and filtered-result ordering are still being hardened;
-the current persistent result envelope may expose a placeholder score until
-that work is complete. The intended result shape is:
+The persistent Tantivy path returns BM25 relevance scores and orders matches
+from highest to lowest score. Scores are relative to a query and index; they
+are not comparable across separate queries or between Tantivy and fallback
+search modes. Fallback search uses simpler matching and a fixed score. The
+result shape is:
 
 ```json
 {
@@ -125,9 +130,11 @@ The `filter` parameter matches against top-level fields in the object body:
 }
 ```
 
-This uses JSON equality matching rather than full-text search. The persistent implementation is
-being hardened to apply this filter before satisfying the requested result
-limit.
+This uses exact JSON equality matching rather than full-text search. Collection
+and metadata filters are applied before the result limit, so the search returns
+the highest-ranked eligible matches when enough are present. Persistent Tantivy
+search evaluates all query matches for filtered searches; highly selective
+filters can therefore take longer on broad queries.
 
 ### REST filter (query parameter filters)
 
@@ -161,7 +168,9 @@ Control the maximum number of results:
 }
 ```
 
-Default varies by implementation. Max is 100.
+The default is 10. The MCP `thing_search` tool caps the limit at 100. Persistent
+Tantivy search caps it at 1,000; fallback implementations may apply their own
+limits.
 
 ## Result Types
 
@@ -192,7 +201,8 @@ Each search result is either an object or an event:
 ## Performance
 
 - Tantivy is used for indexing and querying (pure Rust BM25)
-- BM25 scoring and score propagation are a Phase 23 hardening item
+- Persistent Tantivy scores full-text matches with BM25 and returns them in descending score order
+- Persistent filtered queries may examine every query match before returning the requested number of hits
 - Stemming is done at index time (not query time)
 - In-memory mode uses simple substring matching (no Tantivy)
 - Performance is comparable to dedicated search engines for < 1M documents

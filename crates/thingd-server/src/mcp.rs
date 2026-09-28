@@ -14,6 +14,10 @@ fn mcp_error(id: Option<&Value>, code: i32, message: &str) -> Json<Value> {
     Json(json!({ "jsonrpc": "2.0", "error": { "code": code, "message": message }, "id": id }))
 }
 
+fn mcp_search_admission_error(id: Option<&Value>, error: &AppError) -> Json<Value> {
+    mcp_error(id, -32603, &sanitize_detail(error))
+}
+
 fn mcp_error_result(id: Option<&Value>, text: &str) -> Json<Value> {
     Json(
         json!({ "jsonrpc": "2.0", "result": { "content": [{ "type": "text", "text": text }], "isError": true }, "id": id }),
@@ -25,6 +29,14 @@ fn sanitize_detail(e: &AppError) -> String {
         "Internal server error".to_string()
     } else {
         e.detail.clone()
+    }
+}
+
+struct BlockingCompletion;
+
+impl Drop for BlockingCompletion {
+    fn drop(&mut self) {
+        crate::rest::finish_blocking();
     }
 }
 
@@ -1751,7 +1763,33 @@ pub async fn handle_mcp_request(
                 ));
             }
 
-            let result = (tool.handler)(&state, tool_name, &arguments, &db_path);
+            let result = if tool_name == "thing_search" {
+                let permit = match crate::rest::blocking_permit() {
+                    Ok(permit) => permit,
+                    Err(error) => {
+                        return Ok(mcp_search_admission_error(id, &error));
+                    },
+                };
+                let state = Arc::clone(&state);
+                let tool_name = tool_name.to_string();
+                let arguments = arguments.clone();
+                let db_path = db_path.clone();
+                let handler = tool.handler;
+                match tokio::task::spawn_blocking(move || {
+                    let _permit = permit;
+                    let _completion = BlockingCompletion;
+                    handler(&state, &tool_name, &arguments, &db_path)
+                })
+                .await
+                {
+                    Ok(result) => result,
+                    Err(error) => Err(AppError::internal(format!(
+                        "MCP search operation failed: {error}"
+                    ))),
+                }
+            } else {
+                (tool.handler)(&state, tool_name, &arguments, &db_path)
+            };
             match result {
                 Ok(content) => {
                     if tool.is_write
@@ -1786,6 +1824,21 @@ mod tests {
     use tower::ServiceExt;
 
     use super::*;
+
+    #[test]
+    fn test_mcp_search_admission_overload_uses_json_rpc_error_envelope() {
+        let id = json!(42);
+        let error = AppError::overloaded("blocking worker limit reached; retry shortly");
+        let response = mcp_search_admission_error(Some(&id), &error).0;
+
+        assert_eq!(response["jsonrpc"], "2.0");
+        assert_eq!(response["id"], 42);
+        assert_eq!(response["error"]["code"], -32603);
+        assert_eq!(
+            response["error"]["message"],
+            "blocking worker limit reached; retry shortly"
+        );
+    }
     use crate::config::Config;
     use crate::engine::EnginePool;
     use crate::server::{self, AppState};
@@ -1959,6 +2012,55 @@ mod tests {
         call_mcp_with(&state, json!({ "jsonrpc": "2.0", "method": "tools/call", "params": { "name": "thing_put", "arguments": { "collection": "search_test", "object": { "id": "s1", "text": "hello world" } } }, "id": 1 })).await;
         let (_status, result) = call_mcp_with(&state, json!({ "jsonrpc": "2.0", "method": "tools/call", "params": { "name": "thing_search", "arguments": { "query": "hello" } }, "id": 2 })).await;
         assert_ne!(result["result"]["isError"], true);
+    }
+
+    #[tokio::test]
+    async fn test_mcp_thing_search_applies_metadata_filter_before_limit() {
+        let state = test_state();
+        for (id, text, tag) in [
+            ("excluded", "needle needle needle", "other"),
+            ("included", "needle", "wanted"),
+        ] {
+            call_mcp_with(
+                &state,
+                json!({
+                    "jsonrpc": "2.0",
+                    "method": "tools/call",
+                    "params": {
+                        "name": "thing_put",
+                        "arguments": {
+                            "collection": "search_test",
+                            "object": { "id": id, "text": text, "tag": tag }
+                        }
+                    },
+                    "id": id
+                }),
+            )
+            .await;
+        }
+
+        let (_status, result) = call_mcp_with(
+            &state,
+            json!({
+                "jsonrpc": "2.0",
+                "method": "tools/call",
+                "params": {
+                    "name": "thing_search",
+                    "arguments": {
+                        "query": "needle",
+                        "limit": 1,
+                        "filter": { "tag": "wanted" }
+                    }
+                },
+                "id": 3
+            }),
+        )
+        .await;
+        assert_ne!(result["result"]["isError"], true);
+        let text = result["result"]["content"][0]["text"].as_str().unwrap();
+        let hits: Vec<Value> = serde_json::from_str(text).unwrap();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0]["id"], "included");
     }
 
     #[tokio::test]

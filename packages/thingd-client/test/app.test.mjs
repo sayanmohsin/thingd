@@ -39,6 +39,31 @@ test("app client normalizes the base URL and sends app credentials", async () =>
   assert.equal(headers.get("authorization"), "Bearer app-access-token");
 });
 
+test("app client requires HTTPS except for loopback and rejects unsafe URL components", () => {
+  const options = { publishableKey: "pk_nice_rep" };
+  assert.doesNotThrow(() => createThingdAppClient({ ...options, baseUrl: "https://cloud.example" }));
+  assert.doesNotThrow(() => createThingdAppClient({ ...options, baseUrl: "http://localhost:8787" }));
+  assert.doesNotThrow(() => createThingdAppClient({ ...options, baseUrl: "http://127.0.0.1:8787" }));
+  assert.doesNotThrow(() => createThingdAppClient({ ...options, baseUrl: "http://[::1]:8787" }));
+
+  for (const baseUrl of ["http://cloud.example", "ftp://cloud.example"]) {
+    assert.throws(
+      () => createThingdAppClient({ ...options, baseUrl }),
+      /must use HTTPS/
+    );
+  }
+  for (const baseUrl of [
+    "https://user:password@cloud.example",
+    "https://cloud.example?token=secret",
+    "https://cloud.example#fragment",
+  ]) {
+    assert.throws(
+      () => createThingdAppClient({ ...options, baseUrl }),
+      /must not contain credentials/
+    );
+  }
+});
+
 test("app client exposes canonical actions and a compatibility functions alias", async () => {
   const client = createThingdAppClient({
     baseUrl: "https://cloud.example",
@@ -120,6 +145,61 @@ test("signup, refresh, and logout update the session callback and clear access",
   assert.equal(client.getAccessToken(), undefined);
   assert.deepEqual(events, ["access-1", "access-2", null]);
   assert.ok(requests.some((url) => url.endsWith("/logout")));
+});
+
+test("auth waits for an asynchronous session callback before resolving", async () => {
+  let callbackStarted;
+  const started = new Promise((resolve) => {
+    callbackStarted = resolve;
+  });
+  let finishStorage;
+  const storage = new Promise((resolve) => {
+    finishStorage = resolve;
+  });
+  const client = createThingdAppClient({
+    baseUrl: "https://cloud.example",
+    publishableKey: "pk_nice_rep",
+    onSessionChange: async () => {
+      callbackStarted();
+      await storage;
+    },
+    fetch: async () => response({
+      data: { user: { id: "u1" }, accessToken: "access-1", refreshToken: "refresh-1", expiresIn: 3600 },
+    }),
+  });
+
+  let settled = false;
+  const signIn = client.auth.signIn({ email: "alice@example.com", password: "password" });
+  void signIn.then(() => {
+    settled = true;
+  });
+  await started;
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(settled, false);
+  assert.equal(client.getAccessToken(), "access-1");
+
+  finishStorage();
+  await signIn;
+  assert.equal(settled, true);
+});
+
+test("auth surfaces asynchronous session persistence failures and retains the active token", async () => {
+  const client = createThingdAppClient({
+    baseUrl: "https://cloud.example",
+    publishableKey: "pk_nice_rep",
+    onSessionChange: async () => {
+      throw new Error("secure storage unavailable");
+    },
+    fetch: async () => response({
+      data: { user: { id: "u1" }, accessToken: "access-1", refreshToken: "refresh-1", expiresIn: 3600 },
+    }),
+  });
+
+  await assert.rejects(
+    () => client.auth.signIn({ email: "alice@example.com", password: "password" }),
+    /secure storage unavailable/
+  );
+  assert.equal(client.getAccessToken(), "access-1");
 });
 
 test("app client exposes structured Cloud errors", async () => {

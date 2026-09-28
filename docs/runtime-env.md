@@ -7,7 +7,7 @@ runtime and Docker sidecar.
 
 ```txt
 THINGD_URL=http://127.0.0.1:8757
-THINGD_AUTH_TOKEN=change-me
+THINGD_AUTH_TOKEN=<strong-random-token>
 ```
 
 When `THINGD_URL` is set, `ThingD.open()` uses the SDK cloud driver and
@@ -102,14 +102,16 @@ releases do not open or automatically convert legacy native directories. See
 ```txt
 THINGD_HOST=0.0.0.0
 THINGD_PORT=8757
-THINGD_AUTH_TOKEN=change-me
+THINGD_AUTH_TOKEN=<strong-random-token>
 THINGD_ALLOW_UNAUTHENTICATED=false
 THINGD_CONFIG=/etc/thingd/config.yaml
 THINGD_PRODUCTION=false
 ```
 
 When `THINGD_HOST` is a non-loopback host, `THINGD_AUTH_TOKEN` is required.
-`THINGD_ALLOW_UNAUTHENTICATED=true` is only for local experiments.
+`THINGD_ALLOW_UNAUTHENTICATED=true` disables request-time authentication but
+does not bypass startup validation requiring a configured token for wildcard
+binds. Use it only for isolated local experiments.
 `THINGD_PRODUCTION=true` enables error sanitization (internal details stripped from 500 responses).
 
 ## Hardening
@@ -144,7 +146,7 @@ server:
   encryption_key: "<64 hexadecimal characters>"
   production_mode: false
 auth:
-  token: "change-me-with-a-random-token"
+  token: "replace-with-a-strong-random-token"
   allow_unauthenticated: false
 hardening:
   cors_allowed_origins:

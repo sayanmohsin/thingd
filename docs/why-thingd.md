@@ -55,8 +55,8 @@ await db.events.append("project:thingd", {
 
 ### Search — Tantivy BM25 with metadata filters
 
-Tantivy (pure Rust BM25) with stemming, metadata key-value filters, and recency-decay
-scoring. No external search index to deploy.
+Tantivy (pure Rust BM25) with stemming and exact metadata filters. No external
+search index to deploy.
 
 ```ts
 const hits = await db.search("rust", { collections: ["decisions"] });

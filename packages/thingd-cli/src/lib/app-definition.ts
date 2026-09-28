@@ -17,9 +17,9 @@ function objectSchema(value: unknown): JsonRecord | undefined {
   return isRecord(value) ? value : undefined;
 }
 
-function sourceList(retrieval: JsonRecord): JsonRecord[] | undefined {
+function sourceList(retrieval: JsonRecord): unknown[] | undefined {
   if (Array.isArray(retrieval.sources)) {
-    return retrieval.sources.filter(isRecord);
+    return retrieval.sources;
   }
   if (
     typeof retrieval.collection === "string" &&
@@ -198,6 +198,10 @@ export function validateAppDefinition(value: unknown): AppDefinitionIssue[] {
             const sourcePath = Array.isArray(retrieval.sources)
               ? `${executionPath}.retrieval.sources[${sourceIndex}]`
               : `${executionPath}.retrieval`;
+            if (!isRecord(source)) {
+              issue(sourcePath, "must be an object");
+              continue;
+            }
             if (typeof source.collection !== "string" || source.collection.length === 0) {
               issue(`${sourcePath}.collection`, "must be a non-empty collection name");
             }

@@ -16,7 +16,7 @@ export type ThingdAppClientOptions = {
   publishableKey: string;
   fetch?: typeof globalThis.fetch;
   accessToken?: string;
-  onSessionChange?: (session: AppAuthResponse | null) => void;
+  onSessionChange?: (session: AppAuthResponse | null) => void | Promise<void>;
   expectedIdentity?: {
     projectId?: string;
     appId?: string;
@@ -59,6 +59,24 @@ type AppManifestPayload = Partial<AppManifest> & {
 };
 
 function appPath(baseUrl: string): string {
+  let url: URL;
+  try {
+    url = new URL(baseUrl);
+  } catch {
+    throw new Error("Thingd app API URL must be an absolute URL");
+  }
+  const loopback = ["localhost", "127.0.0.1", "::1", "[::1]"].includes(url.hostname);
+  if (url.protocol !== "https:" && !(url.protocol === "http:" && loopback)) {
+    throw new Error(
+      "Thingd app API URL must use HTTPS (HTTP is allowed only for loopback development)"
+    );
+  }
+  if (url.username || url.password || url.search || url.hash) {
+    throw new Error(
+      "Thingd app API URL must not contain credentials, query parameters, or fragments"
+    );
+  }
+
   let normalized = baseUrl;
   while (normalized.endsWith("/")) {
     normalized = normalized.slice(0, -1);
@@ -261,13 +279,13 @@ export class ThingdAppClient {
     signUp: async (input: { email: string; password: string; name: string }) => {
       const result = await this.request<AppAuthResponse>("POST", "/app/auth/signup", input);
       this.setAccessToken(result.accessToken);
-      this.options.onSessionChange?.(result);
+      await this.options.onSessionChange?.(result);
       return result;
     },
     signIn: async (input: { email: string; password: string }) => {
       const result = await this.request<AppAuthResponse>("POST", "/app/auth/login", input);
       this.setAccessToken(result.accessToken);
-      this.options.onSessionChange?.(result);
+      await this.options.onSessionChange?.(result);
       return result;
     },
     refresh: async (refreshToken: string) => {
@@ -275,7 +293,7 @@ export class ThingdAppClient {
         refreshToken,
       });
       this.setAccessToken(result.accessToken);
-      this.options.onSessionChange?.(result);
+      await this.options.onSessionChange?.(result);
       return result;
     },
     getCurrentUser: () => this.request<AppUser>("GET", "/app/auth/me"),
@@ -286,7 +304,7 @@ export class ThingdAppClient {
         }
       } finally {
         this.setAccessToken(undefined);
-        this.options.onSessionChange?.(null);
+        await this.options.onSessionChange?.(null);
       }
     },
   };

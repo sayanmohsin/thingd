@@ -18,8 +18,18 @@ const client = createThingdAppClient({
   baseUrl: "https://api.thingd.cloud",
   publishableKey: "pk_...",
   accessToken: await SecureStore.getItemAsync("thingd_access_token") ?? undefined,
-  onSessionChange: (session) => {
-    void SecureStore.setItemAsync("thingd_access_token", session?.accessToken ?? "");
+  onSessionChange: async (session) => {
+    await Promise.all(
+      session
+        ? [
+            SecureStore.setItemAsync("thingd_access_token", session.accessToken),
+            SecureStore.setItemAsync("thingd_refresh_token", session.refreshToken),
+          ]
+        : [
+            SecureStore.deleteItemAsync("thingd_access_token"),
+            SecureStore.deleteItemAsync("thingd_refresh_token"),
+          ]
+    );
   },
 });
 

@@ -227,7 +227,7 @@ configuration, and the `createThingdAppClient` flow.
 
 ```bash
 # Set an auth token
-export THINGD_AUTH_TOKEN="your-secure-token-here-min-16-chars"
+export THINGD_AUTH_TOKEN="$(openssl rand -hex 32)"
 
 # Create a backup
 thingd backup --out ./backups/thingd-$(date +%Y-%m-%d).db

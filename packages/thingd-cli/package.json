@@ -41,7 +41,7 @@
     "url": "git+https://github.com/sayanmohsin/thingd.git"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.30.0",
+    "@modelcontextprotocol/sdk": "^1.30.1",
     "@thingd/client": "workspace:^",
     "@thingd/sdk": "workspace:^",
     "cli-table3": "^0.6.5",

@@ -9,13 +9,14 @@ services:
       THINGD_DRIVER: native
       THINGD_HOST: 0.0.0.0
       THINGD_PORT: "8757"
-      THINGD_AUTH_TOKEN: change-me
+      THINGD_AUTH_TOKEN: ${THINGD_AUTH_TOKEN:?Set a strong token}
+      THINGD_ALLOW_UNAUTHENTICATED: "false"
       THINGD_CLUSTER_MODE: leader
       THINGD_CLUSTER_DISCOVERY: static
       THINGD_CLUSTER_PEERS: http://thingd-leader:8757,http://thingd-follower:8757
       THINGD_ADVERTISE_URL: http://thingd-leader:8757
     ports:
-      - "8757:8757"
+      - "127.0.0.1:8757:8757"
     volumes:
       - thingd-leader-data:/data
     healthcheck:
@@ -34,15 +35,16 @@ services:
       THINGD_DRIVER: native
       THINGD_HOST: 0.0.0.0
       THINGD_PORT: "8757"
-      THINGD_AUTH_TOKEN: change-me
+      THINGD_AUTH_TOKEN: ${THINGD_AUTH_TOKEN:?Set a strong token}
+      THINGD_ALLOW_UNAUTHENTICATED: "false"
       THINGD_CLUSTER_MODE: follower
       THINGD_CLUSTER_LEADER_URL: http://thingd-leader:8757
-      THINGD_CLUSTER_FORWARD_AUTH_TOKEN: change-me
+      THINGD_CLUSTER_FORWARD_AUTH_TOKEN: ${THINGD_AUTH_TOKEN:?Set a strong token}
       THINGD_CLUSTER_DISCOVERY: static
       THINGD_CLUSTER_PEERS: http://thingd-leader:8757,http://thingd-follower:8757
       THINGD_ADVERTISE_URL: http://thingd-follower:8757
     ports:
-      - "8758:8757"
+      - "127.0.0.1:8758:8757"
     volumes:
       - thingd-follower-data:/data
     healthcheck:

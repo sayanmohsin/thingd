@@ -575,7 +575,7 @@ Missing IDs return `null` entries, preserving input order.
 
 | Field | Required | Description |
 |-------|----------|-------------|
-| `query` | yes | Tantivy query string |
+| `query` | yes | Full-text query; see the [search reference](search.md) for Tantivy syntax and fallback behavior |
 | `collections` | no | Limit to these collection/stream names |
 | `limit` | no | Max results |
 | `filter` | no | Metadata key-value pairs to match |
@@ -605,9 +605,11 @@ curl -X POST http://localhost:8757/v1/search \
 }
 ```
 
-Results are intended to be sorted by descending relevance score. Persistent
-Tantivy score propagation and filter-before-limit correctness remain under
-Phase 23 hardening.
+Persistent Tantivy search returns BM25 relevance scores in descending order.
+Collection and metadata filters are applied before the result limit; filtered
+queries evaluate every matching Tantivy document and may take longer for broad
+queries. When search falls back to a primary-store scan, matching and scores use
+the simpler fallback behavior described in the [search reference](search.md).
 
 ---
 

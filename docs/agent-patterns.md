@@ -92,7 +92,7 @@ For simple delays, skip the `schedules` collection:
 thing_queue_push with delayMs: 3600000
 ```
 
-**Runnable example:** [`examples/cursor-agent-memory/scheduler-heartbeat.ts`](../examples/cursor-agent-memory/scheduler-heartbeat.ts)
+**Runnable example:** [`scheduler-heartbeat.ts`](https://github.com/sayanmohsin/thingd/blob/main/examples/cursor-agent-memory/scheduler-heartbeat.ts)
 
 ---
 
@@ -247,11 +247,11 @@ Process the first page, then increment `offset` by `limit` for the next page. Co
 
 ## Examples & Quickstarts
 
-Fully runnable examples in [`examples/cursor-agent-memory/`](../examples/cursor-agent-memory/):
+Fully runnable examples in the [`examples/cursor-agent-memory` directory](https://github.com/sayanmohsin/thingd/tree/main/examples/cursor-agent-memory):
 
-1. **[.cursorrules](../examples/cursor-agent-memory/.cursorrules)** — drop-in system rules for Cursor/Claude agents enforcing all conventions above.
-2. **[quickstart.ts](../examples/cursor-agent-memory/quickstart.ts)** — native persistent driver, Tantivy stemming search, metadata filters.
-3. **[scheduler-heartbeat.ts](../examples/cursor-agent-memory/scheduler-heartbeat.ts)** — full Schedules + Queue + Heartbeat scheduler pattern.
+1. **[.cursorrules](https://github.com/sayanmohsin/thingd/blob/main/examples/cursor-agent-memory/.cursorrules)** — drop-in system rules for Cursor/Claude agents enforcing all conventions above.
+2. **[quickstart.ts](https://github.com/sayanmohsin/thingd/blob/main/examples/cursor-agent-memory/quickstart.ts)** — native persistent driver, Tantivy stemming search, metadata filters.
+3. **[scheduler-heartbeat.ts](https://github.com/sayanmohsin/thingd/blob/main/examples/cursor-agent-memory/scheduler-heartbeat.ts)** — full Schedules + Queue + Heartbeat scheduler pattern.
 
 5-minute install guide: **[docs/quickstart.md](./quickstart.md)**
 

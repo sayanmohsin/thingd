@@ -100,7 +100,12 @@ performance promise.
 
 ### How does search scale with millions of records?
 
-Tantivy-backed full-text search is designed to perform well into millions of rows on modern hardware. Metadata filtering is evaluated during the index scan — performance depends on the selectivity of the filter. BM25 score propagation and filtered-result ordering are still being hardened, so test with your specific data shape and query patterns.
+Persistent Tantivy search returns BM25 scores in descending order and applies
+collection and metadata filters before choosing the requested results. Filtered
+queries evaluate every Tantivy query match, so broad queries can take longer
+when they include selective filters. Fallback search uses simpler matching and
+does not provide Tantivy's BM25 ranking; benchmark your own data and query
+patterns before relying on latency expectations.
 
 ### Are queues O(1) or do they degrade with backlog size?
 
@@ -322,7 +327,7 @@ thingd targets a different point on the complexity curve. If you already operate
 - AI agents that need MCP-native memory and queues without custom integrations.
 - Single-node and small-cluster deployments where operational overhead of multiple services is disproportionate.
 
-See the [comparison table](../README.md#comparison) in the README.
+See the [comparison table](https://github.com/sayanmohsin/thingd#comparison) in the README.
 
 ### What's the real novelty?
 
@@ -348,11 +353,11 @@ The tradeoff is: simpler deployment + unified API vs. less operational maturity 
 
 ### How do I enable authentication?
 
-Set `THINGD_AUTH_TOKEN` env var or `auth.token` in config. Minimum 16 characters when `allow_unauthenticated` is false. See [Security](../security.md).
+Set `THINGD_AUTH_TOKEN` env var or `auth.token` in config. Minimum 16 characters when `allow_unauthenticated` is false. See [Security](./security.md).
 
 ### Does thingd support TLS?
 
-Not built-in. Deploy behind nginx or Caddy for TLS termination. See [Security](../security.md#tls--https).
+Not built-in. Deploy behind nginx or Caddy for TLS termination. See [Security](./security.md#tls--https).
 
 ### What rate limiting is available?
 
@@ -373,7 +378,7 @@ thingd backup --out /path/to/backup.db
 For the current native backend, use `thingd db backup --out /path/to/backup.tar`
 and `thingd db restore --in /path/to/backup.tar --destination /path/to/thingd.db`.
 The native archive remains encrypted when the source is encrypted and requires
-exclusive access during checkpoint/backup. See [Operations](../operations.md).
+exclusive access during checkpoint/backup. See [Operations](./operations.md).
 
 ### How do I check database integrity?
 

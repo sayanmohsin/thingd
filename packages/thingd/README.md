@@ -89,7 +89,7 @@ Or use the subpath import (works in Node.js and Bun, bundled for browser):
 import { HttpThingStore } from "@thingd/sdk/client";
 const store = await HttpThingStore.open({
   url: "http://localhost:8757",
-  authToken: "change-me",
+  authToken: process.env.THINGD_AUTH_TOKEN,
 });
 ```
 
