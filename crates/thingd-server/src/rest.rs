@@ -29,7 +29,7 @@ static BLOCKING_GATE: OnceLock<Arc<Semaphore>> = OnceLock::new();
 static BLOCKING_ACTIVE: AtomicU64 = AtomicU64::new(0);
 static BLOCKING_REJECTED: AtomicU64 = AtomicU64::new(0);
 
-fn blocking_permit() -> Result<OwnedSemaphorePermit, AppError> {
+pub(crate) fn blocking_permit() -> Result<OwnedSemaphorePermit, AppError> {
     BLOCKING_GATE
         .get_or_init(|| Arc::new(Semaphore::new(MAX_BLOCKING_WORKERS)))
         .clone()
@@ -45,7 +45,7 @@ fn blocking_permit() -> Result<OwnedSemaphorePermit, AppError> {
         })
 }
 
-fn finish_blocking() {
+pub(crate) fn finish_blocking() {
     BLOCKING_ACTIVE.fetch_sub(1, Ordering::Relaxed);
 }
 
@@ -2815,7 +2815,29 @@ mod tests {
         let (state, config) = test_state_and_config();
         let app = crate::server::build_router(state, &config);
 
-        let body = r#"{"query":"test"}"#;
+        for (id, body) in [
+            (
+                "excluded",
+                r#"{"text":"needle needle needle","tag":"other"}"#,
+            ),
+            ("included", r#"{"text":"needle","tag":"wanted"}"#),
+        ] {
+            let response = app
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .method("PUT")
+                        .uri(format!("/v1/objects/docs/{id}"))
+                        .header("content-type", "application/json")
+                        .body(Body::from(body))
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::OK);
+        }
+
+        let body = r#"{"query":"needle","limit":1,"filter":{"tag":"wanted"}}"#;
         let response = app
             .oneshot(
                 Request::builder()
@@ -2828,6 +2850,10 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::OK);
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let value: Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(value["data"].as_array().unwrap().len(), 1);
+        assert_eq!(value["data"][0]["id"], "included");
     }
 
     #[tokio::test]

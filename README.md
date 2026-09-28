@@ -479,7 +479,6 @@ Search should be hybrid by design.
 ```txt
 keyword / full-text search
 + metadata filters
-+ recency scoring
 + graph links
 + vector similarity
 + permission filters
@@ -497,7 +496,7 @@ const hits = await db.search("customers who upgraded after a failed deployment",
 });
 ```
 
-**Current behavior:** Search is powered by Tantivy — a pure Rust full-text search engine with BM25 ranking, custom metadata filters, and dynamic recency-weighted ranking.
+**Current behavior:** Persistent full-text search uses Tantivy BM25 ranking and supports exact metadata filters. Collection and metadata filters are applied before the requested result limit. Recency-weighted ranking and permission filters are not currently part of the search API.
 
 ## MCP-native access
 

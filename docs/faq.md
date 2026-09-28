@@ -100,7 +100,12 @@ performance promise.
 
 ### How does search scale with millions of records?
 
-Tantivy-backed full-text search is designed to perform well into millions of rows on modern hardware. Metadata filtering is evaluated during the index scan — performance depends on the selectivity of the filter. BM25 score propagation and filtered-result ordering are still being hardened, so test with your specific data shape and query patterns.
+Persistent Tantivy search returns BM25 scores in descending order and applies
+collection and metadata filters before choosing the requested results. Filtered
+queries evaluate every Tantivy query match, so broad queries can take longer
+when they include selective filters. Fallback search uses simpler matching and
+does not provide Tantivy's BM25 ranking; benchmark your own data and query
+patterns before relying on latency expectations.
 
 ### Are queues O(1) or do they degrade with backlog size?
 

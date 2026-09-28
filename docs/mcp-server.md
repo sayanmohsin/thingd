@@ -49,7 +49,10 @@ Implemented:
 
 ### Search behavior
 
-`thing_search` uses Tantivy — a pure Rust full-text search engine with BM25 ranking, custom metadata key-value filters, and dynamic recency-weighted ranking.
+Persistent `thing_search` uses Tantivy BM25 ranking when the index is
+available; fallback search uses simpler matching. Collection and metadata
+filters are applied before the requested result limit. Recency-weighted ranking
+is not currently part of the search API.
 
 ## Tool Surface
 

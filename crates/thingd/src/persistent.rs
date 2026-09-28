@@ -23,6 +23,10 @@ const fn elapsed_nanos(duration: Duration) -> u128 {
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+#[cfg(feature = "search")]
+use std::cmp::Ordering as CmpOrdering;
+#[cfg(feature = "search")]
+use std::collections::BinaryHeap;
 
 use crate::encryption::{EncryptionConfig, StorageCodec, StorageCrypto, make_codec};
 use crate::error::ThingdResult;
@@ -4983,7 +4987,6 @@ impl PersistentEngine {
         query: &str,
         options: SearchOptions,
     ) -> ThingdResult<Vec<SearchHit>> {
-        use tantivy::collector::TopDocs;
         use tantivy::query::QueryParser;
         use tantivy::schema::Value;
 
@@ -5006,15 +5009,28 @@ impl PersistentEngine {
             .map_err(|e| ThingdError::InvalidInput(e.to_string()))?;
 
         let limit = options.limit.unwrap_or(10).min(1000);
+        if limit == 0 {
+            return Ok(Vec::new());
+        }
+
+        let collector = FilteredSearchCollector {
+            limit,
+            hits: Arc::new(Mutex::new(BinaryHeap::with_capacity(limit))),
+            collections: options.collections,
+            filter: options.filter,
+            collection_field,
+            body_field,
+        };
         let doc_ids = searcher
-            .search(&tantivy_query, &TopDocs::with_limit(limit).order_by_score())
+            .search(&tantivy_query, &collector)
             .map_err(|e| ThingdError::Storage(e.to_string()))?;
 
         let mut hits = Vec::new();
 
-        for (score, doc_address) in doc_ids {
+        for candidate in doc_ids {
+            let score = candidate.score;
             let doc = searcher
-                .doc::<tantivy::TantivyDocument>(doc_address)
+                .doc::<tantivy::TantivyDocument>(candidate.address)
                 .map_err(|e| ThingdError::Storage(e.to_string()))?;
 
             let collection = doc
@@ -5037,18 +5053,6 @@ impl PersistentEngine {
                 .and_then(|v| v.as_str())
                 .unwrap_or("object")
                 .to_string();
-
-            if let Some(ref collections) = options.collections
-                && !collections.contains(&collection)
-            {
-                continue;
-            }
-
-            if let Some(ref filter) = options.filter
-                && !matches_filter_memory(&body, filter)
-            {
-                continue;
-            }
 
             let col = collection.clone();
             let doc_id = id.clone();
@@ -5196,6 +5200,205 @@ impl PersistentEngine {
         }
 
         Ok(hits)
+    }
+}
+
+#[cfg(feature = "search")]
+#[derive(Clone, Copy, Debug)]
+struct RankedSearchDoc {
+    score: f32,
+    address: tantivy::DocAddress,
+}
+
+#[cfg(feature = "search")]
+impl PartialEq for RankedSearchDoc {
+    fn eq(&self, other: &Self) -> bool {
+        self.score.to_bits() == other.score.to_bits() && self.address == other.address
+    }
+}
+
+#[cfg(feature = "search")]
+impl Eq for RankedSearchDoc {}
+
+#[cfg(feature = "search")]
+impl PartialOrd for RankedSearchDoc {
+    fn partial_cmp(&self, other: &Self) -> Option<CmpOrdering> {
+        Some(self.cmp(other))
+    }
+}
+
+#[cfg(feature = "search")]
+impl Ord for RankedSearchDoc {
+    fn cmp(&self, other: &Self) -> CmpOrdering {
+        // BinaryHeap keeps the least relevant retained hit at its root.
+        other
+            .score
+            .total_cmp(&self.score)
+            .then_with(|| self.address.cmp(&other.address))
+    }
+}
+
+#[cfg(feature = "search")]
+fn retain_top_search_hit(
+    hits: &mut BinaryHeap<RankedSearchDoc>,
+    candidate: RankedSearchDoc,
+    limit: usize,
+) {
+    if hits.len() < limit {
+        hits.push(candidate);
+    } else if hits.peek().is_some_and(|worst| candidate < *worst) {
+        hits.pop();
+        hits.push(candidate);
+    }
+}
+
+#[cfg(feature = "search")]
+struct FilteredSearchCollector {
+    limit: usize,
+    hits: Arc<Mutex<BinaryHeap<RankedSearchDoc>>>,
+    collections: Option<Vec<String>>,
+    filter: Option<Value>,
+    collection_field: tantivy::schema::Field,
+    body_field: tantivy::schema::Field,
+}
+
+#[cfg(feature = "search")]
+struct FilteredSearchSegmentHits {
+    error: Option<String>,
+}
+
+#[cfg(feature = "search")]
+struct FilteredSearchSegmentCollector {
+    limit: usize,
+    segment_ord: tantivy::SegmentOrdinal,
+    store_reader: Option<tantivy::store::StoreReader>,
+    hits: Arc<Mutex<BinaryHeap<RankedSearchDoc>>>,
+    collections: Option<Vec<String>>,
+    filter: Option<Value>,
+    collection_field: tantivy::schema::Field,
+    body_field: tantivy::schema::Field,
+    error: Option<String>,
+}
+
+#[cfg(feature = "search")]
+impl tantivy::collector::Collector for FilteredSearchCollector {
+    type Fruit = Vec<RankedSearchDoc>;
+    type Child = FilteredSearchSegmentCollector;
+
+    fn for_segment(
+        &self,
+        segment_ord: tantivy::SegmentOrdinal,
+        segment: &tantivy::SegmentReader,
+    ) -> tantivy::Result<Self::Child> {
+        let store_reader = if self.collections.is_some() || self.filter.is_some() {
+            Some(segment.get_store_reader(8)?)
+        } else {
+            None
+        };
+        Ok(FilteredSearchSegmentCollector {
+            limit: self.limit,
+            segment_ord,
+            store_reader,
+            hits: Arc::clone(&self.hits),
+            collections: self.collections.clone(),
+            filter: self.filter.clone(),
+            collection_field: self.collection_field,
+            body_field: self.body_field,
+            error: None,
+        })
+    }
+
+    fn requires_scoring(&self) -> bool {
+        true
+    }
+
+    fn merge_fruits(
+        &self,
+        segment_fruits: Vec<FilteredSearchSegmentHits>,
+    ) -> tantivy::Result<Self::Fruit> {
+        for segment in segment_fruits {
+            if let Some(error) = segment.error {
+                return Err(tantivy::TantivyError::InvalidArgument(format!(
+                    "failed to read stored search document while applying filters: {error}"
+                )));
+            }
+        }
+        let mut ranked_hits = {
+            let mut hits = self.hits.lock().map_err(|_| {
+                tantivy::TantivyError::InvalidArgument(
+                    "filtered search result heap was poisoned".to_string(),
+                )
+            })?;
+            std::mem::take(&mut *hits).into_vec()
+        };
+        ranked_hits.sort_by(|a, b| {
+            b.score
+                .total_cmp(&a.score)
+                .then_with(|| a.address.cmp(&b.address))
+        });
+        Ok(ranked_hits)
+    }
+}
+
+#[cfg(feature = "search")]
+impl tantivy::collector::SegmentCollector for FilteredSearchSegmentCollector {
+    type Fruit = FilteredSearchSegmentHits;
+
+    fn collect(&mut self, doc_id: tantivy::DocId, score: tantivy::Score) {
+        if self.error.is_some() {
+            return;
+        }
+
+        if self.collections.is_some() || self.filter.is_some() {
+            use tantivy::schema::Value as _;
+            let Some(store_reader) = self.store_reader.as_ref() else {
+                self.error = Some("search filter is missing its stored-field reader".to_string());
+                return;
+            };
+            let doc = match store_reader.get::<tantivy::TantivyDocument>(doc_id) {
+                Ok(doc) => doc,
+                Err(error) => {
+                    self.error = Some(error.to_string());
+                    return;
+                },
+            };
+
+            if let Some(collections) = &self.collections {
+                let collection = doc
+                    .get_first(self.collection_field)
+                    .and_then(|value| value.as_str());
+                if !collection.is_some_and(|value| collections.iter().any(|c| c == value)) {
+                    return;
+                }
+            }
+
+            if let Some(filter) = &self.filter {
+                let body = doc
+                    .get_first(self.body_field)
+                    .and_then(|value| value.as_str())
+                    .unwrap_or("");
+                if !matches_filter_memory(body, filter) {
+                    return;
+                }
+            }
+        }
+
+        if let Ok(mut hits) = self.hits.lock() {
+            retain_top_search_hit(
+                &mut hits,
+                RankedSearchDoc {
+                    score,
+                    address: tantivy::DocAddress::new(self.segment_ord, doc_id),
+                },
+                self.limit,
+            );
+        } else {
+            self.error = Some("filtered search result heap was poisoned".to_string());
+        }
+    }
+
+    fn harvest(self) -> Self::Fruit {
+        FilteredSearchSegmentHits { error: self.error }
     }
 }
 
@@ -5773,10 +5976,40 @@ mod tests {
     use crate::store::VectorStore;
     use crate::store::{AggregateStore, EventLog, LinkStore, ObjectStore, QueueStore, Searcher};
     use crate::{
-        Link, ListObjectsOptions, MemoryEvent, MemoryObject, QueueClaimOptions, QueueJob,
-        QueueJobStatus, QueueNackOptions, SearchOptions, TimeBucket,
+        Link, ListObjectsOptions, MemoryEvent, MemoryObject, PersistentSearchMode,
+        QueueClaimOptions, QueueJob, QueueJobStatus, QueueNackOptions, SearchOptions, TimeBucket,
     };
     use std::sync::{Mutex as TestMutex, OnceLock};
+
+    #[cfg(feature = "search")]
+    #[test]
+    fn filtered_search_global_heap_stays_within_requested_limit() {
+        let limit = 7;
+        let hits = Arc::new(Mutex::new(BinaryHeap::with_capacity(limit)));
+        std::thread::scope(|scope| {
+            for segment_ord in 0..32 {
+                let hits = Arc::clone(&hits);
+                scope.spawn(move || {
+                    for doc_id in 0..16 {
+                        let mut hits = hits.lock().unwrap();
+                        retain_top_search_hit(
+                            &mut hits,
+                            RankedSearchDoc {
+                                score: (segment_ord * 16 + doc_id) as f32,
+                                address: tantivy::DocAddress::new(segment_ord, doc_id),
+                            },
+                            limit,
+                        );
+                        assert!(hits.len() <= limit);
+                        drop(hits);
+                    }
+                });
+            }
+        });
+        let hits = Arc::try_unwrap(hits).unwrap().into_inner().unwrap();
+        assert_eq!(hits.len(), limit);
+        assert_eq!(hits.peek().unwrap().score, 505.0);
+    }
 
     /// Create a test engine with a temp directory that stays alive for the caller.
     fn setup() -> (PersistentEngine, tempfile::TempDir) {
@@ -7380,7 +7613,162 @@ mod tests {
         assert_eq!(results[0].collection, "docs");
     }
 
+    #[test]
+    fn persistent_search_fallback_filters_before_limit() {
+        let (mut engine, _dir) = setup_thingdb();
+        engine.search_mode = PersistentSearchMode::PersistentNoRebuild;
+        engine
+            .put_object(MemoryObject::new(
+                "docs",
+                "excluded",
+                r#"{"text":"needle","tag":"other"}"#,
+            ))
+            .unwrap();
+        engine
+            .put_object(MemoryObject::new(
+                "docs",
+                "included",
+                r#"{"text":"needle","tag":"wanted"}"#,
+            ))
+            .unwrap();
+
+        let results = engine
+            .search(
+                "needle",
+                SearchOptions {
+                    limit: Some(1),
+                    filter: Some(serde_json::json!({"tag": "wanted"})),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].id, "included");
+    }
+
     // ── Tantivy search (feature-gated) ──────────────────────────────────
+
+    #[cfg(feature = "search")]
+    #[test]
+    fn persistent_tantivy_search_applies_metadata_filter_before_limit() {
+        let (mut engine, _dir) = setup_thingdb();
+        for index in 0..4 {
+            engine
+                .put_object(MemoryObject::new(
+                    "docs",
+                    format!("excluded-{index}"),
+                    r#"{"text":"needle needle needle needle","tag":"other"}"#,
+                ))
+                .unwrap();
+        }
+        engine
+            .put_object(MemoryObject::new(
+                "docs",
+                "included-a",
+                r#"{"text":"needle","tag":"wanted"}"#,
+            ))
+            .unwrap();
+        engine
+            .put_object(MemoryObject::new(
+                "docs",
+                "included-b",
+                r#"{"text":"needle","tag":"wanted"}"#,
+            ))
+            .unwrap();
+        engine.stop_search_worker();
+
+        let results = engine
+            .search(
+                "needle",
+                SearchOptions {
+                    limit: Some(2),
+                    filter: Some(serde_json::json!({"tag": "wanted"})),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+
+        assert_eq!(results.len(), 2);
+        assert!(results.iter().all(|hit| hit.id.starts_with("included-")));
+        assert!(results.iter().all(|hit| hit.score > 0.0));
+        assert!(results[0].score >= results[1].score);
+    }
+
+    #[cfg(feature = "search")]
+    #[test]
+    fn persistent_tantivy_search_finds_eligible_hit_after_many_filtered_matches() {
+        let (mut engine, _dir) = setup_thingdb();
+        for index in 0..1_005 {
+            engine
+                .put_object(MemoryObject::new(
+                    "docs",
+                    format!("excluded-{index:04}"),
+                    r#"{"text":"needle needle needle","tag":"other"}"#,
+                ))
+                .unwrap();
+        }
+        engine
+            .put_object(MemoryObject::new(
+                "docs",
+                "included-late",
+                r#"{"text":"needle","tag":"wanted"}"#,
+            ))
+            .unwrap();
+        engine.stop_search_worker();
+
+        let results = engine
+            .search(
+                "needle",
+                SearchOptions {
+                    limit: Some(1),
+                    filter: Some(serde_json::json!({"tag": "wanted"})),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].id, "included-late");
+        assert!(results[0].score > 0.0);
+    }
+
+    #[cfg(feature = "search")]
+    #[test]
+    fn persistent_tantivy_search_applies_collection_filter_before_limit() {
+        let (mut engine, _dir) = setup_thingdb();
+        engine
+            .put_object(MemoryObject::new(
+                "excluded",
+                "high-score",
+                r#"{"text":"needle needle needle needle"}"#,
+            ))
+            .unwrap();
+        engine
+            .put_object(MemoryObject::new(
+                "included",
+                "eligible",
+                r#"{"text":"needle"}"#,
+            ))
+            .unwrap();
+        engine.stop_search_worker();
+
+        let results = engine
+            .search(
+                "needle",
+                SearchOptions {
+                    limit: Some(1),
+                    collections: Some(vec!["included".to_string()]),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].collection, "included");
+        assert_eq!(results[0].id, "eligible");
+        assert!(results[0].score > 0.0);
+    }
 
     #[cfg(feature = "search")]
     #[test]
@@ -8418,5 +8806,201 @@ mod tests {
     fn contract_search() {
         let (mut engine, _dir) = setup_persistent();
         crate::contract_tests::test_contract_search(&mut engine);
+    }
+}
+
+#[cfg(all(test, feature = "thingdb-backend", not(feature = "rocksdb-backend")))]
+mod thingdb_search_tests {
+    use super::*;
+    use crate::store::{ObjectStore, Searcher};
+
+    #[test]
+    fn filtered_search_global_heap_stays_within_requested_limit() {
+        let limit = 7;
+        let mut hits = BinaryHeap::with_capacity(limit);
+        for segment_ord in 0..32 {
+            for doc_id in 0..16 {
+                retain_top_search_hit(
+                    &mut hits,
+                    RankedSearchDoc {
+                        score: (segment_ord * 16 + doc_id) as f32,
+                        address: tantivy::DocAddress::new(segment_ord, doc_id),
+                    },
+                    limit,
+                );
+                assert!(hits.len() <= limit);
+            }
+        }
+
+        assert_eq!(hits.len(), limit);
+        assert_eq!(hits.peek().unwrap().score, 505.0);
+    }
+
+    fn setup() -> (PersistentEngine, tempfile::TempDir) {
+        let dir = tempfile::tempdir().unwrap();
+        let engine = PersistentEngine::open_with_options(
+            dir.path(),
+            PersistentOpenOptions {
+                backend: PersistentBackend::ThingDb,
+                ..PersistentOpenOptions::default()
+            },
+        )
+        .unwrap();
+        (engine, dir)
+    }
+
+    #[test]
+    fn persistent_search_fallback_filters_before_limit() {
+        let (mut engine, _dir) = setup();
+        engine.search_mode = PersistentSearchMode::PersistentNoRebuild;
+        engine
+            .put_object(MemoryObject::new(
+                "docs",
+                "excluded",
+                r#"{"text":"needle","tag":"other"}"#,
+            ))
+            .unwrap();
+        engine
+            .put_object(MemoryObject::new(
+                "docs",
+                "included",
+                r#"{"text":"needle","tag":"wanted"}"#,
+            ))
+            .unwrap();
+
+        let results = engine
+            .search(
+                "needle",
+                SearchOptions {
+                    limit: Some(1),
+                    filter: Some(serde_json::json!({"tag": "wanted"})),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].id, "included");
+    }
+
+    #[cfg(feature = "search")]
+    #[test]
+    fn persistent_tantivy_search_applies_metadata_filter_before_limit() {
+        let (mut engine, _dir) = setup();
+        for index in 0..4 {
+            engine
+                .put_object(MemoryObject::new(
+                    "docs",
+                    format!("excluded-{index}"),
+                    r#"{"text":"needle needle needle needle","tag":"other"}"#,
+                ))
+                .unwrap();
+        }
+        engine
+            .put_object(MemoryObject::new(
+                "docs",
+                "included-a",
+                r#"{"text":"needle","tag":"wanted"}"#,
+            ))
+            .unwrap();
+        engine
+            .put_object(MemoryObject::new(
+                "docs",
+                "included-b",
+                r#"{"text":"needle","tag":"wanted"}"#,
+            ))
+            .unwrap();
+        engine.stop_search_worker();
+
+        let results = engine
+            .search(
+                "needle",
+                SearchOptions {
+                    limit: Some(2),
+                    filter: Some(serde_json::json!({"tag": "wanted"})),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+
+        assert_eq!(results.len(), 2);
+        assert!(results.iter().all(|hit| hit.id.starts_with("included-")));
+        assert!(results.iter().all(|hit| hit.score > 0.0));
+        assert!(results[0].score >= results[1].score);
+    }
+
+    #[cfg(feature = "search")]
+    #[test]
+    fn persistent_tantivy_search_finds_eligible_hit_after_many_filtered_matches() {
+        let (mut engine, _dir) = setup();
+        for index in 0..1_005 {
+            engine
+                .put_object(MemoryObject::new(
+                    "docs",
+                    format!("excluded-{index:04}"),
+                    r#"{"text":"needle needle needle","tag":"other"}"#,
+                ))
+                .unwrap();
+        }
+        engine
+            .put_object(MemoryObject::new(
+                "docs",
+                "included-late",
+                r#"{"text":"needle","tag":"wanted"}"#,
+            ))
+            .unwrap();
+        engine.stop_search_worker();
+
+        let results = engine
+            .search(
+                "needle",
+                SearchOptions {
+                    limit: Some(1),
+                    filter: Some(serde_json::json!({"tag": "wanted"})),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].id, "included-late");
+        assert!(results[0].score > 0.0);
+    }
+
+    #[cfg(feature = "search")]
+    #[test]
+    fn persistent_tantivy_search_applies_collection_filter_before_limit() {
+        let (mut engine, _dir) = setup();
+        engine
+            .put_object(MemoryObject::new(
+                "excluded",
+                "high-score",
+                r#"{"text":"needle needle needle needle"}"#,
+            ))
+            .unwrap();
+        engine
+            .put_object(MemoryObject::new(
+                "included",
+                "eligible",
+                r#"{"text":"needle"}"#,
+            ))
+            .unwrap();
+        engine.stop_search_worker();
+
+        let results = engine
+            .search(
+                "needle",
+                SearchOptions {
+                    limit: Some(1),
+                    collections: Some(vec!["included".to_string()]),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].collection, "included");
+        assert_eq!(results[0].id, "eligible");
+        assert!(results[0].score > 0.0);
     }
 }
