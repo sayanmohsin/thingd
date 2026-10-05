@@ -3226,6 +3226,9 @@ impl ObjectStore for PersistentEngine {
         // Avoid materializing the whole collection when the caller requests
         // the natural key order. Sorting still requires the full candidate set.
         if options.sort_by.is_none() {
+            if options.limit == Some(0) {
+                return Ok(Vec::new());
+            }
             let offset = options.offset.unwrap_or(0);
             let limit = options.limit.unwrap_or(u64::MAX);
             let mut skipped = 0u64;
@@ -3235,6 +3238,19 @@ impl ObjectStore for PersistentEngine {
                 && collections.len() == 1
             {
                 let prefix = self.make_object_prefix(&collections[0]);
+                if options.filter.is_empty()
+                    && (options.offset.is_some() || options.limit.is_some())
+                {
+                    let page_offset = usize::try_from(offset).unwrap_or(usize::MAX);
+                    let page_limit = options.limit.map_or(usize::MAX, |value| {
+                        usize::try_from(value).unwrap_or(usize::MAX)
+                    });
+                    for kv in self.objects.prefix_page(&prefix, page_offset, page_limit) {
+                        let (_, value) = guard_data(kv)?;
+                        results.push(self.deserialize(&value)?);
+                    }
+                    return Ok(results);
+                }
                 for kv in self.objects.prefix(&prefix) {
                     let (_, value) = guard_data(kv)?;
                     let object: MemoryObject = self.deserialize(&value)?;
@@ -3427,22 +3443,18 @@ impl ObjectStore for PersistentEngine {
     }
 
     fn count_objects(&self) -> ThingdResult<u64> {
-        let mut count = 0u64;
-        for kv in self.objects.iter() {
-            let _ = kv;
-            count += 1;
-        }
-        Ok(count)
+        self.objects
+            .count()
+            .map(|count| count as u64)
+            .map_err(|error| ThingdError::Storage(error.to_string()))
     }
 
     fn count_objects_in_collection(&self, collection: &str) -> ThingdResult<u64> {
         let prefix = self.make_object_prefix(collection);
-        let mut count = 0u64;
-        for kv in self.objects.prefix(&prefix) {
-            let _ = kv;
-            count += 1;
-        }
-        Ok(count)
+        self.objects
+            .count_prefix(&prefix)
+            .map(|count| count as u64)
+            .map_err(|error| ThingdError::Storage(error.to_string()))
     }
 
     fn list_collections(&self) -> ThingdResult<Vec<String>> {
@@ -3771,47 +3783,72 @@ impl EventLog for PersistentEngine {
         stream: Option<&str>,
         options: ListEventsOptions,
     ) -> ThingdResult<Vec<MemoryEvent>> {
-        let mut results: Vec<MemoryEvent> = Vec::new();
+        const EVENT_SCAN_PAGE_SIZE: usize = 128;
+        if options.limit == Some(0) {
+            return Ok(Vec::new());
+        }
 
-        if let Some(stream_name) = stream {
-            for kv in self.events.prefix(self.make_event_prefix(stream_name)) {
-                let (_, value) = guard_data(kv)?;
+        let page_size = if options.since.is_some() {
+            EVENT_SCAN_PAGE_SIZE
+        } else {
+            options.limit.map_or(EVENT_SCAN_PAGE_SIZE, |limit| {
+                usize::try_from(limit)
+                    .unwrap_or(usize::MAX)
+                    .min(EVENT_SCAN_PAGE_SIZE)
+            })
+        };
+        let prefix = stream.map(|stream_name| self.make_event_prefix(stream_name));
+        let mut after_key = stream
+            .zip(options.from_sequence)
+            .map(|(stream_name, sequence)| self.make_event_key(stream_name, sequence));
+        let mut results = Vec::new();
+
+        loop {
+            let page = self
+                .events
+                .prefix_page_after(
+                    prefix.as_deref().unwrap_or_default(),
+                    after_key.as_deref(),
+                    page_size,
+                )
+                .map(guard_data)
+                .collect::<ThingdResult<Vec<_>>>()?;
+            if page.is_empty() {
+                break;
+            }
+
+            let page_len = page.len();
+            for (key, value) in page {
+                after_key = Some(key);
                 let event: MemoryEvent = self.deserialize(&value)?;
-                if event.stream != stream_name {
+                if stream.is_some_and(|stream_name| event.stream != stream_name) {
                     continue;
                 }
-                if let Some(from_seq) = options.from_sequence
-                    && event.sequence <= from_seq
+                if stream.is_some()
+                    && options
+                        .from_sequence
+                        .is_some_and(|from_sequence| event.sequence <= from_sequence)
                 {
                     continue;
                 }
-                if let Some(ref since) = options.since
-                    && event.created_at.as_str() < since.as_str()
+                if options
+                    .since
+                    .as_ref()
+                    .is_some_and(|since| event.created_at.as_str() < since.as_str())
                 {
                     continue;
                 }
+
                 results.push(event);
-                if let Some(limit) = options.limit
-                    && results.len() as u64 >= limit
+                if options
+                    .limit
+                    .is_some_and(|limit| results.len() as u64 >= limit)
                 {
-                    break;
+                    return Ok(results);
                 }
             }
-        } else {
-            for kv in self.events.iter() {
-                let (_, value) = guard_data(kv)?;
-                let event: MemoryEvent = self.deserialize(&value)?;
-                if let Some(ref since) = options.since
-                    && event.created_at.as_str() < since.as_str()
-                {
-                    continue;
-                }
-                results.push(event);
-                if let Some(limit) = options.limit
-                    && results.len() as u64 >= limit
-                {
-                    break;
-                }
+            if page_len < page_size {
+                break;
             }
         }
 
@@ -3903,12 +3940,10 @@ impl EventLog for PersistentEngine {
     }
 
     fn count_events(&self) -> ThingdResult<u64> {
-        let mut count = 0u64;
-        for kv in self.events.iter() {
-            let _ = kv;
-            count += 1;
-        }
-        Ok(count)
+        self.events
+            .count()
+            .map(|count| count as u64)
+            .map_err(|error| ThingdError::Storage(error.to_string()))
     }
 
     fn list_streams(&self) -> ThingdResult<Vec<String>> {
@@ -3953,7 +3988,12 @@ impl PersistentEngine {
         let mut batch = self.db.batch_with_capacity(limit.saturating_mul(4));
         let mut operation_count = 0_u64;
 
-        for kv in self.lease_jobs.prefix(self.make_lease_prefix(queue)) {
+        let lease_prefix = self.make_lease_prefix(queue);
+        let mut after_lease_key = None;
+        while let Some(kv) = self
+            .lease_jobs
+            .first_prefix_after(&lease_prefix, after_lease_key.as_deref())?
+        {
             self.queue_diagnostics.lease_entries_examined = self
                 .queue_diagnostics
                 .lease_entries_examined
@@ -3962,6 +4002,7 @@ impl PersistentEngine {
             if self.lease_expiration(queue, &lease_key)? > now {
                 break;
             }
+            after_lease_key = Some(lease_key.clone());
             let job_id = self.decode_queue_id(&lease_value)?;
             let queue_key = self.make_queue_key(queue, &job_id);
             let lookup_started = Instant::now();
@@ -4198,7 +4239,11 @@ impl QueueStore for PersistentEngine {
             let lease_prefix = self.make_lease_prefix(queue);
             let mut expiry_batch = self.db.batch();
             let mut expiry_writes = false;
-            for kv in self.lease_jobs.prefix(&lease_prefix) {
+            let mut after_lease_key = None;
+            while let Some(kv) = self
+                .lease_jobs
+                .first_prefix_after(&lease_prefix, after_lease_key.as_deref())?
+            {
                 self.queue_diagnostics.lease_entries_examined = self
                     .queue_diagnostics
                     .lease_entries_examined
@@ -4208,6 +4253,7 @@ impl QueueStore for PersistentEngine {
                 if expires_at_ms > now {
                     break;
                 }
+                after_lease_key = Some(lease_key.clone());
                 let job_id = self.decode_queue_id(&lease_value)?;
                 let qkey = self.make_queue_key(queue, &job_id);
                 let lookup_started = Instant::now();
@@ -6855,6 +6901,234 @@ mod tests {
     }
 
     #[test]
+    fn thingdb_ram_object_page_only_visits_the_requested_prefix_range() {
+        let mut engine = setup_thingdb_memory();
+        for index in 0..1_000_u32 {
+            engine
+                .put_object(MemoryObject::new("page", format!("id-{index:04}"), "{}"))
+                .unwrap();
+        }
+
+        let before = engine
+            .db
+            .ram_diagnostics()
+            .unwrap()
+            .iteration_entries_examined;
+        let page = engine
+            .list_objects(
+                Some(&["page".to_string()]),
+                &ListObjectsOptions {
+                    offset: Some(100),
+                    limit: Some(25),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        let examined = engine
+            .db
+            .ram_diagnostics()
+            .unwrap()
+            .iteration_entries_examined
+            .saturating_sub(before);
+
+        assert_eq!(page.len(), 25);
+        assert_eq!(page.first().unwrap().key.id, "id-0100");
+        assert_eq!(page.last().unwrap().key.id, "id-0124");
+        assert_eq!(examined, 125);
+
+        let empty_page = engine
+            .list_objects(
+                Some(&["page".to_string()]),
+                &ListObjectsOptions {
+                    limit: Some(0),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        assert!(empty_page.is_empty());
+    }
+
+    #[test]
+    fn thingdb_ram_event_limit_only_materializes_requested_events() {
+        let mut engine = setup_thingdb_memory();
+        for index in 0..512_u32 {
+            engine
+                .append_event(MemoryEvent::new(
+                    "page-stream",
+                    "page-event",
+                    format!("event-{index}"),
+                ))
+                .unwrap();
+        }
+
+        let before = engine
+            .db
+            .ram_diagnostics()
+            .unwrap()
+            .iteration_entries_examined;
+        let events = engine
+            .list_events(
+                Some("page-stream"),
+                ListEventsOptions {
+                    from_sequence: None,
+                    limit: Some(25),
+                    since: None,
+                },
+            )
+            .unwrap();
+        let examined = engine
+            .db
+            .ram_diagnostics()
+            .unwrap()
+            .iteration_entries_examined
+            .saturating_sub(before);
+
+        assert_eq!(events.len(), 25);
+        assert_eq!(events.first().unwrap().sequence, 1);
+        assert_eq!(events.last().unwrap().sequence, 25);
+        assert_eq!(examined, 25);
+    }
+
+    #[test]
+    fn thingdb_ram_event_sequence_cursor_seeks_without_scanning_prior_events() {
+        let mut engine = setup_thingdb_memory();
+        for index in 0..512_u32 {
+            engine
+                .append_event(MemoryEvent::new(
+                    "cursor-stream",
+                    "cursor-event",
+                    format!("event-{index}"),
+                ))
+                .unwrap();
+        }
+
+        let before = engine
+            .db
+            .ram_diagnostics()
+            .unwrap()
+            .iteration_entries_examined;
+        let events = engine
+            .list_events(
+                Some("cursor-stream"),
+                ListEventsOptions {
+                    from_sequence: Some(400),
+                    limit: Some(25),
+                    since: None,
+                },
+            )
+            .unwrap();
+        let examined = engine
+            .db
+            .ram_diagnostics()
+            .unwrap()
+            .iteration_entries_examined
+            .saturating_sub(before);
+
+        assert_eq!(events.len(), 25);
+        assert_eq!(events.first().unwrap().sequence, 401);
+        assert_eq!(events.last().unwrap().sequence, 425);
+        assert_eq!(examined, 25);
+    }
+
+    #[test]
+    fn rocksdb_event_sequence_cursor_preserves_exclusive_ordered_results() {
+        let (mut engine, _dir) = setup();
+        for index in 0..512_u32 {
+            engine
+                .append_event(MemoryEvent::new(
+                    "rocks-cursor-stream",
+                    "cursor-event",
+                    format!("event-{index}"),
+                ))
+                .unwrap();
+        }
+
+        let events = engine
+            .list_events(
+                Some("rocks-cursor-stream"),
+                ListEventsOptions {
+                    from_sequence: Some(400),
+                    limit: Some(25),
+                    since: None,
+                },
+            )
+            .unwrap();
+
+        assert_eq!(events.len(), 25);
+        assert_eq!(events.first().unwrap().sequence, 401);
+        assert_eq!(events.last().unwrap().sequence, 425);
+    }
+
+    #[test]
+    fn thingdb_ram_since_filter_stops_after_enough_matches_in_bounded_pages() {
+        let mut engine = setup_thingdb_memory();
+        for index in 0..512_u32 {
+            let mut event =
+                MemoryEvent::new("since-stream", "since-event", format!("event-{index}"));
+            event.created_at = if index < 32 {
+                "2026-01-02T00:00:00Z".to_string()
+            } else {
+                "2026-01-01T00:00:00Z".to_string()
+            };
+            engine.append_event(event).unwrap();
+        }
+
+        let before = engine
+            .db
+            .ram_diagnostics()
+            .unwrap()
+            .iteration_entries_examined;
+        let events = engine
+            .list_events(
+                Some("since-stream"),
+                ListEventsOptions {
+                    from_sequence: None,
+                    limit: Some(25),
+                    since: Some("2026-01-02T00:00:00Z".to_string()),
+                },
+            )
+            .unwrap();
+        let examined = engine
+            .db
+            .ram_diagnostics()
+            .unwrap()
+            .iteration_entries_examined
+            .saturating_sub(before);
+
+        assert_eq!(events.len(), 25);
+        assert_eq!(events.first().unwrap().sequence, 1);
+        assert_eq!(events.last().unwrap().sequence, 25);
+        assert_eq!(examined, 128);
+    }
+
+    #[test]
+    fn thingdb_ram_object_and_event_counts_skip_value_materialization() {
+        let mut engine = setup_thingdb_memory();
+        for index in 0..128_u32 {
+            engine
+                .put_object(MemoryObject::new(
+                    if index % 2 == 0 { "counted" } else { "other" },
+                    format!("id-{index}"),
+                    "{}",
+                ))
+                .unwrap();
+            engine
+                .append_event(MemoryEvent::new(
+                    "count-stream",
+                    "count-event",
+                    format!("event-{index}"),
+                ))
+                .unwrap();
+        }
+
+        let before = engine.db.ram_diagnostics().unwrap().iteration_count;
+        assert_eq!(engine.count_objects().unwrap(), 128);
+        assert_eq!(engine.count_objects_in_collection("counted").unwrap(), 64);
+        assert_eq!(engine.count_events().unwrap(), 128);
+        assert_eq!(engine.db.ram_diagnostics().unwrap().iteration_count, before);
+    }
+
+    #[test]
     fn persistent_list_objects_sort_by_created_at_desc() {
         let (mut engine, _dir) = setup();
         engine
@@ -7396,6 +7670,55 @@ mod tests {
         let diagnostics = engine.queue_diagnostics();
         assert_eq!(diagnostics.lease_entries_examined, 1);
         assert!(diagnostics.lease_entries_examined < historical_jobs as u64);
+    }
+
+    #[test]
+    fn thingdb_ram_claim_does_not_materialize_all_unexpired_lease_entries() {
+        let mut engine = setup_thingdb_memory();
+        let queue = "lease-scan";
+        let lease_options = QueueClaimOptions::new(86_400_000);
+        let existing_leases = 128;
+
+        for index in 0..existing_leases {
+            engine
+                .push_job(QueueJob::new(
+                    queue,
+                    format!("leased-{index}"),
+                    "payload",
+                    3,
+                ))
+                .unwrap();
+            engine
+                .claim_job_with_options(queue, lease_options)
+                .unwrap()
+                .expect("each seeded job should be claimable");
+        }
+
+        engine
+            .push_job(QueueJob::new(queue, "ready", "payload", 3))
+            .unwrap();
+        let examined_before = engine
+            .db
+            .ram_diagnostics()
+            .unwrap()
+            .iteration_entries_examined;
+
+        let claimed = engine
+            .claim_job_with_options(queue, lease_options)
+            .unwrap()
+            .expect("the ready job should be claimable despite unexpired leases");
+
+        let examined = engine
+            .db
+            .ram_diagnostics()
+            .unwrap()
+            .iteration_entries_examined
+            .saturating_sub(examined_before);
+        assert_eq!(claimed.id, "ready");
+        assert!(
+            examined <= 2,
+            "one lease candidate and one ready candidate should be examined, got {examined}"
+        );
     }
 
     #[test]

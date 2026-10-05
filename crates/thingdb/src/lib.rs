@@ -1257,6 +1257,14 @@ pub struct Iter {
     error: Option<Error>,
 }
 
+struct ScanBounds<'a> {
+    prefix: Option<&'a [u8]>,
+    start: Option<(Vec<u8>, bool)>,
+    end: Option<(Vec<u8>, bool)>,
+    offset: usize,
+    limit: Option<usize>,
+}
+
 impl Iter {
     /// Return a scan error observed while producing this iterator, if any.
     pub fn error(&self) -> Option<&Error> {
@@ -2635,6 +2643,78 @@ impl Keyspace {
         self.iter_bounds(Some(prefix.as_ref()), None, None)
     }
 
+    /// Return a bounded ordered page of entries whose user keys start with
+    /// `prefix`.
+    ///
+    /// `offset` entries are skipped without copying their values, and at most
+    /// `limit` entries are materialized. The page is captured under one
+    /// in-memory read boundary, so concurrent writes cannot produce a mixed
+    /// page. Durable databases preserve the same ordering and page semantics.
+    pub fn prefix_page(&self, prefix: impl AsRef<[u8]>, offset: usize, limit: usize) -> Iter {
+        self.iter_bounds_paginated(Some(prefix.as_ref()), None, None, offset, Some(limit))
+    }
+
+    /// Return an ordered page of entries whose keys start with `prefix` and
+    /// are strictly greater than `after_key`.
+    ///
+    /// Passing `None` starts at the first matching key. The cursor is a user
+    /// key from this keyspace, which makes repeated pages efficient without
+    /// rematerializing earlier entries.
+    pub fn prefix_page_after(
+        &self,
+        prefix: impl AsRef<[u8]>,
+        after_key: Option<&[u8]>,
+        limit: usize,
+    ) -> Iter {
+        let start = after_key.map(|key| (key.to_vec(), false));
+        self.iter_bounds_paginated(Some(prefix.as_ref()), start, None, 0, Some(limit))
+    }
+
+    /// Count entries in this keyspace without copying their keys or values.
+    ///
+    /// RAM databases read the ordered map length directly. Durable databases
+    /// validate and count the visible iterator results.
+    pub fn count(&self) -> Result<usize> {
+        #[cfg(feature = "benchmark")]
+        if let Some(rcu) = &self.db.ram_rcu_keyspaces {
+            return Ok(rcu
+                .load()
+                .get(self.name.as_ref())
+                .map_or(0, |keyspace| keyspace.len()));
+        }
+        if let Some(ram_keyspaces) = &self.db.ram_keyspaces {
+            let keyspaces = ram_keyspaces
+                .read()
+                .map_err(|_| Error::message("ThingDB RAM state lock poisoned"))?;
+            return Ok(keyspaces.get(self.name.as_ref()).map_or(0, BTreeMap::len));
+        }
+        self.iter().into_result().map(|entries| entries.len())
+    }
+
+    /// Count entries whose user keys start with `prefix` without copying keys
+    /// or values in RAM mode.
+    pub fn count_prefix(&self, prefix: impl AsRef<[u8]>) -> Result<usize> {
+        let prefix = prefix.as_ref();
+        #[cfg(feature = "benchmark")]
+        if let Some(rcu) = &self.db.ram_rcu_keyspaces {
+            return Ok(rcu
+                .load()
+                .get(self.name.as_ref())
+                .map_or(0, |keyspace| count_memory_prefix(keyspace, prefix)));
+        }
+        if let Some(ram_keyspaces) = &self.db.ram_keyspaces {
+            let keyspaces = ram_keyspaces
+                .read()
+                .map_err(|_| Error::message("ThingDB RAM state lock poisoned"))?;
+            return Ok(keyspaces
+                .get(self.name.as_ref())
+                .map_or(0, |keyspace| count_memory_prefix(keyspace, prefix)));
+        }
+        self.prefix(prefix)
+            .into_result()
+            .map(|entries| entries.len())
+    }
+
     /// Return the first entry whose user key starts with `prefix`.
     pub fn first_prefix(&self, prefix: impl AsRef<[u8]>) -> Result<Option<Entry>> {
         self.first_prefix_after(prefix, None)
@@ -2696,7 +2776,7 @@ impl Keyspace {
         start: Option<(Vec<u8>, bool)>,
         end: Option<(Vec<u8>, bool)>,
     ) -> Iter {
-        self.iter_bounds_limited(prefix, start, end, None)
+        self.iter_bounds_paginated(prefix, start, end, 0, None)
     }
 
     #[allow(clippy::too_many_lines)]
@@ -2707,16 +2787,37 @@ impl Keyspace {
         end: Option<(Vec<u8>, bool)>,
         limit: Option<usize>,
     ) -> Iter {
+        self.iter_bounds_paginated(prefix, start, end, 0, limit)
+    }
+
+    #[allow(clippy::too_many_lines)]
+    fn iter_bounds_paginated(
+        &self,
+        prefix: Option<&[u8]>,
+        start: Option<(Vec<u8>, bool)>,
+        end: Option<(Vec<u8>, bool)>,
+        offset: usize,
+        limit: Option<usize>,
+    ) -> Iter {
+        if limit == Some(0) {
+            return Iter {
+                entries: Vec::new().into_iter(),
+                error: None,
+            };
+        }
         #[cfg(feature = "benchmark")]
         if let Some(rcu) = &self.db.ram_rcu_keyspaces {
             return iter_memory_rcu_bounds(
                 &self.db,
                 rcu.load_full(),
                 &self.name,
-                prefix,
-                start,
-                end,
-                limit,
+                ScanBounds {
+                    prefix,
+                    start,
+                    end,
+                    offset,
+                    limit,
+                },
             );
         }
         if self.db.ram_keyspaces.is_some() {
@@ -2730,10 +2831,13 @@ impl Keyspace {
                     &self.db,
                     ram_keyspaces,
                     &self.name,
-                    prefix,
-                    start,
-                    end,
-                    limit,
+                    ScanBounds {
+                        prefix,
+                        start,
+                        end,
+                        offset,
+                        limit,
+                    },
                 ),
                 Err(error) => Iter {
                     entries: Vec::new().into_iter(),
@@ -2761,10 +2865,13 @@ impl Keyspace {
                     &self.db,
                     ram_keyspaces,
                     &self.name,
-                    prefix,
-                    start,
-                    end,
-                    limit,
+                    ScanBounds {
+                        prefix,
+                        start,
+                        end,
+                        offset,
+                        limit,
+                    },
                 ),
                 Err(error) => Iter {
                     entries: Vec::new().into_iter(),
@@ -2772,7 +2879,7 @@ impl Keyspace {
                 },
             };
         }
-        if limit == Some(1) {
+        if offset == 0 && limit == Some(1) {
             drop(inner);
             return self.iter_durable_first(prefix, start, end);
         }
@@ -2816,6 +2923,7 @@ impl Keyspace {
         let mut scan_layers_consulted = 0u64;
         let mut table_bytes_read = 0u64;
         let mut table_read_duration_ns = 0u64;
+        let mut entries_skipped = 0usize;
         let mut state_key = next_map_key(&state, &lower, upper.as_deref(), cursor_after.as_deref());
         let mut pending_key = next_map_key(
             &pending_table,
@@ -2923,6 +3031,10 @@ impl Keyspace {
                 if !matches {
                     continue;
                 }
+            }
+            if entries_skipped < offset {
+                entries_skipped += 1;
+                continue;
             }
             entries.push(Entry {
                 key: user_key.to_vec(),
@@ -3313,11 +3425,15 @@ fn iter_memory_bounds(
     db: &Database,
     ram_keyspaces: &Arc<RwLock<HashMap<Arc<str>, BTreeMap<Vec<u8>, Arc<Vec<u8>>>>>>,
     name: &str,
-    prefix: Option<&[u8]>,
-    start: Option<(Vec<u8>, bool)>,
-    end: Option<(Vec<u8>, bool)>,
-    limit: Option<usize>,
+    bounds: ScanBounds<'_>,
 ) -> Iter {
+    let ScanBounds {
+        prefix,
+        start,
+        end,
+        offset,
+        limit,
+    } = bounds;
     let iteration_started = Instant::now();
     let mut entries = Vec::new();
     let mut entries_examined = 0u64;
@@ -3362,12 +3478,17 @@ fn iter_memory_bounds(
             (_, Some(prefix_upper)) => Bound::Excluded(prefix_upper),
             (None, None) => Bound::Unbounded,
         };
+        let mut skipped = 0usize;
         for (key, value) in keyspace.range::<[u8], _>((lower, upper)) {
             entries_examined = entries_examined.saturating_add(1);
             if let Some(prefix) = prefix
                 && !key.starts_with(prefix)
             {
                 break;
+            }
+            if skipped < offset {
+                skipped += 1;
+                continue;
             }
             entries.push(Entry {
                 key: key.clone(),
@@ -3397,16 +3518,27 @@ fn iter_memory_bounds(
     }
 }
 
+fn count_memory_prefix(keyspace: &BTreeMap<Vec<u8>, Arc<Vec<u8>>>, prefix: &[u8]) -> usize {
+    keyspace
+        .range::<[u8], _>((Bound::Included(prefix), Bound::Unbounded))
+        .take_while(|(key, _)| key.starts_with(prefix))
+        .count()
+}
+
 #[cfg(feature = "benchmark")]
 fn iter_memory_rcu_bounds(
     db: &Database,
     generation: Arc<RamGeneration>,
     name: &str,
-    prefix: Option<&[u8]>,
-    start: Option<(Vec<u8>, bool)>,
-    end: Option<(Vec<u8>, bool)>,
-    limit: Option<usize>,
+    bounds: ScanBounds<'_>,
 ) -> Iter {
+    let ScanBounds {
+        prefix,
+        start,
+        end,
+        offset,
+        limit,
+    } = bounds;
     let started = Instant::now();
     let mut entries = Vec::new();
     let mut examined = 0u64;
@@ -3448,10 +3580,15 @@ fn iter_memory_rcu_bounds(
             (_, Some(prefix_upper)) => Bound::Excluded(prefix_upper),
             (None, None) => Bound::Unbounded,
         };
+        let mut skipped = 0usize;
         for (key, value) in keyspace.range::<[u8], _>((lower, upper)) {
             examined = examined.saturating_add(1);
             if prefix.is_some_and(|prefix| !key.starts_with(prefix)) {
                 break;
+            }
+            if skipped < offset {
+                skipped += 1;
+                continue;
             }
             entries.push(Entry {
                 key: key.clone(),
@@ -4554,6 +4691,87 @@ mod tests {
         assert_eq!(diagnostics.iteration_count, 2);
         assert_eq!(diagnostics.iteration_entries_examined, 3);
         assert_eq!(diagnostics.iteration_entries_returned, 3);
+    }
+
+    #[test]
+    fn in_memory_prefix_page_only_materializes_the_requested_page() {
+        let db = Database::in_memory().unwrap();
+        let objects = db
+            .keyspace("objects", KeyspaceCreateOptions::default)
+            .unwrap();
+        for index in 0..1_000_u32 {
+            let key = format!("collection/{index:04}");
+            objects.insert(key.as_bytes(), b"payload").unwrap();
+        }
+
+        let before = db.ram_diagnostics().unwrap().iteration_entries_examined;
+        let page: Vec<_> = objects
+            .prefix_page(b"collection/", 50, 25)
+            .map(|entry| entry.key)
+            .collect();
+        let examined = db
+            .ram_diagnostics()
+            .unwrap()
+            .iteration_entries_examined
+            .saturating_sub(before);
+
+        assert_eq!(page.len(), 25);
+        assert_eq!(page.first(), Some(&b"collection/0050".to_vec()));
+        assert_eq!(page.last(), Some(&b"collection/0074".to_vec()));
+        assert_eq!(examined, 75);
+        assert!(objects.prefix_page(b"collection/", 0, 0).next().is_none());
+    }
+
+    #[test]
+    fn in_memory_prefix_page_after_uses_an_exclusive_cursor() {
+        let db = Database::in_memory().unwrap();
+        let objects = db
+            .keyspace("objects", KeyspaceCreateOptions::default)
+            .unwrap();
+        for index in 0..1_000_u32 {
+            let key = format!("collection/{index:04}");
+            objects.insert(key.as_bytes(), b"payload").unwrap();
+        }
+
+        let before = db.ram_diagnostics().unwrap().iteration_entries_examined;
+        let page: Vec<_> = objects
+            .prefix_page_after(b"collection/", Some(b"collection/0050"), 25)
+            .map(|entry| entry.key)
+            .collect();
+        let examined = db
+            .ram_diagnostics()
+            .unwrap()
+            .iteration_entries_examined
+            .saturating_sub(before);
+
+        assert_eq!(page.len(), 25);
+        assert_eq!(page.first(), Some(&b"collection/0051".to_vec()));
+        assert_eq!(page.last(), Some(&b"collection/0075".to_vec()));
+        assert_eq!(examined, 25);
+        assert!(
+            objects
+                .prefix_page_after(b"collection/", Some(b"collection/0050"), 0)
+                .next()
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn in_memory_counts_do_not_materialize_values() {
+        let db = Database::in_memory().unwrap();
+        let objects = db
+            .keyspace("objects", KeyspaceCreateOptions::default)
+            .unwrap();
+        for index in 0..1_000_u32 {
+            let key = format!("collection/{index:04}");
+            objects.insert(key.as_bytes(), b"large-ish-value").unwrap();
+        }
+
+        let before = db.ram_diagnostics().unwrap().iteration_count;
+        assert_eq!(objects.count().unwrap(), 1_000);
+        assert_eq!(objects.count_prefix(b"collection/00").unwrap(), 100);
+        assert_eq!(objects.count_prefix(b"missing/").unwrap(), 0);
+        assert_eq!(db.ram_diagnostics().unwrap().iteration_count, before);
     }
 
     #[test]
@@ -5736,6 +5954,11 @@ mod tests {
             .map(|entry| entry.key)
             .collect();
         assert_eq!(range, vec![b"aa".to_vec(), b"ab".to_vec()]);
+        let page: Vec<_> = objects
+            .prefix_page(b"a", 1, 1)
+            .map(|entry| entry.key)
+            .collect();
+        assert_eq!(page, vec![b"ab".to_vec()]);
     }
 
     #[test]

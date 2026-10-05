@@ -428,6 +428,241 @@ impl Keyspace {
         self.collect(Some(prefix.as_ref().to_vec()))
     }
 
+    pub(crate) fn prefix_page(
+        &self,
+        prefix: impl AsRef<[u8]>,
+        offset: usize,
+        limit: usize,
+    ) -> Iter {
+        let prefix = prefix.as_ref();
+        if limit == 0 {
+            return Iter {
+                entries: Vec::new().into_iter(),
+            };
+        }
+        let entries = match self.db.as_ref() {
+            #[cfg(feature = "rocksdb-backend")]
+            Backend::RocksDb(db) => match db.cf_handle(&self.name) {
+                Some(cf) => {
+                    let iterator =
+                        db.iterator_cf(cf, IteratorMode::From(prefix, rocksdb::Direction::Forward));
+                    let mut skipped = 0usize;
+                    let mut entries = Vec::with_capacity(limit.min(256));
+                    for entry in iterator {
+                        match entry {
+                            Ok((key, _)) if !key.starts_with(prefix) => break,
+                            Ok((_, _)) if skipped < offset => skipped += 1,
+                            Ok((key, value)) => {
+                                entries.push(Guard {
+                                    key: key.to_vec(),
+                                    value: value.to_vec(),
+                                    error: None,
+                                });
+                                if entries.len() == limit {
+                                    break;
+                                }
+                            },
+                            Err(error) => {
+                                entries.push(Guard {
+                                    key: Vec::new(),
+                                    value: Vec::new(),
+                                    error: Some(Error::from(error)),
+                                });
+                                break;
+                            },
+                        }
+                    }
+                    entries
+                },
+                None => vec![Guard {
+                    key: Vec::new(),
+                    value: Vec::new(),
+                    error: Some(Error(format!(
+                        "missing RocksDB column family: {}",
+                        self.name
+                    ))),
+                }],
+            },
+            Backend::ThingDb(_) => match self.thingdb.as_ref() {
+                Some(keyspace) => keyspace
+                    .prefix_page(prefix, offset, limit)
+                    .into_result()
+                    .map(|entries| {
+                        entries
+                            .into_iter()
+                            .map(|entry| Guard {
+                                key: entry.key,
+                                value: entry.value,
+                                error: None,
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_else(|error| {
+                        vec![Guard {
+                            key: Vec::new(),
+                            value: Vec::new(),
+                            error: Some(Error(error.to_string())),
+                        }]
+                    }),
+                None => vec![Guard {
+                    key: Vec::new(),
+                    value: Vec::new(),
+                    error: Some(Error("missing ThingDB keyspace handle".to_string())),
+                }],
+            },
+        };
+        Iter {
+            entries: entries.into_iter(),
+        }
+    }
+
+    pub(crate) fn prefix_page_after(
+        &self,
+        prefix: impl AsRef<[u8]>,
+        after_key: Option<&[u8]>,
+        limit: usize,
+    ) -> Iter {
+        let prefix = prefix.as_ref();
+        if limit == 0 {
+            return Iter {
+                entries: Vec::new().into_iter(),
+            };
+        }
+        let entries = match self.db.as_ref() {
+            #[cfg(feature = "rocksdb-backend")]
+            Backend::RocksDb(db) => match db.cf_handle(&self.name) {
+                Some(cf) => {
+                    let start = after_key.unwrap_or(prefix);
+                    let iterator =
+                        db.iterator_cf(cf, IteratorMode::From(start, rocksdb::Direction::Forward));
+                    let mut entries = Vec::with_capacity(limit.min(256));
+                    for entry in iterator {
+                        match entry {
+                            Ok((key, _)) if !key.starts_with(prefix) => break,
+                            Ok((key, _))
+                                if after_key.is_some_and(|after| key.as_ref() == after) => {},
+                            Ok((key, value)) => {
+                                entries.push(Guard {
+                                    key: key.to_vec(),
+                                    value: value.to_vec(),
+                                    error: None,
+                                });
+                                if entries.len() == limit {
+                                    break;
+                                }
+                            },
+                            Err(error) => {
+                                entries.push(Guard {
+                                    key: Vec::new(),
+                                    value: Vec::new(),
+                                    error: Some(Error::from(error)),
+                                });
+                                break;
+                            },
+                        }
+                    }
+                    entries
+                },
+                None => vec![Guard {
+                    key: Vec::new(),
+                    value: Vec::new(),
+                    error: Some(Error(format!(
+                        "missing RocksDB column family: {}",
+                        self.name
+                    ))),
+                }],
+            },
+            Backend::ThingDb(_) => match self.thingdb.as_ref() {
+                Some(keyspace) => keyspace
+                    .prefix_page_after(prefix, after_key, limit)
+                    .into_result()
+                    .map(|entries| {
+                        entries
+                            .into_iter()
+                            .map(|entry| Guard {
+                                key: entry.key,
+                                value: entry.value,
+                                error: None,
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_else(|error| {
+                        vec![Guard {
+                            key: Vec::new(),
+                            value: Vec::new(),
+                            error: Some(Error(error.to_string())),
+                        }]
+                    }),
+                None => vec![Guard {
+                    key: Vec::new(),
+                    value: Vec::new(),
+                    error: Some(Error("ThingDB keyspace is unavailable".to_string())),
+                }],
+            },
+        };
+        Iter {
+            entries: entries.into_iter(),
+        }
+    }
+
+    pub(crate) fn count(&self) -> Result<usize, Error> {
+        match self.db.as_ref() {
+            #[cfg(feature = "rocksdb-backend")]
+            Backend::RocksDb(db) => {
+                let cf = db.cf_handle(&self.name).ok_or_else(|| {
+                    Error(format!("missing RocksDB column family: {}", self.name))
+                })?;
+                let mut count = 0usize;
+                for entry in db.iterator_cf(cf, IteratorMode::Start) {
+                    entry.map_err(Error::from)?;
+                    count = count
+                        .checked_add(1)
+                        .ok_or_else(|| Error("keyspace entry count overflow".to_string()))?;
+                }
+                Ok(count)
+            },
+            Backend::ThingDb(_) => self
+                .thingdb
+                .as_ref()
+                .ok_or_else(|| Error("missing ThingDB keyspace handle".to_string()))?
+                .count()
+                .map_err(|error| Error(error.to_string())),
+        }
+    }
+
+    pub(crate) fn count_prefix(&self, prefix: impl AsRef<[u8]>) -> Result<usize, Error> {
+        let prefix = prefix.as_ref();
+        match self.db.as_ref() {
+            #[cfg(feature = "rocksdb-backend")]
+            Backend::RocksDb(db) => {
+                let cf = db.cf_handle(&self.name).ok_or_else(|| {
+                    Error(format!("missing RocksDB column family: {}", self.name))
+                })?;
+                let iterator =
+                    db.iterator_cf(cf, IteratorMode::From(prefix, rocksdb::Direction::Forward));
+                let mut count = 0usize;
+                for entry in iterator {
+                    match entry {
+                        Ok((key, _)) if !key.starts_with(prefix) => break,
+                        Ok(_) => {
+                            count = count.checked_add(1).ok_or_else(|| {
+                                Error("keyspace entry count overflow".to_string())
+                            })?;
+                        },
+                        Err(error) => return Err(Error::from(error)),
+                    }
+                }
+                Ok(count)
+            },
+            Backend::ThingDb(_) => self
+                .thingdb
+                .as_ref()
+                .ok_or_else(|| Error("missing ThingDB keyspace handle".to_string()))?
+                .count_prefix(prefix)
+                .map_err(|error| Error(error.to_string())),
+        }
+    }
+
     pub(crate) fn first_prefix_after(
         &self,
         prefix: impl AsRef<[u8]>,
