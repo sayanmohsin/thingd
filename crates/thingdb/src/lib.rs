@@ -1303,12 +1303,24 @@ impl Database {
         clone: u64,
         acquire: u64,
     ) {
+        self.record_ram_lookup_batch_timing(1, lock_wait, lock_held, lookup, clone, acquire);
+    }
+
+    fn record_ram_lookup_batch_timing(
+        &self,
+        lookup_count: u64,
+        lock_wait: u64,
+        lock_held: u64,
+        lookup: u64,
+        clone: u64,
+        acquire: u64,
+    ) {
         if self.ram_keyspaces.is_none() {
             return;
         }
         self.ram_hot_diagnostics
             .lookup_count
-            .fetch_add(1, Ordering::Relaxed);
+            .fetch_add(lookup_count, Ordering::Relaxed);
         RamHotDiagnostics::add(&self.ram_hot_diagnostics.lock_wait_duration_ns, lock_wait);
         RamHotDiagnostics::add(&self.ram_hot_diagnostics.lock_held_duration_ns, lock_held);
         RamHotDiagnostics::add(&self.ram_hot_diagnostics.lookup_duration_ns, lookup);
@@ -2527,6 +2539,82 @@ impl Keyspace {
             acquire_duration,
         );
         Ok(value)
+    }
+
+    /// Read multiple values while acquiring the RAM state lock only once.
+    ///
+    /// Results preserve input order and duplicates. Values are returned with
+    /// shared ownership so callers can deserialize them after the state lock
+    /// has been released. Durable databases use the normal positioned lookup
+    /// path and do not acquire the RAM state lock.
+    pub fn get_many_shared(&self, keys: &[Vec<u8>]) -> Result<Vec<Option<Arc<Vec<u8>>>>> {
+        if keys.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        #[cfg(feature = "benchmark")]
+        if let Some(rcu) = &self.db.ram_rcu_keyspaces {
+            let started = Instant::now();
+            let generation = rcu.load_full();
+            let values = keys
+                .iter()
+                .map(|key| {
+                    generation
+                        .get(self.name.as_ref())
+                        .and_then(|keyspace| keyspace.get(key))
+                        .cloned()
+                })
+                .collect();
+            self.db.record_ram_lookup_batch_timing(
+                u64::try_from(keys.len()).unwrap_or(u64::MAX),
+                0,
+                0,
+                elapsed_nanos(started.elapsed()),
+                0,
+                0,
+            );
+            return Ok(values);
+        }
+
+        if let Some(ram_keyspaces) = self.db.ram_keyspaces.as_ref() {
+            let lookup_started = Instant::now();
+            let lock_started = Instant::now();
+            let keyspaces = ram_keyspaces
+                .read()
+                .map_err(|_| Error::message("ThingDB RAM state lock poisoned"))?;
+            let lock_wait = elapsed_nanos(lock_started.elapsed());
+            let acquire_started = Instant::now();
+            let values = keys
+                .iter()
+                .map(|key| {
+                    keyspaces
+                        .get(self.name.as_ref())
+                        .and_then(|keyspace| keyspace.get(key))
+                        .cloned()
+                })
+                .collect();
+            let acquire_duration = elapsed_nanos(acquire_started.elapsed());
+            let lookup_duration = elapsed_nanos(lookup_started.elapsed());
+            drop(keyspaces);
+            self.db.record_ram_lookup_batch_timing(
+                u64::try_from(keys.len()).unwrap_or(u64::MAX),
+                lock_wait,
+                lookup_duration.saturating_sub(lock_wait),
+                lookup_duration,
+                0,
+                acquire_duration,
+            );
+            return Ok(values);
+        }
+
+        keys.iter()
+            .map(|key| {
+                let physical = physical_key_from_namespace(&self.namespace, key);
+                self.db
+                    .get_durable_value(&physical)
+                    .map(|value| value.map(Arc::new))
+            })
+            .collect()
     }
 
     /// Read a value by user key.
@@ -4811,6 +4899,44 @@ mod tests {
         assert_eq!(shared.as_slice(), b"before");
         assert_eq!(objects.get(b"key").unwrap(), Some(b"after".to_vec()));
         assert!(db.ram_diagnostics().unwrap().lookup_count >= 1);
+    }
+
+    #[test]
+    fn in_memory_batched_shared_reads_preserve_order_duplicates_and_snapshot_values() {
+        let db = Database::in_memory().unwrap();
+        let objects = db
+            .keyspace("objects", KeyspaceCreateOptions::default)
+            .unwrap();
+        db.batch()
+            .put(&objects, b"a", b"one")
+            .put(&objects, b"b", b"two")
+            .commit()
+            .unwrap();
+
+        let keys = vec![
+            b"b".to_vec(),
+            b"missing".to_vec(),
+            b"a".to_vec(),
+            b"b".to_vec(),
+        ];
+        let values = objects.get_many_shared(&keys).unwrap();
+        objects.insert(b"b", b"updated").unwrap();
+
+        assert_eq!(values.len(), keys.len());
+        assert_eq!(
+            values[0].as_deref().map(Vec::as_slice),
+            Some(b"two".as_slice())
+        );
+        assert!(values[1].is_none());
+        assert_eq!(
+            values[2].as_deref().map(Vec::as_slice),
+            Some(b"one".as_slice())
+        );
+        assert_eq!(
+            values[3].as_deref().map(Vec::as_slice),
+            Some(b"two".as_slice())
+        );
+        assert_eq!(objects.get(b"b").unwrap(), Some(b"updated".to_vec()));
     }
 
     #[test]

@@ -955,6 +955,9 @@ where
     let elapsed = time_object_gets(&store, iterations)?;
     report(name, "object_get", iterations, elapsed);
 
+    let elapsed = time_object_get_batches(&store, iterations, 100)?;
+    report(name, "object_get_batch_100", iterations, elapsed);
+
     let started = Instant::now();
     let all_objects = store.list_objects(None, &ListObjectsOptions::default())?;
     let elapsed = started.elapsed();
@@ -2444,6 +2447,29 @@ where
         let id = format!("object-{index}");
         let object = store.get_object(COLLECTION, black_box(id.as_str()))?;
         black_box(object);
+    }
+
+    Ok(started.elapsed())
+}
+
+fn time_object_get_batches<S>(
+    store: &S,
+    iterations: usize,
+    batch_size: usize,
+) -> Result<Duration, Box<dyn Error>>
+where
+    S: ObjectStore,
+{
+    let batch_size = batch_size.max(1);
+    let started = Instant::now();
+
+    for start in (0..iterations).step_by(batch_size) {
+        let end = start.saturating_add(batch_size).min(iterations);
+        let ids = (start..end)
+            .map(|index| format!("object-{index}"))
+            .collect::<Vec<_>>();
+        let objects = store.get_objects_batch(COLLECTION, &ids)?;
+        black_box(objects);
     }
 
     Ok(started.elapsed())

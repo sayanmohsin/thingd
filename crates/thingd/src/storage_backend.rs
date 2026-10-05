@@ -396,6 +396,33 @@ impl Keyspace {
         }
     }
 
+    pub(crate) fn get_many_shared(
+        &self,
+        keys: &[Vec<u8>],
+    ) -> Result<Vec<Option<Arc<Vec<u8>>>>, Error> {
+        match self.db.as_ref() {
+            #[cfg(feature = "rocksdb-backend")]
+            Backend::RocksDb(db) => {
+                let cf = db.cf_handle(&self.name).ok_or_else(|| {
+                    Error(format!("missing RocksDB column family: {}", self.name))
+                })?;
+                keys.iter()
+                    .map(|key| {
+                        db.get_cf(cf, key)
+                            .map(|value| value.map(Arc::new))
+                            .map_err(Error::from)
+                    })
+                    .collect()
+            },
+            Backend::ThingDb(_) => self
+                .thingdb
+                .as_ref()
+                .ok_or_else(|| Error("missing ThingDB keyspace handle".to_string()))?
+                .get_many_shared(keys)
+                .map_err(|error| Error(error.to_string())),
+        }
+    }
+
     pub(crate) fn insert(
         &self,
         key: impl AsRef<[u8]>,

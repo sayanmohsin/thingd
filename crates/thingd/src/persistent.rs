@@ -3213,6 +3213,25 @@ impl ObjectStore for PersistentEngine {
         collection: &str,
         ids: &[String],
     ) -> ThingdResult<Vec<Option<MemoryObject>>> {
+        if self.db.is_in_memory() {
+            let keys = ids
+                .iter()
+                .map(|id| self.make_object_key(collection, id))
+                .collect::<Vec<_>>();
+            let values = self
+                .objects
+                .get_many_shared(&keys)
+                .map_err(|error| ThingdError::Storage(error.to_string()))?;
+            return values
+                .into_iter()
+                .map(|value| {
+                    value
+                        .map(|value| self.deserialize(value.as_slice()))
+                        .transpose()
+                })
+                .collect();
+        }
+
         ids.iter()
             .map(|id| self.get_object(collection, id))
             .collect()
@@ -6987,6 +7006,44 @@ mod tests {
         assert_eq!(events.first().unwrap().sequence, 1);
         assert_eq!(events.last().unwrap().sequence, 25);
         assert_eq!(examined, 25);
+    }
+
+    #[test]
+    fn thingdb_ram_batched_object_reads_preserve_order_and_missing_values() {
+        let mut engine = setup_thingdb_memory();
+        engine
+            .put_objects_batch(vec![
+                MemoryObject::new("batch-read", "a", r#"{"value":1}"#),
+                MemoryObject::new("batch-read", "b", r#"{"value":2}"#),
+            ])
+            .unwrap();
+
+        let values = engine
+            .get_objects_batch(
+                "batch-read",
+                &[
+                    "b".to_string(),
+                    "missing".to_string(),
+                    "a".to_string(),
+                    "b".to_string(),
+                ],
+            )
+            .unwrap();
+
+        assert_eq!(values.len(), 4);
+        assert_eq!(
+            values[0].as_ref().map(|object| object.key.id.as_str()),
+            Some("b")
+        );
+        assert!(values[1].is_none());
+        assert_eq!(
+            values[2].as_ref().map(|object| object.key.id.as_str()),
+            Some("a")
+        );
+        assert_eq!(
+            values[3].as_ref().map(|object| object.key.id.as_str()),
+            Some("b")
+        );
     }
 
     #[test]
