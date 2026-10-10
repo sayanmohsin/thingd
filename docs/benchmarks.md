@@ -1,8 +1,13 @@
 # Benchmarks
 
-The storage benchmark is a local development signal, not a portable product
-claim. Results vary with CPU, filesystem, thermal state, Rust version, and
-iteration count. The benchmark compares the in-memory adapter, the default
+ThingDB is an embedded key-value database, while Thingd adds a higher-level
+semantic store above storage engines. This guide therefore keeps two kinds of
+measurement separate: raw key/value workloads for database engines, and
+Thingd object/event/queue/search workloads for the complete semantic layer.
+Neither should be read as a portable product-speed claim. Results vary with
+CPU, filesystem, thermal state, Rust version, and iteration count.
+
+The Thingd storage benchmark compares its in-memory adapter, the default
 RocksDB-backed persistent adapter, and the experimental ThingDB adapter; it
 does not benchmark REST, MCP, or sidecar throughput.
 

@@ -35,14 +35,36 @@ Native persistent storage optionally supports authenticated encryption through
 `THINGD_ENCRYPTION_KEY` (64 hexadecimal characters). Encrypted databases
 require the key on reopen and filesystem backups remain encrypted.
 
-Storage backends and benchmark methodology are documented in the [storage
-backend guide](./docs/storage-backends.md) and [benchmark guide](./docs/benchmarks.md).
-RocksDB remains the default durable backend. ThingDB is an experimental,
-opt-in Rust-native backend with a separate format; it is evaluated against
-RocksDB and the in-memory reference engine using the unified benchmark.
-ThingDB is also available as an experimental standalone low-level Rust crate
-for ordered keyspaces, atomic batches, snapshots, RAM storage, and its
-experimental durable format. See the [standalone ThingDB API contract](./docs/api-spec/thingdb.md).
+## ThingDB: an embedded Rust key-value database
+
+[ThingDB](https://crates.io/crates/thingdb) is an experimental embedded
+key-value database written in Rust. Its standalone crate provides ordered
+byte-key keyspaces, atomic batches, snapshots, prefix and range scans, and two
+storage modes: process-local RAM and an experimental WAL-backed durable
+format. It is a storage engine, not a SQL server or a replacement for Thingd's
+object, event, queue, and search APIs. Start with the
+[ThingDB API guide](./docs/api-spec/thingdb.md).
+
+ThingDB RAM creates no database files and loses all data when the process
+exits. Durable ThingDB syncs its WAL before acknowledging successful writes,
+but its on-disk format is experimental and is not compatible with RocksDB.
+Do not rely on it as the only copy of important data.
+
+### ThingDB in Thingd
+
+Thingd uses ThingDB RAM for disposable native/server in-memory operation.
+RocksDB remains the default durable backend; durable ThingDB is opt-in for
+evaluation and uses a separate format. Thingd's semantic layer supplies
+objects, events, queues, links, vectors, and search above its storage engines.
+The crate's `MemoryCache` is a separate bounded TTL/LRU cache, not the full
+Thingd RAM database. In the Node SDK, the native addon uses ThingDB RAM for
+`:memory:` when available; the portable TypeScript driver is used when it is
+not, and browser/edge runtimes use that portable implementation.
+
+The [storage backend guide](./docs/storage-backends.md) explains Thingd's
+runtime choices. The [benchmark guide](./docs/benchmarks.md) separates raw
+key/value database comparisons from Thingd semantic workloads. Comparable
+cross-database results are pending; no general speed claim is made.
 
 ## Status
 
@@ -71,40 +93,6 @@ See the [public documentation index](https://github.com/sayanmohsin/thingd/blob/
 - Continued ThingDB RAM performance and memory validation; the RAM path remains experimental and does not change the RocksDB durable default
 - Additional deployment integrations and operational hardening
 - Browser and edge runtime packaging via WASM
-
-The default public Node.js SDK path uses the Rust ThingDB RAM engine when the
-native addon is available. It is process-local and non-durable. If the native
-addon is unavailable, Node uses the TypeScript in-memory implementation; the
-browser and edge runtimes always use that portable implementation. The Rust
-core also has persistent object, event, and queue storage. Node apps can use
-the cloud driver to talk to a `thingd` sidecar through `THINGD_URL`.
-
-Use ThingDB RAM when you need the full in-memory Thingd contract. Use the
-separate ThingDB cache primitive when you only need a bounded TTL/LRU key/value
-cache. Neither mode writes durable files or survives process exit. See
-[Storage backends](./docs/storage-backends.md) for the complete mode matrix.
-
-## ThingDB: a new storage engine inside Thingd
-
-ThingDB is Thingd's Rust-native key/value engine—not another name for the
-Thingd semantic API and not a RocksDB-compatible file format. It has two
-distinct storage paths, with different guarantees:
-
-| ThingDB mode | What it is for | Persistence |
-| --- | --- | --- |
-| **RAM** | Thingd's disposable native/server `:memory:` mode; full Thingd semantics | Process-local; lost on exit; no database files |
-| **Durable** | Experimental opt-in engine for evaluation and development | WAL sync before successful acknowledgement; separate ThingDB format |
-
-RocksDB remains Thingd's default for durable native/server storage. The
-standalone [`thingdb` crate](https://crates.io/crates/thingdb) exposes the
-lower-level keyspace, batch, scan, snapshot, and cache primitives independently
-of Thingd. Its `MemoryCache` is a bounded TTL/LRU cache, not the full Thingd RAM
-database. The engines are evaluated with the same raw key/value workloads;
-Thingd's object, event, queue, and search workloads remain a separate semantic
-benchmark. See [storage modes](./docs/storage-backends.md) and the
-[benchmark methodology](./docs/benchmarks.md). No cross-database performance
-claim is published until the comparable matrix completes on the specified
-Linux host.
 
 For browsers, edge runtimes, and non-Node.js environments, use the standalone
 `@thingd/client` package — a zero-dependency REST client.

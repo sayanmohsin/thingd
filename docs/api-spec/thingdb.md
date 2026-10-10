@@ -1,17 +1,20 @@
-# Standalone ThingDB API
+# ThingDB: embedded Rust key-value database
 
-ThingDB is an experimental, low-level Rust ordered key-value engine. It can
-be used independently of the `thingd` crate:
+ThingDB is an experimental embedded database for ordered byte-key and
+byte-value storage. It is published as the `thingdb` crate and does not
+require Thingd. Keyspaces organize data; atomic batches group related writes;
+ordered scans and snapshots provide consistent access. It is a low-level
+key/value database, not a SQL server or a semantic object/event/queue API.
 
 ```toml
 [dependencies]
-thingdb = "0.86.8"
+thingdb = "0.92.0"
 ```
 
-The standalone crate provides keyspaces, atomic batches, ordered scans,
-snapshots, a durable WAL-backed mode, and a bounded `MemoryCache`. It does not
-provide Thingd semantic objects, event streams, queues, links, vectors, or
-MCP/REST APIs; those belong to the `thingd` crate.
+The crate provides process-local RAM and experimental WAL-backed durable
+modes, plus a separate bounded `MemoryCache` primitive. Thingd builds its
+higher-level objects, events, queues, links, vectors, and search on its own
+semantic layer; these are not part of ThingDB's standalone key/value API.
 
 ## Opening a database
 
@@ -107,12 +110,13 @@ assert_eq!(cache.get(b"key")?, Some(b"value".to_vec()));
 The cache is not durable, persistent, replicated, or a semantic Thingd object
 store. It creates no filesystem artifacts.
 
-## Stability and relationship to Thingd
+## Stability and Thingd integration
 
-ThingDB is currently a separate experimental crate maintained in the Thingd
-repository. Thingd uses ThingDB RAM for disposable native/server in-memory
-operation, while RocksDB remains the default durable backend. Durable ThingDB
-is opt-in and separately validated.
+ThingDB is an experimental crate maintained in the Thingd repository. In
+Thingd, its RAM mode backs disposable native/server in-memory operation.
+RocksDB remains Thingd's default durable backend, while durable ThingDB is
+opt-in and separately validated. ThingDB's durable format is independent of
+RocksDB and has no file-format stability promise before ThingDB 1.0.
 
 See the [ThingDB rustdoc on docs.rs](https://docs.rs/thingdb), the
 [storage backend guide](../storage-backends.md), and the
