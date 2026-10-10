@@ -39,21 +39,34 @@ non-durable.
 
 ## ThingDB {#thingdb}
 
-ThingDB is a Rust-native storage engine with its own keyspace, batch, snapshot,
-and table/WAL implementation. It is a distinct engine and on-disk format, not
-a wrapper around RocksDB and not a claim that Thingd's object/event/queue
-semantics are provided by other key/value engines.
+ThingDB is an experimental embedded key-value database available as the
+standalone `thingdb` Rust crate. Its low-level API stores opaque byte keys and
+values in ordered keyspaces and provides atomic batches, snapshots, and
+prefix/range scans. It can run entirely in RAM or use its own WAL-backed
+durable format. It is not a SQL server and does not itself implement Thingd's
+object, event, queue, vector, or search semantics.
 
-| ThingDB path | Thingd use | Guarantees and limits | Status |
+| ThingDB mode | Database behavior | Thingd integration | Status |
 | --- | --- | --- | --- |
-| RAM | Default for disposable native/server `:memory:` operation | Ordered in-process state; atomic batches and snapshots; no WAL or database files; data is lost when the process exits | Used for disposable memory mode; ongoing parity/performance validation |
-| Durable | Explicit `THINGD_STORAGE_BACKEND=thingdb` selection | Checksummed WAL, sync-before-ack, atomic batches, recovery, immutable tables; separate format, substantial memory use, and no direct RocksDB file compatibility | Experimental, opt-in; not the durable default |
-| `MemoryCache` | Separate low-level `thingdb` crate primitive | Bounded key/value cache with TTL and LRU; not a database and not Thingd's semantic RAM engine | Standalone cache API |
+| RAM | Ordered in-process state, atomic batches and snapshots; no filesystem I/O; data is lost at process exit | Used for disposable native/server `:memory:` mode | Available; parity and performance continue to be validated |
+| Durable | Checksummed WAL, sync-before-ack, atomic batches, recovery, and ordered tables; separate format and substantial memory use | Explicit opt-in through `THINGD_STORAGE_BACKEND=thingdb` | Experimental; not Thingd's durable default |
+| `MemoryCache` | Separate bounded byte cache with TTL and LRU; not a database | Not used as Thingd's semantic RAM engine | Standalone cache API |
 
-RocksDB remains the default for durable native/server storage. Thingd's
-`MemoryEngine` remains the portable semantic reference; it is not the same
-implementation as ThingDB RAM. For the standalone low-level crate surface, see
-the [ThingDB API contract](./api-spec/thingdb.md).
+Use the standalone [`thingdb` crate](https://crates.io/crates/thingdb) without
+Thingd when ordered key/value storage is the needed abstraction. See the
+[ThingDB API guide](./api-spec/thingdb.md) for examples and its low-level
+contract.
+
+## ThingDB in Thingd
+
+Thingd provides the higher-level semantic database: objects, events, queues,
+links, schemas, vectors, and search. Those behaviors are implemented by
+Thingd's shared semantic layer above storage adapters; they are not features
+of the standalone ThingDB key/value API. Thingd uses ThingDB RAM for
+disposable native/server memory mode, while RocksDB remains the default
+durable backend. `MemoryEngine` is Thingd's portable semantic reference, not
+another name for ThingDB RAM. ThingDB does not open RocksDB files directly;
+moving between formats requires the supported logical repack workflow.
 
 RocksDB is statically built into the native addon and server artifact by
 default. Set `THINGD_STORAGE_BACKEND=thingdb` to opt into the experimental
@@ -72,16 +85,6 @@ applications. This compile-time separation does not change runtime defaults:
 RocksDB remains the default durable backend, and ThingDB remains a separate,
 opt-in format. A RocksDB-free build reports a clear error if a durable path is
 opened while RocksDB is selected.
-
-ThingDB is a new format with a checksummed WAL, ordered keyspaces, atomic
-batches, snapshots, and compacted table files. It does not open RocksDB files
-directly. Switching between formats is a logical repack, not a file rename.
-Keep RocksDB as the default until the experimental backend passes the
-large-store durability and performance gates.
-
-ThingDB can also be consumed independently of Thingd as the low-level
-`thingdb` Rust crate. See the [standalone ThingDB API contract](./api-spec/thingdb.md)
-for its keyspace, batch, scan, snapshot, recovery, and `MemoryCache` APIs.
 
 ## Experimental durable ThingDB
 

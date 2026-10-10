@@ -52,50 +52,57 @@ features:
 
 ---
 
-## Storage and benchmark status
+## ThingDB: embedded Rust key-value database
 
-Thingd uses ThingDB RAM for disposable native/server in-memory operation and
-RocksDB as the default durable backend. Durable ThingDB is an experimental,
-opt-in Rust-native format and does not open RocksDB files directly.
-
-The [storage backend guide](/storage-backends) explains the runtime modes and
-safe logical repack path. The [benchmark guide](/benchmarks) documents the
-single reproducible harness used to compare ThingDB RAM, the `MemoryEngine`
-reference, RocksDB, and durable ThingDB. Results are local development signals,
-not production performance claims.
-
-ThingDB is also available as an experimental standalone Rust crate with its
-own low-level [API contract](/api-spec/thingdb). It is separate from Thingd's
-semantic object, event, queue, and search APIs.
+ThingDB is an experimental embedded key-value database written in Rust. The
+standalone crate offers ordered byte-key keyspaces, atomic batches, snapshots,
+and prefix/range scans. It has process-local RAM storage and a separate
+experimental WAL-backed durable format. It is a database engine, not a SQL
+server or a semantic object/event/queue API.
 
 <section class="thingdb-lab" aria-labelledby="thingdb-lab-title">
-  <div class="thingdb-lab__eyebrow"><span class="thingdb-lab__pulse"></span> AN ENGINE IN PROGRESS · RUST-NATIVE</div>
+  <div class="thingdb-lab__eyebrow"><span class="thingdb-lab__pulse"></span> EMBEDDED RUST DATABASE · EXPERIMENTAL</div>
   <h2 id="thingdb-lab-title">Meet ThingDB</h2>
-  <p class="thingdb-lab__intro">A new storage engine taking shape inside Thingd. One shared semantic layer above two deliberately different storage paths: fast, disposable RAM for ephemeral state, and an experimental WAL-backed format for durable evaluation.</p>
+  <p class="thingdb-lab__intro">An ordered key-value database for Rust applications: organize byte keys into keyspaces, commit related changes atomically, and read them through deterministic scans or consistent snapshots. Use RAM for disposable state; evaluate the separate durable format with care.</p>
   <div class="thingdb-lab__modes">
     <article class="thingdb-lab__mode thingdb-lab__mode--ram">
       <div class="thingdb-lab__mode-label">01 / VOLATILE</div>
-      <h3>RAM mode</h3>
-      <p>Backs Thingd's native and server <code>:memory:</code> mode. Full Thingd behavior, no database files, and data ends with the process.</p>
-      <span class="thingdb-lab__status">IN USE FOR DISPOSABLE MEMORY</span>
+      <h3>RAM database</h3>
+      <p>In-process ordered storage with keyspaces, batches, scans, and snapshots. No database files; all data is lost when the process exits.</p>
+      <span class="thingdb-lab__status">PROCESS-LOCAL · NON-DURABLE</span>
     </article>
     <article class="thingdb-lab__mode thingdb-lab__mode--durable">
       <div class="thingdb-lab__mode-label">02 / PERSISTENT</div>
-      <h3>Durable mode</h3>
-      <p>Separate experimental format with WAL sync-before-ack, atomic batches, recovery, and table maintenance. It does not open RocksDB files.</p>
-      <span class="thingdb-lab__status">OPT-IN · UNDER QUALIFICATION</span>
+      <h3>Durable database</h3>
+      <p>Experimental WAL-backed storage with sync-before-ack writes, recovery, and ordered tables. Its format is independent of RocksDB.</p>
+      <span class="thingdb-lab__status">EXPERIMENTAL · NOT A ROCKSDB FORMAT</span>
     </article>
   </div>
   <div class="thingdb-lab__foot">
-    <span><strong>Today:</strong> RocksDB remains the default durable backend.</span>
-    <span><strong>Benchmark:</strong> comparable raw key/value results are pending a pinned Linux run.</span>
+    <span><strong>Standalone:</strong> use the <code>thingdb</code> crate without Thingd.</span>
+    <span><strong>Stability:</strong> no durable format stability promise before 1.0.</span>
   </div>
   <div class="thingdb-lab__links">
-    <a href="/storage-backends">Explore storage modes →</a>
-    <a href="/benchmarks">Read the benchmark method →</a>
-    <a href="/api-spec/thingdb">ThingDB crate API →</a>
+    <a href="https://crates.io/crates/thingdb">Get the crate →</a>
+    <a href="/api-spec/thingdb">Read the database API →</a>
+    <a href="/benchmarks">Explore benchmark methodology →</a>
   </div>
 </section>
+
+### ThingDB in Thingd
+
+Thingd uses ThingDB RAM for disposable native/server `:memory:`
+operation. For durable Thingd storage, RocksDB remains the default; durable
+ThingDB is opt-in and experimental. Thingd layers its object, event, queue,
+vector, and search semantics above storage engines. The standalone crate's
+`MemoryCache` is a separate bounded TTL/LRU cache, not Thingd's full
+RAM database.
+
+The [storage backend guide](/storage-backends) explains Thingd runtime modes
+and logical repack. The [benchmark guide](/benchmarks) separates raw
+key/value comparisons from Thingd semantic workloads. Comparable cross-database
+results are pending; current benchmark data is development evidence, not a
+portable performance claim.
 
 ### ☁️ Need managed hosting?
 
