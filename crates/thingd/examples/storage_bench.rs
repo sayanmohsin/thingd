@@ -40,6 +40,9 @@ use thingd::{Link, LinkStore};
 use thingdb::KeyspaceCreateOptions;
 use thingdb::{CacheOptions, MemoryCache};
 
+#[path = "storage_bench/comparable.rs"]
+mod comparable;
+
 const DEFAULT_ITERATIONS: usize = 5_000;
 const BENCHMARK_QUEUE_LEASE_MS: u64 = 86_400_000;
 const DEFAULT_MEMTABLE_BYTES: u64 = 8 * 1024 * 1024;
@@ -66,6 +69,7 @@ enum BackendSelection {
     RocksDb,
     ThingDb,
     Cache,
+    Comparable,
 }
 
 #[derive(Debug)]
@@ -124,6 +128,7 @@ struct BenchOutput {
     ram: Vec<RamSnapshot>,
     qualification: Vec<QualificationSnapshot>,
     queue: Vec<QueueSnapshot>,
+    raw_comparisons: Vec<comparable::RawComparisonSnapshot>,
 }
 
 #[derive(Debug, Serialize)]
@@ -288,7 +293,8 @@ fn main() -> Result<(), Box<dyn Error>> {
             metadata: BenchMetadata {
                 date: command_output("date", &["-u", "+%Y-%m-%dT%H:%M:%SZ"]),
                 phase: config.phase.clone(),
-                branch: command_output("git", &["branch", "--show-current"]),
+                branch: env::var("GITHUB_REF_NAME")
+                    .unwrap_or_else(|_| command_output("git", &["branch", "--show-current"])),
                 iterations: config.iterations,
                 repetitions: config.repetitions,
                 seed: config.seed,
@@ -322,6 +328,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             ram: Vec::new(),
             qualification: Vec::new(),
             queue: Vec::new(),
+            raw_comparisons: Vec::new(),
         }))
         .map_err(|_| "benchmark output was initialized more than once")?;
 
@@ -363,6 +370,10 @@ fn main() -> Result<(), Box<dyn Error>> {
                 config.queue_iterations,
             )?;
             bench_concurrent("memory-engine", || Ok(MemoryEngine::new()), iterations)?;
+        }
+
+        if config.backend == BackendSelection::Comparable {
+            comparable::run(iterations, config.seed)?;
         }
 
         if config.backend.includes_thingdb_memory() {
@@ -910,6 +921,7 @@ impl BenchConfig {
                         "thingdb" => BackendSelection::ThingDb,
                         "thingdb-memory" => BackendSelection::ThingDbMemory,
                         "cache" => BackendSelection::Cache,
+                        "comparable" => BackendSelection::Comparable,
                         other => return Err(format!("unknown backend {other:?}").into()),
                     };
                 },
@@ -988,6 +1000,7 @@ impl BackendSelection {
             Self::RocksDb => "rocksdb",
             Self::ThingDb => "thingdb",
             Self::Cache => "cache",
+            Self::Comparable => "comparable",
         }
     }
 }

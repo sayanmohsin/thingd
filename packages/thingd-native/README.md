@@ -23,3 +23,26 @@ authenticated encrypted storage. The key is validated before opening the Rust
 engine. Missing or wrong keys are reported as stable open errors without
 including key material. MCP and REST callers do not pass this key in requests;
 the host process supplies it during startup.
+
+## Rust build features
+
+The Cargo package preserves its existing default build: RocksDB and ThingDB
+backends, search, and vectors are enabled. Applications embedding this crate
+can choose a smaller backend set explicitly:
+
+```toml
+thingd-native = { version = "0.91", default-features = false, features = [
+  "thingdb-backend",
+  "search",
+  "vectors",
+] }
+```
+
+That ThingDB-only build does not compile `librocksdb-sys` or require the
+RocksDB/LLVM/Clang toolchain. A filesystem-backed open must select
+`THINGD_STORAGE_BACKEND=thingdb`; the runtime still defaults to RocksDB for
+durable paths and returns an explicit unavailable-backend error if RocksDB was
+not compiled in. The `:memory:` path continues to use ThingDB RAM mode. To keep
+the historical durable backend, use the default features or explicitly enable
+`rocksdb-backend`. That feature also enables ThingDB support because the shared
+Thingd engine uses ThingDB for its RAM implementation.

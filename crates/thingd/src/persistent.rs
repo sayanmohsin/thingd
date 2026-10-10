@@ -3639,8 +3639,7 @@ impl ObjectStore for PersistentEngine {
             .collect::<Vec<_>>();
         let existing_values = self.objects.get_many_shared(&object_keys)?;
 
-        for (((_collection, _id), key), value) in keys.iter().zip(object_keys).zip(existing_values)
-        {
+        for (((collection, id), key), value) in keys.iter().zip(object_keys).zip(existing_values) {
             if let Some(data) = value {
                 deleted.push(self.deserialize::<MemoryObject>(data.as_slice())?);
                 batch.remove_owned(&self.objects, key);
@@ -3648,9 +3647,11 @@ impl ObjectStore for PersistentEngine {
             }
             #[cfg(feature = "vectors")]
             {
-                let vkey = self.make_vector_key(_collection, _id);
+                let vkey = self.make_vector_key(collection, id);
                 batch.remove(&self.vectors, vkey);
             }
+            #[cfg(not(feature = "vectors"))]
+            let _ = (collection, id);
         }
 
         if count > 0 {
@@ -7284,11 +7285,11 @@ mod tests {
         reopened
             .delete_object("private_collection", "private_id")
             .unwrap();
-        assert!(
+        assert_eq!(
             reopened
                 .search("encrypted_search_term", SearchOptions::default())
-                .unwrap()
-                .is_empty()
+                .unwrap(),
+            Vec::<crate::SearchHit>::new()
         );
     }
 
@@ -7498,7 +7499,7 @@ mod tests {
         let first = engine
             .put_object(MemoryObject::new("col", "id", r#"{"v":1}"#))
             .unwrap();
-        assert!(!first.created_at.is_empty());
+        assert_ne!(first.created_at, "");
         let second = engine
             .put_object(MemoryObject::new("col", "id", r#"{"v":2}"#))
             .unwrap();
@@ -7619,7 +7620,7 @@ mod tests {
                 },
             )
             .unwrap();
-        assert!(empty_page.is_empty());
+        assert_eq!(empty_page, Vec::new());
     }
 
     #[test]
@@ -8234,7 +8235,7 @@ mod tests {
     #[test]
     fn persistent_lists_streams() {
         let (mut engine, _dir) = setup();
-        assert!(engine.list_streams().unwrap().is_empty());
+        assert_eq!(engine.list_streams().unwrap(), Vec::<String>::new());
         engine
             .append_event(MemoryEvent::new("s1", "t", "e1"))
             .unwrap();
@@ -8760,11 +8761,11 @@ mod tests {
             third.iter().map(|job| job.id.as_str()).collect::<Vec<_>>(),
             ["job-128", "job-129"]
         );
-        assert!(
+        assert_eq!(
             engine
                 .claim_jobs_with_options("paged-claims", QueueClaimOptions::default(), 64)
-                .unwrap()
-                .is_empty()
+                .unwrap(),
+            Vec::<crate::QueueJob>::new()
         );
 
         let remaining = engine.list_jobs("paged-claims").unwrap();
@@ -8850,11 +8851,11 @@ mod tests {
             .claim_jobs_with_options("encrypted-pages", QueueClaimOptions::default(), 64)
             .unwrap();
         assert_eq!(second.len(), 1);
-        assert!(
+        assert_eq!(
             engine
                 .claim_jobs_with_options("encrypted-pages", QueueClaimOptions::default(), 64)
-                .unwrap()
-                .is_empty()
+                .unwrap(),
+            Vec::<crate::QueueJob>::new()
         );
         let claimed_ids = first
             .iter()
@@ -9102,7 +9103,7 @@ mod tests {
         let link = engine
             .create_link(Link::new("n/a", "connects", "n/b"))
             .unwrap();
-        assert!(!link.id.is_empty());
+        assert_ne!(link.id, "");
         let fetched = engine.get_link(&link.id).unwrap().unwrap();
         assert_eq!(fetched.id, link.id);
         assert!(engine.delete_link(&link.id).unwrap());
@@ -9474,7 +9475,7 @@ mod tests {
         ));
         let snapshot = queue.snapshot();
         assert!(snapshot.stale);
-        assert!(snapshot.pending.is_empty());
+        assert!(snapshot.pending.keys().next().is_none());
         assert_eq!(snapshot.queued, 2);
         assert!(snapshot.last_error.is_some());
     }
@@ -9897,7 +9898,7 @@ mod tests {
         let results = engine
             .vector_search("docs", &[1.0, 0.0], VectorSearchOptions::default())
             .unwrap();
-        assert!(results.is_empty());
+        assert_eq!(results, Vec::new());
     }
 
     #[cfg(feature = "vectors")]
@@ -9936,7 +9937,7 @@ mod tests {
         let results = engine
             .vector_search("docs", &[1.0, 0.0, 0.0], VectorSearchOptions::default())
             .unwrap();
-        assert!(results.is_empty());
+        assert_eq!(results, Vec::new());
     }
 
     #[cfg(feature = "vectors")]
@@ -9975,7 +9976,7 @@ mod tests {
         let results = engine
             .vector_search("docs", &[1.0, 0.0, 0.0], VectorSearchOptions::default())
             .unwrap();
-        assert!(results.is_empty());
+        assert_eq!(results, Vec::new());
     }
 
     #[cfg(feature = "vectors")]
@@ -10285,11 +10286,9 @@ mod tests {
             engine
                 .put_object(MemoryObject::new("notes", "one", r#"{"text":"beta only"}"#))
                 .unwrap();
-            assert!(
-                engine
-                    .search("alpha", SearchOptions::default())
-                    .unwrap()
-                    .is_empty()
+            assert_eq!(
+                engine.search("alpha", SearchOptions::default()).unwrap(),
+                Vec::<crate::SearchHit>::new()
             );
             assert_eq!(
                 engine
@@ -10317,11 +10316,9 @@ mod tests {
                 .create_link(Link::new("notes/one", "mentions", "notes/two"))
                 .unwrap();
             engine.delete_object("notes", "one").unwrap();
-            assert!(
-                engine
-                    .search("beta", SearchOptions::default())
-                    .unwrap()
-                    .is_empty()
+            assert_eq!(
+                engine.search("beta", SearchOptions::default()).unwrap(),
+                Vec::<crate::SearchHit>::new()
             );
 
             // Exercise the defensive rebuild path. It must create a RAM index

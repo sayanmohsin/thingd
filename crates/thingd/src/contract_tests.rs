@@ -168,15 +168,15 @@ pub fn test_contract_link_consistency(engine: &mut impl ThingStore) {
     assert!(engine.delete_link(&first.id).unwrap());
     assert!(engine.get_link(&first.id).unwrap().is_none());
     assert_eq!(engine.count_links().unwrap(), 1);
-    assert!(
+    assert_eq!(
         engine
             .get_neighbors(
                 "nodes/b",
                 LinkDirection::Incoming,
                 LinkQueryOptions::default()
             )
-            .unwrap()
-            .is_empty()
+            .unwrap(),
+        Vec::<crate::Link>::new()
     );
 }
 
@@ -300,7 +300,7 @@ pub fn test_contract_indexes(engine: &mut impl ThingStore) {
         vec![("users".into(), "email".into())]
     );
     assert!(engine.delete_index("users", "email").unwrap());
-    assert!(engine.list_indexes().unwrap().is_empty());
+    assert_eq!(engine.list_indexes().unwrap(), Vec::new());
 }
 
 /// Verify event append with idempotency and sequence ordering.
@@ -656,7 +656,7 @@ pub fn test_contract_nack_dead_letter(engine: &mut impl ThingStore) {
         .unwrap()
         .expect("should nack");
     assert_eq!(dead.status, QueueJobStatus::Dead);
-    assert!(!engine.list_dead_jobs("q").unwrap().is_empty());
+    assert_ne!(engine.list_dead_jobs("q").unwrap(), Vec::new());
 }
 
 /// Verify search returns correct results (basic smoke test).

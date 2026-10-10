@@ -1651,9 +1651,9 @@ mod tests {
     fn lists_collections_streams_and_queues() {
         let mut engine = MemoryEngine::new();
 
-        assert!(engine.list_collections().unwrap().is_empty());
-        assert!(engine.list_streams().unwrap().is_empty());
-        assert!(engine.list_queues().unwrap().is_empty());
+        assert_eq!(engine.list_collections().unwrap(), Vec::<String>::new());
+        assert_eq!(engine.list_streams().unwrap(), Vec::<String>::new());
+        assert_eq!(engine.list_queues().unwrap(), Vec::<String>::new());
 
         engine
             .put_object(MemoryObject::new("col-a", "x", "{}"))
@@ -1778,7 +1778,7 @@ mod tests {
         let results = engine
             .list_objects(Some(&["w".to_string()]), &opts)
             .unwrap();
-        assert!(results.is_empty());
+        assert_eq!(results, Vec::new());
     }
 
     #[test]
@@ -1862,7 +1862,7 @@ mod tests {
 
         assert_eq!(first.sequence, 1);
         assert_eq!(second.sequence, 2);
-        assert!(!first.created_at.is_empty(), "created_at should be set");
+        assert_ne!(first.created_at, "", "created_at should be set");
     }
 
     // ── create_link: monotonic IDs survive deletes ─────────────────────────
@@ -2211,7 +2211,7 @@ mod tests {
         let results = engine
             .vector_search("docs", &[1.0, 0.0, 0.0], VectorSearchOptions::default())
             .unwrap();
-        assert!(results.is_empty());
+        assert_eq!(results, Vec::new());
     }
 
     #[test]
@@ -2248,7 +2248,7 @@ mod tests {
         let results = engine
             .vector_search("docs", &[1.0, 0.0], VectorSearchOptions::default())
             .unwrap();
-        assert!(results.is_empty());
+        assert_eq!(results, Vec::new());
     }
 
     #[test]
@@ -2260,7 +2260,7 @@ mod tests {
         let results = engine
             .vector_search("docs", &[1.0, 0.0], VectorSearchOptions::default())
             .unwrap();
-        assert!(results.is_empty());
+        assert_eq!(results, Vec::new());
     }
 
     // ── Shared contract tests ───────────────────────────────────────────────

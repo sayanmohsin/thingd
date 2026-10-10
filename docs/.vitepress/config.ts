@@ -51,6 +51,7 @@ export default defineConfig({
           { text: "MCP Server", link: "/mcp-server" },
           { text: "Agent Setup", link: "/agent-setup" },
           { text: "Operations", link: "/operations" },
+          { text: "ThingDB", link: "/storage-backends#thingdb" },
           { text: "Storage Backends", link: "/storage-backends" },
           { text: "Security", link: "/security" },
           { text: "FAQ", link: "/faq" },

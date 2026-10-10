@@ -8,14 +8,21 @@ description = "Native Node.js binding for thingd."
 keywords = ["ai", "memory", "napi", "nodejs", "persistent-storage"]
 categories = ["api-bindings", "database-implementations"]
 
+[features]
+default = ["rocksdb-backend", "thingdb-backend", "search", "vectors"]
+# The shared engine still requires ThingDB for its RAM implementation.
+rocksdb-backend = ["thingd/rocksdb-backend", "thingdb-backend"]
+thingdb-backend = ["thingd/thingdb-backend"]
+search = ["thingd/search"]
+vectors = ["thingd/vectors"]
+
 [lib]
 crate-type = ["cdylib"]
 path = "native/src/lib.rs"
 
 [dependencies]
-thingd = { path = "../../crates/thingd", version = "0.91", features = ["persistent", "search", "vectors"] } # x-release-please-version
+thingd = { path = "../../crates/thingd", version = "0.91", default-features = false } # x-release-please-version
 thingd-schema = { path = "../../crates/thingd-schema", version = "0.91" }
-uuid = { version = "1", features = ["v4"] }
 napi = { version = "3.12.7", default-features = false, features = ["napi4"] }
 napi-derive = "3.6.8"
 serde = { version = "1.0.229", features = ["derive"] }

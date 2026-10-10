@@ -1,4 +1,10 @@
 #![allow(clippy::too_many_arguments)]
+
+#[cfg(not(any(feature = "rocksdb-backend", feature = "thingdb-backend")))]
+compile_error!(
+    "enable at least one native storage backend: `rocksdb-backend` or `thingdb-backend`"
+);
+
 use std::ops::{Deref, DerefMut};
 use std::sync::{Arc, Mutex, MutexGuard};
 
