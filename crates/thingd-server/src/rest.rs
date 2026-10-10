@@ -16,6 +16,7 @@ use std::sync::{
 use thingd::*;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore, mpsc};
 use tokio_stream::wrappers::ReceiverStream;
+use uuid::Uuid;
 
 use crate::error::AppError;
 use crate::server::AppState;
@@ -25,6 +26,7 @@ const MAX_BATCH_ITEMS: usize = 1_000;
 const MAX_BLOCKING_WORKERS: usize = 8;
 const SNAPSHOT_PAGE_SIZE: u64 = 250;
 const SNAPSHOT_MAX_LINE_BYTES: usize = 16 * 1024 * 1024;
+const BACKUP_TOKEN_HEADER: &str = "x-thingd-backup-token";
 static BLOCKING_GATE: OnceLock<Arc<Semaphore>> = OnceLock::new();
 static BLOCKING_ACTIVE: AtomicU64 = AtomicU64::new(0);
 static BLOCKING_REJECTED: AtomicU64 = AtomicU64::new(0);
@@ -1144,6 +1146,71 @@ pub async fn replication_snapshot_apply(
 
 // ─── Logical snapshots ────────────────────────────────────────
 
+/// Create a physical checkpoint for the authenticated tenant in the fixed backup root.
+/// The separate backup token keeps ordinary tenant clients from consuming snapshot storage.
+pub async fn physical_snapshot(
+    State(state): State<Arc<AppState>>,
+    Path(run_id): Path<String>,
+    headers: HeaderMap,
+) -> Result<Json<Value>, AppError> {
+    if state.backup_root.is_empty() || state.backup_token.is_empty() {
+        return Err(AppError::unavailable(
+            "Physical checkpointing is not configured on this runtime",
+        ));
+    }
+    let presented = headers
+        .get(BACKUP_TOKEN_HEADER)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_default();
+    if !crate::auth::constant_time_eq(presented, &state.backup_token) {
+        return Err(AppError::unauthorized("Invalid backup credential"));
+    }
+    let run_id = Uuid::parse_str(&run_id)
+        .map_err(|_| AppError::bad_request("Snapshot run ID must be a UUID"))?
+        .to_string();
+    let backup_root = PathBuf::from(&state.backup_root);
+    if !backup_root.is_absolute() {
+        return Err(AppError::unavailable(
+            "Physical checkpoint root must be an absolute path",
+        ));
+    }
+
+    let tenant_id = crate::auth::extract_tenant_id(&headers, &state.tenant_config)?;
+    let tenant_name = tenant_id.as_deref().unwrap_or("_default");
+    let db_path = state.tenant_config.resolve_db_path(tenant_id.as_deref());
+    if !db_path.is_empty() && !std::path::Path::new(&db_path).exists() {
+        return Err(AppError::not_found("Tenant storage does not exist"));
+    }
+    let destination = backup_root
+        .join(&run_id)
+        .join("instances")
+        .join(tenant_name)
+        .join("thingd.db");
+    let engine = state
+        .pool
+        .try_get_writer(&db_path)
+        .map_err(|error| AppError::internal(format!("Could not open tenant storage: {error}")))?;
+
+    tokio::task::spawn_blocking(move || {
+        engine
+            .lock()
+            .backup_to(&destination)
+            .map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| AppError::internal(format!("Checkpoint task failed: {error}")))?
+    .map_err(AppError::unavailable)?;
+
+    Ok(Json(json!({
+        "data": {
+            "runId": run_id,
+            "tenantId": tenant_name,
+            "storageContract": "rocksdb-tantivy-v1",
+            "status": "complete",
+        }
+    })))
+}
+
 /// Stream a complete logical snapshot as newline-delimited JSON. Each record
 /// is read in bounded pages so exporting a large store does not build one
 /// giant JSON value or hold the engine lock while the client is receiving it.
@@ -1164,7 +1231,7 @@ pub async fn snapshot_export(State(state): State<Arc<AppState>>, headers: Header
         let result = (|| -> Result<(), String> {
             send_record(json!({
                 "type": "thingd.snapshot",
-                "version": "2.0.0",
+                "version": "2.1.0",
                 "format": "jsonl"
             }))
             .map_err(|_| "snapshot client disconnected".to_string())?;
@@ -1199,6 +1266,25 @@ pub async fn snapshot_export(State(state): State<Arc<AppState>>, headers: Header
                     }
                     offset += page_len;
                 }
+            }
+
+            let mut offset = 0usize;
+            loop {
+                let page = {
+                    let guard = e.lock();
+                    guard
+                        .list_links(offset, SNAPSHOT_PAGE_SIZE as usize)
+                        .map_err(|error| error.to_string())?
+                };
+                let page_len = page.len();
+                for link in page {
+                    send_record(json!({ "type": "link", "link": link }))
+                        .map_err(|_| "snapshot client disconnected".to_string())?;
+                }
+                if page_len < SNAPSHOT_PAGE_SIZE as usize {
+                    break;
+                }
+                offset += page_len;
             }
 
             let mut from_sequence = 0;
@@ -1276,6 +1362,7 @@ pub async fn snapshot_import(
     let mut records = 0u64;
     let mut objects = 0u64;
     let mut events = 0u64;
+    let mut links = 0u64;
     let mut queues = 0u64;
 
     while let Some(chunk) = lines.next().await {
@@ -1304,7 +1391,9 @@ pub async fn snapshot_import(
             })?;
             let record_type = record["type"].as_str().unwrap_or_default().to_string();
             if !header_seen {
-                if record_type != "thingd.snapshot" || record["version"] != "2.0.0" {
+                if record_type != "thingd.snapshot"
+                    || !matches!(record["version"].as_str(), Some("2.0.0" | "2.1.0"))
+                {
                     return Err(AppError::bad_request("Unsupported Thingd snapshot header"));
                 }
                 header_seen = true;
@@ -1339,6 +1428,14 @@ pub async fn snapshot_import(
                             .map(|_| ())
                             .map_err(|error| error.to_string())
                     },
+                    "link" => {
+                        let link: Link = serde_json::from_value(record["link"].clone())
+                            .map_err(|error| format!("invalid link: {error}"))?;
+                        guard
+                            .import_link(link)
+                            .map(|_| ())
+                            .map_err(|error| error.to_string())
+                    },
                     "queue" => {
                         let job: QueueJob = serde_json::from_value(record["job"].clone())
                             .map_err(|error| format!("invalid queue job: {error}"))?;
@@ -1363,6 +1460,7 @@ pub async fn snapshot_import(
             match record_type.as_str() {
                 "object" => objects += 1,
                 "event" => events += 1,
+                "link" => links += 1,
                 "queue" => queues += 1,
                 _ => {},
             }
@@ -1378,7 +1476,7 @@ pub async fn snapshot_import(
         return Err(AppError::bad_request("Snapshot is missing its header"));
     }
     Ok(Json(
-        json!({ "data": { "records": records, "objects": objects, "events": events, "queues": queues } }),
+        json!({ "data": { "records": records, "objects": objects, "events": events, "links": links, "queues": queues } }),
     ))
 }
 
@@ -1432,6 +1530,41 @@ pub async fn claim_job(
     }
 }
 
+pub async fn claim_jobs_batch(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path(queue): Path<String>,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, AppError> {
+    ensure_source_writable(&state, &headers)?;
+    let limit = body
+        .get("limit")
+        .and_then(Value::as_u64)
+        .ok_or_else(|| AppError::bad_request("Missing or invalid limit"))?;
+    if limit > thingd::MAX_QUEUE_BATCH_ITEMS as u64 {
+        return Err(AppError::bad_request(format!(
+            "Queue batch limit cannot exceed {}",
+            thingd::MAX_QUEUE_BATCH_ITEMS
+        )));
+    }
+    let opts = QueueClaimOptions {
+        lease_ms: body
+            .get("leaseMs")
+            .and_then(Value::as_u64)
+            .unwrap_or(30_000),
+    };
+    let engine = get_engine(&state, &headers)?;
+    let mut engine = engine.lock();
+    let jobs = engine
+        .claim_jobs_with_options(&queue, opts, limit as usize)
+        .map_err(|error| match error {
+            ThingdError::InvalidInput(message) => AppError::bad_request(message),
+            ThingdError::Conflict(message) => AppError::conflict(message),
+            error => AppError::internal(error.to_string()),
+        })?;
+    ok(jobs)
+}
+
 pub async fn ack_job(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
@@ -1451,6 +1584,43 @@ pub async fn ack_job(
         Some(job) => ok(job),
         None => Err(AppError::bad_request("Ack failed")),
     }
+}
+
+pub async fn ack_jobs_batch(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path(queue): Path<String>,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, AppError> {
+    ensure_source_writable(&state, &headers)?;
+    let job_ids = body
+        .get("jobIds")
+        .and_then(Value::as_array)
+        .ok_or_else(|| AppError::bad_request("Missing or invalid jobIds"))?
+        .iter()
+        .map(|value| {
+            value
+                .as_str()
+                .map(str::to_string)
+                .ok_or_else(|| AppError::bad_request("jobIds must contain only strings"))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    if job_ids.len() > thingd::MAX_QUEUE_BATCH_ITEMS {
+        return Err(AppError::bad_request(format!(
+            "Queue ack batch cannot exceed {} job IDs",
+            thingd::MAX_QUEUE_BATCH_ITEMS
+        )));
+    }
+    let engine = get_engine(&state, &headers)?;
+    let mut engine = engine.lock();
+    let jobs = engine
+        .ack_jobs(&queue, &job_ids)
+        .map_err(|error| match error {
+            ThingdError::InvalidInput(message) => AppError::bad_request(message),
+            ThingdError::Conflict(message) => AppError::conflict(message),
+            error => AppError::internal(error.to_string()),
+        })?;
+    ok(jobs)
 }
 
 pub async fn nack_job(
@@ -2432,6 +2602,8 @@ mod tests {
             tenant_config: config.tenant.clone(),
             mcp_config: config.mcp.clone(),
             auth_token: config.auth.token.clone(),
+            backup_token: config.auth.backup_token.clone(),
+            backup_root: config.server.backup_root.clone(),
             tenant_tokens: config.auth.tenant_tokens.clone(),
             auth_verifier: None,
             allow_unauthenticated: config.auth.allow_unauthenticated,
@@ -2449,6 +2621,172 @@ mod tests {
 
     fn test_state_and_config_with_config(config: Config) -> (Arc<AppState>, Config) {
         (state_for_config(&config), config)
+    }
+
+    #[tokio::test]
+    async fn physical_snapshot_requires_a_separate_internal_credential() {
+        let mut config = Config::default();
+        config.server.backup_root = "/tmp/thingd-snapshots".to_string();
+        config.auth.backup_token = "internal-backup-token".to_string();
+        let state = state_for_config(&config);
+
+        let error = physical_snapshot(
+            State(state),
+            Path("2adf38a4-2c43-4ac4-8f5c-35e0c167e61d".to_string()),
+            HeaderMap::new(),
+        )
+        .await
+        .unwrap_err();
+
+        assert_eq!(error.status, StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn physical_snapshot_rejects_invalid_run_ids_before_storage_access() {
+        let mut config = Config::default();
+        config.server.backup_root = "/tmp/thingd-snapshots".to_string();
+        config.auth.backup_token = "internal-backup-token".to_string();
+        let state = state_for_config(&config);
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            BACKUP_TOKEN_HEADER,
+            "internal-backup-token".parse().unwrap(),
+        );
+
+        let error = physical_snapshot(State(state), Path("../../outside".to_string()), headers)
+            .await
+            .unwrap_err();
+
+        assert_eq!(error.status, StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn physical_snapshot_is_disabled_without_fixed_root_or_internal_token() {
+        let (state, _) = test_state_and_config();
+
+        let error = physical_snapshot(
+            State(state),
+            Path("2adf38a4-2c43-4ac4-8f5c-35e0c167e61d".to_string()),
+            HeaderMap::new(),
+        )
+        .await
+        .unwrap_err();
+
+        assert_eq!(error.status, StatusCode::SERVICE_UNAVAILABLE);
+    }
+
+    #[tokio::test]
+    async fn physical_snapshot_checkpoints_the_authenticated_default_store_under_fixed_root() {
+        let root = std::env::temp_dir().join(format!("thingd-api-backup-{}", Uuid::new_v4()));
+        let database_path = root.join("source").to_string_lossy().to_string();
+        let backup_root = root.join("backups").to_string_lossy().to_string();
+        let mut config = Config::default();
+        config.server.database = database_path.clone();
+        config.server.backup_root = backup_root.clone();
+        config.auth.token = "runtime-token".to_string();
+        config.auth.backup_token = "internal-backup-token".to_string();
+        let state = Arc::new(AppState {
+            pool: Arc::new(EnginePool::new(database_path.clone())),
+            tenant_config: config.tenant.clone(),
+            mcp_config: config.mcp.clone(),
+            auth_token: config.auth.token.clone(),
+            backup_token: config.auth.backup_token.clone(),
+            backup_root,
+            tenant_tokens: config.auth.tenant_tokens.clone(),
+            auth_verifier: None,
+            allow_unauthenticated: config.auth.allow_unauthenticated,
+            cluster_config: config.cluster.clone(),
+            nlq_config: config.nlq.clone(),
+            sync_config: config.sync.clone(),
+            hardening_config: config.hardening.clone(),
+        });
+        let source = state.pool.try_get_writer(&database_path).unwrap();
+        source
+            .lock()
+            .put_object(MemoryObject::new(
+                "customers",
+                "customer-1",
+                r#"{"name":"Ada"}"#,
+            ))
+            .unwrap();
+        let run_id = "2adf38a4-2c43-4ac4-8f5c-35e0c167e61d";
+        let app = crate::server::build_router(Arc::clone(&state), &config);
+        let unauthenticated = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!("/v1/internal/backup/{run_id}"))
+                    .header(BACKUP_TOKEN_HEADER, "internal-backup-token")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(unauthenticated.status(), StatusCode::UNAUTHORIZED);
+
+        let missing_backup_key = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!("/v1/internal/backup/{run_id}"))
+                    .header("authorization", "Bearer runtime-token")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(missing_backup_key.status(), StatusCode::UNAUTHORIZED);
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!("/v1/internal/backup/{run_id}"))
+                    .header("authorization", "Bearer runtime-token")
+                    .header(BACKUP_TOKEN_HEADER, "internal-backup-token")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let response: Value =
+            serde_json::from_slice(&response.into_body().collect().await.unwrap().to_bytes())
+                .unwrap();
+        assert_eq!(response["data"]["status"], "complete");
+        assert_eq!(response["data"]["tenantId"], "_default");
+        assert!(
+            root.join("backups")
+                .join(run_id)
+                .join("instances")
+                .join("_default")
+                .join("thingd.db")
+                .join("CURRENT")
+                .exists()
+        );
+        drop(source);
+        drop(state);
+        let snapshot = PersistentEngine::open(
+            root.join("backups")
+                .join(run_id)
+                .join("instances")
+                .join("_default")
+                .join("thingd.db"),
+        )
+        .unwrap();
+        assert_eq!(
+            snapshot
+                .get_object("customers", "customer-1")
+                .unwrap()
+                .unwrap()
+                .body,
+            r#"{"name":"Ada"}"#
+        );
+        drop(snapshot);
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[tokio::test]
@@ -3042,7 +3380,6 @@ mod tests {
             )
             .await
             .unwrap();
-
         let feed_response = source_app
             .oneshot(
                 Request::builder()
@@ -3329,6 +3666,92 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_queue_claim_and_ack_batches_are_atomic() {
+        let (state, config) = test_state_and_config();
+        let app = crate::server::build_router(state, &config);
+        for payload in [r#"{"n":1}"#, r#"{"n":2}"#, r#"{"n":3}"#] {
+            let response = app
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .method("POST")
+                        .uri("/v1/queues/batch-q/push")
+                        .header("content-type", "application/json")
+                        .body(Body::from(format!(r#"{{"payload":{payload}}}"#)))
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::OK);
+        }
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/queues/batch-q/claim-batch")
+                    .header("content-type", "application/json")
+                    .body(Body::from(r#"{"limit":2,"leaseMs":30000}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let claimed_bytes = response.into_body().collect().await.unwrap().to_bytes();
+        let claimed: Value = serde_json::from_slice(&claimed_bytes).unwrap();
+        let ids = claimed["data"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|job| job["id"].as_str().unwrap().to_string())
+            .collect::<Vec<_>>();
+        assert_eq!(ids.len(), 2);
+
+        let mut invalid_ids = ids.clone();
+        invalid_ids.push("not-leased".to_string());
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/queues/batch-q/ack-batch")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::json!({ "jobIds": invalid_ids }).to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::CONFLICT);
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/queues/batch-q/ack-batch")
+                    .header("content-type", "application/json")
+                    .body(Body::from(serde_json::json!({ "jobIds": ids }).to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let completed_bytes = response.into_body().collect().await.unwrap().to_bytes();
+        let completed: Value = serde_json::from_slice(&completed_bytes).unwrap();
+        assert_eq!(completed["data"].as_array().unwrap().len(), 2);
+        assert!(
+            completed["data"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|job| job["status"] == "completed")
+        );
+    }
+
+    #[tokio::test]
     async fn test_create_link() {
         let (state, config) = test_state_and_config();
         let app = crate::server::build_router(state, &config);
@@ -3569,6 +3992,29 @@ mod tests {
             )
             .await
             .unwrap();
+        let created_link_response = source_app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/links")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        r#"{"fromRef":"notes/n1","linkType":"references","toRef":"notes/n2","weight":0.7,"metadataJson":"{\"source\":\"test\"}"}"#,
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(created_link_response.status(), StatusCode::OK);
+        let created_link_bytes = created_link_response
+            .into_body()
+            .collect()
+            .await
+            .unwrap()
+            .to_bytes();
+        let created_link: Value = serde_json::from_slice(&created_link_bytes).unwrap();
+        let link_id = created_link["data"]["id"].as_str().unwrap().to_string();
 
         let snapshot = source_app
             .oneshot(
@@ -3596,6 +4042,11 @@ mod tests {
                 .lines()
                 .any(|line| line.contains("note.created"))
         );
+        assert!(
+            snapshot_text
+                .lines()
+                .any(|line| { line.contains(r#""type":"link""#) && line.contains("references") })
+        );
 
         let (target_state, target_config) = test_state_and_config();
         let target_app = crate::server::build_router(target_state, &target_config);
@@ -3612,6 +4063,34 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::OK);
+
+        let response = target_app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/v1/counts/links")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let bytes = response.into_body().collect().await.unwrap().to_bytes();
+        let json: Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(json["data"]["count"], 1);
+
+        let response = target_app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(format!("/v1/links/{link_id}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let bytes = response.into_body().collect().await.unwrap().to_bytes();
+        let json: Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(json["data"], created_link["data"]);
 
         let response = target_app
             .oneshot(

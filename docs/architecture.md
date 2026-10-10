@@ -155,14 +155,14 @@ source engine only implements the provider-neutral replication contract.
 
 ## MCP server
 
-The Node SDK MCP server ships **49 tools** across objects, events, queues, search, graph links, aggregation, schema, NLQ, vectors, indexing, and scheduling. The Rust sidecar ships 39 engine tools; every sidecar tool goes through the same `ThingStore` trait. Native persistence options, including encryption, are resolved before either MCP runtime starts.
+The Node SDK MCP server ships **51 tools** across objects, events, queues, search, graph links, aggregation, schema, NLQ, vectors, indexing, and scheduling. The Rust sidecar ships 41 engine tools; every sidecar tool goes through the same `ThingStore` trait. Native persistence options, including encryption, are resolved before either MCP runtime starts.
 
 ```
 Object CRUD:    thing_get, thing_put, thing_delete, thing_objects_list
 Batch ops:      thing_objects_put_batch, thing_objects_delete_batch, thing_objects_get_batch
 Search:         thing_search
 Events:         thing_events_append, thing_events_list
-Queues:         thing_queue_push, thing_queue_claim, thing_queue_ack, thing_queue_nack
+Queues:         thing_queue_push, thing_queue_claim, thing_queue_claim_batch, thing_queue_ack, thing_queue_ack_batch, thing_queue_nack
                 thing_queue_list, thing_queue_dead
 Graph links:    thing_link_create, thing_link_get, thing_link_delete
                 thing_link_neighbors, thing_link_count

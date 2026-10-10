@@ -132,6 +132,16 @@ const job = await client.queue("email").claim({ leaseMs: 30_000 });
 if (job) {
   await client.queue("email").ack(job.id);
 }
+
+const jobs = await client.queue("email").claimMany(64, { leaseMs: 30_000 });
+const completedIds = [];
+for (const job of jobs) {
+  await processEmail(job.payload);
+  completedIds.push(job.id);
+}
+if (completedIds.length > 0) {
+  await client.queue("email").ackMany(completedIds);
+}
 ```
 
 ### Links
@@ -169,7 +179,9 @@ const result = await client.nlq.query("What were total sales by region?");
 | `events.list(stream?, opts)` | List events |
 | `queue(name).push(payload, opts)` | Push a queue job |
 | `queue(name).claim(opts)` | Claim a job |
+| `queue(name).claimMany(limit, opts)` | Atomically claim up to 1000 jobs |
 | `queue(name).ack(jobId)` | Acknowledge a job |
+| `queue(name).ackMany(jobIds)` | Atomically acknowledge up to 1000 leased jobs |
 | `queue(name).nack(jobId, opts)` | Nack a job |
 | `links.create(from, type, to)` | Create a graph link |
 | `links.neighbors(ref, dir)` | Get linked references |

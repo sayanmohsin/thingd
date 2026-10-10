@@ -281,6 +281,32 @@ export class InMemoryThingStore implements ThingStore {
     });
   }
 
+  async claimJobs(
+    queue: string,
+    limit: number,
+    options: QueueClaimOptions = {}
+  ): Promise<QueueJob[]> {
+    validateQueueBatchLimit(limit);
+    return this.withLock(() => {
+      this.releaseExpiredLeases(queue);
+      const now = new Date();
+      const nowIso = now.toISOString();
+      const candidates = (this.queues.get(queue) ?? [])
+        .filter((job) => job.status === "ready" && job.availableAt <= nowIso)
+        .sort((left, right) => (right.priority ?? 0) - (left.priority ?? 0))
+        .slice(0, limit);
+      for (const job of candidates) {
+        job.status = "leased";
+        job.attempts += 1;
+        job.leasedAt = nowIso;
+        job.leaseExpiresAt = new Date(
+          now.getTime() + (options.leaseMs ?? DEFAULT_LEASE_MS)
+        ).toISOString();
+      }
+      return candidates.map((job) => this.cloneJob(job));
+    });
+  }
+
   async ackJob(queue: string, jobId: string): Promise<QueueJobResult> {
     return this.withLock(() => {
       const job = this.findJob(queue, jobId);
@@ -301,6 +327,25 @@ export class InMemoryThingStore implements ThingStore {
       job.completedAt = new Date().toISOString();
 
       return { ok: true, job: this.cloneJob(job) };
+    });
+  }
+
+  async ackJobs(queue: string, jobIds: string[]): Promise<QueueJob[]> {
+    validateAckJobIds(jobIds);
+    return this.withLock(() => {
+      const jobs = jobIds.map((id) => this.findJob(queue, id));
+      if (jobs.some((job) => job?.status !== "leased")) {
+        throw new Error(
+          "Every job in a batch ack must exist and be leased; no jobs were acknowledged"
+        );
+      }
+      const completedAt = new Date().toISOString();
+      return jobs.map((job) => {
+        const leased = job as QueueJob;
+        leased.status = "completed";
+        leased.completedAt = completedAt;
+        return this.cloneJob(leased);
+      });
     });
   }
 
@@ -548,6 +593,35 @@ export class InMemoryThingStore implements ThingStore {
 
   async getLink(id: string): Promise<import("../types.js").Link | null> {
     return this.links.get(id) ?? null;
+  }
+
+  async listLinks(offset: number, limit: number): Promise<import("../types.js").Link[]> {
+    return Array.from(this.links.values())
+      .sort((left, right) => left.id.localeCompare(right.id))
+      .slice(offset, offset + limit);
+  }
+
+  async importLink(link: import("../types.js").Link): Promise<import("../types.js").Link> {
+    if (!link.id) {
+      throw new Error("Link id is required for import");
+    }
+    const existing = this.links.get(link.id);
+    if (existing) {
+      if (
+        existing.id === link.id &&
+        existing.fromRef === link.fromRef &&
+        existing.linkType === link.linkType &&
+        existing.toRef === link.toRef &&
+        existing.weight === link.weight &&
+        existing.metadataJson === link.metadataJson &&
+        existing.createdAt === link.createdAt
+      ) {
+        return existing;
+      }
+      throw new Error(`Link '${link.id}' already exists with different data`);
+    }
+    this.links.set(link.id, link);
+    return link;
   }
 
   async getNeighbors(
@@ -885,6 +959,21 @@ export class InMemoryThingStore implements ThingStore {
         ...job.payload,
       },
     };
+  }
+}
+
+function validateQueueBatchLimit(limit: number): void {
+  if (!Number.isSafeInteger(limit) || limit < 0 || limit > 1_000) {
+    throw new RangeError("Queue batch limit must be an integer between 0 and 1000");
+  }
+}
+
+function validateAckJobIds(jobIds: string[]): void {
+  if (jobIds.length > 1_000) {
+    throw new RangeError("Queue ack batch cannot exceed 1000 job IDs");
+  }
+  if (new Set(jobIds).size !== jobIds.length) {
+    throw new TypeError("Queue ack batch cannot contain duplicate job IDs");
   }
 }
 

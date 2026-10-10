@@ -456,6 +456,58 @@ export async function handleRestRequest(
       return;
     }
 
+    // POST /v1/queues/:queue/claim-batch
+    const claimBatchMatch = matchRoute(pathname, "/v1/queues/:queue/claim-batch");
+    if (claimBatchMatch?.queue && method === "POST") {
+      const body = JSON.parse(await readBody(req));
+      if (!Number.isSafeInteger(body.limit) || body.limit < 0 || body.limit > 1_000) {
+        sendError(
+          res,
+          400,
+          "invalid_input",
+          "Queue batch limit must be an integer between 0 and 1000"
+        );
+        return;
+      }
+      const jobs = await db.queue(claimBatchMatch.queue).claimMany(body.limit, {
+        leaseMs: body.leaseMs,
+      });
+      sendDataList(res, jobs);
+      return;
+    }
+
+    // POST /v1/queues/:queue/ack-batch
+    const ackBatchMatch = matchRoute(pathname, "/v1/queues/:queue/ack-batch");
+    if (ackBatchMatch?.queue && method === "POST") {
+      const body = JSON.parse(await readBody(req));
+      if (
+        !Array.isArray(body.jobIds) ||
+        body.jobIds.length > 1_000 ||
+        !body.jobIds.every((jobId: unknown) => typeof jobId === "string") ||
+        new Set(body.jobIds).size !== body.jobIds.length
+      ) {
+        sendError(
+          res,
+          400,
+          "invalid_input",
+          "Queue batch ack requires at most 1000 unique string job IDs"
+        );
+        return;
+      }
+      try {
+        const jobs = await db.queue(ackBatchMatch.queue).ackMany(body.jobIds);
+        sendDataList(res, jobs);
+      } catch (error) {
+        sendError(
+          res,
+          409,
+          "conflict",
+          error instanceof Error ? error.message : "Queue batch ack failed"
+        );
+      }
+      return;
+    }
+
     // POST /v1/queues/:queue/claim
     const claimMatch = matchRoute(pathname, "/v1/queues/:queue/claim");
     if (claimMatch?.queue && method === "POST") {

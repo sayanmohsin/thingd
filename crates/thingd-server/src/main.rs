@@ -372,6 +372,8 @@ async fn main() {
         tenant_config: config.tenant.clone(),
         mcp_config: config.mcp.clone(),
         auth_token: config.auth.token.clone(),
+        backup_token: config.auth.backup_token.clone(),
+        backup_root: config.server.backup_root.clone(),
         tenant_tokens: config.auth.tenant_tokens.clone(),
         auth_verifier: match config.auth.mode {
             config::AuthMode::TenantJwt => Some(Arc::new(

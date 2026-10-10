@@ -61,7 +61,7 @@ See the [public documentation index](https://github.com/sayanmohsin/thingd/blob/
 - **CLI** (`@thingd/cli`) — TUI dashboard, 30+ subcommands (search, objects, events, queues, export/import/snapshot/backup, doctor, bench, db maintenance). Support for importing from Postgres/MySQL via sidecar REST.
 - **Optional schema files** — custom `schema.thingd` syntax, Rust parsing, validation, canonical JSON, and stable schema hashes via `thingd schema check`.
 - **Provider-neutral replication** — synchronize one explicit Thingd source to one replica, including objects, deletes, tombstones, events, cursors, snapshots, provenance, and quarantined conflicts.
-- **MCP server** — 49 SDK tools, stdio + Streamable HTTP, audit events, collection allowlists, and read-only mode; the Rust sidecar exposes 39 core tools (scheduler tools are SDK-only)
+- **MCP server** — 51 SDK tools, stdio + Streamable HTTP, audit events, collection allowlists, and read-only mode; the Rust sidecar exposes 41 core tools (scheduler tools are SDK-only)
 - **Docker** — multi-stage image, compose + K8s for leader/follower cluster
 - **CI/tooling** — Release Please, biome, lefthook, doc tests, cargo audit, cargo deny, CodeQL
 
@@ -83,6 +83,28 @@ Use ThingDB RAM when you need the full in-memory Thingd contract. Use the
 separate ThingDB cache primitive when you only need a bounded TTL/LRU key/value
 cache. Neither mode writes durable files or survives process exit. See
 [Storage backends](./docs/storage-backends.md) for the complete mode matrix.
+
+## ThingDB: a new storage engine inside Thingd
+
+ThingDB is Thingd's Rust-native key/value engine—not another name for the
+Thingd semantic API and not a RocksDB-compatible file format. It has two
+distinct storage paths, with different guarantees:
+
+| ThingDB mode | What it is for | Persistence |
+| --- | --- | --- |
+| **RAM** | Thingd's disposable native/server `:memory:` mode; full Thingd semantics | Process-local; lost on exit; no database files |
+| **Durable** | Experimental opt-in engine for evaluation and development | WAL sync before successful acknowledgement; separate ThingDB format |
+
+RocksDB remains Thingd's default for durable native/server storage. The
+standalone [`thingdb` crate](https://crates.io/crates/thingdb) exposes the
+lower-level keyspace, batch, scan, snapshot, and cache primitives independently
+of Thingd. Its `MemoryCache` is a bounded TTL/LRU cache, not the full Thingd RAM
+database. The engines are evaluated with the same raw key/value workloads;
+Thingd's object, event, queue, and search workloads remain a separate semantic
+benchmark. See [storage modes](./docs/storage-backends.md) and the
+[benchmark methodology](./docs/benchmarks.md). No cross-database performance
+claim is published until the comparable matrix completes on the specified
+Linux host.
 
 For browsers, edge runtimes, and non-Node.js environments, use the standalone
 `@thingd/client` package — a zero-dependency REST client.
@@ -500,7 +522,7 @@ const hits = await db.search("customers who upgraded after a failed deployment",
 
 ## MCP-native access
 
-thingd ships with 49 SDK MCP tools (search,
+thingd ships with 51 SDK MCP tools (search,
 objects, events, queues, links, aggregate, schema, NLQ, vector). Every primitive is accessible through stdio
 or Streamable HTTP — see the [MCP tools reference](docs/api-spec/mcp-tools.md)
 for all tools with schemas and examples.

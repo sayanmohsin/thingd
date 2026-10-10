@@ -4,6 +4,7 @@ import type {
   AggregateOptions,
   AggregateResult,
   CollectionSchema,
+  Link,
   ListEventsOptions,
   ListObjectsOptions,
   MemoryEvent,
@@ -30,6 +31,7 @@ import type {
 
 type NativeThingStoreBinding = {
   close(): void;
+  backupTo?(path: string): void;
   checkpoint?(): void;
   compact?(): void;
   putObjectJson(collection: string, id: string, body: string, expectedVersion?: number): string;
@@ -56,7 +58,9 @@ type NativeThingStoreBinding = {
     priority?: number
   ): string;
   claimJobJson(queue: string, leaseMs: number): string | null;
+  claimJobsJson(queue: string, leaseMs: number, limit: number): string;
   ackJobJson(queue: string, id: string): string;
+  ackJobsJson(queue: string, idsJson: string): string;
   nackJobJson(queue: string, id: string, delayMs: number, error?: string): string;
   listJobsJson(queue: string): string;
   listDeadJobsJson(queue: string): string;
@@ -79,6 +83,8 @@ type NativeThingStoreBinding = {
   deleteLink(id: string): boolean;
   getLinkJson(id: string): string | null;
   getNeighborsJson(reference: string, direction: string, linkType?: string, limit?: number): string;
+  listLinksJson(offset: number, limit: number): string;
+  importLinkJson(linkJson: string): string;
   searchJson(
     query: string,
     collectionsJson?: string,
@@ -300,6 +306,13 @@ export class NativeThingStore implements ThingStore {
     this.binding.close();
   }
 
+  backupTo(path: string): void {
+    if (!this.binding.backupTo) {
+      throw new Error("Physical backup is unavailable for this native storage backend");
+    }
+    this.binding.backupTo(path);
+  }
+
   walCheckpoint(): import("../types.js").WalCheckpointResult {
     this.binding.checkpoint?.();
     return { framesBefore: 0, framesAfter: 0 };
@@ -406,8 +419,24 @@ export class NativeThingStore implements ThingStore {
     return record ? jobFromNative(parseJson<NativeQueueJobRecord>(record)) : null;
   }
 
+  async claimJobs(
+    queue: string,
+    limit: number,
+    options: QueueClaimOptions = {}
+  ): Promise<QueueJob[]> {
+    return parseJson<NativeQueueJobRecord[]>(
+      this.binding.claimJobsJson(queue, options.leaseMs ?? DEFAULT_LEASE_MS, limit)
+    ).map(jobFromNative);
+  }
+
   async ackJob(queue: string, jobId: string): Promise<QueueJobResult> {
     return resultFromNative(parseJson<NativeQueueJobResult>(this.binding.ackJobJson(queue, jobId)));
+  }
+
+  async ackJobs(queue: string, jobIds: string[]): Promise<QueueJob[]> {
+    return parseJson<NativeQueueJobRecord[]>(
+      this.binding.ackJobsJson(queue, JSON.stringify(jobIds))
+    ).map(jobFromNative);
   }
 
   async nackJob(
@@ -596,6 +625,18 @@ export class NativeThingStore implements ThingStore {
   async getLink(id: string): Promise<import("../types.js").Link | null> {
     const record = this.binding.getLinkJson(id);
     return record ? linkFromNative(parseJson<NativeLinkRecord>(record)) : null;
+  }
+
+  async listLinks(offset: number, limit: number): Promise<Link[]> {
+    return parseJson<NativeLinkRecord[]>(this.binding.listLinksJson(offset, limit)).map(
+      linkFromNative
+    );
+  }
+
+  async importLink(link: Link): Promise<Link> {
+    return linkFromNative(
+      parseJson<NativeLinkRecord>(this.binding.importLinkJson(JSON.stringify(link)))
+    );
   }
 
   async getNeighbors(

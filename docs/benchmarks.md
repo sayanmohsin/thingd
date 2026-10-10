@@ -6,6 +6,12 @@ iteration count. The benchmark compares the in-memory adapter, the default
 RocksDB-backed persistent adapter, and the experimental ThingDB adapter; it
 does not benchmark REST, MCP, or sidecar throughput.
 
+The `--backend comparable` track added to the same executable compares raw
+key/value operations only. It keeps the Thingd semantic suite separate: SQLite,
+Fjall, and Redis are not being compared as implementations of Thingd objects,
+events, queues, vectors, or search. `MemoryCache` is also reported separately
+from both database tracks.
+
 ## Run
 
 ```bash
@@ -53,7 +59,7 @@ branch, commit, environment, selected backend, and all measured RocksDB,
 ThingDB, or in-memory workload rows. This makes repeated runs comparable by
 phase and date without committing machine-specific results.
 
-The benchmark selects `--backend all|durable|rocksdb|thingdb|memory|cache`; `all` is the
+The benchmark selects `--backend all|durable|rocksdb|thingdb|memory|cache|comparable`; `all` is the
 default and is the required comparison mode. Use `--backend durable` to run only
 the synchronous RocksDB and durable ThingDB pair. It measures object, event, queue,
 search, vector search, batch, count, delete, concurrent-read, and
@@ -84,8 +90,95 @@ cargo run --release -p thingd --example storage_bench --features persistent,sear
 ```
 
 Use larger 50K and 100K runs only after the smoke run passes correctness and
-filesystem isolation. Do not compare these results with Redis or treat them as
-production claims.
+filesystem isolation. Thingd semantic results must not be compared directly
+with Redis results or treated as production claims.
+
+## Comparable database benchmark
+
+`storage_bench --backend comparable` reuses this executable for a raw byte-key /
+byte-value workload matrix. It creates fresh in-process stores or temporary
+directories for each engine and repetition, uses identical deterministic
+keys/values and warmup, then checks the final sorted logical digest across all
+engines before the command succeeds. A missing Redis endpoint, mismatched
+digest, or failed operation makes the run incomplete. The JSON records engine
+and server versions, durability settings, client topology, disk bytes, logical
+entry count/digest, latency distributions, and Redis-reported memory/AOF size
+separately from benchmark-client RSS/CPU.
+
+The matrix is split by guarantee and topology:
+
+| Track | Engine/mode | Configuration being measured |
+| --- | --- | --- |
+| RAM | ThingDB RAM | In-process, no filesystem or WAL |
+| RAM | SQLite `:memory:` | In-process SQLite memory database; `journal_mode=MEMORY`, `synchronous=OFF` |
+| RAM | Redis | Loopback server with `appendonly=no` and snapshots disabled; client/server results remain distinct |
+| Durable | ThingDB | WAL sync-before-ack on each single write; atomic batches |
+| Durable | RocksDB | Synchronous write option on each single write and batch |
+| Durable | SQLite | WAL with `synchronous=FULL`; each single write commits independently |
+| Durable | Fjall | `PersistMode::SyncAll` after each single write and atomic batch |
+| Separate server durability | Redis AOF | `appendonly=yes`, `appendfsync=always`; loopback request/reply includes network and server costs |
+
+The Rust comparison libraries are exact-pinned as benchmark-only dependencies
+in `crates/thingd/Cargo.toml`; they are not normal Thingd or standalone ThingDB
+runtime dependencies. The Redis CI image is version-pinned to `redis:8.10.2`.
+The comparison asserts Redis configuration and refuses non-loopback endpoints,
+so it cannot accidentally turn a shared/production Redis instance into a test
+target. CI starts isolated containers for the non-persistent and AOF-always
+profiles.
+
+Run on a dedicated Linux host with Docker available. For a local run, start two
+dedicated Redis containers (do not point this benchmark at an existing shared
+server):
+
+```bash
+docker run --rm -d --name thingd-bench-redis-ram -p 6379:6379 redis:8.10.2 \
+  redis-server --save "" --appendonly no
+docker run --rm -d --name thingd-bench-redis-aof -p 6380:6379 redis:8.10.2 \
+  redis-server --save "" --appendonly yes --appendfsync always
+
+THINGD_BENCH_REDIS_URL=redis://127.0.0.1:6379/15 \
+THINGD_BENCH_REDIS_AOF_URL=redis://127.0.0.1:6380/14 \
+cargo run --release -p thingd --example storage_bench \
+  --features persistent,search,benchmark -- \
+  --iterations 1000 --repetitions 1 --seed 42 --backend comparable \
+  --phase comparable-kv-smoke \
+  --output target/comparable-kv-smoke.json \
+  --history target/comparable-kv-history.jsonl
+```
+
+The harness restricts Redis URLs to loopback, checks persistence settings, and
+uses a unique key namespace per process/repetition. It deletes only that
+namespace after recording results. Docker data remains inside the disposable
+container. Stop the named containers after the run:
+
+```bash
+docker stop thingd-bench-redis-ram thingd-bench-redis-aof
+```
+
+The reportable sequence is 1K operations × 1 correctness smoke, then 10K × 5
+repetitions; attempt 100K × 5 only when the prior stage is stable. Each
+repetition compares sequential sync writes, deterministic random updates, hit
+and miss reads, atomic batches, prefix and bounded-range scans, deletes, and
+four-writer concurrent puts. SQLite and Redis rows explicitly record that the
+current probe uses one shared client connection; this is client/connection
+topology evidence, not a claim about maximum database-server concurrency.
+Redis `appendfsync everysec` is never used as a durability-equivalent result.
+
+Use the manual Linux workflow for reproducible evidence:
+
+```bash
+gh workflow run "Durable benchmark" --ref development \
+  -f benchmark_track=comparable -f iterations=1000 -f repetitions=1
+```
+
+Run the same with `iterations=10000` and `repetitions=5` for the first
+reportable cross-database comparison. No dated cross-database summary is
+published yet: the existing historical 10K × 5 run is ThingDB-versus-RocksDB
+only, from commit `c9e617f`, and is not evidence for this matrix. Do not turn
+future host-specific measurements into universal speed claims. Each public
+summary must state its date, engine/server versions, host, filesystem,
+durability policy, topology, operation mix, repetition count, and detailed
+report link.
 
 Use `--backend cache` for a focused ThingDB cache run. This measures byte
 key/value inserts, hot reads, mixed access, TTL/LRU bounds, latency
