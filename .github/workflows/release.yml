@@ -254,22 +254,26 @@ jobs:
         with:
           lockfile: pnpm-lock.yaml
           cache-scope: root
+      - name: Build JavaScript packages
+        run: pnpm --filter @thingd/sdk --filter @thingd/cli --filter @thingd/client build
       - name: Prepare publish manifests
         env:
           VERSION: ${{ needs.release-please.outputs.version }}
         run: node scripts/prepare-publish-manifests.mjs "$VERSION"
-      - name: Build JavaScript packages
-        run: pnpm --filter @thingd/sdk --filter @thingd/cli --filter @thingd/client build
+      - name: Validate publish manifest normalization
+        run: |
+          pnpm test:publish-manifests
       - name: Package JavaScript build outputs
         run: tar -czf javascript-builds.tar.gz packages/thingd/dist packages/thingd-cli/dist packages/thingd-client/dist
       - uses: actions/upload-artifact@v7
         with:
           name: javascript-builds
           path: javascript-builds.tar.gz
+          if-no-files-found: error
           retention-days: 1
 
-  publish-npm:
-    name: Publish npm packages
+  npm-preflight:
+    name: Validate npm release artifacts
     needs: [release-please, build-native, build-javascript]
     if: ${{ needs.release-please.outputs.release_created == 'true' || needs.release-please.outputs.retry == 'true' }}
     runs-on: ubuntu-latest
@@ -283,7 +287,117 @@ jobs:
         with:
           lockfile: pnpm-lock.yaml
           cache-scope: root
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          path: release-tools
+          sparse-checkout: |
+            scripts/publish-manifest.mjs
+            scripts/verify-publish-artifacts.mjs
+          sparse-checkout-cone-mode: false
+      - name: Prepare publish manifests
+        env:
+          VERSION: ${{ needs.release-please.outputs.version }}
+        run: node scripts/prepare-publish-manifests.mjs "$VERSION"
+      - uses: actions/download-artifact@v8
+        with:
+          path: prebuild-artifacts
+          pattern: prebuild-*
+      - name: Merge native prebuilds
+        run: |
+          mkdir -p packages/thingd-native/prebuilds
+          for dir in prebuild-artifacts/*/; do [ -d "$dir" ] && cp -r "$dir". packages/thingd-native/prebuilds/; done
+      - uses: actions/download-artifact@v8
+        with:
+          name: javascript-builds
+          path: .
+      - name: Restore JavaScript build outputs
+        run: tar -xzf javascript-builds.tar.gz
+      - name: Validate complete npm package set
+        env:
+          REQUIRED_NATIVE_PREBUILDS: "5"
+          RELEASE_VERSION: ${{ needs.release-please.outputs.version }}
+        run: node release-tools/scripts/verify-publish-artifacts.mjs
+
+  crates-preflight:
+    name: Validate crates.io release packages
+    needs: [release-please]
+    if: ${{ needs.release-please.outputs.release_created == 'true' || needs.release-please.outputs.retry == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+          ref: ${{ needs.release-please.outputs.tag_name }}
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install RocksDB bindgen dependencies
+        run: sudo apt-get update && sudo apt-get install -y clang libclang-dev llvm-dev
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: crates-${{ runner.os }}-${{ runner.arch }}-release
+          key: ${{ hashFiles('**/Cargo.lock', 'crates/**/*.rs', 'packages/**/*.rs') }}
+          cache-all-crates: true
+      - name: Configure libclang
+        run: |
+          echo "LLVM_CONFIG_PATH=$(command -v llvm-config)" >> "$GITHUB_ENV"
+          echo "LIBCLANG_PATH=$(llvm-config --libdir)" >> "$GITHUB_ENV"
+      - name: Package and validate standalone ThingDB crate
+        env:
+          VERSION: ${{ needs.release-please.outputs.version }}
+        run: |
+          cargo package --allow-dirty -p thingdb
+          test -f "target/package/thingdb-${VERSION}.crate"
+          if curl -fsS -A "thingd-release/${GITHUB_REPOSITORY} run/${GITHUB_RUN_ID}" "https://crates.io/api/v1/crates/thingdb/${VERSION}" >/dev/null; then
+            echo "thingdb ${VERSION} already exists; package validation passed without a duplicate dry run"
+          else
+            cargo publish --dry-run --allow-dirty -p thingdb
+          fi
+      - name: Prepare and validate Thingd crate
+        env:
+          VERSION: ${{ needs.release-please.outputs.version }}
+        run: |
+          node scripts/prepare-cargo-publish.mjs "$VERSION"
+          if curl -fsS -A "thingd-release/${GITHUB_REPOSITORY} run/${GITHUB_RUN_ID}" "https://crates.io/api/v1/crates/thingd/${VERSION}" >/dev/null; then
+            echo "thingd ${VERSION} already exists; package validation passed without a duplicate dry run"
+            cargo package --allow-dirty -p thingd --features persistent,search
+          else
+            cargo publish --dry-run --allow-dirty -p thingd --features persistent,search
+          fi
+
+  release-preflight:
+    name: All artifact build and package validations
+    needs: [release-please, build-native, build-javascript, npm-preflight, docker-validate, crates-preflight]
+    if: ${{ needs.release-please.outputs.release_created == 'true' || needs.release-please.outputs.retry == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Confirm all release artifacts passed preflight
+        run: echo "JavaScript, native, Docker, and Cargo artifacts passed validation; publication is enabled."
+
+  publish-npm:
+    name: Publish npm packages
+    needs: [release-please, release-preflight]
+    if: ${{ needs.release-please.outputs.release_created == 'true' || needs.release-please.outputs.retry == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+          ref: ${{ needs.release-please.outputs.tag_name }}
+      - uses: ./.github/actions/setup-pnpm
+        with:
+          lockfile: pnpm-lock.yaml
+          cache-scope: root
           registry-url: https://registry.npmjs.org
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          path: release-tools
+          sparse-checkout: |
+            scripts/publish-manifest.mjs
+            scripts/verify-publish-artifacts.mjs
+          sparse-checkout-cone-mode: false
       - name: Prepare publish manifests
         env:
           VERSION: ${{ needs.release-please.outputs.version }}
@@ -306,8 +420,7 @@ jobs:
         env:
           REQUIRED_NATIVE_PREBUILDS: "5"
           RELEASE_VERSION: ${{ needs.release-please.outputs.version }}
-        run: |
-          pnpm verify:publish
+        run: node release-tools/scripts/verify-publish-artifacts.mjs
       - name: Start npm publication timer
         id: npm-start
         run: echo "epoch=$(date +%s)" >> "$GITHUB_OUTPUT"
@@ -559,7 +672,7 @@ jobs:
 
   docker:
     name: Publish Docker image
-    needs: [release-please, docker-binary, docker-validate]
+    needs: [release-please, release-preflight]
     if: ${{ needs.release-please.outputs.release_created == 'true' || needs.release-please.outputs.retry == 'true' }}
     runs-on: ubuntu-latest
     steps:
@@ -601,7 +714,7 @@ jobs:
 
   crates-publish:
     name: Publish crates.io packages
-    needs: [release-please]
+    needs: [release-please, release-preflight]
     if: ${{ needs.release-please.outputs.release_created == 'true' || needs.release-please.outputs.retry == 'true' }}
     runs-on: ubuntu-latest
     steps:
@@ -622,13 +735,6 @@ jobs:
         run: |
           echo "LLVM_CONFIG_PATH=$(command -v llvm-config)" >> "$GITHUB_ENV"
           echo "LIBCLANG_PATH=$(llvm-config --libdir)" >> "$GITHUB_ENV"
-      - name: Validate standalone ThingDB package
-        env:
-          VERSION: ${{ needs.release-please.outputs.version }}
-        run: |
-          cargo package --allow-dirty -p thingdb
-          cargo publish --dry-run --allow-dirty -p thingdb
-          test -f "target/package/thingdb-${VERSION}.crate"
       - name: Publish ThingDB if missing
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}

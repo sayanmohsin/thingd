@@ -25,6 +25,20 @@ export function publishRange(version) {
   return `^${version}`;
 }
 
+export function parsePackMetadata(stdout, packageName) {
+  const jsonStarts = [stdout.indexOf("["), stdout.indexOf("{")].filter((index) => index >= 0);
+  if (jsonStarts.length === 0) {
+    throw new Error(`npm pack did not return JSON for ${packageName}: ${stdout}`);
+  }
+
+  const output = JSON.parse(stdout.slice(Math.min(...jsonStarts)).trim());
+  const metadata = Array.isArray(output) ? output[0] : output[packageName] ?? output;
+  if (!metadata || typeof metadata.filename !== "string" || !Array.isArray(metadata.files)) {
+    throw new Error(`npm pack returned an unsupported JSON shape for ${packageName}`);
+  }
+  return metadata;
+}
+
 export function normalizeManifest(manifest, version) {
   const normalized = structuredClone(manifest);
   for (const pkg of publishPackages) {

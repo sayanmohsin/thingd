@@ -3,7 +3,7 @@ import { join, resolve } from "node:path";
 import { cwd } from "node:process";
 import { tmpdir } from "node:os";
 import spawn from "cross-spawn";
-import { publishPackages, validatePublishManifest } from "./publish-manifest.mjs";
+import { parsePackMetadata, publishPackages, validatePublishManifest } from "./publish-manifest.mjs";
 
 const rootDir = resolve(cwd());
 const requiredNativePrebuilds = Number.parseInt(process.env.REQUIRED_NATIVE_PREBUILDS ?? "1", 10);
@@ -20,12 +20,8 @@ function pack(packageDir) {
     throw new Error(result.stderr || `pnpm pack failed for ${packageDir}`);
   }
 
-  const jsonStarts = [result.stdout.indexOf("["), result.stdout.indexOf("{")].filter((index) => index >= 0);
-  if (jsonStarts.length === 0) {
-    throw new Error(`pnpm pack did not return JSON for ${packageDir}: ${result.stdout}`);
-  }
-  const output = JSON.parse(result.stdout.slice(Math.min(...jsonStarts)).trim());
-  const metadata = Array.isArray(output) ? output[0] : output;
+  const pkg = publishPackages.find(({ path: packagePath }) => packagePath === packageDir);
+  const metadata = parsePackMetadata(result.stdout, pkg?.name ?? packageDir);
   const tarball = join(rootDir, packageDir, metadata.filename);
   const manifest = JSON.parse(
     spawn.sync("tar", ["-xOf", tarball, "package/package.json"], { encoding: "utf8" }).stdout,
