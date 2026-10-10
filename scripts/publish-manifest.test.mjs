@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   normalizeManifest,
+  parsePackMetadata,
   publishPackages,
   publishRange,
   validatePublishManifest,
@@ -40,6 +41,12 @@ test("rejects workspace protocols and mismatched internal versions", () => {
   assert.match(errors.join("\n"), /expected version 0\.77\.1/);
   assert.match(errors.join("\n"), /workspace protocols remain/);
   assert.match(errors.join("\n"), /must be \^0\.77\.1/);
+});
+
+test("reads npm pack metadata from array and package-keyed JSON formats", () => {
+  const metadata = { filename: "thingd-sdk-0.92.0.tgz", files: [{ path: "package.json" }] };
+  assert.deepEqual(parsePackMetadata(JSON.stringify([metadata]), "@thingd/sdk"), metadata);
+  assert.deepEqual(parsePackMetadata(JSON.stringify({ "@thingd/sdk": metadata }), "@thingd/sdk"), metadata);
 });
 
 for (const pkg of publishPackages) {
