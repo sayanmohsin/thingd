@@ -237,14 +237,6 @@ jobs:
             pnpm build:node
           fi
           echo "- Node build: $((SECONDS - started))s" >> "$GITHUB_STEP_SUMMARY"
-      - name: Build and validate release packages
-        if: ${{ startsWith(github.head_ref, 'release-please--branches--main--components--') }}
-        run: |
-          VERSION=$(node -p "JSON.parse(require('node:fs').readFileSync('package.json', 'utf8')).version")
-          pnpm --filter @thingd/sdk --filter @thingd/cli --filter @thingd/client build
-          node scripts/prepare-publish-manifests.mjs "$VERSION"
-          pnpm test:publish-manifests
-          RELEASE_VERSION="$VERSION" REQUIRED_NATIVE_PREBUILDS=0 pnpm verify:publish
       - name: Check examples
         if: ${{ !startsWith(github.head_ref, 'release-please--branches--main--components--') }}
         run: |
@@ -259,6 +251,14 @@ jobs:
           pnpm test:package:built
           pnpm test:cli:built
           echo "- built Node tests: $((SECONDS - started))s" >> "$GITHUB_STEP_SUMMARY"
+      - name: Exercise release build and package consumer path
+        if: ${{ github.event_name == 'pull_request' || startsWith(github.head_ref, 'release-please--branches--main--components--') }}
+        run: |
+          VERSION=$(node -p "JSON.parse(require('node:fs').readFileSync('package.json', 'utf8')).version")
+          pnpm --filter @thingd/sdk --filter @thingd/cli --filter @thingd/client build
+          node scripts/prepare-publish-manifests.mjs "$VERSION"
+          pnpm test:publish-manifests
+          RELEASE_VERSION="$VERSION" REQUIRED_NATIVE_PREBUILDS=0 pnpm verify:publish
       - name: Verify native ThingDB opt-in preserves the Node API
         if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
         run: |
