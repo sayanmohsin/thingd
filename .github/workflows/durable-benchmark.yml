@@ -8,14 +8,6 @@ on:
         required: true
         default: "1000"
         type: string
-      benchmark_track:
-        description: "Compare Thingd semantic durability or raw key/value engines"
-        required: true
-        default: durable
-        type: choice
-        options:
-          - durable
-          - comparable
       repetitions:
         description: "Number of complete repetitions"
         required: true
@@ -43,7 +35,7 @@ env:
 
 jobs:
   run:
-    name: ThingDB storage benchmark (${{ inputs.benchmark_track }})
+    name: Durable ThingDB/RocksDB comparison
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:
@@ -64,26 +56,7 @@ jobs:
       - name: Install native build tools
         run: sudo apt-get update && sudo apt-get install -y clang llvm libclang-dev
 
-      - name: Start pinned Redis comparison servers
-        if: inputs.benchmark_track == 'comparable'
-        run: |
-          set -euo pipefail
-          docker run -d --name thingd-bench-redis-ram -p 6379:6379 redis:8.10.2 \
-            redis-server --save "" --appendonly no
-          docker run -d --name thingd-bench-redis-aof -p 6380:6379 redis:8.10.2 \
-            redis-server --save "" --appendonly yes --appendfsync always
-          for attempt in $(seq 1 30); do
-            if docker exec thingd-bench-redis-ram redis-cli ping >/dev/null 2>&1 \
-              && docker exec thingd-bench-redis-aof redis-cli ping >/dev/null 2>&1; then
-              exit 0
-            fi
-            sleep 1
-          done
-          echo "Redis benchmark containers failed to become ready" >&2
-          exit 1
-
-      - name: Run durable benchmark
-        if: inputs.benchmark_track == 'durable'
+      - name: Run reliability preflight and benchmark
         env:
           ITERATIONS: ${{ inputs.iterations }}
           REPETITIONS: ${{ inputs.repetitions }}
@@ -104,67 +77,18 @@ jobs:
             --output target/durable-benchmark.json \
             --history target/durable-benchmark-history.jsonl
 
-      - name: Run comparable raw key/value benchmark
-        if: inputs.benchmark_track == 'comparable'
-        env:
-          ITERATIONS: ${{ inputs.iterations }}
-          REPETITIONS: ${{ inputs.repetitions }}
-          COMPARABLE_BENCH_SEED: "42"
-          THINGD_BENCH_REDIS_URL: redis://127.0.0.1:6379/15
-          THINGD_BENCH_REDIS_AOF_URL: redis://127.0.0.1:6380/14
-        run: |
-          set -euo pipefail
-          phase="comparable-kv-${ITERATIONS}x${REPETITIONS}"
-          cargo run --release -p thingd --example storage_bench \
-            --features persistent,search,benchmark -- \
-            --iterations "${ITERATIONS}" \
-            --repetitions "${REPETITIONS}" \
-            --seed 42 \
-            --backend comparable \
-            --durability-profile native-sync \
-            --phase "${phase}" \
-            --output target/comparable-benchmark.json \
-            --history target/comparable-benchmark-history.jsonl
-
-      - name: Validate durable benchmark metadata
-        if: inputs.benchmark_track == 'durable'
+      - name: Validate benchmark metadata
         env:
           DURABLE_BENCH_ITERATIONS: ${{ inputs.iterations }}
           DURABLE_BENCH_REPETITIONS: ${{ inputs.repetitions }}
         run: |
           node scripts/check-durable-benchmark.mjs target/durable-benchmark.json
 
-      - name: Validate comparable benchmark metadata
-        if: inputs.benchmark_track == 'comparable'
-        env:
-          COMPARABLE_BENCH_ITERATIONS: ${{ inputs.iterations }}
-          COMPARABLE_BENCH_REPETITIONS: ${{ inputs.repetitions }}
-        run: node scripts/check-comparable-benchmark.mjs target/comparable-benchmark.json
-
-      - name: Test comparable benchmark validation
-        if: inputs.benchmark_track == 'comparable'
-        run: node --test scripts/check-comparable-benchmark.test.mjs
-
-      - name: Verify comparison engines remain development-only
-        if: inputs.benchmark_track == 'comparable'
-        run: |
-          set -euo pipefail
-          if cargo tree -p thingd --no-default-features --features thingdb-backend -e normal | grep -Eiq '(^| )((fjall|redis|rusqlite) v|librocksdb-sys v)'; then
-            echo "A raw-comparison dependency leaked into Thingd's normal ThingDB-only dependency graph" >&2
-            exit 1
-          fi
-          if cargo tree -p thingdb -e normal | grep -Eiq '(fjall|redis|rusqlite|librocksdb-sys|bindgen|clang-sys)'; then
-            echo "A benchmark/native dependency leaked into the standalone ThingDB dependency graph" >&2
-            exit 1
-          fi
-
       - name: Upload structured benchmark results
         uses: actions/upload-artifact@v7
         with:
-          name: ${{ inputs.benchmark_track }}-benchmark-${{ github.run_id }}
-          path: target/${{ inputs.benchmark_track == 'comparable' && 'comparable' || 'durable' }}-benchmark*.json*
+          name: durable-benchmark-${{ github.run_id }}
+          path: |
+            target/durable-benchmark.json
+            target/durable-benchmark-history.jsonl
           if-no-files-found: error
-
-      - name: Stop pinned Redis comparison servers
-        if: always() && inputs.benchmark_track == 'comparable'
-        run: docker rm -f thingd-bench-redis-ram thingd-bench-redis-aof || true

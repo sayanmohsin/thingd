@@ -50,18 +50,11 @@ remains unchanged if the copy fails.
 thingd db backup --path /path/to/thingd.db --out /backups/thingd.tar
 ```
 
-For an open native RocksDB database, the SDK's `backupTo(path)` uses a
-RocksDB checkpoint to produce a consistent point-in-time database directory.
-The destination must not already exist. Thingd's storage manifest and optional
-encryption markers are included; the derived Tantivy search index is omitted
-and rebuilt when the backup is opened. Keep the encryption key separately.
-This capability is not available for the experimental ThingDB backend.
-
-The `thingd db backup` archive command remains an offline operation: it opens
-the database itself, so its source must not be open by another process. A
-checkpoint command does not make copying an independently open database
-directory safe. JSON snapshots are logical, decrypted exports and are not
-equivalent to an opaque filesystem backup.
+For the current native backend, a filesystem backup is an opaque database
+directory. It remains encrypted when the source is encrypted and must be made
+only after the engine is stopped or after `thingd db checkpoint` completes.
+JSON snapshots are logical, decrypted exports and are not equivalent to an
+opaque filesystem backup.
 
 For a local native archive, use:
 
@@ -101,34 +94,18 @@ The destination must not already exist unless `--replace` is supplied.
 
 Snapshots export data as JSON for portability between storage drivers.
 
-### Internal Physical Checkpoint Endpoint
-
-Trusted multi-tenant backup coordinators can ask the running engine to create a
-point-in-time RocksDB checkpoint for the authenticated tenant with
-`POST /v1/internal/backup/{run_id}`. Set `THINGD_BACKUP_ROOT` to a fixed,
-absolute destination root and `THINGD_BACKUP_TOKEN` to a separate internal
-credential. The request must include regular tenant authentication and
-`X-Thingd-Backup-Token`; the tenant comes from the verified token, and the
-request cannot select a path. `run_id` must be a UUID. The feature is disabled
-when either setting is missing, and unsupported storage backends return an
-error. The endpoint writes under
-`<backup-root>/<run-id>/instances/<tenant-id>/thingd.db`.
-
 ### Creating a Snapshot
 
 ```bash
-thingd snapshot create --out /path/to/snapshot.thingd.jsonl
+thingd snapshot create --out /path/to/snapshot.json
 ```
 
-Creates a versioned JSONL export of objects, events, graph links, and queue
-jobs. The current writer emits snapshot version `2.1.0`; restore also accepts
-`2.0.0` snapshots. Link IDs and metadata are preserved, and conflicting link
-IDs fail instead of overwriting different relationships.
+Captures all collections, events, and queues into a single JSON file with version `1.0.0`.
 
 ### Restoring a Snapshot
 
 ```bash
-thingd snapshot restore --in /path/to/snapshot.thingd.jsonl
+thingd snapshot restore --in /path/to/snapshot.json
 ```
 
 > **Warning:** The restore is not atomic. If it fails mid-way, data may be partially restored.

@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { defineConfig } from "vitepress";
 
-const mcpToolCount = 51;
+const mcpToolCount = 49;
 const packageVersion = JSON.parse(
   readFileSync(new URL("../../package.json", import.meta.url), "utf8")
 ).version as string;
@@ -51,7 +51,6 @@ export default defineConfig({
           { text: "MCP Server", link: "/mcp-server" },
           { text: "Agent Setup", link: "/agent-setup" },
           { text: "Operations", link: "/operations" },
-          { text: "ThingDB", link: "/storage-backends#thingdb" },
           { text: "Storage Backends", link: "/storage-backends" },
           { text: "Security", link: "/security" },
           { text: "FAQ", link: "/faq" },

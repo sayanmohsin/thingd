@@ -27,21 +27,15 @@ use std::sync::{
 use std::time::{Duration, Instant};
 
 use arc_swap::ArcSwap;
-#[cfg(feature = "rocksdb-backend")]
-use rocksdb::{DB, Options, WriteBatch, WriteOptions};
 use serde::Serialize;
 use thingd::{
     EncryptionConfig, EventLog, ListEventsOptions, ListObjectsOptions, MemoryEngine, MemoryEvent,
     MemoryObject, ObjectStore, PersistentEngine, PersistentOpenOptions, QueueClaimOptions,
-    QueueJob, QueueJobStatus, QueueStore, SearchOptions, Searcher, VectorSearchOptions,
-    VectorStore,
+    QueueJob, QueueStore, SearchOptions, Searcher, VectorSearchOptions, VectorStore,
 };
 use thingd::{Link, LinkStore};
 use thingdb::KeyspaceCreateOptions;
 use thingdb::{CacheOptions, MemoryCache};
-
-#[path = "storage_bench/comparable.rs"]
-mod comparable;
 
 const DEFAULT_ITERATIONS: usize = 5_000;
 const BENCHMARK_QUEUE_LEASE_MS: u64 = 86_400_000;
@@ -50,8 +44,6 @@ const COLLECTION: &str = "bench_objects";
 const QUEUE: &str = "bench_queue";
 const QUEUE_COMPONENTS: &str = "bench_queue_components";
 const QUEUE_BATCH: &str = "bench_queue_batch";
-const QUEUE_PROCESSING_BATCH: &str = "bench_queue_processing_batch";
-const QUEUE_PROCESSING_BATCH_SIZE: usize = 64;
 const STREAM: &str = "bench:events";
 
 const OBJECT_BODY_ACTIVE: &str =
@@ -69,7 +61,6 @@ enum BackendSelection {
     RocksDb,
     ThingDb,
     Cache,
-    Comparable,
 }
 
 #[derive(Debug)]
@@ -102,7 +93,6 @@ struct BenchResult {
     p99_ns: Option<u128>,
     max_ns: Option<u128>,
     latency_sampled: bool,
-    latency_sample_count: usize,
     error_count: usize,
 }
 
@@ -128,45 +118,15 @@ struct BenchOutput {
     ram: Vec<RamSnapshot>,
     qualification: Vec<QualificationSnapshot>,
     queue: Vec<QueueSnapshot>,
-    raw_comparisons: Vec<comparable::RawComparisonSnapshot>,
 }
 
 #[derive(Debug, Serialize)]
 struct QueueSnapshot {
     driver: String,
     repetition: usize,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    operation: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    diagnostics_before: Option<thingd::QueueDiagnostics>,
     diagnostics: thingd::QueueDiagnostics,
     wal_before: Option<thingdb::WalDiagnostics>,
     wal_after: Option<thingdb::WalDiagnostics>,
-}
-
-#[derive(Clone)]
-struct QueueDiagnosticState {
-    diagnostics: thingd::QueueDiagnostics,
-    wal: Option<thingdb::WalDiagnostics>,
-}
-
-trait QueueDiagnosticsProvider {
-    fn queue_diagnostic_state(&self) -> Result<Option<QueueDiagnosticState>, Box<dyn Error>>;
-}
-
-impl QueueDiagnosticsProvider for PersistentEngine {
-    fn queue_diagnostic_state(&self) -> Result<Option<QueueDiagnosticState>, Box<dyn Error>> {
-        Ok(Some(QueueDiagnosticState {
-            diagnostics: self.queue_diagnostics(),
-            wal: self.wal_diagnostics()?,
-        }))
-    }
-}
-
-impl QueueDiagnosticsProvider for MemoryEngine {
-    fn queue_diagnostic_state(&self) -> Result<Option<QueueDiagnosticState>, Box<dyn Error>> {
-        Ok(None)
-    }
 }
 
 #[derive(Debug, Serialize)]
@@ -188,12 +148,6 @@ struct BenchSummary {
     minimum_throughput_ops_per_second: u128,
     maximum_throughput_ops_per_second: u128,
     spread_throughput_ops_per_second: u128,
-    latency_repetitions: usize,
-    latency_sample_count: usize,
-    median_p50_ns: Option<u128>,
-    median_p95_ns: Option<u128>,
-    median_p99_ns: Option<u128>,
-    maximum_latency_ns: Option<u128>,
 }
 
 #[derive(Debug, Serialize)]
@@ -246,8 +200,6 @@ struct BenchMetadata {
     cpu_time_ns: Option<u64>,
     cpu_time_status: String,
     durability_profile: String,
-    durability_comparison_status: String,
-    durability_comparison_note: String,
     search_mode: String,
     qualification_status: String,
     cpu_model: String,
@@ -258,19 +210,10 @@ static RESULTS: std::sync::OnceLock<Mutex<BenchOutput>> = std::sync::OnceLock::n
 static CURRENT_REPETITION: AtomicUsize = AtomicUsize::new(0);
 static PEAK_RSS_BYTES: AtomicU64 = AtomicU64::new(0);
 static CPU_TIME_NS: AtomicU64 = AtomicU64::new(0);
-static PENDING_LATENCY_SAMPLES: std::sync::OnceLock<Mutex<Vec<u128>>> = std::sync::OnceLock::new();
-
-const LATENCY_SAMPLE_BUDGET: usize = 256;
 
 #[allow(clippy::too_many_lines)]
 fn main() -> Result<(), Box<dyn Error>> {
     let config = BenchConfig::from_args()?;
-    let (durability_comparison_status, durability_comparison_note) =
-        durability_comparison_assessment(
-            env::consts::OS,
-            config.backend,
-            &config.durability_profile,
-        );
     #[cfg(feature = "benchmark")]
     // The storage adapter intentionally reads this benchmark-only setting
     // without adding a public runtime option. Re-exec with the CLI-selected
@@ -293,8 +236,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             metadata: BenchMetadata {
                 date: command_output("date", &["-u", "+%Y-%m-%dT%H:%M:%SZ"]),
                 phase: config.phase.clone(),
-                branch: env::var("GITHUB_REF_NAME")
-                    .unwrap_or_else(|_| command_output("git", &["branch", "--show-current"])),
+                branch: command_output("git", &["branch", "--show-current"]),
                 iterations: config.iterations,
                 repetitions: config.repetitions,
                 seed: config.seed,
@@ -313,8 +255,6 @@ fn main() -> Result<(), Box<dyn Error>> {
                 cpu_time_ns: None,
                 cpu_time_status: "pending".to_string(),
                 durability_profile: config.durability_profile.clone(),
-                durability_comparison_status,
-                durability_comparison_note,
                 search_mode: benchmark_search_mode(),
                 qualification_status: "pending".to_string(),
                 cpu_model: cpu_model(),
@@ -328,7 +268,6 @@ fn main() -> Result<(), Box<dyn Error>> {
             ram: Vec::new(),
             qualification: Vec::new(),
             queue: Vec::new(),
-            raw_comparisons: Vec::new(),
         }))
         .map_err(|_| "benchmark output was initialized more than once")?;
 
@@ -370,10 +309,6 @@ fn main() -> Result<(), Box<dyn Error>> {
                 config.queue_iterations,
             )?;
             bench_concurrent("memory-engine", || Ok(MemoryEngine::new()), iterations)?;
-        }
-
-        if config.backend == BackendSelection::Comparable {
-            comparable::run(iterations, config.seed)?;
         }
 
         if config.backend.includes_thingdb_memory() {
@@ -502,11 +437,6 @@ fn main() -> Result<(), Box<dyn Error>> {
                 },
                 iterations,
             )?;
-        }
-
-        #[cfg(feature = "rocksdb-backend")]
-        if config.backend.includes_rocksdb() && config.backend.includes_thingdb() {
-            bench_raw_durable_comparison(iterations)?;
         }
 
         if config.backend.includes_rocksdb() {
@@ -921,7 +851,6 @@ impl BenchConfig {
                         "thingdb" => BackendSelection::ThingDb,
                         "thingdb-memory" => BackendSelection::ThingDbMemory,
                         "cache" => BackendSelection::Cache,
-                        "comparable" => BackendSelection::Comparable,
                         other => return Err(format!("unknown backend {other:?}").into()),
                     };
                 },
@@ -1000,40 +929,7 @@ impl BackendSelection {
             Self::RocksDb => "rocksdb",
             Self::ThingDb => "thingdb",
             Self::Cache => "cache",
-            Self::Comparable => "comparable",
         }
-    }
-}
-
-fn durability_comparison_assessment(
-    os: &str,
-    backend: BackendSelection,
-    profile: &str,
-) -> (String, String) {
-    if !(backend.includes_rocksdb() && backend.includes_thingdb()) {
-        return (
-            "not-applicable".to_string(),
-            "This run does not include both durable backends.".to_string(),
-        );
-    }
-
-    match (os, profile) {
-        ("linux", "native-sync") => (
-            "matched-by-source".to_string(),
-            "Both paths use fdatasync for synchronous WAL writes on Linux.".to_string(),
-        ),
-        ("linux", "common-fsync") => (
-            "matched-by-source".to_string(),
-            "Both paths use fsync for synchronous WAL writes on Linux.".to_string(),
-        ),
-        ("macos", _) => (
-            "mismatched".to_string(),
-            "Rust File sync uses F_FULLFSYNC on macOS; the bundled librocksdb-sys build does not enable HAVE_FULLFSYNC, so its WAL sync uses fdatasync/fsync instead.".to_string(),
-        ),
-        _ => (
-            "unverified".to_string(),
-            format!("Sync primitive parity is not verified for {os} with profile {profile:?}."),
-        ),
     }
 }
 
@@ -1045,7 +941,7 @@ fn bench_store<S>(
     queue_iterations: Option<usize>,
 ) -> Result<(), Box<dyn Error>>
 where
-    S: EventLog + ObjectStore + QueueStore + QueueDiagnosticsProvider + Searcher + VectorStore,
+    S: EventLog + ObjectStore + QueueStore + Searcher + VectorStore,
 {
     let elapsed = time_object_puts(&mut store, iterations)?;
     report(name, "object_put", iterations, elapsed);
@@ -1058,9 +954,6 @@ where
 
     let elapsed = time_object_gets(&store, iterations)?;
     report(name, "object_get", iterations, elapsed);
-
-    let elapsed = time_object_get_batches(&store, iterations, 100)?;
-    report(name, "object_get_batch_100", iterations, elapsed);
 
     let started = Instant::now();
     let all_objects = store.list_objects(None, &ListObjectsOptions::default())?;
@@ -1157,58 +1050,30 @@ fn bench_queue_workloads<S>(
     queue_iterations: usize,
 ) -> Result<(), Box<dyn Error>>
 where
-    S: QueueStore + QueueDiagnosticsProvider,
+    S: QueueStore,
 {
-    let diagnostics_before = store.queue_diagnostic_state()?;
     let elapsed = time_queue_pushes(store, queue_iterations)?;
     report(name, "queue_push", queue_iterations, elapsed);
-    record_queue_diagnostic_state(name, "queue_push", store, diagnostics_before)?;
 
-    let diagnostics_before = store.queue_diagnostic_state()?;
     let elapsed = time_queue_push_batch(store, queue_iterations)?;
     report(name, "queue_batch", queue_iterations, elapsed);
-    record_queue_diagnostic_state(name, "queue_batch", store, diagnostics_before)?;
 
-    let diagnostics_before = store.queue_diagnostic_state()?;
     let elapsed = time_queue_pushes_on_queue(store, QUEUE_COMPONENTS, queue_iterations)?;
     report(name, "queue_component_push", queue_iterations, elapsed);
-    record_queue_diagnostic_state(name, "queue_component_push", store, diagnostics_before)?;
 
-    let diagnostics_before = store.queue_diagnostic_state()?;
     let (elapsed, claimed_ids) = time_queue_claim_only(store, QUEUE_COMPONENTS, queue_iterations)?;
-    if claimed_ids.len() != queue_iterations {
-        return Err(format!(
-            "queue_claim_only completed {} claims, expected {queue_iterations}",
-            claimed_ids.len()
-        )
-        .into());
-    }
-    report(name, "queue_claim_only", claimed_ids.len(), elapsed);
-    record_queue_diagnostic_state(name, "queue_claim_only", store, diagnostics_before)?;
+    report(name, "queue_claim_only", queue_iterations, elapsed);
 
-    let diagnostics_before = store.queue_diagnostic_state()?;
     let elapsed = time_queue_ack_only(store, QUEUE_COMPONENTS, &claimed_ids)?;
     report(name, "queue_ack_only", claimed_ids.len(), elapsed);
-    record_queue_diagnostic_state(name, "queue_ack_only", store, diagnostics_before)?;
 
-    let diagnostics_before = store.queue_diagnostic_state()?;
     let elapsed = time_queue_pushes_on_queue(store, QUEUE_BATCH, queue_iterations)?;
     report(name, "queue_atomic_batch_setup", queue_iterations, elapsed);
-    record_queue_diagnostic_state(name, "queue_atomic_batch_setup", store, diagnostics_before)?;
 
-    let diagnostics_before = store.queue_diagnostic_state()?;
     let (elapsed, completed) =
         time_queue_claim_and_ack_batch(store, QUEUE_BATCH, queue_iterations)?;
-    if completed != queue_iterations {
-        return Err(format!(
-            "queue_atomic_batch completed {completed} claims, expected {queue_iterations}"
-        )
-        .into());
-    }
     report(name, "queue_atomic_batch", completed, elapsed);
-    record_queue_diagnostic_state(name, "queue_atomic_batch", store, diagnostics_before)?;
 
-    let diagnostics_before = store.queue_diagnostic_state()?;
     let elapsed = time_queue_claims_and_acks(store, queue_iterations)?;
     report(
         name,
@@ -1216,76 +1081,10 @@ where
         queue_iterations,
         elapsed,
     );
-    record_queue_diagnostic_state(
-        name,
-        "queue_sequential_claim_ack",
-        store,
-        diagnostics_before,
-    )?;
 
-    let diagnostics_before = store.queue_diagnostic_state()?;
     let elapsed = time_queue_claim_and_ack(store, queue_iterations)?;
     report(name, "queue_atomic_claim_ack", queue_iterations, elapsed);
-    record_queue_diagnostic_state(name, "queue_atomic_claim_ack", store, diagnostics_before)?;
 
-    let diagnostics_before = store.queue_diagnostic_state()?;
-    let elapsed = time_queue_pushes_on_queue(store, QUEUE_PROCESSING_BATCH, queue_iterations)?;
-    report(
-        name,
-        "queue_processing_batch_setup",
-        queue_iterations,
-        elapsed,
-    );
-    record_queue_diagnostic_state(
-        name,
-        "queue_processing_batch_setup",
-        store,
-        diagnostics_before,
-    )?;
-
-    let diagnostics_before = store.queue_diagnostic_state()?;
-    let (elapsed, completed) = time_queue_claim_process_ack_batches(
-        store,
-        QUEUE_PROCESSING_BATCH,
-        queue_iterations,
-        QUEUE_PROCESSING_BATCH_SIZE,
-    )?;
-    if completed != queue_iterations {
-        return Err(format!(
-            "queue_claim_process_ack_batch completed {completed} jobs, expected {queue_iterations}"
-        )
-        .into());
-    }
-    report(name, "queue_claim_process_ack_batch", completed, elapsed);
-    record_queue_diagnostic_state(
-        name,
-        "queue_claim_process_ack_batch",
-        store,
-        diagnostics_before,
-    )?;
-
-    Ok(())
-}
-
-fn record_queue_diagnostic_state<S: QueueDiagnosticsProvider>(
-    driver: &str,
-    operation: &str,
-    store: &S,
-    before: Option<QueueDiagnosticState>,
-) -> Result<(), Box<dyn Error>> {
-    let (Some(before), Some(after)) = (before, store.queue_diagnostic_state()?) else {
-        return Ok(());
-    };
-
-    results().lock().unwrap().queue.push(QueueSnapshot {
-        driver: driver.to_string(),
-        repetition: CURRENT_REPETITION.load(Ordering::Relaxed),
-        operation: Some(operation.to_string()),
-        diagnostics_before: Some(before.diagnostics),
-        diagnostics: after.diagnostics,
-        wal_before: before.wal,
-        wal_after: after.wal,
-    });
     Ok(())
 }
 
@@ -1401,10 +1200,8 @@ fn bench_wal_workloads(
         })
         .collect();
     let started = Instant::now();
-    let sample_started = Instant::now();
     let stored = engine.put_objects_batch(objects)?;
     black_box(stored.len());
-    record_pending_latency_sample(sample_started.elapsed());
     report(name, "wal-explicit-batch", batch_size, started.elapsed());
 
     let before_reopen = engine
@@ -1427,12 +1224,8 @@ fn bench_wal_workloads(
         bounded_db.keyspace("objects", thingdb::KeyspaceCreateOptions::default)?;
     let started = Instant::now();
     for index in 0..iterations {
-        let sample_started = should_sample_latency(index, iterations).then(Instant::now);
         let key = format!("bounded-{seed}-{index}");
         bounded_keyspace.insert(key.as_bytes(), OBJECT_BODY_ACTIVE.as_bytes())?;
-        if let Some(sample_started) = sample_started {
-            record_pending_latency_sample(sample_started.elapsed());
-        }
     }
     report(
         name,
@@ -1489,15 +1282,11 @@ fn bench_table_read_workloads(
 
     let started = Instant::now();
     for index in 0..iterations {
-        let sample_started = should_sample_latency(index, iterations).then(Instant::now);
         let id = format!(
             "wal-single-{}",
             deterministic_index(seed, index, iterations.max(1))
         );
         black_box(reopened.get_object(COLLECTION, &id)?);
-        if let Some(sample_started) = sample_started {
-            record_pending_latency_sample(sample_started.elapsed());
-        }
     }
     report(name, "table-point-read", iterations, started.elapsed());
     let after_table_read = reopened
@@ -1541,12 +1330,7 @@ fn bench_thingdb_concurrent_writes(
                         seed,
                         deterministic_index(seed, index, iterations.max(1))
                     );
-                    let sample_started =
-                        should_sample_latency(index, iterations).then(Instant::now);
                     keyspace.insert(key.as_bytes(), OBJECT_BODY_ACTIVE.as_bytes())?;
-                    if let Some(sample_started) = sample_started {
-                        record_pending_latency_sample(sample_started.elapsed());
-                    }
                 }
                 Ok(per_writer)
             })
@@ -1616,8 +1400,6 @@ fn bench_raw_queue_claim_ack(
                 let mut completed = 0;
                 for offset in 0..per_worker {
                     let id = format!("{seed}-{worker}-{offset}");
-                    let sample_started =
-                        should_sample_latency(offset, per_worker).then(Instant::now);
                     db.batch_with_capacity(3)
                         .delete(&ready_jobs, id.as_bytes())
                         .put(&queue_jobs, id.as_bytes(), b"leased")
@@ -1628,9 +1410,6 @@ fn bench_raw_queue_claim_ack(
                         .delete(&lease_jobs, id.as_bytes())
                         .commit()?;
                     completed += 1;
-                    if let Some(sample_started) = sample_started {
-                        record_pending_latency_sample(sample_started.elapsed());
-                    }
                 }
                 Ok(completed)
             })
@@ -1791,21 +1570,6 @@ impl WalDiagnosticsSnapshot {
             scan_merge_duration_ns: before
                 .scan_merge_duration_ns
                 .saturating_add(after.scan_merge_duration_ns),
-            scan_page_capture_count: before
-                .scan_page_capture_count
-                .saturating_add(after.scan_page_capture_count),
-            scan_page_capture_duration_ns: before
-                .scan_page_capture_duration_ns
-                .saturating_add(after.scan_page_capture_duration_ns),
-            scan_page_capture_fallback_count: before
-                .scan_page_capture_fallback_count
-                .saturating_add(after.scan_page_capture_fallback_count),
-            scan_page_capture_candidates_copied: before
-                .scan_page_capture_candidates_copied
-                .saturating_add(after.scan_page_capture_candidates_copied),
-            scan_page_capture_fallback_candidates_copied: before
-                .scan_page_capture_fallback_candidates_copied
-                .saturating_add(after.scan_page_capture_fallback_candidates_copied),
             scan_returned_entries: before
                 .scan_returned_entries
                 .saturating_add(after.scan_returned_entries),
@@ -1828,30 +1592,6 @@ impl WalDiagnosticsSnapshot {
             table_bytes_written: before
                 .table_bytes_written
                 .saturating_add(after.table_bytes_written),
-            table_block_cache_capacity_bytes: before
-                .table_block_cache_capacity_bytes
-                .max(after.table_block_cache_capacity_bytes),
-            table_block_cache_resident_bytes: before
-                .table_block_cache_resident_bytes
-                .max(after.table_block_cache_resident_bytes),
-            table_block_cache_entries: before
-                .table_block_cache_entries
-                .max(after.table_block_cache_entries),
-            table_block_cache_hits: before
-                .table_block_cache_hits
-                .saturating_add(after.table_block_cache_hits),
-            table_block_cache_misses: before
-                .table_block_cache_misses
-                .saturating_add(after.table_block_cache_misses),
-            table_block_cache_decoded_hits: before
-                .table_block_cache_decoded_hits
-                .saturating_add(after.table_block_cache_decoded_hits),
-            table_block_cache_decoded_misses: before
-                .table_block_cache_decoded_misses
-                .saturating_add(after.table_block_cache_decoded_misses),
-            table_block_cache_evictions: before
-                .table_block_cache_evictions
-                .saturating_add(after.table_block_cache_evictions),
         }
     }
 }
@@ -2088,7 +1828,6 @@ fn bench_queue_diagnostics(
         None => PersistentEngine::open_in_memory_with_backend(thingd::PersistentBackend::ThingDb)?,
     };
     let wal_before = engine.wal_diagnostics()?;
-    let diagnostics_before = engine.queue_diagnostics();
     let jobs = (0..64)
         .map(|index| {
             QueueJob::new(
@@ -2111,8 +1850,6 @@ fn bench_queue_diagnostics(
     results().lock().unwrap().queue.push(QueueSnapshot {
         driver: name.to_string(),
         repetition: CURRENT_REPETITION.load(Ordering::Relaxed),
-        operation: Some("diagnostic_probe_64".to_string()),
-        diagnostics_before: Some(diagnostics_before),
         diagnostics: engine.queue_diagnostics(),
         wal_before,
         wal_after: engine.wal_diagnostics()?,
@@ -2283,7 +2020,6 @@ fn record_latency(driver: &str, operation: &str, mut samples: Vec<u128>) {
         p99_ns: Some(percentile(&samples, 99)),
         max_ns: Some(*samples.last().unwrap_or(&0)),
         latency_sampled: true,
-        latency_sample_count: operations,
         error_count: 0,
     };
     println!(
@@ -2301,35 +2037,19 @@ const fn percentile(samples: &[u128], percentile: usize) -> u128 {
     samples[index]
 }
 
-const fn median_value(values: &[u128]) -> Option<u128> {
-    if values.is_empty() {
-        return None;
-    }
-    let middle = values.len() / 2;
-    Some(if values.len().is_multiple_of(2) {
-        values[middle - 1].saturating_add(values[middle]) / 2
-    } else {
-        values[middle]
-    })
-}
-
 #[allow(clippy::too_many_lines)]
 fn update_summaries() {
     let mut output = results().lock().unwrap();
-    let mut grouped = std::collections::BTreeMap::<(String, String), Vec<&BenchResult>>::new();
+    let mut grouped = std::collections::BTreeMap::<(String, String), Vec<u128>>::new();
     for result in &output.results {
         grouped
             .entry((result.driver.clone(), result.operation.clone()))
             .or_default()
-            .push(result);
+            .push(result.throughput_ops_per_second);
     }
     output.summaries = grouped
         .into_iter()
-        .map(|((driver, operation), repetitions)| {
-            let mut throughputs = repetitions
-                .iter()
-                .map(|result| result.throughput_ops_per_second)
-                .collect::<Vec<_>>();
+        .map(|((driver, operation), mut throughputs)| {
             throughputs.sort_unstable();
             let minimum = throughputs[0];
             let maximum = *throughputs.last().unwrap_or(&minimum);
@@ -2339,26 +2059,6 @@ fn update_summaries() {
             } else {
                 throughputs[middle]
             };
-            let mut p50_values = repetitions
-                .iter()
-                .filter_map(|result| result.p50_ns)
-                .collect::<Vec<_>>();
-            let mut p95_values = repetitions
-                .iter()
-                .filter_map(|result| result.p95_ns)
-                .collect::<Vec<_>>();
-            let mut p99_values = repetitions
-                .iter()
-                .filter_map(|result| result.p99_ns)
-                .collect::<Vec<_>>();
-            let maximum_latency = repetitions.iter().filter_map(|result| result.max_ns).max();
-            let latency_sample_count = repetitions
-                .iter()
-                .map(|result| result.latency_sample_count)
-                .sum();
-            p50_values.sort_unstable();
-            p95_values.sort_unstable();
-            p99_values.sort_unstable();
             BenchSummary {
                 driver,
                 operation,
@@ -2367,12 +2067,6 @@ fn update_summaries() {
                 minimum_throughput_ops_per_second: minimum,
                 maximum_throughput_ops_per_second: maximum,
                 spread_throughput_ops_per_second: maximum.saturating_sub(minimum),
-                latency_repetitions: p50_values.len(),
-                latency_sample_count,
-                median_p50_ns: median_value(&p50_values),
-                median_p95_ns: median_value(&p95_values),
-                median_p99_ns: median_value(&p99_values),
-                maximum_latency_ns: maximum_latency,
             }
         })
         .collect();
@@ -2467,215 +2161,6 @@ const fn deterministic_index(seed: u64, index: usize, count: usize) -> usize {
 
 fn nanos_duration(nanos: u128) -> Duration {
     Duration::from_nanos(u64::try_from(nanos.min(u128::from(u64::MAX))).unwrap_or(u64::MAX))
-}
-
-#[cfg(feature = "rocksdb-backend")]
-fn bench_raw_durable_comparison(iterations: usize) -> Result<(), Box<dyn Error>> {
-    let operations = iterations.max(1);
-    let batch_operations = operations.clamp(1, 1_000);
-    let concurrent_writers = operations.min(32);
-    bench_raw_rocksdb(operations, batch_operations, concurrent_writers)?;
-    bench_raw_thingdb(operations, batch_operations, concurrent_writers)
-}
-
-#[cfg(feature = "rocksdb-backend")]
-fn bench_raw_rocksdb(
-    operations: usize,
-    batch_operations: usize,
-    concurrent_writers: usize,
-) -> Result<(), Box<dyn Error>> {
-    let value = b"raw durable benchmark value";
-    let rocks_directory = tempfile::tempdir()?;
-    let mut rocks_options = Options::default();
-    rocks_options.create_if_missing(true);
-    #[cfg(feature = "benchmark")]
-    if env::var("THINGD_BENCH_DURABILITY_PROFILE").as_deref() == Ok("common-fsync") {
-        rocks_options.set_use_fsync(true);
-    }
-    let rocks = Arc::new(DB::open(&rocks_options, rocks_directory.path())?);
-    let mut sync_options = WriteOptions::default();
-    sync_options.set_sync(true);
-
-    let started = Instant::now();
-    for index in 0..operations {
-        let sample_started = should_sample_latency(index, operations).then(Instant::now);
-        rocks.put_opt(format!("single-{index}"), value, &sync_options)?;
-        if let Some(sample_started) = sample_started {
-            record_pending_latency_sample(sample_started.elapsed());
-        }
-    }
-    report(
-        "rocksdb-raw",
-        "raw_single_sync_write",
-        operations,
-        started.elapsed(),
-    );
-
-    let mut rocks_batch = WriteBatch::default();
-    for index in 0..batch_operations {
-        rocks_batch.put(format!("batch-{index}"), value);
-    }
-    let started = Instant::now();
-    let sample_started = Instant::now();
-    rocks.write_opt(rocks_batch, &sync_options)?;
-    record_pending_latency_sample(sample_started.elapsed());
-    report(
-        "rocksdb-raw",
-        "raw_explicit_sync_batch",
-        batch_operations,
-        started.elapsed(),
-    );
-
-    let barrier = Arc::new(Barrier::new(concurrent_writers));
-    let started = Instant::now();
-    let handles: Vec<_> = (0..concurrent_writers)
-        .map(|writer| {
-            let rocks = Arc::clone(&rocks);
-            let barrier = Arc::clone(&barrier);
-            let base = operations / concurrent_writers;
-            let remainder = operations % concurrent_writers;
-            let writer_operations = base + usize::from(writer < remainder);
-            let first_index = writer * base + writer.min(remainder);
-            std::thread::spawn(move || -> std::result::Result<(), rocksdb::Error> {
-                barrier.wait();
-                let mut options = WriteOptions::default();
-                options.set_sync(true);
-                for offset in 0..writer_operations {
-                    let index = first_index + offset;
-                    let sample_started =
-                        should_sample_latency(index, operations).then(Instant::now);
-                    rocks.put_opt(format!("concurrent-{index}"), value, &options)?;
-                    if let Some(sample_started) = sample_started {
-                        record_pending_latency_sample(sample_started.elapsed());
-                    }
-                }
-                Ok(())
-            })
-        })
-        .collect();
-    for handle in handles {
-        handle
-            .join()
-            .map_err(|_| "RocksDB raw benchmark writer panicked")??;
-    }
-    report(
-        "rocksdb-raw",
-        "raw_concurrent_sync_write",
-        operations,
-        started.elapsed(),
-    );
-    if rocks.get("single-0")?.is_none()
-        || rocks
-            .get(format!("batch-{}", batch_operations - 1))?
-            .is_none()
-        || rocks
-            .get(format!("concurrent-{}", operations - 1))?
-            .is_none()
-    {
-        return Err("RocksDB raw durable correctness check failed".into());
-    }
-    record_storage("rocksdb-raw", rocks_directory.path());
-    Ok(())
-}
-
-#[cfg(feature = "rocksdb-backend")]
-fn bench_raw_thingdb(
-    operations: usize,
-    batch_operations: usize,
-    concurrent_writers: usize,
-) -> Result<(), Box<dyn Error>> {
-    let value = b"raw durable benchmark value";
-    let thingdb_directory = tempfile::tempdir()?;
-    let thingdb = thingdb::Database::open(thingdb_directory.path())?;
-    let keyspace = thingdb.keyspace("raw", KeyspaceCreateOptions::default)?;
-    let started = Instant::now();
-    for index in 0..operations {
-        let sample_started = should_sample_latency(index, operations).then(Instant::now);
-        keyspace.insert(format!("single-{index}").as_bytes(), value)?;
-        if let Some(sample_started) = sample_started {
-            record_pending_latency_sample(sample_started.elapsed());
-        }
-    }
-    report(
-        "thingdb-raw",
-        "raw_single_sync_write",
-        operations,
-        started.elapsed(),
-    );
-
-    let mut batch = thingdb.batch_with_capacity(batch_operations);
-    for index in 0..batch_operations {
-        batch = batch.put_owned(
-            &keyspace,
-            format!("batch-{index}").into_bytes(),
-            value.to_vec(),
-        );
-    }
-    let started = Instant::now();
-    let sample_started = Instant::now();
-    batch.commit()?;
-    record_pending_latency_sample(sample_started.elapsed());
-    report(
-        "thingdb-raw",
-        "raw_explicit_sync_batch",
-        batch_operations,
-        started.elapsed(),
-    );
-
-    let barrier = Arc::new(Barrier::new(concurrent_writers));
-    let started = Instant::now();
-    let handles: Vec<_> = (0..concurrent_writers)
-        .map(|writer| {
-            let keyspace = keyspace.clone();
-            let barrier = Arc::clone(&barrier);
-            let base = operations / concurrent_writers;
-            let remainder = operations % concurrent_writers;
-            let writer_operations = base + usize::from(writer < remainder);
-            let first_index = writer * base + writer.min(remainder);
-            std::thread::spawn(move || -> thingdb::Result<()> {
-                barrier.wait();
-                for offset in 0..writer_operations {
-                    let index = first_index + offset;
-                    let key = format!("concurrent-{index}");
-                    let sample_started =
-                        should_sample_latency(index, operations).then(Instant::now);
-                    keyspace.insert(key.as_bytes(), value)?;
-                    if let Some(sample_started) = sample_started {
-                        record_pending_latency_sample(sample_started.elapsed());
-                    }
-                }
-                Ok(())
-            })
-        })
-        .collect();
-    for handle in handles {
-        handle
-            .join()
-            .map_err(|_| "ThingDB raw benchmark writer panicked")??;
-    }
-    report(
-        "thingdb-raw",
-        "raw_concurrent_sync_write",
-        operations,
-        started.elapsed(),
-    );
-    if keyspace.get(b"single-0")?.is_none()
-        || keyspace
-            .get(format!("batch-{}", batch_operations - 1).as_bytes())?
-            .is_none()
-        || keyspace
-            .get(format!("concurrent-{}", operations - 1).as_bytes())?
-            .is_none()
-    {
-        return Err("ThingDB raw durable correctness check failed".into());
-    }
-    results().lock().unwrap().wal.push(WalSnapshot {
-        driver: "thingdb-raw".to_string(),
-        repetition: CURRENT_REPETITION.load(Ordering::Relaxed),
-        diagnostics: thingdb.wal_diagnostics()?,
-    });
-    record_storage("thingdb-raw", thingdb_directory.path());
-    Ok(())
 }
 
 fn bench_concurrent<S, F>(name: &str, factory: F, iterations: usize) -> Result<(), Box<dyn Error>>
@@ -2895,7 +2380,6 @@ where
     let started = Instant::now();
 
     for index in 0..iterations {
-        let sample_started = should_sample_latency(index, iterations).then(Instant::now);
         let body = if index % 2 == 0 {
             OBJECT_BODY_ACTIVE
         } else {
@@ -2904,9 +2388,6 @@ where
         let object = MemoryObject::new(COLLECTION, format!("object-{index}"), body);
         let stored = store.put_object(object)?;
         black_box(stored.version);
-        if let Some(sample_started) = sample_started {
-            record_pending_latency_sample(sample_started.elapsed());
-        }
     }
 
     Ok(started.elapsed())
@@ -2928,10 +2409,8 @@ where
         .collect();
 
     let started = Instant::now();
-    let sample_started = Instant::now();
     let results = store.put_objects_batch(objects)?;
     black_box(results.len());
-    record_pending_latency_sample(sample_started.elapsed());
     Ok(started.elapsed())
 }
 
@@ -2942,7 +2421,6 @@ where
     let started = Instant::now();
 
     for index in 0..iterations {
-        let sample_started = should_sample_latency(index, iterations).then(Instant::now);
         let body = if index % 2 == 0 {
             OBJECT_BODY_INACTIVE
         } else {
@@ -2951,9 +2429,6 @@ where
         let object = MemoryObject::new(COLLECTION, format!("object-{index}"), body);
         let stored = store.put_object(object)?;
         black_box(stored.version);
-        if let Some(sample_started) = sample_started {
-            record_pending_latency_sample(sample_started.elapsed());
-        }
     }
 
     Ok(started.elapsed())
@@ -2966,42 +2441,9 @@ where
     let started = Instant::now();
 
     for index in 0..iterations {
-        let sample_started = should_sample_latency(index, iterations).then(Instant::now);
         let id = format!("object-{index}");
         let object = store.get_object(COLLECTION, black_box(id.as_str()))?;
         black_box(object);
-        if let Some(sample_started) = sample_started {
-            record_pending_latency_sample(sample_started.elapsed());
-        }
-    }
-
-    Ok(started.elapsed())
-}
-
-fn time_object_get_batches<S>(
-    store: &S,
-    iterations: usize,
-    batch_size: usize,
-) -> Result<Duration, Box<dyn Error>>
-where
-    S: ObjectStore,
-{
-    let batch_size = batch_size.max(1);
-    let started = Instant::now();
-
-    for start in (0..iterations).step_by(batch_size) {
-        let sample_index = start / batch_size;
-        let batch_count = iterations.div_ceil(batch_size);
-        let sample_started = should_sample_latency(sample_index, batch_count).then(Instant::now);
-        let end = start.saturating_add(batch_size).min(iterations);
-        let ids = (start..end)
-            .map(|index| format!("object-{index}"))
-            .collect::<Vec<_>>();
-        let objects = store.get_objects_batch(COLLECTION, &ids)?;
-        black_box(objects);
-        if let Some(sample_started) = sample_started {
-            record_pending_latency_sample(sample_started.elapsed());
-        }
     }
 
     Ok(started.elapsed())
@@ -3014,13 +2456,9 @@ where
     let started = Instant::now();
 
     for index in 0..iterations {
-        let sample_started = should_sample_latency(index, iterations).then(Instant::now);
         let event = MemoryEvent::new(STREAM, "benchmark.event", format!("{EVENT_BODY}:{index}"));
         let stored = store.append_event(event)?;
         black_box(stored.sequence);
-        if let Some(sample_started) = sample_started {
-            record_pending_latency_sample(sample_started.elapsed());
-        }
     }
 
     Ok(started.elapsed())
@@ -3041,10 +2479,8 @@ where
         .collect();
 
     let started = Instant::now();
-    let sample_started = Instant::now();
     let results = store.append_events_batch(events)?;
     black_box(results.len());
-    record_pending_latency_sample(sample_started.elapsed());
     Ok(started.elapsed())
 }
 
@@ -3066,13 +2502,9 @@ where
     let started = Instant::now();
 
     for index in 0..iterations {
-        let sample_started = should_sample_latency(index, iterations).then(Instant::now);
         let job = QueueJob::new(queue, format!("job-{index}"), format!("payload-{index}"), 3);
         let stored = store.push_job(job)?;
         black_box(stored.status);
-        if let Some(sample_started) = sample_started {
-            record_pending_latency_sample(sample_started.elapsed());
-        }
     }
 
     Ok(started.elapsed())
@@ -3084,53 +2516,15 @@ fn time_queue_claim_only<S>(
     iterations: usize,
 ) -> Result<(Duration, Vec<String>), Box<dyn Error>>
 where
-    S: QueueStore + QueueDiagnosticsProvider,
+    S: QueueStore,
 {
     let started = Instant::now();
     let mut ids = Vec::with_capacity(iterations);
-    for index in 0..iterations {
-        let sample_started = should_sample_latency(index, iterations).then(Instant::now);
+    for _ in 0..iterations {
         if let Some(job) =
             store.claim_job_with_options(queue, QueueClaimOptions::new(BENCHMARK_QUEUE_LEASE_MS))?
         {
             ids.push(job.id);
-        } else {
-            let jobs = store.list_jobs(queue)?;
-            let ready = jobs
-                .iter()
-                .filter(|job| job.status == QueueJobStatus::Ready)
-                .count();
-            let leased = jobs
-                .iter()
-                .filter(|job| job.status == QueueJobStatus::Leased)
-                .count();
-            let completed = jobs
-                .iter()
-                .filter(|job| job.status == QueueJobStatus::Completed)
-                .count();
-            let dead = jobs
-                .iter()
-                .filter(|job| job.status == QueueJobStatus::Dead)
-                .count();
-            let diagnostics = store
-                .queue_diagnostic_state()?
-                .map(|state| {
-                    format!(
-                        ", ready entries examined={}, stale index repairs={}",
-                        state.diagnostics.ready_entries_examined,
-                        state.diagnostics.stale_index_repairs
-                    )
-                })
-                .unwrap_or_default();
-            return Err(format!(
-                "queue_claim_only stopped after {} of {iterations} claims; queue records={} (ready={ready}, leased={leased}, completed={completed}, dead={dead}){diagnostics}",
-                ids.len(),
-                jobs.len(),
-            )
-            .into());
-        }
-        if let Some(sample_started) = sample_started {
-            record_pending_latency_sample(sample_started.elapsed());
         }
     }
     Ok((started.elapsed(), ids))
@@ -3145,14 +2539,8 @@ where
     S: QueueStore,
 {
     let started = Instant::now();
-    for (index, id) in ids.iter().enumerate() {
-        let sample_started = should_sample_latency(index, ids.len()).then(Instant::now);
-        if store.ack_job(queue, id)?.is_none() {
-            return Err(format!("queue_ack_only failed to acknowledge job {id}").into());
-        }
-        if let Some(sample_started) = sample_started {
-            record_pending_latency_sample(sample_started.elapsed());
-        }
+    for id in ids {
+        black_box(store.ack_job(queue, id)?);
     }
     Ok(started.elapsed())
 }
@@ -3166,82 +2554,9 @@ where
     S: QueueStore,
 {
     let started = Instant::now();
-    let mut completed = 0;
-    while completed < limit {
-        let batch_limit = (limit - completed).min(thingd::MAX_QUEUE_BATCH_ITEMS);
-        let sample_started = should_sample_latency(
-            completed / thingd::MAX_QUEUE_BATCH_ITEMS,
-            limit.div_ceil(thingd::MAX_QUEUE_BATCH_ITEMS),
-        )
-        .then(Instant::now);
-        let batch = store.claim_and_ack_batch(queue, QueueClaimOptions::default(), batch_limit)?;
-        if batch.len() != batch_limit {
-            return Err(format!(
-                "queue atomic batch completed {} jobs, expected {batch_limit}",
-                batch.len()
-            )
-            .into());
-        }
-        completed += batch.len();
-        black_box(completed);
-        if let Some(sample_started) = sample_started {
-            record_pending_latency_sample(sample_started.elapsed());
-        }
-    }
-    Ok((started.elapsed(), completed))
-}
-
-fn time_queue_claim_process_ack_batches<S>(
-    store: &mut S,
-    queue: &str,
-    iterations: usize,
-    batch_size: usize,
-) -> Result<(Duration, usize), Box<dyn Error>>
-where
-    S: QueueStore,
-{
-    if batch_size == 0 || batch_size > thingd::MAX_QUEUE_BATCH_ITEMS {
-        return Err("queue processing batch size is outside the supported range".into());
-    }
-    let started = Instant::now();
-    let mut processed = 0;
-    while processed < iterations {
-        let limit = (iterations - processed).min(batch_size);
-        let sample_started =
-            should_sample_latency(processed / batch_size, iterations.div_ceil(batch_size))
-                .then(Instant::now);
-        let claimed = store.claim_jobs_with_options(queue, QueueClaimOptions::default(), limit)?;
-        if claimed.len() != limit {
-            return Err(format!(
-                "queue batch claimed {} jobs, expected {limit}",
-                claimed.len()
-            )
-            .into());
-        }
-
-        // The benchmark models successful application work between durable claim and ack.
-        for job in &claimed {
-            black_box(&job.body);
-        }
-        let ids = claimed.iter().map(|job| job.id.clone()).collect::<Vec<_>>();
-        let completed = store.ack_jobs(queue, &ids)?;
-        if completed.len() != limit
-            || completed
-                .iter()
-                .any(|job| job.status != QueueJobStatus::Completed)
-        {
-            return Err(format!(
-                "queue batch ack completed {} jobs, expected {limit}",
-                completed.len()
-            )
-            .into());
-        }
-        processed += completed.len();
-        if let Some(sample_started) = sample_started {
-            record_pending_latency_sample(sample_started.elapsed());
-        }
-    }
-    Ok((started.elapsed(), processed))
+    let completed = store.claim_and_ack_batch(queue, QueueClaimOptions::default(), limit)?;
+    black_box(completed.len());
+    Ok((started.elapsed(), completed.len()))
 }
 
 fn time_queue_push_batch<S>(store: &mut S, iterations: usize) -> Result<Duration, Box<dyn Error>>
@@ -3260,10 +2575,8 @@ where
         .collect();
 
     let started = Instant::now();
-    let sample_started = Instant::now();
     let results = store.push_jobs_batch(jobs)?;
     black_box(results.len());
-    record_pending_latency_sample(sample_started.elapsed());
     Ok(started.elapsed())
 }
 
@@ -3275,32 +2588,12 @@ where
     S: QueueStore,
 {
     let started = Instant::now();
-    let mut completed = 0;
 
-    for index in 0..iterations {
-        let sample_started = should_sample_latency(index, iterations).then(Instant::now);
+    for _ in 0..iterations {
         if let Some(job) = store.claim_job(QUEUE)? {
             let acked = store.ack_job(QUEUE, &job.id)?;
-            if acked.is_none() {
-                return Err(format!(
-                    "queue_sequential_claim_ack failed to acknowledge claimed job {}",
-                    job.id
-                )
-                .into());
-            }
             black_box(acked);
-            completed += 1;
         }
-        if let Some(sample_started) = sample_started {
-            record_pending_latency_sample(sample_started.elapsed());
-        }
-    }
-
-    if completed != iterations {
-        return Err(format!(
-            "queue_sequential_claim_ack completed {completed} claims, expected {iterations}"
-        )
-        .into());
     }
 
     Ok(started.elapsed())
@@ -3311,25 +2604,10 @@ where
     S: QueueStore,
 {
     let started = Instant::now();
-    let mut completed = 0;
 
-    for index in 0..iterations {
-        let sample_started = should_sample_latency(index, iterations).then(Instant::now);
+    for _ in 0..iterations {
         let result = store.claim_and_ack(QUEUE, QueueClaimOptions::default())?;
-        if result.is_some() {
-            completed += 1;
-        }
         black_box(result);
-        if let Some(sample_started) = sample_started {
-            record_pending_latency_sample(sample_started.elapsed());
-        }
-    }
-
-    if completed != iterations {
-        return Err(format!(
-            "queue_atomic_claim_ack completed {completed} claims, expected {iterations}"
-        )
-        .into());
     }
 
     Ok(started.elapsed())
@@ -3342,13 +2620,9 @@ where
     let started = Instant::now();
 
     for index in 0..iterations {
-        let sample_started = should_sample_latency(index, iterations).then(Instant::now);
         let id = format!("object-{index}");
         let deleted = store.delete_object(COLLECTION, black_box(id.as_str()))?;
         black_box(deleted);
-        if let Some(sample_started) = sample_started {
-            record_pending_latency_sample(sample_started.elapsed());
-        }
     }
 
     Ok(started.elapsed())
@@ -3448,10 +2722,8 @@ where
             .collect();
 
         let started = Instant::now();
-        let sample_started = Instant::now();
         let results = store.put_objects_batch(objects)?;
         let elapsed = started.elapsed();
-        record_pending_latency_sample(sample_started.elapsed());
         black_box(results.len());
         let label = format!("put_batch_{size}");
         report(name, &label, size, elapsed);
@@ -3463,10 +2735,8 @@ where
             .collect();
 
         let started = Instant::now();
-        let sample_started = Instant::now();
         let count = store.delete_objects_batch(&keys)?;
         let elapsed = started.elapsed();
-        record_pending_latency_sample(sample_started.elapsed());
         black_box(count);
         let label = format!("delete_batch_{size}");
         report(name, &label, size, elapsed);
@@ -3493,12 +2763,8 @@ where
                 for i in 0..ops_per {
                     let idx = t * ops_per + i;
                     let id = format!("object-{idx}");
-                    let sample_started = should_sample_latency(idx, total_ops).then(Instant::now);
                     let object = store.lock().unwrap().get_object(COLLECTION, &id).unwrap();
                     black_box(object);
-                    if let Some(sample_started) = sample_started {
-                        record_pending_latency_sample(sample_started.elapsed());
-                    }
                 }
             });
         }
@@ -3523,12 +2789,8 @@ where
                 for i in 0..reader_ops {
                     let idx = t * reader_ops + i;
                     let id = format!("object-{idx}");
-                    let sample_started = should_sample_latency(idx, reader_ops).then(Instant::now);
                     let object = store.lock().unwrap().get_object(COLLECTION, &id).unwrap();
                     black_box(object);
-                    if let Some(sample_started) = sample_started {
-                        record_pending_latency_sample(sample_started.elapsed());
-                    }
                 }
             });
         }
@@ -3536,14 +2798,10 @@ where
         let store = Arc::clone(store);
         scope.spawn(move || {
             for i in 0..writer_ops {
-                let sample_started = should_sample_latency(i, writer_ops).then(Instant::now);
                 let body = OBJECT_BODY_ACTIVE;
                 let object = MemoryObject::new(COLLECTION, format!("contention-{i}"), body);
                 let stored = store.lock().unwrap().put_object(object).unwrap();
                 black_box(stored.version);
-                if let Some(sample_started) = sample_started {
-                    record_pending_latency_sample(sample_started.elapsed());
-                }
             }
         });
     });
@@ -3556,22 +2814,6 @@ fn report(store: &str, operation: &str, iterations: usize, elapsed: Duration) {
     sample_peak_rss();
     let total_ns = elapsed.as_nanos().max(1);
     let operations_per_second = throughput(iterations, total_ns);
-    let mut latency_samples = PENDING_LATENCY_SAMPLES
-        .get_or_init(|| Mutex::new(Vec::new()))
-        .lock()
-        .unwrap();
-    if latency_samples.is_empty() && iterations == 1 {
-        latency_samples.push(elapsed.as_nanos());
-    }
-    latency_samples.sort_unstable();
-    let min_ns = latency_samples.first().copied();
-    let p50_ns = (!latency_samples.is_empty()).then(|| percentile(&latency_samples, 50));
-    let p95_ns = (!latency_samples.is_empty()).then(|| percentile(&latency_samples, 95));
-    let p99_ns = (!latency_samples.is_empty()).then(|| percentile(&latency_samples, 99));
-    let max_ns = latency_samples.last().copied();
-    let latency_sample_count = latency_samples.len();
-    latency_samples.clear();
-    drop(latency_samples);
 
     println!(
         "{store:>13} | {operation:<22} | {iterations:>7} ops | {elapsed:>12?} | {operations_per_second:>10} ops/s"
@@ -3583,31 +2825,14 @@ fn report(store: &str, operation: &str, iterations: usize, elapsed: Duration) {
         operations: iterations,
         total_ns,
         throughput_ops_per_second: operations_per_second,
-        min_ns,
-        p50_ns,
-        p95_ns,
-        p99_ns,
-        max_ns,
-        latency_sampled: latency_sample_count > 0,
-        latency_sample_count,
+        min_ns: None,
+        p50_ns: None,
+        p95_ns: None,
+        p99_ns: None,
+        max_ns: None,
+        latency_sampled: false,
         error_count: 0,
     });
-}
-
-const fn should_sample_latency(index: usize, operations: usize) -> bool {
-    if operations <= LATENCY_SAMPLE_BUDGET {
-        return true;
-    }
-    let stride = operations.div_ceil(LATENCY_SAMPLE_BUDGET);
-    index.is_multiple_of(stride)
-}
-
-fn record_pending_latency_sample(duration: Duration) {
-    PENDING_LATENCY_SAMPLES
-        .get_or_init(|| Mutex::new(Vec::new()))
-        .lock()
-        .unwrap()
-        .push(duration.as_nanos());
 }
 
 fn throughput(operations: usize, total_ns: u128) -> u128 {
@@ -3797,11 +3022,6 @@ fn write_output(path: &Path) -> Result<(), Box<dyn Error>> {
         };
         output.metadata.qualification_status = if output.metadata.queue_iterations.is_some() {
             "incomplete: queue workload was reduced; exploratory evidence only".to_string()
-        } else if !matches!(
-            output.metadata.durability_comparison_status.as_str(),
-            "matched-by-source" | "not-applicable"
-        ) {
-            "incomplete: durability sync primitives are not comparable or verified".to_string()
         } else if output.metadata.peak_rss_bytes.is_some() && output.metadata.cpu_time_ns.is_some()
         {
             "complete: RSS and CPU measurements available".to_string()
@@ -3819,7 +3039,7 @@ fn write_output(path: &Path) -> Result<(), Box<dyn Error>> {
         let csv = {
             let output = results().lock().unwrap();
             let mut csv = String::from(
-                "date,phase,branch,commit,rust,os,arch,cpu_model,filesystem,iterations,repetitions,seed,backend,peak_rss_bytes,peak_rss_status,cpu_time_ns,cpu_time_status,durability_profile,durability_comparison_status,durability_comparison_note,search_mode,qualification_status,repetition,driver,operation,operations,total_ns,throughput_ops_per_second,min_ns,p50_ns,p95_ns,p99_ns,max_ns,latency_sampled,latency_sample_count,error_count\n",
+                "date,phase,branch,commit,rust,os,arch,cpu_model,filesystem,iterations,repetitions,seed,backend,peak_rss_bytes,peak_rss_status,cpu_time_ns,cpu_time_status,durability_profile,search_mode,qualification_status,repetition,driver,operation,operations,total_ns,throughput_ops_per_second,min_ns,p50_ns,p95_ns,p99_ns,max_ns,latency_sampled,error_count\n",
             );
             for result in &output.results {
                 let fields = [
@@ -3841,8 +3061,6 @@ fn write_output(path: &Path) -> Result<(), Box<dyn Error>> {
                     option_csv_u64(output.metadata.cpu_time_ns),
                     csv_escape(&output.metadata.cpu_time_status),
                     csv_escape(&output.metadata.durability_profile),
-                    csv_escape(&output.metadata.durability_comparison_status),
-                    csv_escape(&output.metadata.durability_comparison_note),
                     csv_escape(&output.metadata.search_mode),
                     csv_escape(&output.metadata.qualification_status),
                     result.repetition.to_string(),
@@ -3857,7 +3075,6 @@ fn write_output(path: &Path) -> Result<(), Box<dyn Error>> {
                     option_csv(result.p99_ns),
                     option_csv(result.max_ns),
                     result.latency_sampled.to_string(),
-                    result.latency_sample_count.to_string(),
                     result.error_count.to_string(),
                 ];
                 let _ = writeln!(csv, "{}", fields.join(","));
@@ -3871,42 +3088,6 @@ fn write_output(path: &Path) -> Result<(), Box<dyn Error>> {
         fs::write(path, serialized)?;
     }
     Ok(())
-}
-
-#[cfg(test)]
-mod durability_comparison_tests {
-    use super::{BackendSelection, durability_comparison_assessment};
-
-    #[test]
-    fn only_compares_sync_profiles_when_both_durable_backends_are_selected() {
-        let (status, _) =
-            durability_comparison_assessment("macos", BackendSelection::ThingDb, "native-sync");
-        assert_eq!(status, "not-applicable");
-    }
-
-    #[test]
-    fn linux_sync_profiles_are_matched_by_source() {
-        for profile in ["native-sync", "common-fsync"] {
-            let (status, _) =
-                durability_comparison_assessment("linux", BackendSelection::Durable, profile);
-            assert_eq!(status, "matched-by-source");
-        }
-    }
-
-    #[test]
-    fn macos_sync_profiles_are_not_compared_as_equivalent() {
-        let (status, note) =
-            durability_comparison_assessment("macos", BackendSelection::Durable, "common-fsync");
-        assert_eq!(status, "mismatched");
-        assert!(note.contains("F_FULLFSYNC"));
-    }
-
-    #[test]
-    fn unknown_platform_sync_profiles_are_unverified() {
-        let (status, _) =
-            durability_comparison_assessment("freebsd", BackendSelection::Durable, "native-sync");
-        assert_eq!(status, "unverified");
-    }
 }
 
 fn append_history(path: &Path) -> Result<(), Box<dyn Error>> {

@@ -24,16 +24,16 @@ const rustTools = [...rust.matchAll(/name:\s*"(thing_[a-z_]+)"/g)].map((m) => m[
 const unique = (values) => [...new Set(values)].sort();
 const errors = [];
 
-if (unique(tsTools).length !== 51) {
+if (unique(tsTools).length !== 49) {
   errors.push(`TypeScript MCP registry has ${unique(tsTools).length} tools; update this check if intentional.`);
 }
-if (unique(rustTools).length !== 41) {
+if (unique(rustTools).length !== 39) {
   errors.push(`Rust MCP registry has ${unique(rustTools).length} core tools; update this check if intentional.`);
 }
 if (metadata.sdkToolCount !== unique(tsTools).length || metadata.sidecarToolCount !== unique(rustTools).length) {
   errors.push("Generated MCP metadata is stale; run pnpm docs:metadata.");
 }
-if (!docs.mcp.includes("51 SDK tools") || !docs.mcp.includes("41 core tools")) {
+if (!docs.mcp.includes("49 SDK tools") || !docs.mcp.includes("39 core tools")) {
   errors.push("MCP API reference is missing the SDK/sidecar tool-count distinction.");
 }
 if (docs.release.includes('version = "0.41"')) {

@@ -123,9 +123,6 @@ test("thingd snapshot create and restore works", async () => {
 
   const append = await run(["events", "append", "system-log", "init", "--text", "System Initialized"]);
   assert.equal(append.code, 0);
-  const linkCreate = await run(["links", "create", "users/user-1", "references", "docs/guide"]);
-  assert.equal(linkCreate.code, 0);
-  const linkId = JSON.parse(linkCreate.stdout).id;
 
   // 2. Create snapshot
   const snapCreate = await run(["snapshot", "create", "--out", snapshotPath]);
@@ -139,13 +136,10 @@ test("thingd snapshot create and restore works", async () => {
   assert.equal(snapshotRecords[0].type, "thingd.snapshot");
   assert.ok(snapshotRecords.some((record) => record.type === "object" && record.object.id === "user-1"));
   assert.ok(snapshotRecords.some((record) => record.type === "event" && record.event.stream === "system-log"));
-  assert.ok(snapshotRecords.some((record) => record.type === "link" && record.link.id === linkId));
 
   // 3. Mutate DB (delete user-1 and append new event)
   const del = await run(["objects", "delete", "users", "user-1"]);
   assert.equal(del.code, 0);
-  const linkDelete = await run(["links", "delete", linkId]);
-  assert.equal(linkDelete.code, 0);
 
   // 4. Restore snapshot
   const snapRestore = await run(["snapshot", "restore", "--in", snapshotPath]);
@@ -157,8 +151,5 @@ test("thingd snapshot create and restore works", async () => {
   const restoredObj = JSON.parse(getRestored.stdout);
   assert.equal(restoredObj.id, "user-1");
   assert.equal(restoredObj.text, "Original User");
-  const restoredLink = await run(["links", "get", linkId]);
-  assert.equal(restoredLink.code, 0);
-  assert.equal(JSON.parse(restoredLink.stdout).id, linkId);
   cleanup();
 });

@@ -101,37 +101,6 @@ pub fn test_contract_object_batches_and_ordering(engine: &mut impl ThingStore) {
     assert_eq!(updated.version, 2);
 }
 
-/// Version zero is a create-only CAS; positive versions update existing objects.
-pub fn test_contract_object_create_only_cas(engine: &mut impl ThingStore) {
-    let created = engine
-        .put_object_with_options(
-            MemoryObject::new("create-only", "new", r#"{"value":1}"#),
-            PutObjectOptions {
-                expected_version: Some(0),
-                ..PutObjectOptions::default()
-            },
-        )
-        .unwrap();
-    assert_eq!(created.version, 1);
-
-    let conflict = engine.put_object_with_options(
-        MemoryObject::new("create-only", "new", r#"{"value":2}"#),
-        PutObjectOptions {
-            expected_version: Some(0),
-            ..PutObjectOptions::default()
-        },
-    );
-    assert!(matches!(conflict, Err(crate::ThingdError::Conflict(_))));
-    assert_eq!(
-        engine
-            .get_object("create-only", "new")
-            .unwrap()
-            .unwrap()
-            .body,
-        r#"{"value":1}"#
-    );
-}
-
 /// Verify that link records and both directional indexes stay consistent.
 pub fn test_contract_link_consistency(engine: &mut impl ThingStore) {
     let first = engine
@@ -168,53 +137,16 @@ pub fn test_contract_link_consistency(engine: &mut impl ThingStore) {
     assert!(engine.delete_link(&first.id).unwrap());
     assert!(engine.get_link(&first.id).unwrap().is_none());
     assert_eq!(engine.count_links().unwrap(), 1);
-    assert_eq!(
+    assert!(
         engine
             .get_neighbors(
                 "nodes/b",
                 LinkDirection::Incoming,
                 LinkQueryOptions::default()
             )
-            .unwrap(),
-        Vec::<crate::Link>::new()
+            .unwrap()
+            .is_empty()
     );
-}
-
-/// Verify snapshot-safe stable link imports and deterministic pagination.
-pub fn test_contract_link_import_and_listing(engine: &mut impl ThingStore) {
-    let initial_count = usize::try_from(engine.count_links().unwrap())
-        .expect("link count should fit in the platform pointer width");
-    let imported = Link {
-        id: "snapshot-link-2".to_string(),
-        from_ref: "nodes/a".to_string(),
-        link_type: "supports".to_string(),
-        to_ref: "nodes/b".to_string(),
-        weight: Some(0.75),
-        metadata_json: r#"{"source":"snapshot"}"#.to_string(),
-        created_at: "2026-01-01T00:00:00.000Z".to_string(),
-    };
-    assert_eq!(engine.import_link(imported.clone()).unwrap(), imported);
-    assert_eq!(engine.import_link(imported.clone()).unwrap(), imported);
-
-    let conflict = Link {
-        to_ref: "nodes/other".to_string(),
-        ..imported.clone()
-    };
-    assert!(matches!(
-        engine.import_link(conflict),
-        Err(crate::ThingdError::Conflict(_))
-    ));
-
-    engine
-        .create_link(Link::new("nodes/b", "references", "nodes/c"))
-        .unwrap();
-    let first_page = engine.list_links(0, 1).unwrap();
-    let second_page = engine.list_links(1, 1).unwrap();
-    assert_eq!(first_page.len(), 1);
-    assert_eq!(second_page.len(), 1);
-    assert!(first_page[0].id < second_page[0].id);
-    assert_eq!(engine.list_links(initial_count + 2, 10).unwrap().len(), 0);
-    assert_eq!(engine.get_link(&imported.id).unwrap(), Some(imported));
 }
 
 /// Verify vector lifecycle: add, update (preserves), remove on update to None.
@@ -300,7 +232,7 @@ pub fn test_contract_indexes(engine: &mut impl ThingStore) {
         vec![("users".into(), "email".into())]
     );
     assert!(engine.delete_index("users", "email").unwrap());
-    assert_eq!(engine.list_indexes().unwrap(), Vec::new());
+    assert!(engine.list_indexes().unwrap().is_empty());
 }
 
 /// Verify event append with idempotency and sequence ordering.
@@ -510,59 +442,6 @@ pub fn test_contract_queue_lifecycle(engine: &mut impl ThingStore) {
     );
 }
 
-/// Verify batched claims and acknowledgements preserve leases and atomicity.
-pub fn test_contract_queue_batch_lifecycle(engine: &mut impl ThingStore) {
-    engine
-        .push_jobs_batch(vec![
-            QueueJob::new("batch-q", "low", "{}", 3).with_priority(1),
-            QueueJob::new("batch-q", "high-1", "{}", 3).with_priority(10),
-            QueueJob::new("batch-q", "high-2", "{}", 3).with_priority(5),
-        ])
-        .unwrap();
-
-    let claimed = engine
-        .claim_jobs_with_options("batch-q", QueueClaimOptions::default(), 2)
-        .unwrap();
-    assert_eq!(claimed.len(), 2);
-    assert_eq!(claimed[0].id, "high-1");
-    assert_eq!(claimed[1].id, "high-2");
-    assert!(
-        claimed
-            .iter()
-            .all(|job| job.status == QueueJobStatus::Leased)
-    );
-
-    let mut ack_ids = claimed.iter().map(|job| job.id.clone()).collect::<Vec<_>>();
-    ack_ids.push("low".to_string());
-    assert!(engine.ack_jobs("batch-q", &ack_ids).is_err());
-    assert_eq!(
-        engine
-            .list_jobs("batch-q")
-            .unwrap()
-            .iter()
-            .filter(|job| job.status == QueueJobStatus::Leased)
-            .count(),
-        2,
-        "a mixed valid/invalid ack batch must not partially acknowledge"
-    );
-
-    let ack_ids = claimed.iter().map(|job| job.id.clone()).collect::<Vec<_>>();
-    let completed = engine.ack_jobs("batch-q", &ack_ids).unwrap();
-    assert_eq!(completed.len(), 2);
-    assert!(
-        completed
-            .iter()
-            .all(|job| job.status == QueueJobStatus::Completed)
-    );
-    assert!(
-        engine
-            .claim_jobs_with_options("batch-q", QueueClaimOptions::default(), 10)
-            .unwrap()
-            .iter()
-            .all(|job| job.id == "low")
-    );
-}
-
 /// Verify delayed jobs are not claimable before their availability time.
 pub fn test_contract_delayed_job(engine: &mut impl ThingStore) {
     let far_future = 99_999_999_999_999i64;
@@ -656,7 +535,7 @@ pub fn test_contract_nack_dead_letter(engine: &mut impl ThingStore) {
         .unwrap()
         .expect("should nack");
     assert_eq!(dead.status, QueueJobStatus::Dead);
-    assert_ne!(engine.list_dead_jobs("q").unwrap(), Vec::new());
+    assert!(!engine.list_dead_jobs("q").unwrap().is_empty());
 }
 
 /// Verify search returns correct results (basic smoke test).

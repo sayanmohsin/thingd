@@ -255,9 +255,7 @@ export type QueueJobResult =
 export type MemoryQueue = {
   push(payload: QueueJobPayload, options?: QueueJobOptions): Promise<QueueJob>;
   claim(options?: QueueClaimOptions): Promise<QueueJob | null>;
-  claimMany(limit: number, options?: QueueClaimOptions): Promise<QueueJob[]>;
   ack(jobId: string): Promise<QueueJobResult>;
-  ackMany(jobIds: string[]): Promise<QueueJob[]>;
   nack(jobId: string, options?: QueueNackOptions): Promise<QueueJobResult>;
   list(): Promise<QueueJob[]>;
   dead(): Promise<QueueJob[]>;

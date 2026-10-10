@@ -66,23 +66,17 @@ thingd queue claim embed
 ```
 
 ```ts
-const queue = db.queue("embed");
-const jobs = await queue.claimMany(5, { leaseMs: 30_000 });
-const completedIds = [];
+const jobs = await db.queue("embed").claim({ maxJobs: 5 });
 
 for (const job of jobs) {
   try {
     await processJob(job.payload);
-    completedIds.push(job.id);
+    // Mark complete
+    await db.queue("embed").ack(job.id);
   } catch {
     // Mark failed (will retry)
-    await queue.nack(job.id);
+    await db.queue("embed").nack(job.id);
   }
-}
-
-// One atomic acknowledgement batch after successful processing.
-if (completedIds.length > 0) {
-  await queue.ackMany(completedIds);
 }
 ```
 

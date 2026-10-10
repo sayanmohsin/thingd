@@ -180,25 +180,10 @@ export class CloudThingStore implements ThingStore {
     });
   }
 
-  claimJobs(queue: string, limit: number, options: QueueClaimOptions = {}): Promise<QueueJob[]> {
-    return this.callTool("thing_queue_claim_batch", {
-      queue,
-      limit,
-      leaseMs: options.leaseMs,
-    });
-  }
-
   ackJob(queue: string, jobId: string): Promise<QueueJobResult> {
     return this.callTool("thing_queue_ack", {
       queue,
       id: jobId,
-    });
-  }
-
-  ackJobs(queue: string, jobIds: string[]): Promise<QueueJob[]> {
-    return this.callTool("thing_queue_ack_batch", {
-      queue,
-      ids: jobIds,
     });
   }
 

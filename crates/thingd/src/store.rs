@@ -10,9 +10,6 @@ use crate::{
     ThingdResult, VectorSearchHit, VectorSearchOptions,
 };
 
-/// Maximum number of jobs accepted by a single queue batch operation.
-pub const MAX_QUEUE_BATCH_ITEMS: usize = 1_000;
-
 /// Read-only storage counts used by diagnostics and operator tooling.
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -211,9 +208,8 @@ pub trait ObjectStore {
     /// text is identical — avoids wasted FTS DELETE + INSERT.
     ///
     /// When `options.expected_version` is `Some(v)`, the operation succeeds only
-    /// if the current version equals `v` (optimistic locking / CAS). Version `0`
-    /// means the object must not exist; positive versions must match an existing
-    /// object's version. Returns `ThingdError::Conflict` on mismatch.
+    /// if the current version of the object equals `v` (optimistic locking / CAS).
+    /// Returns `ThingdError::Conflict` on version mismatch.
     ///
     /// # Errors
     ///
@@ -622,52 +618,12 @@ pub trait QueueStore {
         options: QueueClaimOptions,
     ) -> ThingdResult<Option<QueueJob>>;
 
-    /// Claim up to `limit` ready jobs in one atomic storage batch.
-    ///
-    /// All returned jobs are leased before the method returns. If the batch
-    /// fails, none of its claims are visible. The result may contain fewer
-    /// than `limit` jobs when the queue has fewer currently available jobs.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error when `limit` exceeds [`MAX_QUEUE_BATCH_ITEMS`] or the
-    /// backing store cannot atomically claim the jobs.
-    fn claim_jobs_with_options(
-        &mut self,
-        queue: &str,
-        options: QueueClaimOptions,
-        limit: usize,
-    ) -> ThingdResult<Vec<QueueJob>> {
-        let _ = (queue, options, limit);
-        Err(ThingdError::Storage(
-            "this store does not support atomic queue batch claims".to_string(),
-        ))
-    }
-
     /// Acknowledge a leased job as completed.
     ///
     /// # Errors
     ///
     /// Returns an error when the backing store cannot update the job.
     fn ack_job(&mut self, queue: &str, id: &str) -> ThingdResult<Option<QueueJob>>;
-
-    /// Acknowledge multiple leased jobs in one atomic storage batch.
-    ///
-    /// IDs must be unique. Every ID must identify a currently leased job; if
-    /// any job is missing or not leased, the entire operation fails without
-    /// acknowledging any of them.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error for duplicate IDs, more than
-    /// [`MAX_QUEUE_BATCH_ITEMS`] IDs, an unleased or missing job, or storage
-    /// failure.
-    fn ack_jobs(&mut self, queue: &str, ids: &[String]) -> ThingdResult<Vec<QueueJob>> {
-        let _ = (queue, ids);
-        Err(ThingdError::Storage(
-            "this store does not support atomic queue batch acknowledgements".to_string(),
-        ))
-    }
 
     /// Claim and immediately ack a job in a single transaction.
     ///
@@ -808,21 +764,6 @@ pub trait LinkStore {
     /// Returns an error when the link cannot be persisted.
     fn create_link(&mut self, link: crate::Link) -> ThingdResult<crate::Link>;
 
-    /// Import a link while preserving its stable identifier.
-    /// Identical existing records are accepted; conflicting records fail.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error when the link is invalid or its identifier conflicts.
-    fn import_link(&mut self, link: crate::Link) -> ThingdResult<crate::Link>;
-
-    /// List links in stable identifier order using offset pagination.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error when links cannot be read.
-    fn list_links(&self, offset: usize, limit: usize) -> ThingdResult<Vec<crate::Link>>;
-
     /// Delete a graph link by id.
     ///
     /// # Errors
@@ -945,20 +886,6 @@ pub trait ThingStore:
     + VectorStore
     + SchemaStore
 {
-    /// Create a consistent physical checkpoint of this store when its backend supports it.
-    ///
-    /// The destination must not already exist. Backends that cannot create a
-    /// reopenable physical checkpoint return an error rather than a logical export.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error when physical checkpoints are unsupported or fail.
-    fn backup_to(&self, _destination: &std::path::Path) -> ThingdResult<()> {
-        Err(ThingdError::Storage(
-            "physical backup is unavailable for this storage backend".to_string(),
-        ))
-    }
-
     /// Return the configured bounded recovery budget.
     fn recovery_budget(&self) -> crate::RecoveryBudget {
         crate::RecoveryBudget {
@@ -1047,10 +974,6 @@ impl ThingStore for crate::MemoryEngine {}
 
 #[cfg(feature = "persistent-engine")]
 impl ThingStore for crate::PersistentEngine {
-    fn backup_to(&self, destination: &std::path::Path) -> ThingdResult<()> {
-        Self::backup_to(self, destination)
-    }
-
     fn recovery_budget(&self) -> crate::RecoveryBudget {
         self.recovery_budget()
     }

@@ -157,28 +157,6 @@ jobs:
           cargo fmt --all --check
           if [[ "${{ github.event_name }}" == "pull_request" ]]; then
             cargo check --workspace --all-targets --all-features
-            cargo check -p thingd-native
-            native_default_tree="$(cargo tree -p thingd-native -e normal,build)"
-            if ! grep -q 'librocksdb-sys' <<< "$native_default_tree"; then
-              echo "Default native feature graph unexpectedly excludes librocksdb-sys" >&2
-              exit 1
-            fi
-            cargo check -p thingd-native --no-default-features --features rocksdb-backend,search,vectors
-            cargo check -p thingd-native --no-default-features --features thingdb-backend,search,vectors
-            native_thingdb_tree="$(cargo tree -p thingd-native --no-default-features --features thingdb-backend,search,vectors -e normal,build)"
-            if grep -q 'librocksdb-sys' <<< "$native_thingdb_tree"; then
-              echo "ThingDB-only native feature graph unexpectedly includes librocksdb-sys" >&2
-              exit 1
-            fi
-            if cargo check -p thingd-native --no-default-features >/tmp/thingd-native-no-backend.log 2>&1; then
-              echo "Native build without a backend unexpectedly succeeded" >&2
-              exit 1
-            fi
-            if ! grep -q 'enable at least one native storage backend' /tmp/thingd-native-no-backend.log; then
-              cat /tmp/thingd-native-no-backend.log >&2
-              echo "Native build failed without the expected backend guidance" >&2
-              exit 1
-            fi
             cargo test -p thingd --lib
             exit 0
           fi
