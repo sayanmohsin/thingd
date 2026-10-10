@@ -338,6 +338,40 @@ export function registerThingdTools(
   );
 
   server.registerTool(
+    "thing_queue_claim_batch",
+    {
+      title: "Claim Queue Jobs in a Batch",
+      description:
+        "Lease up to 1000 ready queue jobs in one atomic storage batch. Use when processing a group of jobs together; each returned job remains individually processable and must later be acknowledged or rejected.",
+      inputSchema: {
+        queue: z.string().min(1),
+        limit: z.number().int().min(0).max(1000).default(100),
+        leaseMs: z.number().int().optional(),
+        ...auditInputSchema,
+      },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: false,
+      },
+    },
+    async ({ queue, limit, leaseMs, actor, source }) => {
+      assertWriteAllowed();
+      const jobs = await db.queue(queue).claimMany(limit, { leaseMs });
+      if (jobs.length > 0) {
+        await appendMcpAuditEvent(db, audit, {
+          action: "queue.claim_batch",
+          target: { queue },
+          metadata: auditMetadata(actor, source),
+          result: { count: jobs.length },
+        });
+      }
+      return jsonResult(jobs);
+    }
+  );
+
+  server.registerTool(
     "thing_queue_ack",
     {
       title: "Acknowledge Queue Job",
@@ -374,6 +408,39 @@ export function registerThingdTools(
       }
 
       return jsonResult(result);
+    }
+  );
+
+  server.registerTool(
+    "thing_queue_ack_batch",
+    {
+      title: "Acknowledge Queue Jobs in a Batch",
+      description:
+        "Atomically complete up to 1000 previously leased jobs. The batch is all-or-nothing: every ID must be unique and currently leased.",
+      inputSchema: {
+        queue: z.string().min(1),
+        ids: z.array(z.string().min(1)).max(1000),
+        ...auditInputSchema,
+      },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: false,
+      },
+    },
+    async ({ queue, ids, actor, source }) => {
+      assertWriteAllowed();
+      const jobs = await db.queue(queue).ackMany(ids);
+      if (jobs.length > 0) {
+        await appendMcpAuditEvent(db, audit, {
+          action: "queue.ack_batch",
+          target: { queue },
+          metadata: auditMetadata(actor, source),
+          result: { count: jobs.length },
+        });
+      }
+      return jsonResult(jobs);
     }
   );
 

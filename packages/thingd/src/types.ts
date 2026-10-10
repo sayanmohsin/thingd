@@ -87,6 +87,7 @@ export interface ReconnectableThingStore {
 }
 
 export interface BackupCapableThingStore {
+  /** Create a consistent point-in-time snapshot of an open native RocksDB store. */
   backupTo(path: string): void;
   walCheckpoint(): WalCheckpointResult;
 }
@@ -128,6 +129,11 @@ export type LinkDirection = "Outgoing" | "Incoming" | "Both";
 
 export type LinkQueryOptions = {
   linkType?: string;
+  limit?: number;
+};
+
+export type LinkListOptions = {
+  offset?: number;
   limit?: number;
 };
 
@@ -179,7 +185,11 @@ export type ConnectorSyncOptions = {
 export type MemoryQueue = {
   push(payload: QueueJobPayload, options?: QueueJobOptions): Promise<QueueJob>;
   claim(options?: QueueClaimOptions): Promise<QueueJob | null>;
+  /** Claim up to `limit` jobs in one atomic storage batch. */
+  claimMany(limit: number, options?: QueueClaimOptions): Promise<QueueJob[]>;
   ack(jobId: string): Promise<QueueJobResult>;
+  /** Atomically acknowledge a set of leased jobs; the whole call fails if any ID is invalid. */
+  ackMany(jobIds: string[]): Promise<QueueJob[]>;
   nack(jobId: string, options?: QueueNackOptions): Promise<QueueJobResult>;
   list(): Promise<QueueJob[]>;
   dead(): Promise<QueueJob[]>;
@@ -217,7 +227,7 @@ export type ListObjectsOptions = {
 };
 
 export type PutOptions = {
-  /** Optional expected version for optimistic locking (CAS). */
+  /** Expected version for CAS; 0 means create only when the object is absent. */
   expectedVersion?: number;
 };
 
@@ -441,6 +451,8 @@ export interface ThingDConnection {
     ): Promise<Link>;
     delete(id: string): Promise<boolean>;
     get(id: string): Promise<Link | null>;
+    list(options?: LinkListOptions): Promise<Link[]>;
+    import(link: Link): Promise<Link>;
     neighbors(
       reference: string,
       direction?: LinkDirection,
@@ -502,6 +514,7 @@ export interface ThingDConnection {
 
 /** Local-driver connection capabilities unavailable on cloud/browser stores. */
 export interface LocalThingDConnection extends ThingDConnection {
+  /** Create a consistent point-in-time snapshot; the destination must not exist. */
   backupTo(path: string): void;
   walCheckpoint(): WalCheckpointResult;
 }
@@ -518,7 +531,9 @@ export interface ThingStore {
   listEvents<T = StoredMemoryEvent>(stream?: string, options?: ListEventsOptions): Promise<T[]>;
   pushJob(queue: string, payload: QueueJobPayload, options?: QueueJobOptions): Promise<QueueJob>;
   claimJob(queue: string, options?: QueueClaimOptions): Promise<QueueJob | null>;
+  claimJobs(queue: string, limit: number, options?: QueueClaimOptions): Promise<QueueJob[]>;
   ackJob(queue: string, jobId: string): Promise<QueueJobResult>;
+  ackJobs(queue: string, jobIds: string[]): Promise<QueueJob[]>;
   nackJob(queue: string, jobId: string, options?: QueueNackOptions): Promise<QueueJobResult>;
   listJobs(queue: string): Promise<QueueJob[]>;
   listDeadJobs(queue: string): Promise<QueueJob[]>;
@@ -529,6 +544,8 @@ export interface ThingStore {
   countActiveJobs?(): Promise<number>;
   countDeadJobs?(): Promise<number>;
   countLinks?(): Promise<number>;
+  listLinks?(offset: number, limit: number): Promise<Link[]>;
+  importLink?(link: Link): Promise<Link>;
   createLink?(
     fromRef: string,
     linkType: string,

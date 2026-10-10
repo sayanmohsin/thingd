@@ -5,11 +5,11 @@ use std::collections::{BTreeMap, HashMap, VecDeque};
 use crate::model::{IndexDefinition, ListEventsOptions, ListObjectsOptions};
 use crate::{
     AggregateFunction, AggregateGroupResult, AggregateOptions, AggregateResult, CollectionSchema,
-    EventLog, FieldSchema, Link, LinkDirection, LinkQueryOptions, LinkStore, MemoryEvent,
-    MemoryObject, MigrationRecord, ObjectKey, ObjectStore, QueueClaimOptions, QueueJob,
-    QueueJobStatus, QueueNackOptions, QueueStore, SchemaOptions, StoredSchema, ThingdError,
-    ThingdResult, TimeSeriesBucket, TimeSeriesOptions, TimeSeriesResult, VectorSearchHit,
-    VectorSearchOptions, now_iso_string, u64_to_i64, unix_timestamp_millis,
+    EventLog, FieldSchema, Link, LinkDirection, LinkQueryOptions, LinkStore, MAX_QUEUE_BATCH_ITEMS,
+    MemoryEvent, MemoryObject, MigrationRecord, ObjectKey, ObjectStore, QueueClaimOptions,
+    QueueJob, QueueJobStatus, QueueNackOptions, QueueStore, SchemaOptions, StoredSchema,
+    ThingdError, ThingdResult, TimeSeriesBucket, TimeSeriesOptions, TimeSeriesResult,
+    VectorSearchHit, VectorSearchOptions, now_iso_string, u64_to_i64, unix_timestamp_millis,
 };
 
 /// In-memory engine used to prove the storage boundary.
@@ -101,8 +101,14 @@ impl ObjectStore for MemoryEngine {
         options: crate::PutObjectOptions,
     ) -> ThingdResult<MemoryObject> {
         if let Some(expected) = options.expected_version {
-            let current = self.objects.get(&object.key).map(|o| o.version);
-            if current != Some(expected) {
+            let existing = self.objects.get(&object.key);
+            let matches = if expected == 0 {
+                existing.is_none()
+            } else {
+                existing.is_some_and(|object| object.version == expected)
+            };
+            if !matches {
+                let current = existing.map(|object| object.version);
                 return Err(ThingdError::Conflict(format!(
                     "Version mismatch for {}/{}: expected {expected}, got {:?}",
                     object.key.collection, object.key.id, current,
@@ -582,6 +588,43 @@ impl QueueStore for MemoryEngine {
         Ok(Some(job.clone()))
     }
 
+    fn claim_jobs_with_options(
+        &mut self,
+        queue: &str,
+        options: QueueClaimOptions,
+        limit: usize,
+    ) -> ThingdResult<Vec<QueueJob>> {
+        if limit > MAX_QUEUE_BATCH_ITEMS {
+            return Err(ThingdError::InvalidInput(format!(
+                "queue claim batch exceeds the maximum of {MAX_QUEUE_BATCH_ITEMS} jobs"
+            )));
+        }
+        if limit == 0 {
+            return Ok(Vec::new());
+        }
+
+        self.release_expired_leases(queue);
+        let Some(jobs) = self.queues.get_mut(queue) else {
+            return Ok(Vec::new());
+        };
+
+        let now = unix_timestamp_millis();
+        jobs.make_contiguous()
+            .sort_by_key(|job| std::cmp::Reverse(job.priority));
+        Ok(jobs
+            .iter_mut()
+            .filter(|job| job.status == QueueJobStatus::Ready && job.available_at_ms <= now)
+            .take(limit)
+            .map(|job| {
+                job.status = QueueJobStatus::Leased;
+                job.attempts = job.attempts.saturating_add(1);
+                job.leased_at_ms = Some(now);
+                job.lease_expires_at_ms = Some(now.saturating_add(u64_to_i64(options.lease_ms)));
+                job.clone()
+            })
+            .collect())
+    }
+
     fn ack_job(&mut self, queue: &str, id: &str) -> ThingdResult<Option<QueueJob>> {
         let Some(job) = self.find_job_mut(queue, id) else {
             return Ok(None);
@@ -597,6 +640,54 @@ impl QueueStore for MemoryEngine {
         job.completed_at_ms = Some(unix_timestamp_millis());
 
         Ok(Some(job.clone()))
+    }
+
+    fn ack_jobs(&mut self, queue: &str, ids: &[String]) -> ThingdResult<Vec<QueueJob>> {
+        if ids.len() > MAX_QUEUE_BATCH_ITEMS {
+            return Err(ThingdError::InvalidInput(format!(
+                "queue ack batch exceeds the maximum of {MAX_QUEUE_BATCH_ITEMS} jobs"
+            )));
+        }
+        let mut unique_ids = std::collections::HashSet::with_capacity(ids.len());
+        if ids.iter().any(|id| !unique_ids.insert(id.as_str())) {
+            return Err(ThingdError::InvalidInput(
+                "queue ack batch contains duplicate job IDs".to_string(),
+            ));
+        }
+        if ids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let jobs = self.queues.get(queue).ok_or_else(|| {
+            ThingdError::Conflict(format!("queue '{queue}' does not contain the leased jobs"))
+        })?;
+        for id in ids {
+            let Some(job) = jobs.iter().find(|job| job.id == *id) else {
+                return Err(ThingdError::Conflict(format!(
+                    "job {id} was not found in queue '{queue}'"
+                )));
+            };
+            if job.status != QueueJobStatus::Leased {
+                return Err(ThingdError::Conflict(format!(
+                    "job {id} must be leased before batch ack"
+                )));
+            }
+        }
+
+        let completed_at = unix_timestamp_millis();
+        let jobs = self.queues.get_mut(queue).expect("queue validated above");
+        Ok(ids
+            .iter()
+            .map(|id| {
+                let job = jobs
+                    .iter_mut()
+                    .find(|job| job.id == *id)
+                    .expect("job validated above");
+                job.status = QueueJobStatus::Completed;
+                job.completed_at_ms = Some(completed_at);
+                job.clone()
+            })
+            .collect())
     }
 
     fn nack_job_with_options(
@@ -818,6 +909,38 @@ impl LinkStore for MemoryEngine {
         }
         self.links.push(link.clone());
         Ok(link)
+    }
+
+    fn import_link(&mut self, link: Link) -> ThingdResult<Link> {
+        if link.id.is_empty() {
+            return Err(ThingdError::InvalidInput(
+                "Link id is required for import".to_string(),
+            ));
+        }
+        if let Some(existing) = self.links.iter().find(|existing| existing.id == link.id) {
+            if existing == &link {
+                return Ok(link);
+            }
+            return Err(ThingdError::Conflict(format!(
+                "Link '{}' already exists with different data",
+                link.id
+            )));
+        }
+        if let Some(sequence) = link
+            .id
+            .strip_prefix("link-")
+            .and_then(|id| id.parse::<u64>().ok())
+        {
+            self.next_link_id = self.next_link_id.max(sequence);
+        }
+        self.links.push(link.clone());
+        Ok(link)
+    }
+
+    fn list_links(&self, offset: usize, limit: usize) -> ThingdResult<Vec<Link>> {
+        let mut links = self.links.clone();
+        links.sort_by(|left, right| left.id.cmp(&right.id));
+        Ok(links.into_iter().skip(offset).take(limit).collect())
     }
 
     fn delete_link(&mut self, id: &str) -> ThingdResult<bool> {
@@ -1528,9 +1651,9 @@ mod tests {
     fn lists_collections_streams_and_queues() {
         let mut engine = MemoryEngine::new();
 
-        assert!(engine.list_collections().unwrap().is_empty());
-        assert!(engine.list_streams().unwrap().is_empty());
-        assert!(engine.list_queues().unwrap().is_empty());
+        assert_eq!(engine.list_collections().unwrap(), Vec::<String>::new());
+        assert_eq!(engine.list_streams().unwrap(), Vec::<String>::new());
+        assert_eq!(engine.list_queues().unwrap(), Vec::<String>::new());
 
         engine
             .put_object(MemoryObject::new("col-a", "x", "{}"))
@@ -1655,7 +1778,7 @@ mod tests {
         let results = engine
             .list_objects(Some(&["w".to_string()]), &opts)
             .unwrap();
-        assert!(results.is_empty());
+        assert_eq!(results, Vec::new());
     }
 
     #[test]
@@ -1739,7 +1862,7 @@ mod tests {
 
         assert_eq!(first.sequence, 1);
         assert_eq!(second.sequence, 2);
-        assert!(!first.created_at.is_empty(), "created_at should be set");
+        assert_ne!(first.created_at, "", "created_at should be set");
     }
 
     // ── create_link: monotonic IDs survive deletes ─────────────────────────
@@ -2088,7 +2211,7 @@ mod tests {
         let results = engine
             .vector_search("docs", &[1.0, 0.0, 0.0], VectorSearchOptions::default())
             .unwrap();
-        assert!(results.is_empty());
+        assert_eq!(results, Vec::new());
     }
 
     #[test]
@@ -2125,7 +2248,7 @@ mod tests {
         let results = engine
             .vector_search("docs", &[1.0, 0.0], VectorSearchOptions::default())
             .unwrap();
-        assert!(results.is_empty());
+        assert_eq!(results, Vec::new());
     }
 
     #[test]
@@ -2137,7 +2260,7 @@ mod tests {
         let results = engine
             .vector_search("docs", &[1.0, 0.0], VectorSearchOptions::default())
             .unwrap();
-        assert!(results.is_empty());
+        assert_eq!(results, Vec::new());
     }
 
     // ── Shared contract tests ───────────────────────────────────────────────
@@ -2146,8 +2269,10 @@ mod tests {
     fn contract_object_lifecycle() {
         let mut engine = MemoryEngine::new();
         crate::contract_tests::test_contract_object_lifecycle(&mut engine);
+        crate::contract_tests::test_contract_object_create_only_cas(&mut engine);
         crate::contract_tests::test_contract_object_batches_and_ordering(&mut engine);
         crate::contract_tests::test_contract_link_consistency(&mut engine);
+        crate::contract_tests::test_contract_link_import_and_listing(&mut engine);
     }
 
     #[test]
@@ -2173,6 +2298,7 @@ mod tests {
     fn contract_queue_lifecycle() {
         let mut engine = MemoryEngine::new();
         crate::contract_tests::test_contract_queue_lifecycle(&mut engine);
+        crate::contract_tests::test_contract_queue_batch_lifecycle(&mut engine);
     }
 
     #[test]

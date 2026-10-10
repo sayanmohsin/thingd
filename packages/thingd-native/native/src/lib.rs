@@ -1,4 +1,10 @@
 #![allow(clippy::too_many_arguments)]
+
+#[cfg(not(any(feature = "rocksdb-backend", feature = "thingdb-backend")))]
+compile_error!(
+    "enable at least one native storage backend: `rocksdb-backend` or `thingdb-backend`"
+);
+
 use std::ops::{Deref, DerefMut};
 use std::sync::{Arc, Mutex, MutexGuard};
 
@@ -109,6 +115,12 @@ fn enforce_native_batch_limit(count: usize, label: &str) -> Result<()> {
 
 #[napi]
 impl NativeThingStore {
+    #[napi]
+    pub fn backup_to(&self, path: String) -> Result<()> {
+        let store = self.lock_store()?;
+        store.backup_to(path).map_err(napi_error)
+    }
+
     #[napi]
     pub fn checkpoint(&self) -> Result<()> {
         let store = self.lock_store()?;
@@ -358,6 +370,23 @@ impl NativeThingStore {
         Ok(job)
     }
 
+    #[napi(js_name = "claimJobsJson")]
+    pub fn claim_jobs_json(&self, queue: String, lease_ms: i64, limit: u32) -> Result<String> {
+        let mut store = self.lock_store()?;
+        let jobs = store
+            .claim_jobs_with_options(
+                &queue,
+                QueueClaimOptions::new(non_negative_u64(lease_ms)?),
+                usize::try_from(limit).map_err(napi_error)?,
+            )
+            .map_err(napi_error)?
+            .into_iter()
+            .map(job_record)
+            .collect::<Vec<_>>();
+
+        to_json(&jobs)
+    }
+
     #[napi(js_name = "ackJobJson")]
     pub fn ack_job_json(&self, queue: String, id: String) -> Result<String> {
         let mut store = self.lock_store()?;
@@ -377,6 +406,17 @@ impl NativeThingStore {
         };
 
         to_json(&result)
+    }
+
+    #[napi(js_name = "ackJobsJson")]
+    pub fn ack_jobs_json(&self, queue: String, ids_json: String) -> Result<String> {
+        enforce_native_payload_limit(&ids_json, "queue job IDs")?;
+        let ids: Vec<String> = serde_json::from_str(&ids_json)
+            .map_err(|error| Error::from_reason(format!("Invalid queue job IDs: {error}")))?;
+        let mut store = self.lock_store()?;
+        let jobs = store.ack_jobs(&queue, &ids).map_err(napi_error)?;
+
+        to_json(&jobs.into_iter().map(job_record).collect::<Vec<_>>())
     }
 
     #[napi(js_name = "nackJobJson")]
@@ -624,6 +664,28 @@ impl NativeThingStore {
             .collect::<Vec<_>>();
 
         to_json(&links)
+    }
+
+    #[napi(js_name = "listLinksJson")]
+    pub fn list_links_json(&self, offset: i64, limit: i64) -> Result<String> {
+        let offset = usize::try_from(offset).map_err(napi_error)?;
+        let limit = usize::try_from(limit).map_err(napi_error)?;
+        let store = self.lock_store()?;
+        let links = store
+            .list_links(offset, limit)
+            .map_err(napi_error)?
+            .into_iter()
+            .map(link_record)
+            .collect::<Vec<_>>();
+        to_json(&links)
+    }
+
+    #[napi(js_name = "importLinkJson")]
+    pub fn import_link_json(&self, link_json: String) -> Result<String> {
+        let link: Link = serde_json::from_str(&link_json).map_err(napi_error)?;
+        let mut store = self.lock_store()?;
+        let imported = store.import_link(link).map_err(napi_error)?;
+        to_json(&link_record(imported))
     }
 
     #[napi(js_name = "aggregateJson")]

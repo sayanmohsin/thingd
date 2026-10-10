@@ -212,6 +212,37 @@ export class InMemoryThingStore implements ThingStore {
     return job;
   }
 
+  async claimJobs(
+    queue: string,
+    limit: number,
+    options: QueueClaimOptions = {}
+  ): Promise<QueueJob[]> {
+    validateQueueBatchLimit(limit);
+    const jobs = this.jobs.get(queue) ?? [];
+    const now_ = new Date();
+    const nowIso = now_.toISOString();
+    for (const job of jobs) {
+      if (job.status === "leased" && job.leaseExpiresAt && job.leaseExpiresAt <= nowIso) {
+        job.status = "ready";
+        job.leasedAt = undefined;
+        job.leaseExpiresAt = undefined;
+      }
+    }
+    const ready = jobs
+      .filter((job) => job.status === "ready" && job.availableAt <= nowIso)
+      .sort((left, right) => (right.priority ?? 0) - (left.priority ?? 0))
+      .slice(0, limit);
+    for (const job of ready) {
+      job.status = "leased";
+      job.attempts += 1;
+      job.leasedAt = nowIso;
+      job.leaseExpiresAt = new Date(
+        now_.getTime() + (options.leaseMs ?? DEFAULT_LEASE_MS)
+      ).toISOString();
+    }
+    return ready;
+  }
+
   async ackJob(queue: string, jobId: string): Promise<QueueJobResult> {
     const job = this.findJob(queue, jobId);
     if (!job) {
@@ -223,6 +254,23 @@ export class InMemoryThingStore implements ThingStore {
     job.status = "completed";
     job.completedAt = now();
     return { ok: true, job };
+  }
+
+  async ackJobs(queue: string, jobIds: string[]): Promise<QueueJob[]> {
+    validateAckJobIds(jobIds);
+    const jobs = jobIds.map((jobId) => this.findJob(queue, jobId));
+    if (jobs.some((job) => job?.status !== "leased")) {
+      throw new Error(
+        "Every job in a batch ack must exist and be leased; no jobs were acknowledged"
+      );
+    }
+    const completedAt = now();
+    return jobs.map((job) => {
+      const leased = job as QueueJob;
+      leased.status = "completed";
+      leased.completedAt = completedAt;
+      return leased;
+    });
   }
 
   async nackJob(
@@ -406,5 +454,20 @@ export class InMemoryThingStore implements ThingStore {
 
   private findJob(queue: string, jobId: string): QueueJob | undefined {
     return (this.jobs.get(queue) ?? []).find((j) => j.id === jobId);
+  }
+}
+
+function validateQueueBatchLimit(limit: number): void {
+  if (!Number.isSafeInteger(limit) || limit < 0 || limit > 1_000) {
+    throw new RangeError("Queue batch limit must be an integer between 0 and 1000");
+  }
+}
+
+function validateAckJobIds(jobIds: string[]): void {
+  if (jobIds.length > 1_000) {
+    throw new RangeError("Queue ack batch cannot exceed 1000 job IDs");
+  }
+  if (new Set(jobIds).size !== jobIds.length) {
+    throw new TypeError("Queue ack batch cannot contain duplicate job IDs");
   }
 }

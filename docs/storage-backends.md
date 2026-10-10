@@ -37,6 +37,24 @@ TypeScript/reference in-memory implementation where the native Rust addon is
 not available. This has the same public semantic contract and is also
 non-durable.
 
+## ThingDB {#thingdb}
+
+ThingDB is a Rust-native storage engine with its own keyspace, batch, snapshot,
+and table/WAL implementation. It is a distinct engine and on-disk format, not
+a wrapper around RocksDB and not a claim that Thingd's object/event/queue
+semantics are provided by other key/value engines.
+
+| ThingDB path | Thingd use | Guarantees and limits | Status |
+| --- | --- | --- | --- |
+| RAM | Default for disposable native/server `:memory:` operation | Ordered in-process state; atomic batches and snapshots; no WAL or database files; data is lost when the process exits | Used for disposable memory mode; ongoing parity/performance validation |
+| Durable | Explicit `THINGD_STORAGE_BACKEND=thingdb` selection | Checksummed WAL, sync-before-ack, atomic batches, recovery, immutable tables; separate format, substantial memory use, and no direct RocksDB file compatibility | Experimental, opt-in; not the durable default |
+| `MemoryCache` | Separate low-level `thingdb` crate primitive | Bounded key/value cache with TTL and LRU; not a database and not Thingd's semantic RAM engine | Standalone cache API |
+
+RocksDB remains the default for durable native/server storage. Thingd's
+`MemoryEngine` remains the portable semantic reference; it is not the same
+implementation as ThingDB RAM. For the standalone low-level crate surface, see
+the [ThingDB API contract](./api-spec/thingdb.md).
+
 RocksDB is statically built into the native addon and server artifact by
 default. Set `THINGD_STORAGE_BACKEND=thingdb` to opt into the experimental
 Rust-native ThingDB backend. A sidecar deployment may still use a separate
@@ -45,10 +63,15 @@ database container or database service.
 
 Rust consumers that do not need RocksDB can compile the experimental durable
 ThingDB path with `default-features = false` and the `thingdb-backend` feature.
-The compatibility `persistent` feature intentionally keeps enabling both
-backends for existing applications. This compile-time separation does not
-change the runtime defaults: RocksDB remains the default durable backend, and
-ThingDB remains a separate, opt-in format.
+The `thingd-native` Cargo package provides corresponding backend features; its
+default remains RocksDB + ThingDB + search + vectors, while
+`--no-default-features --features thingdb-backend,search,vectors` avoids
+compiling `librocksdb-sys`. The compatibility `persistent` feature on the core
+Thingd crate intentionally keeps enabling both backends for existing
+applications. This compile-time separation does not change runtime defaults:
+RocksDB remains the default durable backend, and ThingDB remains a separate,
+opt-in format. A RocksDB-free build reports a clear error if a durable path is
+opened while RocksDB is selected.
 
 ThingDB is a new format with a checksummed WAL, ordered keyspaces, atomic
 batches, snapshots, and compacted table files. It does not open RocksDB files
@@ -82,6 +105,11 @@ remains available as the portable reference implementation.
 
 See [Benchmarks](./benchmarks.md) for local comparison methodology. Benchmark
 results are environment-specific and are not a production performance claim.
+The raw key/value comparison track is reported separately from Thingd semantic
+benchmarks: SQLite, Fjall, and Redis do not implement Thingd's object, event,
+queue, vector, or search contract. Cross-database results remain unpublished
+until the pinned Linux comparison completes with matching digests and all
+repetitions.
 
 ## Legacy storage formats
 

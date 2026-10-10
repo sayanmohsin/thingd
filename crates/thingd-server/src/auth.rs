@@ -15,7 +15,7 @@ use std::time::{Duration, Instant};
 
 use crate::server::AppState;
 
-fn constant_time_eq(a: &str, b: &str) -> bool {
+pub(crate) fn constant_time_eq(a: &str, b: &str) -> bool {
     if a.len() != b.len() {
         return false;
     }
@@ -395,6 +395,8 @@ mod tests {
             tenant_config: config.tenant,
             mcp_config: config.mcp,
             auth_token: config.auth.token.clone(),
+            backup_token: config.auth.backup_token.clone(),
+            backup_root: config.server.backup_root.clone(),
             tenant_tokens: config.auth.tenant_tokens.clone(),
             auth_verifier: Some(Arc::new(
                 AuthVerifier::new(&config.auth).expect("test auth verifier"),

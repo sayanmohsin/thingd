@@ -234,9 +234,32 @@ export class ThingdClient {
     return this.request("POST", `/queues/${encodeURIComponent(queue)}/claim`, options);
   }
 
+  async claimJobs(
+    queue: string,
+    limit: number,
+    options: QueueClaimOptions = {}
+  ): Promise<QueueJob[]> {
+    if (!Number.isSafeInteger(limit) || limit < 0 || limit > 1_000) {
+      throw new Error("Queue batch limit must be an integer between 0 and 1000");
+    }
+    return this.request("POST", `/queues/${encodeURIComponent(queue)}/claim-batch`, {
+      ...options,
+      limit,
+    });
+  }
+
   async ackJob(queue: string, jobId: string): Promise<QueueJobResult> {
     return this.request("POST", `/queues/${encodeURIComponent(queue)}/ack`, {
       jobId,
+    });
+  }
+
+  async ackJobs(queue: string, jobIds: string[]): Promise<QueueJob[]> {
+    if (jobIds.length > 1_000 || new Set(jobIds).size !== jobIds.length) {
+      throw new Error("Queue batch ack requires at most 1000 unique job IDs");
+    }
+    return this.request("POST", `/queues/${encodeURIComponent(queue)}/ack-batch`, {
+      jobIds,
     });
   }
 
@@ -263,7 +286,9 @@ export class ThingdClient {
     return {
       push: (payload, options) => this.pushJob(name, payload, options),
       claim: (options) => this.claimJob(name, options),
+      claimMany: (limit, options) => this.claimJobs(name, limit, options),
       ack: (jobId) => this.ackJob(name, jobId),
+      ackMany: (jobIds) => this.ackJobs(name, jobIds),
       nack: (jobId, opts) => this.nackJob(name, jobId, opts),
       list: () => this.listJobs(name),
       dead: () => this.listDeadJobs(name),

@@ -36,7 +36,9 @@ export class NativeThingStore {
     priority?: number
   ): string;
   claimJobJson(queue: string, leaseMs: number): string | null;
+  claimJobsJson(queue: string, leaseMs: number, limit: number): string;
   ackJobJson(queue: string, id: string): string;
+  ackJobsJson(queue: string, idsJson: string): string;
   nackJobJson(queue: string, id: string, delayMs: number, error?: string): string;
   listJobsJson(queue: string): string;
   listDeadJobsJson(queue: string): string;

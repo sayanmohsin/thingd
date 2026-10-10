@@ -25,7 +25,7 @@ Claude Desktop setup. The install, config, and verification steps are identical.
 npx thingd install
 ```
 
-Your agent can then call the Node MCP server's 49 `thing_*` tools (search, objects, events, queues,
+Your agent can then call the Node MCP server's 51 `thing_*` tools (search, objects, events, queues,
 links, counts, aggregate, schema, NLQ, vector, discovery). See the [MCP tools reference](api-spec/mcp-tools.md)
 for the full list.
 

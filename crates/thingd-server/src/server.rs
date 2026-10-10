@@ -23,6 +23,8 @@ pub struct AppState {
     pub tenant_config: TenantConfig,
     pub mcp_config: McpConfig,
     pub auth_token: String,
+    pub backup_token: String,
+    pub backup_root: String,
     pub tenant_tokens: std::collections::HashMap<String, String>,
     pub auth_verifier: Option<Arc<AuthVerifier>>,
     pub allow_unauthenticated: bool,
@@ -84,10 +86,14 @@ pub fn build_router(state: Arc<AppState>, config: &Config) -> Router {
                 .post(rest::snapshot_import)
                 .layer(axum::extract::DefaultBodyLimit::disable()),
         )
+        // Requires runtime tenant auth plus a separate internal backup credential.
+        .route("/v1/internal/backup/{run_id}", post(rest::physical_snapshot))
         // Queues
         .route("/v1/queues/{queue}/push", post(rest::push_job))
         .route("/v1/queues/{queue}/claim", post(rest::claim_job))
+        .route("/v1/queues/{queue}/claim-batch", post(rest::claim_jobs_batch))
         .route("/v1/queues/{queue}/ack", post(rest::ack_job))
+        .route("/v1/queues/{queue}/ack-batch", post(rest::ack_jobs_batch))
         .route("/v1/queues/{queue}/nack", post(rest::nack_job))
         .route("/v1/queues/{queue}/jobs", get(rest::list_jobs))
         .route("/v1/queues/{queue}/dead", get(rest::list_dead_jobs))
