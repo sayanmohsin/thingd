@@ -560,7 +560,7 @@ impl Config {
         let mut config = if let Some(p) = path {
             let content = std::fs::read_to_string(p)
                 .map_err(|e| format!("Failed to read config file {}: {}", p, e))?;
-            serde_yaml::from_str(&content)?
+            serde_saphyr::from_str(&content)?
         } else {
             Config::default()
         };
@@ -974,7 +974,7 @@ mod tests {
 
     #[test]
     fn parses_async_search_configuration() {
-        let config: Config = serde_yaml::from_str(
+        let config: Config = serde_saphyr::from_str(
             "server:\n  search_mode: persistent-async\n  search_commit_interval_ms: 400\n  search_commit_batch_size: 16\n  search_queue_max_keys: 512\n",
         )
         .unwrap();
@@ -982,5 +982,77 @@ mod tests {
         assert_eq!(config.server.search_commit_interval_ms, 400);
         assert_eq!(config.server.search_commit_batch_size, 16);
         assert_eq!(config.server.search_queue_max_keys, 512);
+    }
+
+    #[test]
+    fn parses_representative_nested_yaml_config_with_defaults() {
+        let yaml = r#"
+server:
+  host: "127.0.0.1"
+  port: 9001
+  database: "/var/lib/thingd/data"
+  storage_backend: thingdb
+  production_mode: true
+  encryption_key: null
+auth:
+  mode: bearer
+  token: "a sufficiently long test token"
+  allow_unauthenticated: false
+tenant:
+  mode: multi-tenant
+  header: "X-Workspace"
+mcp:
+  read_only: true
+  max_payload_bytes: 1048576
+  collection_allowlist: ["notes", "tasks"]
+rest:
+  enabled: true
+cluster:
+  mode: single
+  peers: []
+hardening:
+  connector_require_tls: true
+sync:
+  role: replica
+  collections: ["notes"]
+"#;
+        let config: Config = serde_saphyr::from_str(yaml).unwrap();
+
+        assert_eq!(config.server.host, "127.0.0.1");
+        assert_eq!(config.server.port, 9001);
+        assert_eq!(config.server.database, "/var/lib/thingd/data");
+        assert_eq!(config.server.storage_backend, "thingdb");
+        assert!(config.server.production_mode);
+        assert!(config.server.encryption_key.is_none());
+        assert_eq!(config.auth.mode, AuthMode::Bearer);
+        assert_eq!(config.auth.token, "a sufficiently long test token");
+        assert!(!config.auth.allow_unauthenticated);
+        assert_eq!(config.tenant.mode, TenantMode::MultiTenant);
+        assert_eq!(config.tenant.header, "X-Workspace");
+        assert!(config.mcp.read_only);
+        assert_eq!(config.mcp.max_payload_bytes, 1_048_576);
+        assert_eq!(config.mcp.collection_allowlist, vec!["notes", "tasks"]);
+        assert!(config.rest.enabled);
+        assert_eq!(config.cluster.mode, ClusterMode::Single);
+        assert_eq!(config.cluster.peers, Vec::<String>::new());
+        assert!(config.hardening.connector_require_tls);
+        assert_eq!(config.sync.role, SyncRole::Replica);
+        assert_eq!(config.sync.collections, vec!["notes"]);
+        assert_eq!(
+            config.server.request_timeout_secs,
+            default_request_timeout()
+        );
+    }
+
+    #[test]
+    fn yaml_config_rejects_unknown_fields_and_malformed_input() {
+        let unknown_field = serde_saphyr::from_str::<Config>(
+            "server:\n  host: localhost\n  unsupported_option: true\n",
+        )
+        .unwrap_err();
+        assert!(unknown_field.to_string().contains("unsupported_option"));
+
+        let malformed = serde_saphyr::from_str::<Config>("server: [unterminated\n").unwrap_err();
+        assert_ne!(malformed.to_string(), "");
     }
 }

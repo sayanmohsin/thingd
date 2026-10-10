@@ -754,3 +754,22 @@ fn directory_size(path: &Path) -> u64 {
         })
         .sum()
 }
+
+#[cfg(all(test, not(feature = "rocksdb-backend")))]
+mod tests {
+    use super::{Database, StorageBackend};
+
+    #[test]
+    fn selecting_rocksdb_without_its_feature_returns_an_actionable_error() {
+        let directory = tempfile::tempdir().unwrap();
+        let result =
+            Database::builder_with_backend(directory.path(), StorageBackend::RocksDb).open();
+        let error = match result {
+            Ok(_) => panic!("RocksDB unexpectedly opened without its feature"),
+            Err(error) => error,
+        };
+
+        assert!(error.to_string().contains("RocksDB backend is unavailable"));
+        assert!(error.to_string().contains("rocksdb-backend"));
+    }
+}

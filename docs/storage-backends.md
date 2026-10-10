@@ -45,10 +45,15 @@ database container or database service.
 
 Rust consumers that do not need RocksDB can compile the experimental durable
 ThingDB path with `default-features = false` and the `thingdb-backend` feature.
-The compatibility `persistent` feature intentionally keeps enabling both
-backends for existing applications. This compile-time separation does not
-change the runtime defaults: RocksDB remains the default durable backend, and
-ThingDB remains a separate, opt-in format.
+The `thingd-native` Cargo package provides corresponding backend features; its
+default remains RocksDB + ThingDB + search + vectors, while
+`--no-default-features --features thingdb-backend,search,vectors` avoids
+compiling `librocksdb-sys`. The compatibility `persistent` feature on the core
+Thingd crate intentionally keeps enabling both durable backends for existing
+applications. This compile-time separation does not change runtime defaults:
+RocksDB remains the default durable backend, and ThingDB remains a separate,
+opt-in format. A RocksDB-free build reports a clear error if a durable path is
+opened while RocksDB is selected.
 
 ThingDB is a new format with a checksummed WAL, ordered keyspaces, atomic
 batches, snapshots, and compacted table files. It does not open RocksDB files
