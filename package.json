@@ -45,7 +45,7 @@
     "test:package:built": "node scripts/verify-package.mjs",
     "test:mcp": "pnpm test:cli",
     "test:tenant": "cargo build -p thingd-server && bash scripts/test-tenant-isolation.sh ./target/debug/thingd-server",
-    "test:node": "pnpm --filter @thingd/sdk test",
+    "test:node": "pnpm --filter @thingd/sdk test && node --test packages/thingd-native/scripts/*.test.mjs",
     "verify:publish": "node scripts/verify-publish-artifacts.mjs",
     "test:publish-manifests": "node --test scripts/publish-manifest.test.mjs",
     "test:thingdb-package": "node scripts/test-thingdb-package.mjs",

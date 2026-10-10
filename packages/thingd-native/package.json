@@ -29,7 +29,7 @@
     "README.md"
   ],
   "scripts": {
-    "build": "cargo build -p thingd-native --release && node scripts/copy-native.mjs",
+    "build": "node scripts/build-native.mjs",
     "build:prebuild": "node scripts/copy-prebuild.mjs",
     "clean": "node scripts/clean-native.mjs",
     "prepack": "node scripts/validate-package.mjs"

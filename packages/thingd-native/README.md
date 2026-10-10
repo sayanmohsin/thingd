@@ -12,6 +12,11 @@ by default; set `THINGD_STORAGE_BACKEND=thingdb` to opt into the experimental
 Rust-native durable backend. Published packages include prebuilt native
 artifacts for supported targets, so consumers normally do not install LLVM,
 Clang, or RocksDB locally. The public SDK store contract remains unchanged.
+Local native builds on macOS 26+ select a compatible deployment target when
+`MACOSX_DEPLOYMENT_TARGET` is unset. This works around
+[rust-lang/rust#157750](https://github.com/rust-lang/rust/issues/157750), where
+the macOS loader rejects a misaligned native-library string table. An explicit
+deployment target is always respected.
 
 The native open boundary accepts an optional 64-character hexadecimal key for
 authenticated encrypted storage. The key is validated before opening the Rust

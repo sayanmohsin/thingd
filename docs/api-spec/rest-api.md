@@ -232,15 +232,26 @@ for the change envelope and cursor rules.
 | `POST` | `/v1/replication/snapshot` | Apply a bootstrap snapshot on a replica |
 | `GET` | `/v1/snapshot` | Stream a logical JSONL snapshot |
 | `POST` | `/v1/snapshot` | Import a logical JSONL snapshot |
+| `POST` | `/v1/internal/backup/{run_id}` | Create an authenticated tenant's physical checkpoint |
+
+The physical checkpoint endpoint is disabled unless `THINGD_BACKUP_ROOT` and
+`THINGD_BACKUP_TOKEN` are configured. It requires normal runtime authentication
+and the separate `X-Thingd-Backup-Token` internal credential. The tenant is
+derived from authenticated tenant claims; callers cannot provide a database
+path. The server chooses the destination below the fixed backup root and accepts
+only a UUID run ID. This endpoint is for trusted backup coordinators, not
+customer-facing application use. Backends without a physical checkpoint
+implementation reject the request.
 
 ---
 
 ## Logical snapshots
 
-`GET /v1/snapshot` returns `application/x-ndjson`. The first record is a
-`thingd.snapshot` header, followed by `object`, `event`, and `queue` records.
+`GET /v1/snapshot` returns `application/x-ndjson` with a `thingd.snapshot`
+`2.1.0` header, followed by `object`, `event`, `link`, and `queue` records.
 The server emits records in bounded pages and does not construct one large JSON
-document in memory.
+document in memory. The importer remains compatible with `2.0.0` snapshots,
+which do not contain graph links.
 
 ```bash
 curl http://localhost:8757/v1/snapshot -o snapshot.thingd.jsonl
@@ -250,9 +261,11 @@ curl -X POST http://localhost:8757/v1/snapshot \
 ```
 
 `POST /v1/snapshot` processes one record at a time. Objects are upserted by
-collection and ID, events use their idempotency keys, and queue records retain
-their stored status, retry counters, timestamps, and stable IDs. A failed
-import may be retried safely for records already accepted.
+collection and ID, events use their idempotency keys, links preserve their
+stable IDs and graph metadata, and queue records retain their stored status,
+retry counters, timestamps, and stable IDs. Reimporting an identical link is
+safe; a conflicting record with the same link ID is rejected. A failed import
+may be retried safely for records already accepted.
 
 Snapshots are logical exports, not filesystem-format conversion. To move an
 embedded store to a standalone server, run the CLI snapshot create against the
@@ -751,6 +764,26 @@ curl -X POST http://localhost:8757/v1/queues/email-queue/claim \
 ```
 
 Returns the claimed job, or `null` if no jobs are available.
+
+### `POST /v1/queues/:queue/claim-batch` — Claim jobs atomically
+
+**Body:** `limit` is required (0–1000); `leaseMs` is optional and defaults to 30000.
+
+```json
+{ "limit": 64, "leaseMs": 30000 }
+```
+
+Returns up to `limit` leased jobs. The returned set is claimed in one atomic storage batch; fewer jobs may be returned when fewer are currently available.
+
+### `POST /v1/queues/:queue/ack-batch` — Complete jobs atomically
+
+**Body:** `jobIds` is a required array of at most 1000 unique IDs.
+
+```json
+{ "jobIds": ["job-1", "job-2"] }
+```
+
+Every ID must refer to a currently leased job. If any ID is missing or not leased, the entire batch fails without acknowledging any job. On success, returns the completed jobs in input order.
 
 ### `POST /v1/queues/:queue/ack` — Complete job
 

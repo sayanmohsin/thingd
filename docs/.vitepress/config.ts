@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { defineConfig } from "vitepress";
 
-const mcpToolCount = 49;
+const mcpToolCount = 51;
 const packageVersion = JSON.parse(
   readFileSync(new URL("../../package.json", import.meta.url), "utf8")
 ).version as string;

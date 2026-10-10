@@ -21,6 +21,7 @@ use std::sync::Arc;
 #[cfg(feature = "rocksdb-backend")]
 use rocksdb::{
     ColumnFamilyDescriptor, DB, FlushOptions, IteratorMode, Options, WriteBatch, WriteOptions,
+    checkpoint::Checkpoint,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -199,6 +200,21 @@ impl Database {
             Backend::ThingDb(db) => db
                 .persist(thingdb::PersistMode::SyncAll)
                 .map_err(|error| Error(error.to_string())),
+        }
+    }
+
+    /// Create a consistent physical checkpoint of the open RocksDB database.
+    /// Derived Thingd metadata is copied by `PersistentEngine` after this call.
+    pub(crate) fn checkpoint_to(&self, path: impl AsRef<Path>) -> Result<(), Error> {
+        match self.db.as_ref() {
+            #[cfg(feature = "rocksdb-backend")]
+            Backend::RocksDb(db) => Checkpoint::new(db.as_ref())?
+                .create_checkpoint(path)
+                .map_err(Error::from),
+            Backend::ThingDb(_) => Err(Error(
+                "consistent physical checkpoints are not supported by the ThingDB backend"
+                    .to_string(),
+            )),
         }
     }
 

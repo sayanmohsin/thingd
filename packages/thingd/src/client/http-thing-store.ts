@@ -194,8 +194,23 @@ export class HttpThingStore implements ThingStore {
     );
   }
 
+  async claimJobs(
+    queue: string,
+    limit: number,
+    options: QueueClaimOptions = {}
+  ): Promise<QueueJob[]> {
+    return this.request<QueueJob[]>("POST", `/queues/${encodeURIComponent(queue)}/claim-batch`, {
+      ...options,
+      limit,
+    });
+  }
+
   async ackJob(queue: string, jobId: string): Promise<QueueJobResult> {
     return this.request("POST", `/queues/${encodeURIComponent(queue)}/ack`, { jobId });
+  }
+
+  async ackJobs(queue: string, jobIds: string[]): Promise<QueueJob[]> {
+    return this.request("POST", `/queues/${encodeURIComponent(queue)}/ack-batch`, { jobIds });
   }
 
   async nackJob(

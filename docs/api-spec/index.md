@@ -60,7 +60,7 @@ routes, not a separate registry.
           ▼            ▼            ▼            ▼            ▼
     ┌─────────────────────────────────────────────────────────────┐
     │           Protocol Adapters (per-language)                   │
-    │  REST API (/v1/*)  │  MCP Server (39 sidecar / 49 Node tools) │
+    │  REST API (/v1/*)  │  MCP Server (41 sidecar / 51 Node tools) │
     └─────────────────────────┬───────────────────────────────────┘
                               │
                   ┌───────────┼───────────┐
@@ -122,7 +122,9 @@ MCP server endpoints use the same Bearer token scheme.
 | REST | `GET /v1/events?stream=` | List events |
 | REST | `POST /v1/queues/:queue/push` | Push job |
 | REST | `POST /v1/queues/:queue/claim` | Claim job |
+| REST | `POST /v1/queues/:queue/claim-batch` | Atomically claim jobs |
 | REST | `POST /v1/queues/:queue/ack` | Ack job |
+| REST | `POST /v1/queues/:queue/ack-batch` | Atomically acknowledge jobs |
 | REST | `POST /v1/queues/:queue/nack` | Nack job |
 | REST | `GET /v1/queues/:queue/jobs` | List jobs |
 | REST | `GET /v1/queues/:queue/dead` | Dead-letter jobs |

@@ -91,6 +91,9 @@ pub struct ServerConfig {
     pub port: u16,
     #[serde(default = "default_db")]
     pub database: String,
+    /// Fixed destination root for internal physical checkpoints; empty disables them.
+    #[serde(default)]
+    pub backup_root: String,
     /// Durable backend: `rocksdb` (default) or experimental `thingdb`.
     #[serde(default = "default_storage_backend")]
     pub storage_backend: String,
@@ -212,6 +215,9 @@ pub struct AuthConfig {
     pub mode: AuthMode,
     #[serde(default)]
     pub token: String,
+    /// Separate internal credential required by physical checkpoint endpoints.
+    #[serde(default)]
+    pub backup_token: String,
     #[serde(default)]
     pub allow_unauthenticated: bool,
     #[serde(default)]
@@ -381,6 +387,7 @@ impl Default for ServerConfig {
             host: default_host(),
             port: default_port(),
             database: default_db(),
+            backup_root: String::new(),
             storage_backend: default_storage_backend(),
             request_timeout_secs: default_request_timeout(),
             max_connections: default_max_connections(),
@@ -582,6 +589,9 @@ impl Config {
         if let Ok(v) = std::env::var("THINGD_PATH") {
             self.server.database = v;
         }
+        if let Ok(v) = std::env::var("THINGD_BACKUP_ROOT") {
+            self.server.backup_root = v;
+        }
         if let Ok(v) = std::env::var("THINGD_STORAGE_BACKEND") {
             self.server.storage_backend = v;
         }
@@ -631,6 +641,9 @@ impl Config {
         }
         if let Ok(v) = std::env::var("THINGD_AUTH_TOKEN") {
             self.auth.token = v;
+        }
+        if let Ok(v) = std::env::var("THINGD_BACKUP_TOKEN") {
+            self.auth.backup_token = v;
         }
         if let Ok(v) = std::env::var("THINGD_AUTH_MODE") {
             self.auth.mode = match v.as_str() {

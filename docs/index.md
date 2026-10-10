@@ -38,7 +38,7 @@ features:
     details: Semantic search via persisted vectors and cosine similarity. HNSW/ANN and hybrid ranking are future scale work.
   - icon: 🤖
     title: MCP-native
-    details: 49 Node MCP tools. The Rust sidecar exposes 39 engine tools; scheduler tools are SDK-level.
+    details: 51 Node MCP tools. The Rust sidecar exposes 41 engine tools; scheduler tools are SDK-level.
     # MCP tool count: update docs/.vitepress/config.ts (mcpToolCount) and packages/thingd/src/constants.ts
   - icon: ⚡
     title: Multi-mode

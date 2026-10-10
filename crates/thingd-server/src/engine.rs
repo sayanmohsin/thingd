@@ -343,7 +343,7 @@ impl EnginePool {
         }
     }
 
-    fn try_get_writer(&self, db_path: &str) -> Result<SharedEngine, String> {
+    pub fn try_get_writer(&self, db_path: &str) -> Result<SharedEngine, String> {
         let path = self.resolve_path(db_path);
 
         // Fast path: check if writer already exists
