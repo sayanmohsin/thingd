@@ -80,15 +80,6 @@ The standalone [`thingdb`](https://crates.io/crates/thingdb) crate has no
 RocksDB, libclang, or C/C++ build requirement. Its low-level API is documented
 in the [ThingDB API contract](./api-spec/thingdb.md).
 
-The `thingd-native` Cargo package also exposes backend feature selection. Its
-default remains equivalent to the existing build (RocksDB, ThingDB, search,
-and vectors). To build the native binding without RocksDB, use
-`--no-default-features --features thingdb-backend,search,vectors`; durable
-filesystem paths must then opt into `THINGD_STORAGE_BACKEND=thingdb`. This
-avoids compiling `librocksdb-sys`, while leaving runtime defaults unchanged.
-Enabling only `rocksdb-backend` also keeps ThingDB enabled because the shared
-engine uses it for RAM mode.
-
 Docker binary compilation starts after the release tag is available and does
 not wait for npm publication. Publication jobs remain independently gated by
 their own credentials and verification steps.

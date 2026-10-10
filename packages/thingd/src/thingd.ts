@@ -187,15 +187,9 @@ export class ThingD implements LocalThingDConnection {
         return this.store.pushJob(name, payload, options);
       },
       claim: (options?: QueueClaimOptions) => this.store.claimJob(name, options),
-      claimMany: (limit: number, options?: QueueClaimOptions) =>
-        this.store.claimJobs(name, limit, options),
       ack: (jobId: string) => {
         this.ensureWritable();
         return this.store.ackJob(name, jobId);
-      },
-      ackMany: (jobIds: string[]) => {
-        this.ensureWritable();
-        return this.store.ackJobs(name, jobIds);
       },
       nack: (jobId: string, options?: QueueNackOptions) => {
         this.ensureWritable();
@@ -225,31 +219,6 @@ export class ThingD implements LocalThingDConnection {
       return this.store.deleteLink?.(id) ?? Promise.resolve(false);
     },
     get: (id: string) => this.store.getLink?.(id) ?? Promise.resolve(null),
-    list: (options: import("./types.js").LinkListOptions = {}) => {
-      const offset = options.offset ?? 0;
-      const limit = options.limit ?? 250;
-      if (
-        !Number.isSafeInteger(offset) ||
-        offset < 0 ||
-        !Number.isSafeInteger(limit) ||
-        limit < 0
-      ) {
-        return Promise.reject(
-          new Error("Link list offset and limit must be non-negative integers")
-        );
-      }
-      return (
-        this.store.listLinks?.(offset, limit) ??
-        Promise.reject(new Error("Link listing is not supported by this driver"))
-      );
-    },
-    import: (link: import("./types.js").Link) => {
-      this.ensureWritable();
-      return (
-        this.store.importLink?.(link) ??
-        Promise.reject(new Error("Stable link import is not supported by this driver"))
-      );
-    },
     neighbors: (
       reference: string,
       direction: import("./types.js").LinkDirection = "Both",

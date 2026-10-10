@@ -105,9 +105,9 @@ pub use replication::{
     ReplicationService, ReplicationSnapshot, ReplicationStatus,
 };
 pub use store::{
-    AggregateStore, EventLog, LinkStore, MAX_QUEUE_BATCH_ITEMS, ObjectStore, QueueStore,
-    RecoveryBudget, RetentionOptions, RetentionReport, SchemaStore, Searcher, StorageDiagnostics,
-    StorageMaintenanceStatus, ThingStore, VectorStore,
+    AggregateStore, EventLog, LinkStore, ObjectStore, QueueStore, RecoveryBudget, RetentionOptions,
+    RetentionReport, SchemaStore, Searcher, StorageDiagnostics, StorageMaintenanceStatus,
+    ThingStore, VectorStore,
 };
 
 /// Shared contract tests for all engine backends.

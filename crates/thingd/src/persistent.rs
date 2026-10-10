@@ -7,7 +7,7 @@
     clippy::doc_markdown
 )]
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 use std::ops::Bound::{Excluded, Unbounded};
 use std::path::{Path, PathBuf};
 use std::sync::{
@@ -42,8 +42,8 @@ use crate::storage_backend::{
 };
 use crate::storage_backend::{Guard, Slice};
 use crate::store::{
-    AggregateStore, EventLog, LinkStore, MAX_QUEUE_BATCH_ITEMS, ObjectStore, QueueStore,
-    RetentionOptions, RetentionReport, Searcher, StorageMaintenanceStatus,
+    AggregateStore, EventLog, LinkStore, ObjectStore, QueueStore, RetentionOptions,
+    RetentionReport, Searcher, StorageMaintenanceStatus,
 };
 use crate::{
     CollectionSchema, FieldSchema, Link, MemoryEvent, MemoryObject, QueueClaimOptions, QueueJob,
@@ -56,8 +56,6 @@ enum QueueClaimMode {
     Claim,
     ClaimAndAck,
 }
-
-type QueueReadyCursor = Option<(Vec<u8>, Vec<u8>)>;
 
 /// Persistent storage engine implementing all 6 storage traits.
 ///
@@ -87,9 +85,6 @@ pub struct PersistentEngine {
     next_link_id: AtomicU64,
     event_seq_counters: HashMap<String, u64>,
     event_idempotency_keys: HashMap<(String, String), u64>,
-    queue_lease_counts: HashMap<String, usize>,
-    queue_lease_expirations: HashMap<String, BTreeMap<i64, usize>>,
-    queue_ready_cursors: HashMap<String, QueueReadyCursor>,
     index_definitions: Vec<IndexDefinition>,
     unique_index_values: HashMap<(String, String, String), ObjectKey>,
     unique_index_cache_complete: bool,
@@ -515,12 +510,6 @@ pub struct QueueDiagnostics {
     pub transition_duration_ns: u128,
     /// Time spent looking up queue records and index entries, in nanoseconds.
     pub lookup_duration_ns: u128,
-    /// Time spent seeking the next ordered ready-index entry, in nanoseconds.
-    pub ready_index_lookup_duration_ns: u128,
-    /// Time spent seeking the next ordered lease-index entry, in nanoseconds.
-    pub lease_index_lookup_duration_ns: u128,
-    /// Time spent reading a primary queue-job record, in nanoseconds.
-    pub queue_record_lookup_duration_ns: u128,
     /// Time spent decoding queue records, in nanoseconds.
     pub deserialization_duration_ns: u128,
     /// Time spent encoding queue records, in nanoseconds.
@@ -1221,9 +1210,6 @@ impl PersistentEngine {
             next_link_id: AtomicU64::new(next_link_id + 1),
             event_seq_counters,
             event_idempotency_keys,
-            queue_lease_counts: HashMap::new(),
-            queue_lease_expirations: HashMap::new(),
-            queue_ready_cursors: HashMap::new(),
             index_definitions: Vec::new(),
             unique_index_values,
             unique_index_cache_complete,
@@ -1342,10 +1328,8 @@ impl PersistentEngine {
         Ok(engine)
     }
 
-    fn rebuild_lease_index(&mut self) -> ThingdResult<()> {
+    fn rebuild_lease_index(&self) -> ThingdResult<()> {
         let mut batch = self.db.batch();
-        let mut lease_counts = HashMap::new();
-        let mut lease_expirations: HashMap<String, BTreeMap<i64, usize>> = HashMap::new();
         for entry in self.lease_jobs.iter() {
             let (key, _) = guard_data(entry)?;
             batch.remove(&self.lease_jobs, key);
@@ -1359,20 +1343,11 @@ impl PersistentEngine {
                 let key = self.make_lease_key(&job.queue, expires_at_ms, &job.id);
                 let data = self.encode_queue_id(&job.id)?;
                 batch.insert(&self.lease_jobs, key, data);
-                *lease_counts.entry(job.queue.clone()).or_insert(0_usize) += 1;
-                *lease_expirations
-                    .entry(job.queue.clone())
-                    .or_default()
-                    .entry(expires_at_ms)
-                    .or_default() += 1;
             }
         }
         batch
             .commit()
-            .map_err(|error| ThingdError::Storage(error.to_string()))?;
-        self.queue_lease_counts = lease_counts;
-        self.queue_lease_expirations = lease_expirations;
-        Ok(())
+            .map_err(|error| ThingdError::Storage(error.to_string()))
     }
 
     /// Return whether this engine needs an asynchronous derived-index rebuild.
@@ -1867,77 +1842,6 @@ impl PersistentEngine {
             .map_err(|error| ThingdError::Storage(error.to_string()))
     }
 
-    /// Create a consistent physical snapshot of this open RocksDB store.
-    ///
-    /// The destination must not exist. The primary database is captured with
-    /// RocksDB's checkpoint API, then Thingd's storage and encryption markers
-    /// are copied alongside it. The Tantivy search index is derived state and
-    /// is intentionally omitted; it is rebuilt from the checkpointed records
-    /// when the destination is opened. ThingDB currently has no equivalent
-    /// physical checkpoint contract and returns an error.
-    pub fn backup_to(&self, destination: impl AsRef<Path>) -> ThingdResult<()> {
-        if self.db.is_in_memory() {
-            return Err(ThingdError::Storage(
-                "physical backup is only supported for durable RocksDB storage".to_string(),
-            ));
-        }
-
-        let requested_destination = destination.as_ref();
-        if requested_destination.exists() {
-            return Err(ThingdError::Storage(format!(
-                "backup destination already exists: {}",
-                requested_destination.display()
-            )));
-        }
-        if let Some(parent) = requested_destination
-            .parent()
-            .filter(|parent| !parent.as_os_str().is_empty())
-        {
-            std::fs::create_dir_all(parent)
-                .map_err(|error| ThingdError::Storage(error.to_string()))?;
-        }
-        let destination_name = requested_destination.file_name().ok_or_else(|| {
-            ThingdError::Storage("backup destination must name a directory".to_string())
-        })?;
-        let destination_parent = requested_destination
-            .parent()
-            .filter(|parent| !parent.as_os_str().is_empty())
-            .unwrap_or_else(|| Path::new("."));
-        let destination = std::fs::canonicalize(destination_parent)
-            .map_err(|error| ThingdError::Storage(error.to_string()))?
-            .join(destination_name);
-        let source = std::fs::canonicalize(&self.path)
-            .map_err(|error| ThingdError::Storage(error.to_string()))?;
-        if destination.starts_with(source) {
-            return Err(ThingdError::Storage(
-                "backup destination must not be inside the source database".to_string(),
-            ));
-        }
-
-        let result = (|| {
-            self.db
-                .checkpoint_to(&destination)
-                .map_err(|error| ThingdError::Storage(error.to_string()))?;
-            for marker in [
-                STORAGE_MANIFEST_FILE,
-                ".thingd-encryption",
-                ".thingd-encryption-check",
-            ] {
-                let source = self.path.join(marker);
-                if source.is_file() {
-                    std::fs::copy(&source, destination.join(marker))
-                        .map_err(|error| ThingdError::Storage(error.to_string()))?;
-                }
-            }
-            Ok(())
-        })();
-
-        if result.is_err() {
-            let _ = std::fs::remove_dir_all(destination);
-        }
-        result
-    }
-
     /// Re-encrypt a database into a new destination without modifying the source.
     ///
     /// The destination must not already exist. This operation is intended for
@@ -1973,7 +1877,7 @@ impl PersistentEngine {
 
         let result = (|| {
             let source = Self::open_with_options(source_path, source_options)?;
-            let mut destination = Self::open_with_options(destination_path, destination_options)?;
+            let destination = Self::open_with_options(destination_path, destination_options)?;
 
             for entry in source.objects.iter() {
                 let (_, value) = guard_data(entry)?;
@@ -2049,12 +1953,6 @@ impl PersistentEngine {
                     let lease_key = destination.make_lease_key(&job.queue, expires_at_ms, &job.id);
                     let lease_data = destination.encode_queue_id(&job.id)?;
                     destination.lease_jobs.insert(&lease_key, &lease_data)?;
-                    destination.apply_queue_lease_delta(&job.queue, 0, 1);
-                    destination.apply_queue_lease_expiration_delta(
-                        &job.queue,
-                        &[],
-                        &[expires_at_ms],
-                    );
                 }
             }
 
@@ -2521,87 +2419,6 @@ impl PersistentEngine {
             let mut prefix = queue.as_bytes().to_vec();
             prefix.push(0);
             prefix
-        }
-    }
-
-    fn queue_has_active_leases(&self, queue: &str) -> bool {
-        self.queue_lease_counts
-            .get(queue)
-            .is_some_and(|count| *count > 0)
-    }
-
-    fn queue_has_expired_leases(&self, queue: &str, now: i64) -> bool {
-        self.queue_lease_expirations
-            .get(queue)
-            .and_then(|expirations| expirations.first_key_value())
-            .map_or_else(
-                || self.queue_has_active_leases(queue),
-                |(expires_at_ms, _)| *expires_at_ms <= now,
-            )
-    }
-
-    fn apply_queue_lease_expiration_delta(&mut self, queue: &str, removed: &[i64], added: &[i64]) {
-        if removed.is_empty() && added.is_empty() {
-            return;
-        }
-        let expirations = self
-            .queue_lease_expirations
-            .entry(queue.to_owned())
-            .or_default();
-        for expires_at_ms in removed {
-            if let Some(count) = expirations.get_mut(expires_at_ms) {
-                *count = count.saturating_sub(1);
-                if *count == 0 {
-                    expirations.remove(expires_at_ms);
-                }
-            }
-        }
-        for expires_at_ms in added {
-            *expirations.entry(*expires_at_ms).or_default() += 1;
-        }
-        if expirations.is_empty() {
-            self.queue_lease_expirations.remove(queue);
-        }
-    }
-
-    fn apply_queue_lease_delta(&mut self, queue: &str, removed: usize, added: usize) {
-        if removed == 0 && added == 0 {
-            return;
-        }
-        let current = self
-            .queue_lease_counts
-            .get(queue)
-            .copied()
-            .unwrap_or_default();
-        let updated = current.saturating_sub(removed).saturating_add(added);
-        if updated == 0 {
-            self.queue_lease_counts.remove(queue);
-        } else {
-            self.queue_lease_counts.insert(queue.to_owned(), updated);
-        }
-    }
-
-    fn first_queue_ready_entry(&mut self, queue: &str) -> ThingdResult<Option<(Vec<u8>, Vec<u8>)>> {
-        if let Some(cursor) = self.queue_ready_cursors.get(queue) {
-            return Ok(cursor.clone());
-        }
-
-        let prefix = self.make_ready_prefix(queue);
-        let entry = self
-            .ready_jobs
-            .first_prefix_after(&prefix, None)?
-            .map(guard_data)
-            .transpose()?;
-        self.queue_ready_cursors
-            .insert(queue.to_owned(), entry.clone());
-        Ok(entry)
-    }
-
-    fn cache_queue_ready_min(&mut self, queue: &str, key: Vec<u8>, value: Vec<u8>) {
-        if let Some(cursor) = self.queue_ready_cursors.get_mut(queue)
-            && cursor.as_ref().is_none_or(|(current, _)| key < *current)
-        {
-            *cursor = Some((key, value));
         }
     }
 
@@ -3086,23 +2903,10 @@ impl ObjectStore for PersistentEngine {
         };
         let unique_cache_complete = self.unique_index_cache_complete;
 
-        let keys: Vec<_> = objects
-            .iter()
-            .map(|object| self.make_object_key(&object.key.collection, &object.key.id))
-            .collect();
-        let previous_values = self.objects.get_many_shared(&keys)?;
         let mut inputs = Vec::with_capacity(objects.len());
-        for ((object, key), previous_value) in objects.into_iter().zip(keys).zip(previous_values) {
-            let previous = previous_value
-                .map(|value| {
-                    let started = std::time::Instant::now();
-                    let result = self.deserialize::<MemoryObject>(value.as_slice());
-                    self.db.record_ram_deserialization(
-                        u64::try_from(started.elapsed().as_nanos()).unwrap_or(u64::MAX),
-                    );
-                    result
-                })
-                .transpose()?;
+        for object in objects {
+            let key = self.make_object_key(&object.key.collection, &object.key.id);
+            let previous = self.read_object_at_key(&key)?;
 
             if has_unique_indexes
                 && let Some(previous) = previous.as_ref()
@@ -3184,10 +2988,7 @@ impl ObjectStore for PersistentEngine {
                         vector: vector.clone(),
                     })?;
                     batch.insert_owned(&self.vectors, vkey, vdata);
-                } else if previous
-                    .as_ref()
-                    .is_some_and(|previous| previous.vector.is_some())
-                {
+                } else {
                     batch.remove_owned(&self.vectors, vkey);
                 }
             }
@@ -3223,33 +3024,22 @@ impl ObjectStore for PersistentEngine {
         let key = self.make_object_key(&object.key.collection, &object.key.id);
 
         if let Some(expected_version) = options.expected_version {
-            let current = value_to_vec(self.objects.get(&key)?)
-                .map(|existing| self.deserialize::<MemoryObject>(&existing))
-                .transpose()?;
-            if expected_version == 0 {
-                if current.is_some() {
+            match value_to_vec(self.objects.get(&key)?) {
+                Some(existing) => {
+                    let existing_obj: MemoryObject = self.deserialize(&existing)?;
+                    if existing_obj.version != expected_version {
+                        return Err(ThingdError::Conflict(format!(
+                            "expected version {} but current version is {}",
+                            expected_version, existing_obj.version
+                        )));
+                    }
+                },
+                None => {
                     return Err(ThingdError::Conflict(format!(
-                        "expected object '{}/{}' to be absent",
+                        "object '{}/{}' does not exist",
                         object.key.collection, object.key.id
                     )));
-                }
-            } else {
-                match current {
-                    Some(existing) => {
-                        if existing.version != expected_version {
-                            return Err(ThingdError::Conflict(format!(
-                                "expected version {} but current version is {}",
-                                expected_version, existing.version
-                            )));
-                        }
-                    },
-                    None => {
-                        return Err(ThingdError::Conflict(format!(
-                            "object '{}/{}' does not exist",
-                            object.key.collection, object.key.id
-                        )));
-                    },
-                }
+                },
             }
         }
 
@@ -3423,25 +3213,6 @@ impl ObjectStore for PersistentEngine {
         collection: &str,
         ids: &[String],
     ) -> ThingdResult<Vec<Option<MemoryObject>>> {
-        if self.db.is_in_memory() {
-            let keys = ids
-                .iter()
-                .map(|id| self.make_object_key(collection, id))
-                .collect::<Vec<_>>();
-            let values = self
-                .objects
-                .get_many_shared(&keys)
-                .map_err(|error| ThingdError::Storage(error.to_string()))?;
-            return values
-                .into_iter()
-                .map(|value| {
-                    value
-                        .map(|value| self.deserialize(value.as_slice()))
-                        .transpose()
-                })
-                .collect();
-        }
-
         ids.iter()
             .map(|id| self.get_object(collection, id))
             .collect()
@@ -3455,9 +3226,6 @@ impl ObjectStore for PersistentEngine {
         // Avoid materializing the whole collection when the caller requests
         // the natural key order. Sorting still requires the full candidate set.
         if options.sort_by.is_none() {
-            if options.limit == Some(0) {
-                return Ok(Vec::new());
-            }
             let offset = options.offset.unwrap_or(0);
             let limit = options.limit.unwrap_or(u64::MAX);
             let mut skipped = 0u64;
@@ -3467,19 +3235,6 @@ impl ObjectStore for PersistentEngine {
                 && collections.len() == 1
             {
                 let prefix = self.make_object_prefix(&collections[0]);
-                if options.filter.is_empty()
-                    && (options.offset.is_some() || options.limit.is_some())
-                {
-                    let page_offset = usize::try_from(offset).unwrap_or(usize::MAX);
-                    let page_limit = options.limit.map_or(usize::MAX, |value| {
-                        usize::try_from(value).unwrap_or(usize::MAX)
-                    });
-                    for kv in self.objects.prefix_page(&prefix, page_offset, page_limit) {
-                        let (_, value) = guard_data(kv)?;
-                        results.push(self.deserialize(&value)?);
-                    }
-                    return Ok(results);
-                }
                 for kv in self.objects.prefix(&prefix) {
                     let (_, value) = guard_data(kv)?;
                     let object: MemoryObject = self.deserialize(&value)?;
@@ -3633,16 +3388,14 @@ impl ObjectStore for PersistentEngine {
         let mut count = 0u64;
         let mut batch = self.db.batch();
         let mut deleted = Vec::new();
-        let object_keys = keys
-            .iter()
-            .map(|(collection, id)| self.make_object_key(collection, id))
-            .collect::<Vec<_>>();
-        let existing_values = self.objects.get_many_shared(&object_keys)?;
 
-        for (((collection, id), key), value) in keys.iter().zip(object_keys).zip(existing_values) {
-            if let Some(data) = value {
-                deleted.push(self.deserialize::<MemoryObject>(data.as_slice())?);
-                batch.remove_owned(&self.objects, key);
+        for (collection, id) in keys {
+            let key = self.make_object_key(collection, id);
+            if self.objects.get(&key)?.is_some() {
+                if let Some(data) = value_to_vec(self.objects.get(&key)?) {
+                    deleted.push(self.deserialize::<MemoryObject>(&data)?);
+                }
+                batch.remove(&self.objects, key);
                 count += 1;
             }
             #[cfg(feature = "vectors")]
@@ -3650,8 +3403,6 @@ impl ObjectStore for PersistentEngine {
                 let vkey = self.make_vector_key(collection, id);
                 batch.remove(&self.vectors, vkey);
             }
-            #[cfg(not(feature = "vectors"))]
-            let _ = (collection, id);
         }
 
         if count > 0 {
@@ -3676,18 +3427,22 @@ impl ObjectStore for PersistentEngine {
     }
 
     fn count_objects(&self) -> ThingdResult<u64> {
-        self.objects
-            .count()
-            .map(|count| count as u64)
-            .map_err(|error| ThingdError::Storage(error.to_string()))
+        let mut count = 0u64;
+        for kv in self.objects.iter() {
+            let _ = kv;
+            count += 1;
+        }
+        Ok(count)
     }
 
     fn count_objects_in_collection(&self, collection: &str) -> ThingdResult<u64> {
         let prefix = self.make_object_prefix(collection);
-        self.objects
-            .count_prefix(&prefix)
-            .map(|count| count as u64)
-            .map_err(|error| ThingdError::Storage(error.to_string()))
+        let mut count = 0u64;
+        for kv in self.objects.prefix(&prefix) {
+            let _ = kv;
+            count += 1;
+        }
+        Ok(count)
     }
 
     fn list_collections(&self) -> ThingdResult<Vec<String>> {
@@ -4016,82 +3771,47 @@ impl EventLog for PersistentEngine {
         stream: Option<&str>,
         options: ListEventsOptions,
     ) -> ThingdResult<Vec<MemoryEvent>> {
-        const EVENT_SCAN_PAGE_SIZE: usize = 1024;
-        const RAM_EVENT_SCAN_PAGE_SIZE: usize = 128;
-        if options.limit == Some(0) {
-            return Ok(Vec::new());
-        }
+        let mut results: Vec<MemoryEvent> = Vec::new();
 
-        let page_size = if options.since.is_some() {
-            if self.is_in_memory() {
-                RAM_EVENT_SCAN_PAGE_SIZE
-            } else {
-                EVENT_SCAN_PAGE_SIZE
+        if let Some(stream_name) = stream {
+            for kv in self.events.prefix(self.make_event_prefix(stream_name)) {
+                let (_, value) = guard_data(kv)?;
+                let event: MemoryEvent = self.deserialize(&value)?;
+                if event.stream != stream_name {
+                    continue;
+                }
+                if let Some(from_seq) = options.from_sequence
+                    && event.sequence <= from_seq
+                {
+                    continue;
+                }
+                if let Some(ref since) = options.since
+                    && event.created_at.as_str() < since.as_str()
+                {
+                    continue;
+                }
+                results.push(event);
+                if let Some(limit) = options.limit
+                    && results.len() as u64 >= limit
+                {
+                    break;
+                }
             }
         } else {
-            let default_page_size = if self.is_in_memory() {
-                RAM_EVENT_SCAN_PAGE_SIZE
-            } else {
-                EVENT_SCAN_PAGE_SIZE
-            };
-            options.limit.map_or(default_page_size, |limit| {
-                usize::try_from(limit)
-                    .unwrap_or(usize::MAX)
-                    .min(default_page_size)
-            })
-        };
-        let prefix = stream.map(|stream_name| self.make_event_prefix(stream_name));
-        let mut after_key = stream
-            .zip(options.from_sequence)
-            .map(|(stream_name, sequence)| self.make_event_key(stream_name, sequence));
-        let mut results = Vec::new();
-
-        loop {
-            let page = self
-                .events
-                .prefix_page_after(
-                    prefix.as_deref().unwrap_or_default(),
-                    after_key.as_deref(),
-                    page_size,
-                )
-                .map(guard_data)
-                .collect::<ThingdResult<Vec<_>>>()?;
-            if page.is_empty() {
-                break;
-            }
-
-            let page_len = page.len();
-            for (key, value) in page {
-                after_key = Some(key);
+            for kv in self.events.iter() {
+                let (_, value) = guard_data(kv)?;
                 let event: MemoryEvent = self.deserialize(&value)?;
-                if stream.is_some_and(|stream_name| event.stream != stream_name) {
-                    continue;
-                }
-                if stream.is_some()
-                    && options
-                        .from_sequence
-                        .is_some_and(|from_sequence| event.sequence <= from_sequence)
+                if let Some(ref since) = options.since
+                    && event.created_at.as_str() < since.as_str()
                 {
                     continue;
                 }
-                if options
-                    .since
-                    .as_ref()
-                    .is_some_and(|since| event.created_at.as_str() < since.as_str())
-                {
-                    continue;
-                }
-
                 results.push(event);
-                if options
-                    .limit
-                    .is_some_and(|limit| results.len() as u64 >= limit)
+                if let Some(limit) = options.limit
+                    && results.len() as u64 >= limit
                 {
-                    return Ok(results);
+                    break;
                 }
-            }
-            if page_len < page_size {
-                break;
             }
         }
 
@@ -4183,10 +3903,12 @@ impl EventLog for PersistentEngine {
     }
 
     fn count_events(&self) -> ThingdResult<u64> {
-        self.events
-            .count()
-            .map(|count| count as u64)
-            .map_err(|error| ThingdError::Storage(error.to_string()))
+        let mut count = 0u64;
+        for kv in self.events.iter() {
+            let _ = kv;
+            count += 1;
+        }
+        Ok(count)
     }
 
     fn list_streams(&self) -> ThingdResult<Vec<String>> {
@@ -4208,24 +3930,18 @@ impl EventLog for PersistentEngine {
 type QueueBatchCandidate = (Vec<u8>, Vec<u8>, Option<Vec<u8>>, QueueJob);
 
 impl PersistentEngine {
-    /// Claim or complete ready queue jobs in one atomic storage batch.
+    /// Complete ready queue jobs in one atomic storage batch.
     ///
     /// This is deliberately separate from `claim_job`/`ack_job`: callers use
     /// it only when claim-time completion is semantically correct. Expired
     /// leases are requeued before the ordered ready set is selected, and all
     /// index repairs and completions share the same durability boundary.
-    fn claim_batch_atomic(
+    fn claim_and_ack_batch_atomic(
         &mut self,
         queue: &str,
         options: QueueClaimOptions,
         limit: usize,
-        acknowledge_immediately: bool,
     ) -> ThingdResult<Vec<QueueJob>> {
-        if limit > MAX_QUEUE_BATCH_ITEMS {
-            return Err(ThingdError::InvalidInput(format!(
-                "queue batch exceeds the maximum of {MAX_QUEUE_BATCH_ITEMS} jobs"
-            )));
-        }
         if limit == 0 {
             return Ok(Vec::new());
         }
@@ -4236,28 +3952,16 @@ impl PersistentEngine {
         let mut expired = Vec::new();
         let mut batch = self.db.batch_with_capacity(limit.saturating_mul(4));
         let mut operation_count = 0_u64;
-        let mut lease_count_removed = 0_usize;
-        let mut lease_count_added = 0_usize;
-        let mut lease_expirations_removed = Vec::new();
-        let mut lease_expirations_added = Vec::new();
 
-        let lease_prefix = self.make_lease_prefix(queue);
-        let mut after_lease_key = None;
-        while self.queue_has_expired_leases(queue, now)
-            && let Some(kv) = self
-                .lease_jobs
-                .first_prefix_after(&lease_prefix, after_lease_key.as_deref())?
-        {
+        for kv in self.lease_jobs.prefix(self.make_lease_prefix(queue)) {
             self.queue_diagnostics.lease_entries_examined = self
                 .queue_diagnostics
                 .lease_entries_examined
                 .saturating_add(1);
             let (lease_key, lease_value) = guard_data(kv)?;
-            let expires_at_ms = self.lease_expiration(queue, &lease_key)?;
-            if expires_at_ms > now {
+            if self.lease_expiration(queue, &lease_key)? > now {
                 break;
             }
-            after_lease_key = Some(lease_key.clone());
             let job_id = self.decode_queue_id(&lease_value)?;
             let queue_key = self.make_queue_key(queue, &job_id);
             let lookup_started = Instant::now();
@@ -4271,8 +3975,6 @@ impl PersistentEngine {
                     self.queue_diagnostics.stale_index_repairs.saturating_add(1);
                 batch.remove_owned(&self.lease_jobs, lease_key);
                 operation_count = operation_count.saturating_add(1);
-                lease_count_removed = lease_count_removed.saturating_add(1);
-                lease_expirations_removed.push(expires_at_ms);
                 continue;
             };
             let decode_started = Instant::now();
@@ -4288,8 +3990,6 @@ impl PersistentEngine {
                     self.queue_diagnostics.stale_index_repairs.saturating_add(1);
                 batch.remove_owned(&self.lease_jobs, lease_key);
                 operation_count = operation_count.saturating_add(1);
-                lease_count_removed = lease_count_removed.saturating_add(1);
-                lease_expirations_removed.push(expires_at_ms);
                 continue;
             }
             let ready_key = self.make_ready_key(queue, job.priority, &job.created_at, &job.id);
@@ -4297,131 +3997,65 @@ impl PersistentEngine {
         }
 
         let mut after_key = None;
-        // Fetch one extra entry so the next ready cursor can usually be taken
-        // from the same ordered page instead of issuing a second durable scan
-        // after the requested batch has been filled.
-        let page_limit = limit.saturating_add(1);
-        let mut cached_ready_entry = self.queue_ready_cursors.get(queue).cloned().flatten();
-        let mut earliest_delayed_entry = None;
-        let mut next_ready_entry = None;
-        let mut reached_ready_end = false;
-        'ready_scan: loop {
+        loop {
             let cursor_started = Instant::now();
-            let page = if let Some(entry) = cached_ready_entry.take() {
-                let mut page = vec![entry];
-                if page_limit > 1 {
-                    let after = page[0].0.clone();
-                    page.extend(
-                        self.ready_jobs
-                            .prefix_page_after(&ready_prefix, Some(&after), page_limit - 1)
-                            .map(guard_data)
-                            .collect::<ThingdResult<Vec<_>>>()?,
-                    );
-                }
-                page
-            } else {
-                self.ready_jobs
-                    .prefix_page_after(&ready_prefix, after_key.as_deref(), page_limit)
-                    .map(guard_data)
-                    .collect::<ThingdResult<Vec<_>>>()?
-            };
-            let cursor_elapsed = elapsed_nanos(cursor_started.elapsed());
-            self.queue_diagnostics.lookup_duration_ns = self
-                .queue_diagnostics
-                .lookup_duration_ns
-                .saturating_add(cursor_elapsed);
-            self.queue_diagnostics.ready_index_lookup_duration_ns = self
-                .queue_diagnostics
-                .ready_index_lookup_duration_ns
-                .saturating_add(cursor_elapsed);
-            if page.is_empty() {
-                reached_ready_end = true;
-                break;
-            }
-
-            let page_job_ids = page
-                .iter()
-                .map(|(ready_key, value)| {
-                    if value.is_empty() {
-                        let key_str = String::from_utf8_lossy(ready_key);
-                        let parts: Vec<&str> = key_str.splitn(4, '\0').collect();
-                        Ok((parts.len() >= 4).then(|| parts[3].to_owned()))
-                    } else {
-                        self.decode_queue_id(value).map(Some)
-                    }
-                })
-                .collect::<ThingdResult<Vec<_>>>()?;
-            for (page_index, ((ready_key, value), job_id)) in
-                page.iter().zip(page_job_ids).enumerate()
-            {
-                self.queue_diagnostics.ready_entries_examined = self
-                    .queue_diagnostics
-                    .ready_entries_examined
-                    .saturating_add(1);
-                after_key = Some(ready_key.clone());
-                let Some(job_id) = job_id else {
-                    continue;
-                };
-                let queue_key = self.make_queue_key(queue, &job_id);
-                let lookup_started = Instant::now();
-                let job_data_result = self.queue_jobs.get(&queue_key);
-                let lookup_elapsed = elapsed_nanos(lookup_started.elapsed());
-                self.queue_diagnostics.lookup_duration_ns = self
-                    .queue_diagnostics
-                    .lookup_duration_ns
-                    .saturating_add(lookup_elapsed);
-                self.queue_diagnostics.queue_record_lookup_duration_ns = self
-                    .queue_diagnostics
-                    .queue_record_lookup_duration_ns
-                    .saturating_add(lookup_elapsed);
-                let Some(job_data) = value_to_vec(job_data_result?) else {
-                    self.queue_diagnostics.stale_index_repairs =
-                        self.queue_diagnostics.stale_index_repairs.saturating_add(1);
-                    batch.remove_owned(&self.ready_jobs, ready_key.clone());
-                    operation_count = operation_count.saturating_add(1);
-                    continue;
-                };
-                let decode_started = Instant::now();
-                let job: QueueJob = self.deserialize(&job_data)?;
-                self.queue_diagnostics.deserialization_duration_ns = self
-                    .queue_diagnostics
-                    .deserialization_duration_ns
-                    .saturating_add(elapsed_nanos(decode_started.elapsed()));
-                if job.status != QueueJobStatus::Ready {
-                    self.queue_diagnostics.stale_index_repairs =
-                        self.queue_diagnostics.stale_index_repairs.saturating_add(1);
-                    batch.remove_owned(&self.ready_jobs, ready_key.clone());
-                    operation_count = operation_count.saturating_add(1);
-                } else if job.available_at_ms > now {
-                    if earliest_delayed_entry.is_none() {
-                        earliest_delayed_entry = Some((ready_key.clone(), value.clone()));
-                    }
-                } else {
-                    candidates.push((ready_key.clone(), queue_key, None, job));
-                    if candidates.len() >= limit {
-                        next_ready_entry = page.get(page_index.saturating_add(1)).cloned();
-                        break 'ready_scan;
-                    }
-                }
-            }
-        }
-
-        if candidates.len() >= limit && next_ready_entry.is_none() && !reached_ready_end {
-            let cursor_started = Instant::now();
-            next_ready_entry = self
+            let next = self
                 .ready_jobs
-                .first_prefix_after(&ready_prefix, after_key.as_deref())?
-                .map(guard_data)
-                .transpose()?;
-            let cursor_elapsed = elapsed_nanos(cursor_started.elapsed());
+                .first_prefix_after(&ready_prefix, after_key.as_deref())?;
             self.queue_diagnostics.lookup_duration_ns = self
                 .queue_diagnostics
                 .lookup_duration_ns
-                .saturating_add(cursor_elapsed);
-            self.queue_diagnostics.ready_index_lookup_duration_ns = self
+                .saturating_add(elapsed_nanos(cursor_started.elapsed()));
+            let Some(kv) = next else {
+                break;
+            };
+            self.queue_diagnostics.ready_entries_examined = self
                 .queue_diagnostics
-                .ready_index_lookup_duration_ns
-                .saturating_add(cursor_elapsed);
+                .ready_entries_examined
+                .saturating_add(1);
+            let (ready_key, value) = guard_data(kv)?;
+            after_key = Some(ready_key.clone());
+            let job_id = if value.is_empty() {
+                let key_str = String::from_utf8_lossy(&ready_key);
+                let parts: Vec<&str> = key_str.splitn(4, '\0').collect();
+                if parts.len() < 4 {
+                    continue;
+                }
+                parts[3].to_owned()
+            } else {
+                self.decode_queue_id(&value)?
+            };
+            let queue_key = self.make_queue_key(queue, &job_id);
+            let lookup_started = Instant::now();
+            let job_data_result = self.queue_jobs.get(&queue_key);
+            self.queue_diagnostics.lookup_duration_ns = self
+                .queue_diagnostics
+                .lookup_duration_ns
+                .saturating_add(elapsed_nanos(lookup_started.elapsed()));
+            let Some(job_data) = value_to_vec(job_data_result?) else {
+                self.queue_diagnostics.stale_index_repairs =
+                    self.queue_diagnostics.stale_index_repairs.saturating_add(1);
+                batch.remove_owned(&self.ready_jobs, ready_key);
+                operation_count = operation_count.saturating_add(1);
+                continue;
+            };
+            let decode_started = Instant::now();
+            let job: QueueJob = self.deserialize(&job_data)?;
+            self.queue_diagnostics.deserialization_duration_ns = self
+                .queue_diagnostics
+                .deserialization_duration_ns
+                .saturating_add(elapsed_nanos(decode_started.elapsed()));
+            if job.status != QueueJobStatus::Ready {
+                self.queue_diagnostics.stale_index_repairs =
+                    self.queue_diagnostics.stale_index_repairs.saturating_add(1);
+                batch.remove_owned(&self.ready_jobs, ready_key);
+                operation_count = operation_count.saturating_add(1);
+            } else if job.available_at_ms <= now {
+                candidates.push((ready_key, queue_key, None, job));
+                if candidates.len() >= limit {
+                    break;
+                }
+            }
         }
 
         candidates.extend(
@@ -4434,30 +4068,19 @@ impl PersistentEngine {
         candidates.sort_by(|left, right| left.0.cmp(&right.0));
 
         let mut completed = Vec::with_capacity(limit.min(candidates.len()));
-        let mut requeued_ready_entries = Vec::new();
         for (ready_key, queue_key, lease_key, mut job) in candidates {
             let was_expired = lease_key.is_some();
             if let Some(lease_key) = lease_key {
-                lease_count_removed = lease_count_removed.saturating_add(1);
-                if let Some(expires_at_ms) = job.lease_expires_at_ms {
-                    lease_expirations_removed.push(expires_at_ms);
-                }
                 batch.remove_owned(&self.lease_jobs, lease_key);
                 operation_count = operation_count.saturating_add(1);
             }
             if completed.len() < limit {
                 batch.remove_owned(&self.ready_jobs, ready_key);
+                job.status = QueueJobStatus::Completed;
                 job.attempts = job.attempts.saturating_add(1);
                 job.leased_at_ms = Some(now);
-                let lease_duration_ms = i64::try_from(options.lease_ms).unwrap_or(i64::MAX);
-                job.lease_expires_at_ms = Some(now.saturating_add(lease_duration_ms));
-                if acknowledge_immediately {
-                    job.status = QueueJobStatus::Completed;
-                    job.completed_at_ms = Some(now);
-                } else {
-                    job.status = QueueJobStatus::Leased;
-                    job.completed_at_ms = None;
-                }
+                job.lease_expires_at_ms = Some(now + options.lease_ms as i64);
+                job.completed_at_ms = Some(now);
                 let encode_started = Instant::now();
                 let data = self.serialize(&job)?;
                 self.queue_diagnostics.serialization_duration_ns = self
@@ -4466,17 +4089,6 @@ impl PersistentEngine {
                     .saturating_add(elapsed_nanos(encode_started.elapsed()));
                 batch.insert_owned(&self.queue_jobs, queue_key, data);
                 operation_count = operation_count.saturating_add(2);
-                if !acknowledge_immediately {
-                    let lease_key = self.make_lease_key(
-                        queue,
-                        job.lease_expires_at_ms.unwrap_or_default(),
-                        &job.id,
-                    );
-                    batch.insert_owned(&self.lease_jobs, lease_key, self.encode_queue_id(&job.id)?);
-                    operation_count = operation_count.saturating_add(1);
-                    lease_count_added = lease_count_added.saturating_add(1);
-                    lease_expirations_added.push(job.lease_expires_at_ms.unwrap_or_default());
-                }
                 completed.push(job);
             } else if was_expired {
                 job.status = QueueJobStatus::Ready;
@@ -4489,9 +4101,7 @@ impl PersistentEngine {
                     .serialization_duration_ns
                     .saturating_add(elapsed_nanos(encode_started.elapsed()));
                 batch.insert_owned(&self.queue_jobs, queue_key, data);
-                let ready_value = self.encode_queue_id(&job.id)?;
-                batch.insert_owned(&self.ready_jobs, ready_key.clone(), ready_value.clone());
-                requeued_ready_entries.push((ready_key, ready_value));
+                batch.insert_owned(&self.ready_jobs, ready_key, self.encode_queue_id(&job.id)?);
                 operation_count = operation_count.saturating_add(2);
             }
         }
@@ -4500,12 +4110,6 @@ impl PersistentEngine {
             batch
                 .commit()
                 .map_err(|error| ThingdError::Storage(error.to_string()))?;
-            self.apply_queue_lease_delta(queue, lease_count_removed, lease_count_added);
-            self.apply_queue_lease_expiration_delta(
-                queue,
-                &lease_expirations_removed,
-                &lease_expirations_added,
-            );
             self.queue_diagnostics.transition_count =
                 self.queue_diagnostics.transition_count.saturating_add(1);
             self.queue_diagnostics.transition_operations = self
@@ -4513,17 +4117,7 @@ impl PersistentEngine {
                 .transition_operations
                 .saturating_add(operation_count);
         }
-        let mut ready_cursor = earliest_delayed_entry.or(next_ready_entry);
-        for (ready_key, ready_value) in requeued_ready_entries {
-            if ready_cursor
-                .as_ref()
-                .is_none_or(|(current_key, _)| ready_key < *current_key)
-            {
-                ready_cursor = Some((ready_key, ready_value));
-            }
-        }
-        self.queue_ready_cursors
-            .insert(queue.to_owned(), ready_cursor);
+        let _ = options;
         Ok(completed)
     }
 }
@@ -4535,25 +4129,16 @@ impl QueueStore for PersistentEngine {
         }
         let key = self.make_queue_key(&job.queue, &job.id);
         let data = self.serialize(&job)?;
-        let ready_entry = if job.status == QueueJobStatus::Ready {
-            Some((
-                self.make_ready_key(&job.queue, job.priority, &job.created_at, &job.id),
-                self.encode_queue_id(&job.id)?,
-            ))
-        } else {
-            None
-        };
         let mut batch = self.db.batch();
         batch.insert_owned(&self.queue_jobs, key, data);
-        if let Some((rkey, rdata)) = &ready_entry {
-            batch.insert(&self.ready_jobs, rkey, rdata);
+        if job.status == QueueJobStatus::Ready {
+            let rkey = self.make_ready_key(&job.queue, job.priority, &job.created_at, &job.id);
+            let rdata = self.encode_queue_id(&job.id)?;
+            batch.insert_owned(&self.ready_jobs, rkey, rdata);
         }
         batch
             .commit()
             .map_err(|error| ThingdError::Storage(error.to_string()))?;
-        if let Some((ready_key, ready_value)) = ready_entry {
-            self.cache_queue_ready_min(&job.queue, ready_key, ready_value);
-        }
         self.queue_diagnostics.transition_count =
             self.queue_diagnostics.transition_count.saturating_add(1);
         self.queue_diagnostics.transition_operations = self
@@ -4569,7 +4154,6 @@ impl QueueStore for PersistentEngine {
 
     fn push_jobs_batch(&mut self, jobs: Vec<QueueJob>) -> ThingdResult<Vec<QueueJob>> {
         let mut results = Vec::with_capacity(jobs.len());
-        let mut ready_keys = Vec::new();
         let mut batch = self.db.batch_with_capacity(jobs.len().saturating_mul(2));
         for job in jobs {
             let mut job = job;
@@ -4582,17 +4166,13 @@ impl QueueStore for PersistentEngine {
             if job.status == QueueJobStatus::Ready {
                 let rkey = self.make_ready_key(&job.queue, job.priority, &job.created_at, &job.id);
                 let rdata = self.encode_queue_id(&job.id)?;
-                batch.insert(&self.ready_jobs, &rkey, &rdata);
-                ready_keys.push((job.queue.clone(), rkey, rdata));
+                batch.insert_owned(&self.ready_jobs, rkey, rdata);
             }
             results.push(job);
         }
         batch
             .commit()
             .map_err(|error| ThingdError::Storage(error.to_string()))?;
-        for (queue, ready_key, ready_value) in ready_keys {
-            self.cache_queue_ready_min(&queue, ready_key, ready_value);
-        }
         self.queue_diagnostics.transition_count =
             self.queue_diagnostics.transition_count.saturating_add(1);
         self.queue_diagnostics.transition_operations = self
@@ -4600,32 +4180,6 @@ impl QueueStore for PersistentEngine {
             .transition_operations
             .saturating_add(results.len() as u64 * 2);
         Ok(results)
-    }
-
-    fn claim_jobs_with_options(
-        &mut self,
-        queue: &str,
-        options: QueueClaimOptions,
-        limit: usize,
-    ) -> ThingdResult<Vec<QueueJob>> {
-        let started = Instant::now();
-        let result = self.claim_batch_atomic(queue, options, limit, false);
-        let elapsed = elapsed_nanos(started.elapsed());
-        if let Ok(jobs) = &result {
-            self.queue_diagnostics.claim_count = self
-                .queue_diagnostics
-                .claim_count
-                .saturating_add(jobs.len() as u64);
-        }
-        self.queue_diagnostics.claim_duration_ns = self
-            .queue_diagnostics
-            .claim_duration_ns
-            .saturating_add(elapsed);
-        self.queue_diagnostics.transition_duration_ns = self
-            .queue_diagnostics
-            .transition_duration_ns
-            .saturating_add(elapsed);
-        result
     }
 
     fn claim_job_with_options(
@@ -4644,15 +4198,7 @@ impl QueueStore for PersistentEngine {
             let lease_prefix = self.make_lease_prefix(queue);
             let mut expiry_batch = self.db.batch();
             let mut expiry_writes = false;
-            let mut expired_lease_count = 0_usize;
-            let mut expired_lease_expirations = Vec::new();
-            let mut expired_ready_keys = Vec::new();
-            let mut after_lease_key = None;
-            while self.queue_has_expired_leases(queue, now)
-                && let Some(kv) = self
-                    .lease_jobs
-                    .first_prefix_after(&lease_prefix, after_lease_key.as_deref())?
-            {
+            for kv in self.lease_jobs.prefix(&lease_prefix) {
                 self.queue_diagnostics.lease_entries_examined = self
                     .queue_diagnostics
                     .lease_entries_examined
@@ -4662,7 +4208,6 @@ impl QueueStore for PersistentEngine {
                 if expires_at_ms > now {
                     break;
                 }
-                after_lease_key = Some(lease_key.clone());
                 let job_id = self.decode_queue_id(&lease_value)?;
                 let qkey = self.make_queue_key(queue, &job_id);
                 let lookup_started = Instant::now();
@@ -4676,8 +4221,6 @@ impl QueueStore for PersistentEngine {
                         self.queue_diagnostics.stale_index_repairs.saturating_add(1);
                     expiry_batch.remove(&self.lease_jobs, lease_key);
                     expiry_writes = true;
-                    expired_lease_count = expired_lease_count.saturating_add(1);
-                    expired_lease_expirations.push(expires_at_ms);
                     continue;
                 };
                 let decode_started = Instant::now();
@@ -4688,8 +4231,6 @@ impl QueueStore for PersistentEngine {
                     .saturating_add(elapsed_nanos(decode_started.elapsed()));
                 expiry_batch.remove(&self.lease_jobs, lease_key);
                 expiry_writes = true;
-                expired_lease_count = expired_lease_count.saturating_add(1);
-                expired_lease_expirations.push(expires_at_ms);
                 if job.status == QueueJobStatus::Leased
                     && job.lease_expires_at_ms.is_some_and(|exp| exp <= now)
                 {
@@ -4707,18 +4248,12 @@ impl QueueStore for PersistentEngine {
                     let rdata = self.encode_queue_id(&job.id)?;
                     expiry_batch.insert(&self.queue_jobs, &qkey, &data);
                     expiry_batch.insert(&self.ready_jobs, &rkey, &rdata);
-                    expired_ready_keys.push((rkey, rdata));
                 }
             }
             if expiry_writes {
                 expiry_batch
                     .commit()
                     .map_err(|error| ThingdError::Storage(error.to_string()))?;
-                self.apply_queue_lease_delta(queue, expired_lease_count, 0);
-                self.apply_queue_lease_expiration_delta(queue, &expired_lease_expirations, &[]);
-                for (ready_key, ready_value) in expired_ready_keys {
-                    self.cache_queue_ready_min(queue, ready_key, ready_value);
-                }
                 self.queue_diagnostics.transition_count =
                     self.queue_diagnostics.transition_count.saturating_add(1);
                 self.queue_diagnostics.transition_operations = self
@@ -4727,40 +4262,27 @@ impl QueueStore for PersistentEngine {
                     .saturating_add(3);
             }
 
-            // Keep a queue-local cursor so repeated claims do not re-read all
-            // immutable-table tombstones left by earlier claims.
+            // Read only the first ready index entry instead of materializing every
+            // ready job on each claim.
             let prefix = self.make_ready_prefix(queue);
             let mut after_key = None;
-            let mut first_ready_lookup = true;
-            let mut earliest_delayed_key = None;
             loop {
                 let cursor_started = Instant::now();
-                let next = if first_ready_lookup {
-                    first_ready_lookup = false;
-                    self.first_queue_ready_entry(queue)?
-                } else {
-                    self.ready_jobs
-                        .first_prefix_after(&prefix, after_key.as_deref())?
-                        .map(guard_data)
-                        .transpose()?
-                };
-                let cursor_elapsed = elapsed_nanos(cursor_started.elapsed());
+                let next = self
+                    .ready_jobs
+                    .first_prefix_after(&prefix, after_key.as_deref())?;
                 self.queue_diagnostics.lookup_duration_ns = self
                     .queue_diagnostics
                     .lookup_duration_ns
-                    .saturating_add(cursor_elapsed);
-                self.queue_diagnostics.ready_index_lookup_duration_ns = self
-                    .queue_diagnostics
-                    .ready_index_lookup_duration_ns
-                    .saturating_add(cursor_elapsed);
-                let Some((key, value)) = next else {
+                    .saturating_add(elapsed_nanos(cursor_started.elapsed()));
+                let Some(kv) = next else {
                     break;
                 };
                 self.queue_diagnostics.ready_entries_examined = self
                     .queue_diagnostics
                     .ready_entries_examined
                     .saturating_add(1);
-                after_key = Some(key.clone());
+                let (key, value) = guard_data(kv)?;
                 let job_id = if value.is_empty() {
                     let key_str = String::from_utf8_lossy(&key);
                     let parts: Vec<&str> = key_str.splitn(4, '\0').collect();
@@ -4777,31 +4299,20 @@ impl QueueStore for PersistentEngine {
                 let qkey = self.make_queue_key(queue, &job_id);
                 let lookup_started = Instant::now();
                 let job_data_result = self.queue_jobs.get(&qkey);
-                let lookup_elapsed = elapsed_nanos(lookup_started.elapsed());
                 self.queue_diagnostics.lookup_duration_ns = self
                     .queue_diagnostics
                     .lookup_duration_ns
-                    .saturating_add(lookup_elapsed);
-                self.queue_diagnostics.queue_record_lookup_duration_ns = self
-                    .queue_diagnostics
-                    .queue_record_lookup_duration_ns
-                    .saturating_add(lookup_elapsed);
+                    .saturating_add(elapsed_nanos(lookup_started.elapsed()));
                 let Some(job_data) = value_to_vec(job_data_result?) else {
                     // Job record missing — remove stale index entry
+                    after_key = Some(rkey.clone());
                     self.queue_diagnostics.stale_index_repairs =
                         self.queue_diagnostics.stale_index_repairs.saturating_add(1);
                     let mut batch = self.db.batch();
                     batch.remove(&self.ready_jobs, &rkey);
-                    let next_cursor = self
-                        .ready_jobs
-                        .first_prefix_after(&prefix, Some(&rkey))?
-                        .map(guard_data)
-                        .transpose()?;
                     batch
                         .commit()
                         .map_err(|error| ThingdError::Storage(error.to_string()))?;
-                    self.queue_ready_cursors
-                        .insert(queue.to_owned(), next_cursor);
                     continue;
                 };
                 let decode_started = Instant::now();
@@ -4821,28 +4332,20 @@ impl QueueStore for PersistentEngine {
 
                 // Skip (and remove) stale entries for completed or dead jobs
                 if job.status != QueueJobStatus::Ready {
+                    after_key = Some(rkey.clone());
                     self.queue_diagnostics.stale_index_repairs =
                         self.queue_diagnostics.stale_index_repairs.saturating_add(1);
                     let mut batch = self.db.batch();
                     batch.remove(&self.ready_jobs, &rkey);
-                    let next_cursor = self
-                        .ready_jobs
-                        .first_prefix_after(&prefix, Some(&rkey))?
-                        .map(guard_data)
-                        .transpose()?;
                     batch
                         .commit()
                         .map_err(|error| ThingdError::Storage(error.to_string()))?;
-                    self.queue_ready_cursors
-                        .insert(queue.to_owned(), next_cursor);
                     continue;
                 }
 
                 // Job is delayed — skip it but keep the index entry so it can be claimed later
                 if job.available_at_ms > now {
-                    if earliest_delayed_key.is_none() {
-                        earliest_delayed_key = Some((rkey, value));
-                    }
+                    after_key = Some(rkey.clone());
                     continue;
                 }
 
@@ -4850,8 +4353,7 @@ impl QueueStore for PersistentEngine {
                 job.status = QueueJobStatus::Leased;
                 job.attempts = job.attempts.saturating_add(1);
                 job.leased_at_ms = Some(now);
-                let lease_duration_ms = i64::try_from(options.lease_ms).unwrap_or(i64::MAX);
-                job.lease_expires_at_ms = Some(now.saturating_add(lease_duration_ms));
+                job.lease_expires_at_ms = Some(now + options.lease_ms as i64);
                 if acknowledge_immediately {
                     job.status = QueueJobStatus::Completed;
                     job.completed_at_ms = Some(now);
@@ -4865,11 +4367,6 @@ impl QueueStore for PersistentEngine {
                 let mut batch =
                     self.db
                         .batch_with_capacity(if acknowledge_immediately { 2 } else { 3 });
-                let next_cursor = self
-                    .ready_jobs
-                    .first_prefix_after(&prefix, Some(&rkey))?
-                    .map(guard_data)
-                    .transpose()?;
                 batch.remove_owned(&self.ready_jobs, rkey);
                 batch.insert_owned(&self.queue_jobs, qkey, data);
                 if !acknowledge_immediately {
@@ -4884,16 +4381,6 @@ impl QueueStore for PersistentEngine {
                 batch
                     .commit()
                     .map_err(|error| ThingdError::Storage(error.to_string()))?;
-                self.queue_ready_cursors
-                    .insert(queue.to_owned(), earliest_delayed_key.or(next_cursor));
-                if !acknowledge_immediately {
-                    self.apply_queue_lease_delta(queue, 0, 1);
-                    self.apply_queue_lease_expiration_delta(
-                        queue,
-                        &[],
-                        &[job.lease_expires_at_ms.unwrap_or_default()],
-                    );
-                }
                 self.queue_diagnostics.transition_count =
                     self.queue_diagnostics.transition_count.saturating_add(1);
                 self.queue_diagnostics.transition_operations = self
@@ -4903,8 +4390,6 @@ impl QueueStore for PersistentEngine {
                 return Ok(Some(job));
             }
 
-            self.queue_ready_cursors
-                .insert(queue.to_owned(), earliest_delayed_key);
             Ok(None)
         })();
         let elapsed = started.elapsed().as_nanos();
@@ -4937,7 +4422,7 @@ impl QueueStore for PersistentEngine {
         options: QueueClaimOptions,
         limit: usize,
     ) -> ThingdResult<Vec<QueueJob>> {
-        self.claim_batch_atomic(queue, options, limit, true)
+        self.claim_and_ack_batch_atomic(queue, options, limit)
     }
 
     fn ack_job(&mut self, queue: &str, id: &str) -> ThingdResult<Option<QueueJob>> {
@@ -4971,18 +4456,13 @@ impl QueueStore for PersistentEngine {
                         .saturating_add(elapsed_nanos(encode_started.elapsed()));
                     let mut batch = self.db.batch_with_capacity(2);
                     batch.insert_owned(&self.queue_jobs, key, new_data);
-                    let lease_expiration = job.lease_expires_at_ms;
-                    if let Some(expires_at_ms) = lease_expiration {
+                    if let Some(expires_at_ms) = job.lease_expires_at_ms {
                         let lease_key = self.make_lease_key(queue, expires_at_ms, id);
                         batch.remove_owned(&self.lease_jobs, lease_key);
                     }
                     batch
                         .commit()
                         .map_err(|error| ThingdError::Storage(error.to_string()))?;
-                    if let Some(expires_at_ms) = lease_expiration {
-                        self.apply_queue_lease_delta(queue, 1, 0);
-                        self.apply_queue_lease_expiration_delta(queue, &[expires_at_ms], &[]);
-                    }
                     self.queue_diagnostics.transition_count =
                         self.queue_diagnostics.transition_count.saturating_add(1);
                     self.queue_diagnostics.transition_operations = self
@@ -5005,88 +4485,6 @@ impl QueueStore for PersistentEngine {
             .transition_duration_ns
             .saturating_add(elapsed);
         result
-    }
-
-    fn ack_jobs(&mut self, queue: &str, ids: &[String]) -> ThingdResult<Vec<QueueJob>> {
-        if ids.len() > MAX_QUEUE_BATCH_ITEMS {
-            return Err(ThingdError::InvalidInput(format!(
-                "queue ack batch exceeds the maximum of {MAX_QUEUE_BATCH_ITEMS} jobs"
-            )));
-        }
-        let mut unique_ids = std::collections::HashSet::with_capacity(ids.len());
-        if ids.iter().any(|id| !unique_ids.insert(id.as_str())) {
-            return Err(ThingdError::InvalidInput(
-                "queue ack batch contains duplicate job IDs".to_string(),
-            ));
-        }
-        if ids.is_empty() {
-            return Ok(Vec::new());
-        }
-
-        let started = Instant::now();
-        let now = unix_timestamp_millis();
-        let mut jobs = Vec::with_capacity(ids.len());
-        let mut encoded = Vec::with_capacity(ids.len());
-        let mut lease_count_removed = 0_usize;
-        let mut lease_expirations_removed = Vec::with_capacity(ids.len());
-        for id in ids {
-            let key = self.make_queue_key(queue, id);
-            let Some(data) = value_to_vec(self.queue_jobs.get(&key)?) else {
-                return Err(ThingdError::Conflict(format!(
-                    "job {id} was not found in queue '{queue}'"
-                )));
-            };
-            let mut job: QueueJob = self.deserialize(&data)?;
-            if job.status != QueueJobStatus::Leased {
-                return Err(ThingdError::Conflict(format!(
-                    "job {id} must be leased before batch ack"
-                )));
-            }
-            job.status = QueueJobStatus::Completed;
-            job.completed_at_ms = Some(now);
-            if job.lease_expires_at_ms.is_some() {
-                lease_count_removed = lease_count_removed.saturating_add(1);
-                lease_expirations_removed.push(job.lease_expires_at_ms.unwrap_or_default());
-            }
-            encoded.push((key, self.serialize(&job)?, job.lease_expires_at_ms));
-            jobs.push(job);
-        }
-
-        let mut batch = self.db.batch_with_capacity(ids.len().saturating_mul(2));
-        for ((key, value, lease_expires_at_ms), id) in encoded.into_iter().zip(ids) {
-            batch.insert_owned(&self.queue_jobs, key, value);
-            if let Some(expires_at_ms) = lease_expires_at_ms {
-                batch.remove_owned(
-                    &self.lease_jobs,
-                    self.make_lease_key(queue, expires_at_ms, id),
-                );
-            }
-        }
-        batch
-            .commit()
-            .map_err(|error| ThingdError::Storage(error.to_string()))?;
-        self.apply_queue_lease_delta(queue, lease_count_removed, 0);
-        self.apply_queue_lease_expiration_delta(queue, &lease_expirations_removed, &[]);
-
-        self.queue_diagnostics.ack_count = self
-            .queue_diagnostics
-            .ack_count
-            .saturating_add(ids.len() as u64);
-        self.queue_diagnostics.ack_duration_ns = self
-            .queue_diagnostics
-            .ack_duration_ns
-            .saturating_add(elapsed_nanos(started.elapsed()));
-        self.queue_diagnostics.transition_count =
-            self.queue_diagnostics.transition_count.saturating_add(1);
-        self.queue_diagnostics.transition_operations = self
-            .queue_diagnostics
-            .transition_operations
-            .saturating_add(ids.len() as u64 * 2);
-        self.queue_diagnostics.transition_duration_ns = self
-            .queue_diagnostics
-            .transition_duration_ns
-            .saturating_add(elapsed_nanos(started.elapsed()));
-        Ok(jobs)
     }
 
     fn nack_job_with_options(
@@ -5127,32 +4525,16 @@ impl QueueStore for PersistentEngine {
                     }
 
                     // Re-index if retrying
-                    let ready_entry = if is_dead {
-                        None
-                    } else {
-                        Some((
-                            self.make_ready_key(&job.queue, job.priority, &job.created_at, &job.id),
-                            self.encode_queue_id(&job.id)?,
-                        ))
-                    };
-                    if let Some((rkey, rdata)) = &ready_entry {
-                        batch.insert(&self.ready_jobs, rkey, rdata);
+                    if !is_dead {
+                        let rkey =
+                            self.make_ready_key(&job.queue, job.priority, &job.created_at, &job.id);
+                        let rdata = self.encode_queue_id(&job.id)?;
+                        batch.insert_owned(&self.ready_jobs, rkey, rdata);
                     }
 
                     batch
                         .commit()
                         .map_err(|error| ThingdError::Storage(error.to_string()))?;
-                    if previous_lease_expires_at_ms.is_some() {
-                        self.apply_queue_lease_delta(queue, 1, 0);
-                        self.apply_queue_lease_expiration_delta(
-                            queue,
-                            &[previous_lease_expires_at_ms.unwrap_or_default()],
-                            &[],
-                        );
-                    }
-                    if let Some((ready_key, ready_value)) = ready_entry {
-                        self.cache_queue_ready_min(queue, ready_key, ready_value);
-                    }
                     self.queue_diagnostics.transition_count =
                         self.queue_diagnostics.transition_count.saturating_add(1);
                     self.queue_diagnostics.transition_operations = self
@@ -6047,62 +5429,6 @@ impl LinkStore for PersistentEngine {
         Ok(link)
     }
 
-    fn import_link(&mut self, link: Link) -> ThingdResult<Link> {
-        if link.id.is_empty() {
-            return Err(ThingdError::InvalidInput(
-                "Link id is required for import".to_string(),
-            ));
-        }
-        if let Some(existing) = self.get_link(&link.id)? {
-            if existing == link {
-                return Ok(link);
-            }
-            return Err(ThingdError::Conflict(format!(
-                "Link '{}' already exists with different data",
-                link.id
-            )));
-        }
-
-        let data = self.serialize(&link)?;
-        let link_id_key = self.make_link_id_key(&link.id);
-        let index_data = self.serialize(&link.id)?;
-        self.links_by_id.insert(&link_id_key, &data)?;
-        self.links_from.insert(
-            self.make_link_from_key(&link.from_ref, &link.link_type, &link.id),
-            &index_data,
-        )?;
-        self.links_to.insert(
-            self.make_link_to_key(&link.to_ref, &link.link_type, &link.id),
-            &index_data,
-        )?;
-        if let Some(sequence) = link
-            .id
-            .strip_prefix("link-")
-            .and_then(|id| id.parse::<u64>().ok())
-        {
-            self.next_link_id.fetch_max(sequence + 1, Ordering::Relaxed);
-        }
-        Ok(link)
-    }
-
-    fn list_links(&self, offset: usize, limit: usize) -> ThingdResult<Vec<Link>> {
-        let mut links = Vec::new();
-        for (index, entry) in self.links_by_id.iter().enumerate() {
-            if index < offset {
-                continue;
-            }
-            if links.len() >= limit {
-                break;
-            }
-            let (_, value) = guard_data(entry)?;
-            if !value.is_empty() {
-                links.push(self.deserialize(&value)?);
-            }
-        }
-        links.sort_by(|left: &Link, right: &Link| left.id.cmp(&right.id));
-        Ok(links)
-    }
-
     fn delete_link(&mut self, id: &str) -> ThingdResult<bool> {
         let link_id_key = self.make_link_id_key(id);
         if let Some(data) = value_to_vec(self.links_by_id.get(&link_id_key)?) {
@@ -6705,53 +6031,6 @@ mod tests {
     }
 
     #[test]
-    fn physical_backup_is_a_consistent_point_in_time_snapshot_while_source_is_open() {
-        let source_dir = tempfile::tempdir().unwrap();
-        let source_path = source_dir.path().join("source");
-        let mut source = PersistentEngine::open(&source_path).unwrap();
-        source
-            .put_object(MemoryObject::new(
-                "customers",
-                "before",
-                r#"{"name":"Ada"}"#,
-            ))
-            .unwrap();
-        let backup_path = source_dir.path().join("backup");
-
-        source.backup_to(&backup_path).unwrap();
-
-        source
-            .put_object(MemoryObject::new(
-                "customers",
-                "after",
-                r#"{"name":"Grace"}"#,
-            ))
-            .unwrap();
-        let backup = PersistentEngine::open(&backup_path).unwrap();
-        assert!(backup.get_object("customers", "before").unwrap().is_some());
-        assert!(backup.get_object("customers", "after").unwrap().is_none());
-        assert!(backup_path.join(STORAGE_MANIFEST_FILE).is_file());
-
-        let error = source.backup_to(&backup_path).unwrap_err().to_string();
-        assert!(error.contains("backup destination already exists"));
-
-        let nested_backup = source_path.join("nested-backup");
-        let error = source.backup_to(&nested_backup).unwrap_err().to_string();
-        assert!(error.contains("must not be inside the source database"));
-    }
-
-    #[test]
-    fn physical_backup_rejects_unsupported_in_memory_backend() {
-        let engine =
-            PersistentEngine::open_in_memory_with_backend(PersistentBackend::ThingDb).unwrap();
-        let destination = tempfile::tempdir().unwrap().path().join("backup");
-
-        let error = engine.backup_to(destination).unwrap_err().to_string();
-
-        assert!(error.contains("only supported for durable RocksDB storage"));
-    }
-
-    #[test]
     fn persistent_retention_is_dry_run_by_default_and_preserves_protected_events() {
         let (mut engine, _dir) = setup();
         let mut old = MemoryEvent::new("old", "test", "{}");
@@ -7285,11 +6564,11 @@ mod tests {
         reopened
             .delete_object("private_collection", "private_id")
             .unwrap();
-        assert_eq!(
+        assert!(
             reopened
                 .search("encrypted_search_term", SearchOptions::default())
-                .unwrap(),
-            Vec::<crate::SearchHit>::new()
+                .unwrap()
+                .is_empty()
         );
     }
 
@@ -7499,7 +6778,7 @@ mod tests {
         let first = engine
             .put_object(MemoryObject::new("col", "id", r#"{"v":1}"#))
             .unwrap();
-        assert_ne!(first.created_at, "");
+        assert!(!first.created_at.is_empty());
         let second = engine
             .put_object(MemoryObject::new("col", "id", r#"{"v":2}"#))
             .unwrap();
@@ -7573,272 +6852,6 @@ mod tests {
                 .len(),
             2
         );
-    }
-
-    #[test]
-    fn thingdb_ram_object_page_only_visits_the_requested_prefix_range() {
-        let mut engine = setup_thingdb_memory();
-        for index in 0..1_000_u32 {
-            engine
-                .put_object(MemoryObject::new("page", format!("id-{index:04}"), "{}"))
-                .unwrap();
-        }
-
-        let before = engine
-            .db
-            .ram_diagnostics()
-            .unwrap()
-            .iteration_entries_examined;
-        let page = engine
-            .list_objects(
-                Some(&["page".to_string()]),
-                &ListObjectsOptions {
-                    offset: Some(100),
-                    limit: Some(25),
-                    ..Default::default()
-                },
-            )
-            .unwrap();
-        let examined = engine
-            .db
-            .ram_diagnostics()
-            .unwrap()
-            .iteration_entries_examined
-            .saturating_sub(before);
-
-        assert_eq!(page.len(), 25);
-        assert_eq!(page.first().unwrap().key.id, "id-0100");
-        assert_eq!(page.last().unwrap().key.id, "id-0124");
-        assert_eq!(examined, 125);
-
-        let empty_page = engine
-            .list_objects(
-                Some(&["page".to_string()]),
-                &ListObjectsOptions {
-                    limit: Some(0),
-                    ..Default::default()
-                },
-            )
-            .unwrap();
-        assert_eq!(empty_page, Vec::new());
-    }
-
-    #[test]
-    fn thingdb_ram_event_limit_only_materializes_requested_events() {
-        let mut engine = setup_thingdb_memory();
-        for index in 0..512_u32 {
-            engine
-                .append_event(MemoryEvent::new(
-                    "page-stream",
-                    "page-event",
-                    format!("event-{index}"),
-                ))
-                .unwrap();
-        }
-
-        let before = engine
-            .db
-            .ram_diagnostics()
-            .unwrap()
-            .iteration_entries_examined;
-        let events = engine
-            .list_events(
-                Some("page-stream"),
-                ListEventsOptions {
-                    from_sequence: None,
-                    limit: Some(25),
-                    since: None,
-                },
-            )
-            .unwrap();
-        let examined = engine
-            .db
-            .ram_diagnostics()
-            .unwrap()
-            .iteration_entries_examined
-            .saturating_sub(before);
-
-        assert_eq!(events.len(), 25);
-        assert_eq!(events.first().unwrap().sequence, 1);
-        assert_eq!(events.last().unwrap().sequence, 25);
-        assert_eq!(examined, 25);
-    }
-
-    #[test]
-    fn thingdb_ram_batched_object_reads_preserve_order_and_missing_values() {
-        let mut engine = setup_thingdb_memory();
-        engine
-            .put_objects_batch(vec![
-                MemoryObject::new("batch-read", "a", r#"{"value":1}"#),
-                MemoryObject::new("batch-read", "b", r#"{"value":2}"#),
-            ])
-            .unwrap();
-
-        let values = engine
-            .get_objects_batch(
-                "batch-read",
-                &[
-                    "b".to_string(),
-                    "missing".to_string(),
-                    "a".to_string(),
-                    "b".to_string(),
-                ],
-            )
-            .unwrap();
-
-        assert_eq!(values.len(), 4);
-        assert_eq!(
-            values[0].as_ref().map(|object| object.key.id.as_str()),
-            Some("b")
-        );
-        assert!(values[1].is_none());
-        assert_eq!(
-            values[2].as_ref().map(|object| object.key.id.as_str()),
-            Some("a")
-        );
-        assert_eq!(
-            values[3].as_ref().map(|object| object.key.id.as_str()),
-            Some("b")
-        );
-    }
-
-    #[test]
-    fn thingdb_ram_event_sequence_cursor_seeks_without_scanning_prior_events() {
-        let mut engine = setup_thingdb_memory();
-        for index in 0..512_u32 {
-            engine
-                .append_event(MemoryEvent::new(
-                    "cursor-stream",
-                    "cursor-event",
-                    format!("event-{index}"),
-                ))
-                .unwrap();
-        }
-
-        let before = engine
-            .db
-            .ram_diagnostics()
-            .unwrap()
-            .iteration_entries_examined;
-        let events = engine
-            .list_events(
-                Some("cursor-stream"),
-                ListEventsOptions {
-                    from_sequence: Some(400),
-                    limit: Some(25),
-                    since: None,
-                },
-            )
-            .unwrap();
-        let examined = engine
-            .db
-            .ram_diagnostics()
-            .unwrap()
-            .iteration_entries_examined
-            .saturating_sub(before);
-
-        assert_eq!(events.len(), 25);
-        assert_eq!(events.first().unwrap().sequence, 401);
-        assert_eq!(events.last().unwrap().sequence, 425);
-        assert_eq!(examined, 25);
-    }
-
-    #[test]
-    fn rocksdb_event_sequence_cursor_preserves_exclusive_ordered_results() {
-        let (mut engine, _dir) = setup();
-        for index in 0..512_u32 {
-            engine
-                .append_event(MemoryEvent::new(
-                    "rocks-cursor-stream",
-                    "cursor-event",
-                    format!("event-{index}"),
-                ))
-                .unwrap();
-        }
-
-        let events = engine
-            .list_events(
-                Some("rocks-cursor-stream"),
-                ListEventsOptions {
-                    from_sequence: Some(400),
-                    limit: Some(25),
-                    since: None,
-                },
-            )
-            .unwrap();
-
-        assert_eq!(events.len(), 25);
-        assert_eq!(events.first().unwrap().sequence, 401);
-        assert_eq!(events.last().unwrap().sequence, 425);
-    }
-
-    #[test]
-    fn thingdb_ram_since_filter_stops_after_enough_matches_in_bounded_pages() {
-        let mut engine = setup_thingdb_memory();
-        for index in 0..512_u32 {
-            let mut event =
-                MemoryEvent::new("since-stream", "since-event", format!("event-{index}"));
-            event.created_at = if index < 32 {
-                "2026-01-02T00:00:00Z".to_string()
-            } else {
-                "2026-01-01T00:00:00Z".to_string()
-            };
-            engine.append_event(event).unwrap();
-        }
-
-        let before = engine
-            .db
-            .ram_diagnostics()
-            .unwrap()
-            .iteration_entries_examined;
-        let events = engine
-            .list_events(
-                Some("since-stream"),
-                ListEventsOptions {
-                    from_sequence: None,
-                    limit: Some(25),
-                    since: Some("2026-01-02T00:00:00Z".to_string()),
-                },
-            )
-            .unwrap();
-        let examined = engine
-            .db
-            .ram_diagnostics()
-            .unwrap()
-            .iteration_entries_examined
-            .saturating_sub(before);
-
-        assert_eq!(events.len(), 25);
-        assert_eq!(events.first().unwrap().sequence, 1);
-        assert_eq!(events.last().unwrap().sequence, 25);
-        assert_eq!(examined, 128);
-    }
-
-    #[test]
-    fn thingdb_ram_object_and_event_counts_skip_value_materialization() {
-        let mut engine = setup_thingdb_memory();
-        for index in 0..128_u32 {
-            engine
-                .put_object(MemoryObject::new(
-                    if index % 2 == 0 { "counted" } else { "other" },
-                    format!("id-{index}"),
-                    "{}",
-                ))
-                .unwrap();
-            engine
-                .append_event(MemoryEvent::new(
-                    "count-stream",
-                    "count-event",
-                    format!("event-{index}"),
-                ))
-                .unwrap();
-        }
-
-        let before = engine.db.ram_diagnostics().unwrap().iteration_count;
-        assert_eq!(engine.count_objects().unwrap(), 128);
-        assert_eq!(engine.count_objects_in_collection("counted").unwrap(), 64);
-        assert_eq!(engine.count_events().unwrap(), 128);
-        assert_eq!(engine.db.ram_diagnostics().unwrap().iteration_count, before);
     }
 
     #[test]
@@ -7992,39 +7005,6 @@ mod tests {
         );
     }
 
-    #[cfg(feature = "vectors")]
-    #[test]
-    fn thingdb_object_batch_only_removes_existing_vectors() {
-        let (mut engine, _dir) = setup_thingdb();
-        engine
-            .put_objects_batch(vec![
-                MemoryObject::new("vectors", "plain-a", "{}"),
-                MemoryObject::new("vectors", "plain-b", "{}"),
-            ])
-            .unwrap();
-        assert_eq!(engine.vectors.count().unwrap(), 0);
-
-        engine
-            .put_objects_batch(vec![
-                MemoryObject::new("vectors", "has-vector", "{}").with_vector(vec![1.0, 0.0]),
-            ])
-            .unwrap();
-        assert_eq!(engine.vectors.count().unwrap(), 1);
-
-        engine
-            .put_objects_batch(vec![MemoryObject::new("vectors", "has-vector", "{}")])
-            .unwrap();
-        assert_eq!(engine.vectors.count().unwrap(), 0);
-
-        engine
-            .put_objects_batch(vec![
-                MemoryObject::new("vectors", "same-batch", "{}").with_vector(vec![0.0, 1.0]),
-                MemoryObject::new("vectors", "same-batch", "{}"),
-            ])
-            .unwrap();
-        assert_eq!(engine.vectors.count().unwrap(), 0);
-    }
-
     #[test]
     fn persistent_delete_objects_batch() {
         let (mut engine, _dir) = setup();
@@ -8046,14 +7026,6 @@ mod tests {
         assert_eq!(engine.count_objects().unwrap(), 1);
         assert!(engine.get_object("w", "a").unwrap().is_none());
         assert!(engine.get_object("w", "c").unwrap().is_some());
-
-        let repeated_keys = vec![
-            ("w".to_string(), "c".to_string()),
-            ("w".to_string(), "c".to_string()),
-            ("w".to_string(), "missing".to_string()),
-        ];
-        assert_eq!(engine.delete_objects_batch(&repeated_keys).unwrap(), 2);
-        assert_eq!(engine.count_objects().unwrap(), 0);
     }
 
     // ── EventLog ──────────────────────────────────────────────────────────
@@ -8235,7 +7207,7 @@ mod tests {
     #[test]
     fn persistent_lists_streams() {
         let (mut engine, _dir) = setup();
-        assert_eq!(engine.list_streams().unwrap(), Vec::<String>::new());
+        assert!(engine.list_streams().unwrap().is_empty());
         engine
             .append_event(MemoryEvent::new("s1", "t", "e1"))
             .unwrap();
@@ -8273,68 +7245,6 @@ mod tests {
     }
 
     #[test]
-    fn thingdb_durable_large_queue_batch_claims_every_ready_job() {
-        let (mut engine, _dir) = setup_thingdb();
-        let queue = "large-batch";
-        let count = 10_000;
-        let jobs = (0..count)
-            .map(|index| QueueJob::new(queue, format!("job-{index:05}"), "payload", 3))
-            .collect();
-        engine.push_jobs_batch(jobs).unwrap();
-
-        let queue_prefix = engine.make_queue_prefix(queue);
-        let ready_prefix = engine.make_ready_prefix(queue);
-        assert_eq!(
-            engine.queue_jobs.count_prefix(&queue_prefix).unwrap(),
-            count
-        );
-        assert_eq!(
-            engine.ready_jobs.count_prefix(&ready_prefix).unwrap(),
-            count
-        );
-        engine.compact_storage().unwrap();
-        assert_eq!(
-            engine.queue_jobs.count_prefix(&queue_prefix).unwrap(),
-            count
-        );
-        assert_eq!(
-            engine.ready_jobs.count_prefix(&ready_prefix).unwrap(),
-            count
-        );
-
-        let mut claimed_ids = std::collections::BTreeSet::new();
-        while claimed_ids.len() < count {
-            let remaining = count - claimed_ids.len();
-            let claimed = engine
-                .claim_jobs_with_options(
-                    queue,
-                    QueueClaimOptions::new(86_400_000),
-                    remaining.min(MAX_QUEUE_BATCH_ITEMS),
-                )
-                .unwrap();
-            if claimed.is_empty() {
-                let jobs = engine.list_jobs(queue).unwrap();
-                let ready_jobs = jobs
-                    .iter()
-                    .filter(|job| job.status == QueueJobStatus::Ready)
-                    .count();
-                panic!(
-                    "ready queue ended early: claimed={}, job records={}, ready jobs={}, ready indexes={}",
-                    claimed_ids.len(),
-                    jobs.len(),
-                    ready_jobs,
-                    engine.ready_jobs.count_prefix(&ready_prefix).unwrap(),
-                );
-            }
-            for job in claimed {
-                assert!(claimed_ids.insert(job.id), "a queue job was claimed twice");
-            }
-        }
-
-        assert_eq!(engine.ready_jobs.count_prefix(&ready_prefix).unwrap(), 0);
-    }
-
-    #[test]
     fn thingdb_claim_and_ack_uses_one_durable_transition() {
         let (mut engine, _dir) = setup_thingdb();
         engine
@@ -8361,7 +7271,6 @@ mod tests {
         assert_eq!(completed.status, QueueJobStatus::Completed);
         assert_eq!(completed.attempts, 1);
         assert_eq!(after.saturating_sub(before), 1);
-        assert!(!engine.queue_lease_counts.contains_key("embed"));
         assert_eq!(
             engine
                 .lease_jobs
@@ -8374,181 +7283,6 @@ mod tests {
         assert!(diagnostics.lookup_duration_ns > 0);
         assert!(diagnostics.deserialization_duration_ns > 0);
         assert!(diagnostics.serialization_duration_ns > 0);
-    }
-
-    #[test]
-    fn thingdb_queue_lease_counts_track_batches_reopen_ack_and_nack() {
-        let (mut engine, dir) = setup_thingdb();
-        engine
-            .push_jobs_batch(
-                (0..3)
-                    .map(|index| QueueJob::new("lease-counts", format!("job-{index}"), "doc", 3))
-                    .collect(),
-            )
-            .unwrap();
-
-        let claimed = engine
-            .claim_jobs_with_options("lease-counts", QueueClaimOptions::default(), 3)
-            .unwrap();
-        assert_eq!(claimed.len(), 3);
-        assert_eq!(engine.queue_lease_counts.get("lease-counts"), Some(&3));
-        assert_eq!(
-            engine.queue_lease_expirations["lease-counts"]
-                .values()
-                .sum::<usize>(),
-            3
-        );
-
-        drop(engine);
-        let mut reopened = PersistentEngine::open_with_options(
-            dir.path(),
-            PersistentOpenOptions {
-                backend: PersistentBackend::ThingDb,
-                ..PersistentOpenOptions::default()
-            },
-        )
-        .unwrap();
-        assert_eq!(reopened.queue_lease_counts.get("lease-counts"), Some(&3));
-        assert_eq!(
-            reopened.queue_lease_expirations["lease-counts"]
-                .values()
-                .sum::<usize>(),
-            3
-        );
-        assert!(reopened.queue_has_active_leases("lease-counts"));
-
-        reopened.ack_job("lease-counts", "job-0").unwrap();
-        assert_eq!(reopened.queue_lease_counts.get("lease-counts"), Some(&2));
-        assert_eq!(
-            reopened.queue_lease_expirations["lease-counts"]
-                .values()
-                .sum::<usize>(),
-            2
-        );
-        reopened.nack_job("lease-counts", "job-1").unwrap();
-        assert_eq!(reopened.queue_lease_counts.get("lease-counts"), Some(&1));
-        reopened.ack_job("lease-counts", "job-2").unwrap();
-        assert!(!reopened.queue_lease_counts.contains_key("lease-counts"));
-        assert!(
-            !reopened
-                .queue_lease_expirations
-                .contains_key("lease-counts")
-        );
-        assert_eq!(
-            reopened
-                .lease_jobs
-                .prefix(reopened.make_lease_prefix("lease-counts"))
-                .count(),
-            0
-        );
-    }
-
-    #[test]
-    fn thingdb_ready_cursor_advances_and_preserves_delayed_jobs() {
-        let (mut engine, _dir) = setup_thingdb();
-        let created_at = "2026-01-01T00:00:00.000Z";
-        let mut delayed = QueueJob::new("ready-cursor", "delayed", "doc", 2);
-        delayed.priority = 2;
-        delayed.created_at = created_at.to_string();
-        delayed.available_at_ms = unix_timestamp_millis().saturating_add(60_000);
-        let mut first = QueueJob::new("ready-cursor", "first", "doc", 1);
-        first.priority = 1;
-        first.created_at = created_at.to_string();
-        let mut second = QueueJob::new("ready-cursor", "second", "doc", 0);
-        second.created_at = created_at.to_string();
-        engine
-            .push_jobs_batch(vec![delayed, first, second])
-            .unwrap();
-
-        assert_eq!(
-            engine.claim_job("ready-cursor").unwrap().unwrap().id,
-            "first"
-        );
-        assert_eq!(
-            engine.queue_ready_cursors["ready-cursor"],
-            Some((
-                engine.make_ready_key("ready-cursor", 2, created_at, "delayed"),
-                engine.encode_queue_id("delayed").unwrap(),
-            ))
-        );
-
-        let mut urgent = QueueJob::new("ready-cursor", "urgent", "doc", 3);
-        urgent.priority = 3;
-        urgent.created_at = created_at.to_string();
-        engine.push_job(urgent).unwrap();
-        assert_eq!(
-            engine.claim_job("ready-cursor").unwrap().unwrap().id,
-            "urgent"
-        );
-        assert_eq!(
-            engine.claim_job("ready-cursor").unwrap().unwrap().id,
-            "second"
-        );
-    }
-
-    #[test]
-    fn thingdb_lease_count_fast_path_skips_empty_queues_and_reclaims_expired_lease() {
-        let (mut engine, _dir) = setup_thingdb();
-        let examined_before = engine.queue_diagnostics.lease_entries_examined;
-        assert!(engine.claim_job("lease-deadlines").unwrap().is_none());
-        assert_eq!(
-            engine.queue_diagnostics.lease_entries_examined,
-            examined_before
-        );
-
-        engine
-            .push_jobs_batch(
-                (0..2)
-                    .map(|index| QueueJob::new("lease-deadlines", format!("job-{index}"), "doc", 3))
-                    .collect(),
-            )
-            .unwrap();
-
-        engine
-            .claim_job_with_options("lease-deadlines", QueueClaimOptions::new(60_000))
-            .unwrap()
-            .unwrap();
-        let examined_before = engine.queue_diagnostics.lease_entries_examined;
-        let second = engine.claim_job("lease-deadlines").unwrap().unwrap();
-        assert_eq!(second.id, "job-1");
-        assert_eq!(
-            engine.queue_diagnostics.lease_entries_examined,
-            examined_before
-        );
-        assert_eq!(engine.queue_lease_counts.get("lease-deadlines"), Some(&2));
-
-        let (mut expired_engine, _dir) = setup_thingdb();
-        expired_engine
-            .push_job(QueueJob::new("expired-deadline", "job-1", "doc", 3))
-            .unwrap();
-        let first = expired_engine
-            .claim_job_with_options("expired-deadline", QueueClaimOptions::new(0))
-            .unwrap()
-            .unwrap();
-        let examined_before = expired_engine.queue_diagnostics.lease_entries_examined;
-        let second = expired_engine
-            .claim_job("expired-deadline")
-            .unwrap()
-            .unwrap();
-        assert_eq!(first.attempts, 1);
-        assert_eq!(second.attempts, 2);
-        assert!(expired_engine.queue_diagnostics.lease_entries_examined > examined_before);
-        assert_eq!(
-            expired_engine.queue_lease_counts.get("expired-deadline"),
-            Some(&1)
-        );
-        expired_engine.ack_job("expired-deadline", "job-1").unwrap();
-        assert!(!expired_engine.queue_has_active_leases("expired-deadline"));
-        assert!(
-            !expired_engine
-                .queue_lease_counts
-                .contains_key("expired-deadline")
-        );
-        assert!(
-            !expired_engine
-                .queue_lease_expirations
-                .contains_key("expired-deadline")
-        );
     }
 
     #[test]
@@ -8613,275 +7347,6 @@ mod tests {
     }
 
     #[test]
-    fn thingdb_claim_jobs_and_ack_jobs_each_use_one_atomic_sync() {
-        let (mut engine, dir) = setup_thingdb();
-        engine
-            .push_jobs_batch(
-                (0..4)
-                    .map(|index| QueueJob::new("batch", format!("job-{index}"), "doc", 3))
-                    .collect(),
-            )
-            .unwrap();
-
-        let before_claim = engine
-            .wal_diagnostics()
-            .unwrap()
-            .unwrap()
-            .physical_sync_count;
-        let claimed = engine
-            .claim_jobs_with_options("batch", QueueClaimOptions::default(), 3)
-            .unwrap();
-        let after_claim = engine
-            .wal_diagnostics()
-            .unwrap()
-            .unwrap()
-            .physical_sync_count;
-        assert_eq!(claimed.len(), 3);
-        assert!(
-            claimed
-                .iter()
-                .all(|job| job.status == QueueJobStatus::Leased)
-        );
-        assert_eq!(after_claim.saturating_sub(before_claim), 1);
-        assert_eq!(
-            engine
-                .lease_jobs
-                .prefix(engine.make_lease_prefix("batch"))
-                .count(),
-            3
-        );
-
-        let mut ids = claimed.iter().map(|job| job.id.clone()).collect::<Vec<_>>();
-        ids.push("job-3".to_string());
-        assert!(engine.ack_jobs("batch", &ids).is_err());
-        assert_eq!(
-            engine
-                .list_jobs("batch")
-                .unwrap()
-                .iter()
-                .filter(|job| job.status == QueueJobStatus::Leased)
-                .count(),
-            3,
-            "a rejected batch must leave every valid lease untouched"
-        );
-
-        ids.pop();
-        let before_ack = engine
-            .wal_diagnostics()
-            .unwrap()
-            .unwrap()
-            .physical_sync_count;
-        let completed = engine.ack_jobs("batch", &ids).unwrap();
-        let after_ack = engine
-            .wal_diagnostics()
-            .unwrap()
-            .unwrap()
-            .physical_sync_count;
-        assert_eq!(completed.len(), 3);
-        assert!(
-            completed
-                .iter()
-                .all(|job| job.status == QueueJobStatus::Completed)
-        );
-        assert_eq!(after_ack.saturating_sub(before_ack), 1);
-        assert_eq!(
-            engine
-                .lease_jobs
-                .prefix(engine.make_lease_prefix("batch"))
-                .count(),
-            0
-        );
-
-        drop(engine);
-        let reopened = PersistentEngine::open_with_options(
-            dir.path(),
-            PersistentOpenOptions {
-                backend: PersistentBackend::ThingDb,
-                ..PersistentOpenOptions::default()
-            },
-        )
-        .unwrap();
-        let jobs = reopened.list_jobs("batch").unwrap();
-        assert_eq!(
-            jobs.iter()
-                .filter(|job| job.status == QueueJobStatus::Completed)
-                .count(),
-            3
-        );
-        assert_eq!(
-            jobs.iter()
-                .filter(|job| job.status == QueueJobStatus::Ready)
-                .count(),
-            1
-        );
-    }
-
-    #[test]
-    fn thingdb_batch_claim_pages_ready_index_and_preserves_delayed_jobs() {
-        let (mut engine, _dir) = setup_thingdb();
-        let created_at = "2026-01-01T00:00:00.000Z";
-        let mut delayed = QueueJob::new("paged-claims", "job-delayed", "doc", 3);
-        delayed.priority = 10;
-        delayed.created_at = created_at.to_string();
-        delayed.available_at_ms = unix_timestamp_millis().saturating_add(60_000);
-
-        let mut jobs = vec![delayed];
-        jobs.extend((0..130).map(|index| {
-            let mut job = QueueJob::new("paged-claims", format!("job-{index:03}"), "doc", 3);
-            job.created_at = created_at.to_string();
-            job
-        }));
-        engine.push_jobs_batch(jobs).unwrap();
-
-        let first = engine
-            .claim_jobs_with_options("paged-claims", QueueClaimOptions::default(), 64)
-            .unwrap();
-        assert_eq!(first.len(), 64);
-        assert_eq!(first.first().unwrap().id, "job-000");
-        assert_eq!(first.last().unwrap().id, "job-063");
-        assert_eq!(
-            engine.queue_ready_cursors["paged-claims"],
-            Some((
-                engine.make_ready_key("paged-claims", 10, created_at, "job-delayed"),
-                engine.encode_queue_id("job-delayed").unwrap(),
-            ))
-        );
-
-        let second = engine
-            .claim_jobs_with_options("paged-claims", QueueClaimOptions::default(), 64)
-            .unwrap();
-        assert_eq!(second.len(), 64);
-        assert_eq!(second.first().unwrap().id, "job-064");
-        assert_eq!(second.last().unwrap().id, "job-127");
-
-        let third = engine
-            .claim_jobs_with_options("paged-claims", QueueClaimOptions::default(), 64)
-            .unwrap();
-        assert_eq!(
-            third.iter().map(|job| job.id.as_str()).collect::<Vec<_>>(),
-            ["job-128", "job-129"]
-        );
-        assert_eq!(
-            engine
-                .claim_jobs_with_options("paged-claims", QueueClaimOptions::default(), 64)
-                .unwrap(),
-            Vec::<crate::QueueJob>::new()
-        );
-
-        let remaining = engine.list_jobs("paged-claims").unwrap();
-        assert_eq!(remaining.len(), 131);
-        assert_eq!(
-            remaining
-                .iter()
-                .filter(|job| job.id == "job-delayed" && job.status == QueueJobStatus::Ready)
-                .count(),
-            1
-        );
-        assert_eq!(
-            remaining
-                .iter()
-                .filter(|job| job.status == QueueJobStatus::Leased)
-                .count(),
-            130
-        );
-    }
-
-    #[test]
-    fn thingdb_batch_claim_reads_the_next_ready_cursor_in_the_same_page() {
-        let (mut engine, _dir) = setup_thingdb();
-        let created_at = "2026-01-01T00:00:00.000Z";
-        let jobs = (0..130).map(|index| {
-            let mut job = QueueJob::new("page-lookahead", format!("job-{index:03}"), "doc", 3);
-            job.created_at = created_at.to_string();
-            job
-        });
-        engine.push_jobs_batch(jobs.collect()).unwrap();
-
-        let scans_before = engine.wal_diagnostics().unwrap().unwrap().scan_count;
-        let claimed = engine
-            .claim_jobs_with_options("page-lookahead", QueueClaimOptions::default(), 64)
-            .unwrap();
-        let scans_after = engine.wal_diagnostics().unwrap().unwrap().scan_count;
-
-        assert_eq!(claimed.len(), 64);
-        assert_eq!(claimed.first().unwrap().id, "job-000");
-        assert_eq!(claimed.last().unwrap().id, "job-063");
-        assert_eq!(scans_after.saturating_sub(scans_before), 1);
-        assert_eq!(
-            engine.queue_ready_cursors["page-lookahead"],
-            Some((
-                engine.make_ready_key("page-lookahead", 0, created_at, "job-064"),
-                engine.encode_queue_id("job-064").unwrap(),
-            ))
-        );
-    }
-
-    #[test]
-    fn encrypted_thingdb_batch_claim_preserves_order_across_pages() {
-        let dir = tempfile::tempdir().unwrap();
-        let options = PersistentOpenOptions {
-            backend: PersistentBackend::ThingDb,
-            encryption: Some(EncryptionConfig::from_key(&[0x2a_u8; 32]).unwrap()),
-            ..PersistentOpenOptions::default()
-        };
-        let mut engine = PersistentEngine::open_with_options(dir.path(), options).unwrap();
-        let created_at = "2026-01-01T00:00:00.000Z";
-        let mut delayed = QueueJob::new("encrypted-pages", "job-delayed", "doc", 3);
-        delayed.priority = 10;
-        delayed.created_at = created_at.to_string();
-        delayed.available_at_ms = unix_timestamp_millis().saturating_add(60_000);
-
-        let mut jobs = vec![delayed];
-        jobs.extend((0..65).map(|index| {
-            let mut job = QueueJob::new("encrypted-pages", format!("job-{index:03}"), "doc", 3);
-            job.created_at = created_at.to_string();
-            job
-        }));
-        engine.push_jobs_batch(jobs).unwrap();
-
-        let scans_before = engine.wal_diagnostics().unwrap().unwrap().scan_count;
-        let first = engine
-            .claim_jobs_with_options("encrypted-pages", QueueClaimOptions::default(), 64)
-            .unwrap();
-        let scans_after = engine.wal_diagnostics().unwrap().unwrap().scan_count;
-        assert_eq!(first.len(), 64);
-        assert!(scans_after.saturating_sub(scans_before) <= 2);
-
-        let second = engine
-            .claim_jobs_with_options("encrypted-pages", QueueClaimOptions::default(), 64)
-            .unwrap();
-        assert_eq!(second.len(), 1);
-        assert_eq!(
-            engine
-                .claim_jobs_with_options("encrypted-pages", QueueClaimOptions::default(), 64)
-                .unwrap(),
-            Vec::<crate::QueueJob>::new()
-        );
-        let claimed_ids = first
-            .iter()
-            .chain(&second)
-            .map(|job| job.id.as_str())
-            .collect::<std::collections::BTreeSet<_>>();
-        assert_eq!(
-            claimed_ids.len(),
-            65,
-            "paged claims must not duplicate jobs"
-        );
-        assert!((0..65).all(|index| claimed_ids.contains(format!("job-{index:03}").as_str())));
-        let jobs = engine.list_jobs("encrypted-pages").unwrap();
-        assert!(
-            jobs.iter()
-                .any(|job| { job.id == "job-delayed" && job.status == QueueJobStatus::Ready })
-        );
-        assert_eq!(
-            jobs.iter()
-                .filter(|job| job.status == QueueJobStatus::Leased)
-                .count(),
-            65
-        );
-    }
-
-    #[test]
     fn persistent_queue_lease_index_rebuilds_after_reopen() {
         let (mut engine, dir) = setup();
         engine
@@ -8931,55 +7396,6 @@ mod tests {
         let diagnostics = engine.queue_diagnostics();
         assert_eq!(diagnostics.lease_entries_examined, 1);
         assert!(diagnostics.lease_entries_examined < historical_jobs as u64);
-    }
-
-    #[test]
-    fn thingdb_ram_claim_does_not_materialize_all_unexpired_lease_entries() {
-        let mut engine = setup_thingdb_memory();
-        let queue = "lease-scan";
-        let lease_options = QueueClaimOptions::new(86_400_000);
-        let existing_leases = 128;
-
-        for index in 0..existing_leases {
-            engine
-                .push_job(QueueJob::new(
-                    queue,
-                    format!("leased-{index}"),
-                    "payload",
-                    3,
-                ))
-                .unwrap();
-            engine
-                .claim_job_with_options(queue, lease_options)
-                .unwrap()
-                .expect("each seeded job should be claimable");
-        }
-
-        engine
-            .push_job(QueueJob::new(queue, "ready", "payload", 3))
-            .unwrap();
-        let examined_before = engine
-            .db
-            .ram_diagnostics()
-            .unwrap()
-            .iteration_entries_examined;
-
-        let claimed = engine
-            .claim_job_with_options(queue, lease_options)
-            .unwrap()
-            .expect("the ready job should be claimable despite unexpired leases");
-
-        let examined = engine
-            .db
-            .ram_diagnostics()
-            .unwrap()
-            .iteration_entries_examined
-            .saturating_sub(examined_before);
-        assert_eq!(claimed.id, "ready");
-        assert!(
-            examined <= 2,
-            "one lease candidate and one ready candidate should be examined, got {examined}"
-        );
     }
 
     #[test]
@@ -9103,7 +7519,7 @@ mod tests {
         let link = engine
             .create_link(Link::new("n/a", "connects", "n/b"))
             .unwrap();
-        assert_ne!(link.id, "");
+        assert!(!link.id.is_empty());
         let fetched = engine.get_link(&link.id).unwrap().unwrap();
         assert_eq!(fetched.id, link.id);
         assert!(engine.delete_link(&link.id).unwrap());
@@ -9475,7 +7891,7 @@ mod tests {
         ));
         let snapshot = queue.snapshot();
         assert!(snapshot.stale);
-        assert!(snapshot.pending.keys().next().is_none());
+        assert!(snapshot.pending.is_empty());
         assert_eq!(snapshot.queued, 2);
         assert!(snapshot.last_error.is_some());
     }
@@ -9898,7 +8314,7 @@ mod tests {
         let results = engine
             .vector_search("docs", &[1.0, 0.0], VectorSearchOptions::default())
             .unwrap();
-        assert_eq!(results, Vec::new());
+        assert!(results.is_empty());
     }
 
     #[cfg(feature = "vectors")]
@@ -9937,7 +8353,7 @@ mod tests {
         let results = engine
             .vector_search("docs", &[1.0, 0.0, 0.0], VectorSearchOptions::default())
             .unwrap();
-        assert_eq!(results, Vec::new());
+        assert!(results.is_empty());
     }
 
     #[cfg(feature = "vectors")]
@@ -9976,7 +8392,7 @@ mod tests {
         let results = engine
             .vector_search("docs", &[1.0, 0.0, 0.0], VectorSearchOptions::default())
             .unwrap();
-        assert_eq!(results, Vec::new());
+        assert!(results.is_empty());
     }
 
     #[cfg(feature = "vectors")]
@@ -10146,16 +8562,13 @@ mod tests {
     fn thingdb_backend_runs_shared_contracts() {
         let (mut engine, _dir) = setup_thingdb();
         crate::contract_tests::test_contract_object_lifecycle(&mut engine);
-        crate::contract_tests::test_contract_object_create_only_cas(&mut engine);
         crate::contract_tests::test_contract_object_batches_and_ordering(&mut engine);
         crate::contract_tests::test_contract_link_consistency(&mut engine);
-        crate::contract_tests::test_contract_link_import_and_listing(&mut engine);
         crate::contract_tests::test_contract_vector_lifecycle(&mut engine);
         crate::contract_tests::test_contract_schema_store(&mut engine);
         crate::contract_tests::test_contract_indexes(&mut engine);
         crate::contract_tests::test_contract_event_idempotency(&mut engine);
         crate::contract_tests::test_contract_queue_lifecycle(&mut engine);
-        crate::contract_tests::test_contract_queue_batch_lifecycle(&mut engine);
         crate::contract_tests::test_contract_delayed_job(&mut engine);
         crate::contract_tests::test_contract_lease_expiration(&mut engine);
         crate::contract_tests::test_contract_nack_dead_letter(&mut engine);
@@ -10166,10 +8579,8 @@ mod tests {
     fn contract_object_lifecycle() {
         let (mut engine, _dir) = setup_persistent();
         crate::contract_tests::test_contract_object_lifecycle(&mut engine);
-        crate::contract_tests::test_contract_object_create_only_cas(&mut engine);
         crate::contract_tests::test_contract_object_batches_and_ordering(&mut engine);
         crate::contract_tests::test_contract_link_consistency(&mut engine);
-        crate::contract_tests::test_contract_link_import_and_listing(&mut engine);
     }
 
     #[test]
@@ -10195,7 +8606,6 @@ mod tests {
     fn contract_queue_lifecycle() {
         let (mut engine, _dir) = setup_persistent();
         crate::contract_tests::test_contract_queue_lifecycle(&mut engine);
-        crate::contract_tests::test_contract_queue_batch_lifecycle(&mut engine);
     }
 
     #[test]
@@ -10224,16 +8634,13 @@ mod tests {
         assert_eq!(engine.journal_count(), 0);
 
         crate::contract_tests::test_contract_object_lifecycle(&mut engine);
-        crate::contract_tests::test_contract_object_create_only_cas(&mut engine);
         crate::contract_tests::test_contract_object_batches_and_ordering(&mut engine);
         crate::contract_tests::test_contract_link_consistency(&mut engine);
-        crate::contract_tests::test_contract_link_import_and_listing(&mut engine);
         crate::contract_tests::test_contract_vector_lifecycle(&mut engine);
         crate::contract_tests::test_contract_schema_store(&mut engine);
         crate::contract_tests::test_contract_indexes(&mut engine);
         crate::contract_tests::test_contract_event_idempotency(&mut engine);
         crate::contract_tests::test_contract_queue_lifecycle(&mut engine);
-        crate::contract_tests::test_contract_queue_batch_lifecycle(&mut engine);
         crate::contract_tests::test_contract_delayed_job(&mut engine);
         crate::contract_tests::test_contract_lease_expiration(&mut engine);
         crate::contract_tests::test_contract_nack_dead_letter(&mut engine);
@@ -10286,9 +8693,11 @@ mod tests {
             engine
                 .put_object(MemoryObject::new("notes", "one", r#"{"text":"beta only"}"#))
                 .unwrap();
-            assert_eq!(
-                engine.search("alpha", SearchOptions::default()).unwrap(),
-                Vec::<crate::SearchHit>::new()
+            assert!(
+                engine
+                    .search("alpha", SearchOptions::default())
+                    .unwrap()
+                    .is_empty()
             );
             assert_eq!(
                 engine
@@ -10316,9 +8725,11 @@ mod tests {
                 .create_link(Link::new("notes/one", "mentions", "notes/two"))
                 .unwrap();
             engine.delete_object("notes", "one").unwrap();
-            assert_eq!(
-                engine.search("beta", SearchOptions::default()).unwrap(),
-                Vec::<crate::SearchHit>::new()
+            assert!(
+                engine
+                    .search("beta", SearchOptions::default())
+                    .unwrap()
+                    .is_empty()
             );
 
             // Exercise the defensive rebuild path. It must create a RAM index
@@ -10591,61 +9002,5 @@ mod thingdb_search_tests {
         assert_eq!(results[0].collection, "included");
         assert_eq!(results[0].id, "eligible");
         assert!(results[0].score > 0.0);
-    }
-}
-
-#[cfg(all(test, feature = "thingdb-backend"))]
-mod thingdb_queue_cursor_tests {
-    use super::*;
-
-    #[test]
-    fn ready_cursor_advances_and_preserves_delayed_jobs() {
-        let dir = tempfile::tempdir().unwrap();
-        let mut engine = PersistentEngine::open_with_options(
-            dir.path(),
-            PersistentOpenOptions {
-                backend: PersistentBackend::ThingDb,
-                ..PersistentOpenOptions::default()
-            },
-        )
-        .unwrap();
-        let created_at = "2026-01-01T00:00:00.000Z";
-        let mut delayed = QueueJob::new("ready-cursor", "delayed", "doc", 2);
-        delayed.priority = 2;
-        delayed.created_at = created_at.to_string();
-        delayed.available_at_ms = unix_timestamp_millis().saturating_add(60_000);
-        let mut first = QueueJob::new("ready-cursor", "first", "doc", 1);
-        first.priority = 1;
-        first.created_at = created_at.to_string();
-        let mut second = QueueJob::new("ready-cursor", "second", "doc", 0);
-        second.created_at = created_at.to_string();
-        engine
-            .push_jobs_batch(vec![delayed, first, second])
-            .unwrap();
-
-        assert_eq!(
-            engine.claim_job("ready-cursor").unwrap().unwrap().id,
-            "first"
-        );
-        assert_eq!(
-            engine.queue_ready_cursors["ready-cursor"],
-            Some((
-                engine.make_ready_key("ready-cursor", 2, created_at, "delayed"),
-                engine.encode_queue_id("delayed").unwrap(),
-            ))
-        );
-
-        let mut urgent = QueueJob::new("ready-cursor", "urgent", "doc", 3);
-        urgent.priority = 3;
-        urgent.created_at = created_at.to_string();
-        engine.push_job(urgent).unwrap();
-        assert_eq!(
-            engine.claim_job("ready-cursor").unwrap().unwrap().id,
-            "urgent"
-        );
-        assert_eq!(
-            engine.claim_job("ready-cursor").unwrap().unwrap().id,
-            "second"
-        );
     }
 }

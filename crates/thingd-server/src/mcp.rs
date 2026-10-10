@@ -670,39 +670,6 @@ fn handle_thing_queue_claim(
     }
 }
 
-fn handle_thing_queue_claim_batch(
-    state: &AppState,
-    tool_name: &str,
-    args: &Value,
-    db_path: &str,
-) -> Result<Value, AppError> {
-    let queue = arg_str(args, "queue");
-    let limit = args.get("limit").and_then(Value::as_u64).unwrap_or(100);
-    if limit > thingd::MAX_QUEUE_BATCH_ITEMS as u64 {
-        return Err(AppError::bad_request(format!(
-            "Queue batch limit cannot exceed {}",
-            thingd::MAX_QUEUE_BATCH_ITEMS
-        )));
-    }
-    let options = thingd::QueueClaimOptions {
-        lease_ms: args
-            .get("leaseMs")
-            .and_then(Value::as_u64)
-            .map(|value| value.min(86_400_000))
-            .unwrap_or(30_000),
-    };
-    let engine = state.pool.get_reader(db_path);
-    let mut engine = engine.lock();
-    let jobs = engine.claim_jobs_with_options(&queue, options, limit as usize)?;
-    emit_audit_event(state, &mut engine, tool_name, args, "success");
-    Ok(json!({
-        "content": [{
-            "type": "text",
-            "text": serde_json::to_string(&jobs).unwrap_or_default()
-        }]
-    }))
-}
-
 fn handle_thing_queue_ack(
     _state: &AppState,
     _tool_name: &str,
@@ -724,43 +691,6 @@ fn handle_thing_queue_ack(
             Ok(json!({ "content": [{ "type": "text", "text": "Ack failed" }], "isError": true }))
         },
     }
-}
-
-fn handle_thing_queue_ack_batch(
-    state: &AppState,
-    tool_name: &str,
-    args: &Value,
-    db_path: &str,
-) -> Result<Value, AppError> {
-    let queue = arg_str(args, "queue");
-    let ids = args
-        .get("ids")
-        .and_then(Value::as_array)
-        .ok_or_else(|| AppError::bad_request("Missing or invalid ids"))?
-        .iter()
-        .map(|value| {
-            value
-                .as_str()
-                .map(str::to_string)
-                .ok_or_else(|| AppError::bad_request("ids must contain only strings"))
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-    if ids.len() > thingd::MAX_QUEUE_BATCH_ITEMS {
-        return Err(AppError::bad_request(format!(
-            "Queue ack batch cannot exceed {} job IDs",
-            thingd::MAX_QUEUE_BATCH_ITEMS
-        )));
-    }
-    let engine = state.pool.get_writer(db_path);
-    let mut engine = engine.lock();
-    let jobs = engine.ack_jobs(&queue, &ids)?;
-    emit_audit_event(state, &mut engine, tool_name, args, "success");
-    Ok(json!({
-        "content": [{
-            "type": "text",
-            "text": serde_json::to_string(&jobs).unwrap_or_default()
-        }]
-    }))
 }
 
 fn handle_thing_queue_nack(
@@ -1448,7 +1378,7 @@ static ALL_TOOLS: LazyLock<Vec<ToolEntry>> = LazyLock::new(|| {
             destructive: false,
             needs_collection: false,
         },
-        // Queue tools (8)
+        // Queue tools (6)
         ToolEntry {
             name: "thing_queue_push",
             description: "Push a job to a queue",
@@ -1470,31 +1400,11 @@ static ALL_TOOLS: LazyLock<Vec<ToolEntry>> = LazyLock::new(|| {
             needs_collection: false,
         },
         ToolEntry {
-            name: "thing_queue_claim_batch",
-            description: "Lease up to a bounded number of ready jobs in one atomic batch",
-            properties: json!({ "queue": str_prop("Queue name"), "limit": int_prop("Maximum jobs to lease (default 100, maximum 1000)"), "leaseMs": int_prop("Lease duration in ms (default 30000)"), "actor": str_prop("Who performed the action"), "source": str_prop("Where the action originated") }),
-            required: &["queue"],
-            handler: handle_thing_queue_claim_batch,
-            is_write: true,
-            destructive: false,
-            needs_collection: false,
-        },
-        ToolEntry {
             name: "thing_queue_ack",
             description: "Acknowledge a job as completed",
             properties: json!({ "queue": str_prop("Queue name"), "id": str_prop("Job ID"), "actor": str_prop("Who performed the action"), "source": str_prop("Where the action originated") }),
             required: &["queue", "id"],
             handler: handle_thing_queue_ack,
-            is_write: true,
-            destructive: false,
-            needs_collection: false,
-        },
-        ToolEntry {
-            name: "thing_queue_ack_batch",
-            description: "Atomically acknowledge a bounded set of leased jobs",
-            properties: json!({ "queue": str_prop("Queue name"), "ids": json!({ "type": "array", "items": { "type": "string" }, "description": "Unique IDs of jobs that must all be leased" }), "actor": str_prop("Who performed the action"), "source": str_prop("Where the action originated") }),
-            required: &["queue", "ids"],
-            handler: handle_thing_queue_ack_batch,
             is_write: true,
             destructive: false,
             needs_collection: false,
@@ -1940,8 +1850,6 @@ mod tests {
             tenant_config: config.tenant,
             mcp_config: config.mcp,
             auth_token: config.auth.token,
-            backup_token: config.auth.backup_token,
-            backup_root: config.server.backup_root,
             tenant_tokens: config.auth.tenant_tokens,
             auth_verifier: None,
             allow_unauthenticated: config.auth.allow_unauthenticated,
@@ -1996,8 +1904,8 @@ mod tests {
         let tools = result["result"]["tools"].as_array().unwrap();
         assert_eq!(
             tools.len(),
-            41,
-            "expected 41 MCP tools, got {}",
+            39,
+            "expected 39 MCP tools, got {}",
             tools.len()
         );
         let names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
@@ -2014,9 +1922,7 @@ mod tests {
             "thing_events_list",
             "thing_queue_push",
             "thing_queue_claim",
-            "thing_queue_claim_batch",
             "thing_queue_ack",
-            "thing_queue_ack_batch",
             "thing_queue_nack",
             "thing_queue_list",
             "thing_queue_dead",
@@ -2198,77 +2104,6 @@ mod tests {
 
         let (_status, result) = call_mcp_with(&state, json!({ "jsonrpc": "2.0", "method": "tools/call", "params": { "name": "thing_queue_claim", "arguments": { "queue": "test_queue" } }, "id": 2 })).await;
         assert_ne!(result["result"]["isError"], true);
-    }
-
-    #[tokio::test]
-    async fn test_mcp_queue_batch_claim_and_ack() {
-        let state = test_state();
-        for id in ["first", "second"] {
-            let (_status, result) = call_mcp_with(
-                &state,
-                json!({
-                    "jsonrpc": "2.0",
-                    "method": "tools/call",
-                    "params": {
-                        "name": "thing_queue_push",
-                        "arguments": { "queue": "batch-q", "payload": { "id": id } }
-                    },
-                    "id": id
-                }),
-            )
-            .await;
-            assert_ne!(result["result"]["isError"], true);
-        }
-
-        let (_status, result) = call_mcp_with(
-            &state,
-            json!({
-                "jsonrpc": "2.0",
-                "method": "tools/call",
-                "params": {
-                    "name": "thing_queue_claim_batch",
-                    "arguments": { "queue": "batch-q", "limit": 2 }
-                },
-                "id": 3
-            }),
-        )
-        .await;
-        assert_ne!(result["result"]["isError"], true);
-        let claimed: Vec<thingd::QueueJob> = serde_json::from_str(
-            result["result"]["content"][0]["text"]
-                .as_str()
-                .expect("batch claim returns jobs as JSON text"),
-        )
-        .unwrap();
-        assert_eq!(claimed.len(), 2);
-        let ids = claimed.iter().map(|job| job.id.clone()).collect::<Vec<_>>();
-
-        let (_status, result) = call_mcp_with(
-            &state,
-            json!({
-                "jsonrpc": "2.0",
-                "method": "tools/call",
-                "params": {
-                    "name": "thing_queue_ack_batch",
-                    "arguments": { "queue": "batch-q", "ids": ids }
-                },
-                "id": 4
-            }),
-        )
-        .await;
-        assert_ne!(result["result"]["isError"], true);
-        let completed: Vec<thingd::QueueJob> = serde_json::from_str(
-            result["result"]["content"][0]["text"]
-                .as_str()
-                .expect("batch ack returns jobs as JSON text"),
-        )
-        .unwrap();
-        assert_eq!(completed.len(), 2);
-        assert!(
-            completed
-                .iter()
-                .all(|job| job.status == thingd::QueueJobStatus::Completed)
-        );
     }
 
     #[tokio::test]

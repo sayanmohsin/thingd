@@ -159,25 +159,20 @@ await queue.push(
   },
 );
 
-const jobs = await queue.claimMany(32, {
+const job = await queue.claim({
   leaseMs: 30_000,
 });
-const completedIds = [];
 
-for (const job of jobs) {
+if (job) {
   try {
     await embedDocument(job.payload.object);
-    completedIds.push(job.id);
+    await queue.ack(job.id);
   } catch (error) {
     await queue.nack(job.id, {
       delayMs: 5_000,
       error: error instanceof Error ? error.message : String(error),
     });
   }
-}
-
-if (completedIds.length > 0) {
-  await queue.ackMany(completedIds);
 }
 ```
 

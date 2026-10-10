@@ -50,9 +50,6 @@ sha2 = { version = "0.11", optional = true }
 
 [dev-dependencies]
 arc-swap = "1.9.2"
-fjall = "=3.1.12"
-redis = "=1.7.1"
-rusqlite = { version = "=0.40.2", features = ["bundled"] }
 tempfile = "3.27.0"
 
 [lib]

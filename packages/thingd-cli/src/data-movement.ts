@@ -13,7 +13,6 @@ import { pipeline } from "node:stream/promises";
 import type {
   ConnectorAuth,
   ConnectorSchema,
-  Link,
   MemoryEvent,
   MemoryObject,
   QueueJob,
@@ -459,7 +458,7 @@ export async function runSnapshot(context: CliContext): Promise<void> {
       };
       await writeRecord({
         type: "thingd.snapshot",
-        version: "2.1.0",
+        version: "2.0.0",
         timestamp: new Date().toISOString(),
         format: "jsonl",
       });
@@ -469,18 +468,6 @@ export async function runSnapshot(context: CliContext): Promise<void> {
         for (const object of objects) {
           await writeRecord({ type: "object", collection: col, object });
         }
-      }
-
-      let linkOffset = 0;
-      while (true) {
-        const links = await db.links.list({ offset: linkOffset, limit: 250 });
-        for (const link of links) {
-          await writeRecord({ type: "link", link });
-        }
-        if (links.length < 250) {
-          break;
-        }
-        linkOffset += links.length;
       }
 
       const eventsList = await db.events.list();
@@ -501,7 +488,7 @@ export async function runSnapshot(context: CliContext): Promise<void> {
       await once(output, "close");
       writeJson(
         context.stdout,
-        { success: true, out: outPath, format: "thingd-snapshot-jsonl", version: "2.1.0" },
+        { success: true, out: outPath, format: "thingd-snapshot-jsonl", version: "2.0.0" },
         context.pretty
       );
     });
@@ -542,10 +529,7 @@ export async function runSnapshot(context: CliContext): Promise<void> {
             .filter(Boolean)
             .map((line) => JSON.parse(line) as Record<string, unknown>);
           const header = records.shift();
-          if (
-            header?.type !== "thingd.snapshot" ||
-            !["2.0.0", "2.1.0"].includes(String(header.version))
-          ) {
+          if (header?.type !== "thingd.snapshot" || header.version !== "2.0.0") {
             throw new Error(
               `Unsupported JSONL snapshot version: ${String(header?.version ?? "unknown")}`
             );
@@ -567,8 +551,6 @@ export async function runSnapshot(context: CliContext): Promise<void> {
               delete cleanEvent.createdAt;
               delete cleanEvent.stream;
               await db.events.append(event.stream, cleanEvent as unknown as MemoryEvent);
-            } else if (record.type === "link") {
-              await db.links.import(record.link as Link);
             } else if (record.type === "queue") {
               const job = record.job as QueueJob;
               await db.queue(job.queue).push(job.payload, {
@@ -674,10 +656,7 @@ async function restoreJsonlStream(
         }
         const record = JSON.parse(line) as Record<string, unknown>;
         if (!headerSeen) {
-          if (
-            record.type !== "thingd.snapshot" ||
-            !["2.0.0", "2.1.0"].includes(String(record.version))
-          ) {
+          if (record.type !== "thingd.snapshot" || record.version !== "2.0.0") {
             throw new Error(
               `Unsupported JSONL snapshot version: ${String(record.version ?? "unknown")}`
             );
@@ -700,8 +679,6 @@ async function restoreJsonlStream(
           delete cleanEvent.createdAt;
           delete cleanEvent.stream;
           await db.events.append(event.stream, cleanEvent as unknown as MemoryEvent);
-        } else if (record.type === "link") {
-          await db.links.import(record.link as Link);
         } else if (record.type === "queue") {
           const job = record.job as QueueJob;
           await db.queue(job.queue).push(job.payload, {

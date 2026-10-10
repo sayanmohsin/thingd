@@ -9,9 +9,9 @@ knowing SQL or internal storage details.
 
 ## Current Status
 
-**51 SDK MCP tools** are exposed via stdio and Streamable HTTP. The Rust sidecar exposes 41 core tools.
+**49 SDK MCP tools** are exposed via stdio and Streamable HTTP. The Rust sidecar exposes 39 core tools.
 
-The separate Rust sidecar MCP registry exposes 41 engine tools. The 10 scheduler
+The separate Rust sidecar MCP registry exposes 39 engine tools. The 10 scheduler
 tools are implemented by the Node SDK runtime and are intentionally not part of
 the Rust sidecar surface yet.
 
@@ -63,7 +63,7 @@ with JSON schemas, input/output types, and return formats.
 
 - **Search & Objects** (8): `thing_search`, `thing_get`, `thing_put`, `thing_delete`, `thing_objects_list`, `thing_objects_put_batch`, `thing_objects_delete_batch`, `thing_objects_get_batch`
 - **Events** (2): `thing_events_append`, `thing_events_list`
-- **Queues** (8): `thing_queue_push`, `thing_queue_claim`, `thing_queue_claim_batch`, `thing_queue_ack`, `thing_queue_ack_batch`, `thing_queue_nack`, `thing_queue_list`, `thing_queue_dead`
+- **Queues** (6): `thing_queue_push`, `thing_queue_claim`, `thing_queue_ack`, `thing_queue_nack`, `thing_queue_list`, `thing_queue_dead`
 - **Links** (5): `thing_link_create`, `thing_link_delete`, `thing_link_get`, `thing_link_neighbors`, `thing_link_count`
 - **Vector Search** (1): `thing_vector_search`
 - **Count & Discovery** (8): `thing_count_objects`, `thing_count_objects_in_collection`, `thing_count_events`, `thing_count_active_jobs`, `thing_count_dead_jobs`, `thing_list_collections`, `thing_list_streams`, `thing_list_queues`

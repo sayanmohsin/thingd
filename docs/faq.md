@@ -194,7 +194,7 @@ CLI commands: `thingd queues dead <queue>` lists dead jobs. To replay, delete an
 
 ### What MCP tools are exposed?
 
-The Node MCP server exposes 51 tools; the Rust sidecar exposes 41 engine tools. See the [API spec — MCP tools reference](api-spec/mcp-tools.md) for the full list with schemas.
+The Node MCP server exposes 49 tools; the Rust sidecar exposes 39 engine tools. See the [API spec — MCP tools reference](api-spec/mcp-tools.md) for the full list with schemas.
 
 ### Can agents bypass allowlists accidentally?
 
@@ -287,7 +287,7 @@ Older and newer object shapes coexist in the same collection. Search indexing in
 
 ### How do backups and restores work?
 
-CLI snapshot commands: `thingd snapshot create --out backup.thingd.jsonl` exports objects, events, graph links, and queue jobs as a versioned JSONL stream. Use `--url` to export from or restore into a running standalone server. Restore with `thingd snapshot restore --in backup.thingd.jsonl`; object, event, link, and queue records are safe to retry, and graph link IDs are preserved. For opaque native backups, use `thingd db backup --out backup.tar` and restore with `thingd db restore --in backup.tar --destination <path>` while the source is not running.
+CLI snapshot commands: `thingd snapshot create --out backup.thingd.jsonl` (exports all objects, events, and queue jobs as a versioned JSONL stream). Use `--url` to export from or restore into a running standalone server. Restore with `thingd snapshot restore --in backup.thingd.jsonl`; object and idempotent event records are safe to retry. For opaque native backups, use `thingd db backup --out backup.tar` and restore with `thingd db restore --in backup.tar --destination <path>` while the source is not running.
 
 ### Can I run this in Kubernetes with persistence?
 
@@ -375,12 +375,10 @@ Yes. Set `server.production_mode: true` to strip internal details from 500 respo
 thingd backup --out /path/to/backup.db
 ```
 
-This creates a consistent, point-in-time RocksDB checkpoint while the SDK's
-source connection remains open. The destination must not exist; the derived
-search index is rebuilt when the backup opens, and the encryption key remains
-separate. `thingd db backup --out /path/to/backup.tar` is a separate offline
-archive command that requires exclusive access to its source. See
-[Operations](./operations.md).
+For the current native backend, use `thingd db backup --out /path/to/backup.tar`
+and `thingd db restore --in /path/to/backup.tar --destination /path/to/thingd.db`.
+The native archive remains encrypted when the source is encrypted and requires
+exclusive access during checkpoint/backup. See [Operations](./operations.md).
 
 ### How do I check database integrity?
 

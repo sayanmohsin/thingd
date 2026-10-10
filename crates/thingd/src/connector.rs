@@ -1034,7 +1034,7 @@ mod tests {
     fn pull_stream_empty() {
         let stream: PullStream = Box::new(std::iter::empty());
         let results: Vec<serde_json::Value> = stream.collect::<ThingdResult<Vec<_>>>().unwrap();
-        assert_eq!(results, Vec::<serde_json::Value>::new());
+        assert!(results.is_empty());
     }
 
     #[test]
@@ -1106,9 +1106,9 @@ mod tests {
     #[test]
     fn connector_config_defaults() {
         let config = ConnectorConfig::default();
-        assert_eq!(config.connector_type, "");
-        assert_eq!(config.source, "");
-        assert_eq!(config.collection, "");
+        assert!(config.connector_type.is_empty());
+        assert!(config.source.is_empty());
+        assert!(config.collection.is_empty());
         assert!(config.query.is_none());
         assert_eq!(config.batch_size, 1000);
     }
@@ -1172,7 +1172,7 @@ mod tests {
 
         let stream = connector.pull(&config).unwrap();
         let objects: Vec<serde_json::Value> = stream.collect::<ThingdResult<Vec<_>>>().unwrap();
-        assert_eq!(objects, Vec::<serde_json::Value>::new());
+        assert!(objects.is_empty());
     }
 
     #[test]
@@ -1226,7 +1226,7 @@ mod tests {
         let connector = FileConnector;
         let config = ConnectorConfig::default();
         let tables = connector.list_tables(&config).unwrap();
-        assert_eq!(tables, Vec::<String>::new());
+        assert!(tables.is_empty());
     }
 
     #[test]

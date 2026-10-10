@@ -81,45 +81,6 @@ if (nativeAvailable) {
     await second.close();
   });
 
-  test("native: snapshots a consistent point in time while the source stays open", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "thingd-native-backup-"));
-    const sourcePath = join(directory, "source");
-    const backupPath = join(directory, "backup");
-    const source = await ThingD.open({ path: sourcePath, driver: "native" });
-
-    await source.put("customers", { id: "before", name: "Ada" });
-    source.backupTo(backupPath);
-    await source.put("customers", { id: "after", name: "Grace" });
-
-    const backup = await ThingD.open({ path: backupPath, driver: "native" });
-    assert.equal((await backup.get("customers", "before"))?.name, "Ada");
-    assert.equal(await backup.get("customers", "after"), null);
-
-    await backup.close();
-    await source.close();
-  });
-
-  test("native: snapshots encrypted data with its encryption markers", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "thingd-native-encrypted-backup-"));
-    const sourcePath = join(directory, "source");
-    const backupPath = join(directory, "backup");
-    const key = "11".repeat(32);
-    const source = await ThingD.open({ path: sourcePath, driver: "native", encryption: { key } });
-
-    await source.put("private", { id: "snapshot", value: "encrypted" });
-    source.backupTo(backupPath);
-
-    const backup = await ThingD.open({ path: backupPath, driver: "native", encryption: { key } });
-    assert.equal((await backup.get("private", "snapshot"))?.value, "encrypted");
-    await assert.rejects(
-      () => ThingD.open({ path: backupPath, driver: "native" }),
-      /encryption required/i,
-    );
-
-    await backup.close();
-    await source.close();
-  });
-
   test("native: encrypted storage reopens and rejects missing or wrong keys", async () => {
     const directory = await mkdtemp(join(tmpdir(), "thingd-native-encrypted-"));
     const path = join(directory, "thingd.db");
@@ -236,28 +197,6 @@ function runThingDBehaviorSuite(label, openDb) {
     assert.equal(acked.ok, true);
     assert.equal(acked.ok ? acked.job.status : null, "completed");
     assert.equal(await queue.claim(), null);
-  });
-
-  test(`${label}: claims and acknowledges queue jobs in atomic batches`, async () => {
-    const db = await openDb();
-    const queue = db.queue("batch-queue");
-    const first = await queue.push({ n: 1 });
-    const second = await queue.push({ n: 2 });
-    const third = await queue.push({ n: 3 });
-
-    const claimed = await queue.claimMany(2);
-    assert.equal(claimed.length, 2);
-    assert.ok(claimed.every((job) => job.status === "leased"));
-    const claimedIds = claimed.map((job) => job.id);
-    const remainingId = [first.id, second.id, third.id].find((id) => !claimedIds.includes(id));
-    assert.ok(remainingId);
-
-    await assert.rejects(queue.ackMany([claimedIds[0], remainingId]));
-    assert.equal((await queue.list()).filter((job) => job.status === "leased").length, 2);
-
-    const completed = await queue.ackMany(claimedIds);
-    assert.ok(completed.every((job) => job.status === "completed"));
-    assert.equal((await queue.list()).find((job) => job.id === remainingId)?.status, "ready");
   });
 
   test(`${label}: nacks leased jobs back to ready with optional delay`, async () => {
@@ -653,30 +592,6 @@ function runThingDBehaviorSuite(label, openDb) {
 
     await db.links.delete((await db.links.neighbors("a", "Outgoing"))[0].id);
     assert.equal(await db.countLinks(), 1);
-
-    await db.close();
-  });
-
-  test(`${label}: lists and idempotently imports stable graph links`, async () => {
-    const db = await openDb();
-    const imported = {
-      id: "export-link-1",
-      fromRef: "users/alice",
-      linkType: "references",
-      toRef: "docs/readme",
-      weight: 0.5,
-      metadataJson: '{"origin":"snapshot"}',
-      createdAt: "2026-01-01T00:00:00.000Z",
-    };
-
-    assert.deepEqual(await db.links.import(imported), imported);
-    assert.deepEqual(await db.links.import(imported), imported);
-    assert.deepEqual(await db.links.list(), [imported]);
-    assert.deepEqual(await db.links.list({ offset: 1, limit: 1 }), []);
-    await assert.rejects(
-      () => db.links.import({ ...imported, toRef: "docs/other" }),
-      /already exists with different data/i,
-    );
 
     await db.close();
   });

@@ -11,8 +11,8 @@ if (!reportPath) {
 const report = JSON.parse(readFileSync(reportPath, "utf8"));
 const { metadata, results, comparisons, storage, wal } = report;
 
-if (!["durable", "all"].includes(metadata?.backend)) {
-  throw new Error(`expected a durable or all-backend report, got ${metadata?.backend ?? "unknown"}`);
+if (metadata?.backend !== "durable") {
+  throw new Error(`expected a durable report, got ${metadata?.backend ?? "unknown"}`);
 }
 if (metadata.reliability_preflight !== true) {
   throw new Error("reliability preflight was not enabled");
@@ -93,49 +93,6 @@ for (const result of results) {
 }
 if (!Array.isArray(comparisons) || comparisons.some((comparison) => !comparison.complete)) {
   throw new Error("durable backend comparisons are incomplete");
-}
-for (const comparison of comparisons) {
-  for (const driver of [comparison.reference_driver, comparison.candidate_driver]) {
-    const matched = results.filter(
-      (result) => result.driver === driver && result.operation === comparison.operation,
-    );
-    if (matched.length !== metadata.repetitions) {
-      throw new Error(
-        `${driver}/${comparison.operation} has ${matched.length} latency runs, expected ${metadata.repetitions}`,
-      );
-    }
-    for (const result of matched) {
-      if (
-        !result.latency_sampled ||
-        result.latency_sample_count < 1 ||
-        result.p50_ns == null ||
-        result.p95_ns == null ||
-        result.p99_ns == null ||
-        result.max_ns == null
-      ) {
-        throw new Error(`${driver}/${comparison.operation} is missing latency percentiles`);
-      }
-    }
-  }
-}
-const summaries = report.summaries ?? [];
-for (const comparison of comparisons) {
-  for (const driver of [comparison.reference_driver, comparison.candidate_driver]) {
-    const summary = summaries.find(
-      (item) => item.driver === driver && item.operation === comparison.operation,
-    );
-    if (
-      !summary ||
-      summary.latency_repetitions !== metadata.repetitions ||
-      summary.latency_sample_count < metadata.repetitions ||
-      summary.median_p50_ns == null ||
-      summary.median_p95_ns == null ||
-      summary.median_p99_ns == null ||
-      summary.maximum_latency_ns == null
-    ) {
-      throw new Error(`${driver}/${comparison.operation} is missing summarized latency percentiles`);
-    }
-  }
 }
 if (!Array.isArray(storage) || storage.length === 0 || !Array.isArray(wal) || wal.length === 0) {
   throw new Error("durable storage and WAL diagnostics are missing");

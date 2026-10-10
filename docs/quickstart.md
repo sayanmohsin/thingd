@@ -125,7 +125,7 @@ Schema files are optional; the normal object API remains schemaless. See the
 
 ## 4. Connect your editor (MCP)
 
-thingd ships with 51 Node MCP tools. The Rust sidecar exposes 41 engine tools; connect your editor to search, read, write, and queue data directly from your agent.
+thingd ships with 49 Node MCP tools. The Rust sidecar exposes 39 engine tools; connect your editor to search, read, write, and queue data directly from your agent.
 
 If the native database is encrypted, configure `THINGD_ENCRYPTION_KEY` in the
 host process before starting MCP. The editor's MCP configuration and tool calls
@@ -195,7 +195,7 @@ Expected output:
 ✔ MCP server: reachable
 ```
 
-Once connected to the Node MCP server, your agent can call all 51 tools — search, objects, events, queues, links, aggregate, schema, NLQ, vector, indexing, scheduler, and discovery.
+Once connected to the Node MCP server, your agent can call all 49 tools — search, objects, events, queues, links, aggregate, schema, NLQ, vector, indexing, scheduler, and discovery.
 
 **Example: agent searches before writing**
 

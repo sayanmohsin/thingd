@@ -91,9 +91,6 @@ pub struct ServerConfig {
     pub port: u16,
     #[serde(default = "default_db")]
     pub database: String,
-    /// Fixed destination root for internal physical checkpoints; empty disables them.
-    #[serde(default)]
-    pub backup_root: String,
     /// Durable backend: `rocksdb` (default) or experimental `thingdb`.
     #[serde(default = "default_storage_backend")]
     pub storage_backend: String,
@@ -215,9 +212,6 @@ pub struct AuthConfig {
     pub mode: AuthMode,
     #[serde(default)]
     pub token: String,
-    /// Separate internal credential required by physical checkpoint endpoints.
-    #[serde(default)]
-    pub backup_token: String,
     #[serde(default)]
     pub allow_unauthenticated: bool,
     #[serde(default)]
@@ -387,7 +381,6 @@ impl Default for ServerConfig {
             host: default_host(),
             port: default_port(),
             database: default_db(),
-            backup_root: String::new(),
             storage_backend: default_storage_backend(),
             request_timeout_secs: default_request_timeout(),
             max_connections: default_max_connections(),
@@ -567,7 +560,7 @@ impl Config {
         let mut config = if let Some(p) = path {
             let content = std::fs::read_to_string(p)
                 .map_err(|e| format!("Failed to read config file {}: {}", p, e))?;
-            serde_saphyr::from_str(&content)?
+            serde_yaml::from_str(&content)?
         } else {
             Config::default()
         };
@@ -588,9 +581,6 @@ impl Config {
         }
         if let Ok(v) = std::env::var("THINGD_PATH") {
             self.server.database = v;
-        }
-        if let Ok(v) = std::env::var("THINGD_BACKUP_ROOT") {
-            self.server.backup_root = v;
         }
         if let Ok(v) = std::env::var("THINGD_STORAGE_BACKEND") {
             self.server.storage_backend = v;
@@ -641,9 +631,6 @@ impl Config {
         }
         if let Ok(v) = std::env::var("THINGD_AUTH_TOKEN") {
             self.auth.token = v;
-        }
-        if let Ok(v) = std::env::var("THINGD_BACKUP_TOKEN") {
-            self.auth.backup_token = v;
         }
         if let Ok(v) = std::env::var("THINGD_AUTH_MODE") {
             self.auth.mode = match v.as_str() {
@@ -987,7 +974,7 @@ mod tests {
 
     #[test]
     fn parses_async_search_configuration() {
-        let config: Config = serde_saphyr::from_str(
+        let config: Config = serde_yaml::from_str(
             "server:\n  search_mode: persistent-async\n  search_commit_interval_ms: 400\n  search_commit_batch_size: 16\n  search_queue_max_keys: 512\n",
         )
         .unwrap();
@@ -995,77 +982,5 @@ mod tests {
         assert_eq!(config.server.search_commit_interval_ms, 400);
         assert_eq!(config.server.search_commit_batch_size, 16);
         assert_eq!(config.server.search_queue_max_keys, 512);
-    }
-
-    #[test]
-    fn parses_representative_nested_yaml_config_with_defaults() {
-        let yaml = r#"
-server:
-  host: "127.0.0.1"
-  port: 9001
-  database: "/var/lib/thingd/data"
-  storage_backend: thingdb
-  production_mode: true
-  encryption_key: null
-auth:
-  mode: bearer
-  token: "a sufficiently long test token"
-  allow_unauthenticated: false
-tenant:
-  mode: multi-tenant
-  header: "X-Workspace"
-mcp:
-  read_only: true
-  max_payload_bytes: 1048576
-  collection_allowlist: ["notes", "tasks"]
-rest:
-  enabled: true
-cluster:
-  mode: single
-  peers: []
-hardening:
-  connector_require_tls: true
-sync:
-  role: replica
-  collections: ["notes"]
-"#;
-        let config: Config = serde_saphyr::from_str(yaml).unwrap();
-
-        assert_eq!(config.server.host, "127.0.0.1");
-        assert_eq!(config.server.port, 9001);
-        assert_eq!(config.server.database, "/var/lib/thingd/data");
-        assert_eq!(config.server.storage_backend, "thingdb");
-        assert!(config.server.production_mode);
-        assert!(config.server.encryption_key.is_none());
-        assert_eq!(config.auth.mode, AuthMode::Bearer);
-        assert_eq!(config.auth.token, "a sufficiently long test token");
-        assert!(!config.auth.allow_unauthenticated);
-        assert_eq!(config.tenant.mode, TenantMode::MultiTenant);
-        assert_eq!(config.tenant.header, "X-Workspace");
-        assert!(config.mcp.read_only);
-        assert_eq!(config.mcp.max_payload_bytes, 1_048_576);
-        assert_eq!(config.mcp.collection_allowlist, vec!["notes", "tasks"]);
-        assert!(config.rest.enabled);
-        assert_eq!(config.cluster.mode, ClusterMode::Single);
-        assert_eq!(config.cluster.peers, Vec::<String>::new());
-        assert!(config.hardening.connector_require_tls);
-        assert_eq!(config.sync.role, SyncRole::Replica);
-        assert_eq!(config.sync.collections, vec!["notes"]);
-        assert_eq!(
-            config.server.request_timeout_secs,
-            default_request_timeout()
-        );
-    }
-
-    #[test]
-    fn yaml_config_rejects_unknown_fields_and_malformed_input() {
-        let unknown_field = serde_saphyr::from_str::<Config>(
-            "server:\n  host: localhost\n  unsupported_option: true\n",
-        )
-        .unwrap_err();
-        assert!(unknown_field.to_string().contains("unsupported_option"));
-
-        let malformed = serde_saphyr::from_str::<Config>("server: [unterminated\n").unwrap_err();
-        assert_ne!(malformed.to_string(), "");
     }
 }

@@ -52,7 +52,6 @@ const TABLE_MAGIC: &[u8; 8] = b"TDBTAB01";
 const TABLE_MAGIC_V2: &[u8; 8] = b"TDBTAB02";
 const TABLE_MAGIC_V3: &[u8; 8] = b"TDBTAB03";
 const TABLE_FOOTER_MAGIC: &[u8; 8] = b"TDBFTR01";
-const TABLE_BLOCK_CACHE_BYTES: usize = 8 * 1024 * 1024;
 const FORMAT_VERSION: u32 = 1;
 const WAL_FILE: &str = "WAL";
 const MANIFEST_FILE: &str = "MANIFEST.json";
@@ -311,16 +310,6 @@ pub struct WalDiagnostics {
     pub scan_cursor_init_duration_ns: u64,
     /// Nanoseconds spent merging scan cursors and reading values.
     pub scan_merge_duration_ns: u64,
-    /// Number of bounded table-page snapshots attempted.
-    pub scan_page_capture_count: u64,
-    /// Nanoseconds spent capturing bounded table-page snapshots.
-    pub scan_page_capture_duration_ns: u64,
-    /// Number of bounded table-page captures that exceeded the memtable candidate bound.
-    pub scan_page_capture_fallback_count: u64,
-    /// Number of memtable candidates cloned while capturing bounded table pages.
-    pub scan_page_capture_candidates_copied: u64,
-    /// Number of candidates cloned before a bounded table-page capture fell back.
-    pub scan_page_capture_fallback_candidates_copied: u64,
     /// Number of entries returned by durable scans.
     pub scan_returned_entries: u64,
     /// Number of durable scans that encountered an error.
@@ -337,22 +326,6 @@ pub struct WalDiagnostics {
     pub compaction_output_bytes: u64,
     /// Total bytes written to immutable table files since opening the database.
     pub table_bytes_written: u64,
-    /// Configured capacity of the immutable table block cache.
-    pub table_block_cache_capacity_bytes: u64,
-    /// Bytes currently resident in the immutable table block cache.
-    pub table_block_cache_resident_bytes: u64,
-    /// Number of immutable blocks currently resident in the cache.
-    pub table_block_cache_entries: u64,
-    /// Immutable table block cache hits.
-    pub table_block_cache_hits: u64,
-    /// Immutable table block cache misses.
-    pub table_block_cache_misses: u64,
-    /// Decoded immutable table block cache hits.
-    pub table_block_cache_decoded_hits: u64,
-    /// Decoded immutable table block cache misses.
-    pub table_block_cache_decoded_misses: u64,
-    /// Immutable table block cache evictions.
-    pub table_block_cache_evictions: u64,
 }
 
 /// Timing and allocation-adjacent counters for the RAM-only keyspace path.
@@ -504,7 +477,6 @@ struct Inner {
     max_memtable_bytes: u64,
     max_table_layers: usize,
     diagnostics: WalDiagnostics,
-    table_block_cache: Arc<TableBlockCache>,
     recovery_required: bool,
     commit_gate: Arc<Mutex<()>>,
     wal_io_lock: Arc<Mutex<()>>,
@@ -519,7 +491,6 @@ struct TableLayer {
     path: PathBuf,
     entries: Arc<OnceLock<Arc<Vec<TableIndexEntry>>>>,
     blocks: Arc<Vec<TableBlock>>,
-    block_cache: Arc<TableBlockCache>,
     is_v2: bool,
 }
 
@@ -537,248 +508,6 @@ struct TableBlock {
     first_key: Vec<u8>,
     last_key: Vec<u8>,
     checksum: u32,
-}
-
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
-struct TableBlockCacheKey {
-    path: PathBuf,
-    offset: u64,
-}
-
-struct CachedTableBlock {
-    bytes: Arc<Vec<u8>>,
-    records: Option<Arc<Vec<TableScanRecord>>>,
-    decoded_bytes: usize,
-    last_access: u64,
-}
-
-struct TableBlockCacheState {
-    capacity_bytes: usize,
-    resident_bytes: usize,
-    access_clock: u64,
-    hits: u64,
-    misses: u64,
-    decoded_hits: u64,
-    decoded_misses: u64,
-    evictions: u64,
-    entries: HashMap<TableBlockCacheKey, CachedTableBlock>,
-    lru: BTreeMap<u64, TableBlockCacheKey>,
-}
-
-#[derive(Clone, Copy, Debug, Default)]
-struct TableBlockCacheDiagnostics {
-    capacity_bytes: usize,
-    resident_bytes: usize,
-    entries: usize,
-    hits: u64,
-    misses: u64,
-    decoded_hits: u64,
-    decoded_misses: u64,
-    evictions: u64,
-}
-
-struct TableBlockCache {
-    state: Mutex<TableBlockCacheState>,
-}
-
-impl Default for TableBlockCache {
-    fn default() -> Self {
-        Self::with_capacity(TABLE_BLOCK_CACHE_BYTES)
-    }
-}
-
-impl TableBlockCache {
-    fn with_capacity(capacity_bytes: usize) -> Self {
-        Self {
-            state: Mutex::new(TableBlockCacheState {
-                capacity_bytes,
-                resident_bytes: 0,
-                access_clock: 0,
-                hits: 0,
-                misses: 0,
-                decoded_hits: 0,
-                decoded_misses: 0,
-                evictions: 0,
-                entries: HashMap::new(),
-                lru: BTreeMap::new(),
-            }),
-        }
-    }
-
-    fn diagnostics(&self) -> TableBlockCacheDiagnostics {
-        self.state.lock().map_or_else(
-            |_| TableBlockCacheDiagnostics::default(),
-            |state| TableBlockCacheDiagnostics {
-                capacity_bytes: state.capacity_bytes,
-                resident_bytes: state.resident_bytes,
-                entries: state.entries.len(),
-                hits: state.hits,
-                misses: state.misses,
-                decoded_hits: state.decoded_hits,
-                decoded_misses: state.decoded_misses,
-                evictions: state.evictions,
-            },
-        )
-    }
-
-    fn get(&self, key: &TableBlockCacheKey) -> Option<Arc<Vec<u8>>> {
-        let mut state = self.state.lock().ok()?;
-        let previous_access = state.entries.get(key).map(|entry| entry.last_access);
-        let Some(previous_access) = previous_access else {
-            state.misses = state.misses.saturating_add(1);
-            return None;
-        };
-        state.lru.remove(&previous_access);
-        state.access_clock = state.access_clock.wrapping_add(1);
-        let last_access = state.access_clock;
-        let entry = state.entries.get_mut(key)?;
-        entry.last_access = last_access;
-        let bytes = Arc::clone(&entry.bytes);
-        state.lru.insert(last_access, key.clone());
-        state.hits = state.hits.saturating_add(1);
-        Some(bytes)
-    }
-
-    fn get_records(&self, key: &TableBlockCacheKey) -> Option<Arc<Vec<TableScanRecord>>> {
-        let mut state = self.state.lock().ok()?;
-        let previous_access = state.entries.get(key).map(|entry| entry.last_access);
-        let Some(previous_access) = previous_access else {
-            state.decoded_misses = state.decoded_misses.saturating_add(1);
-            return None;
-        };
-        let records = state
-            .entries
-            .get(key)
-            .and_then(|entry| entry.records.as_ref())
-            .map(Arc::clone);
-        let Some(records) = records else {
-            state.decoded_misses = state.decoded_misses.saturating_add(1);
-            return None;
-        };
-        state.lru.remove(&previous_access);
-        state.access_clock = state.access_clock.wrapping_add(1);
-        let last_access = state.access_clock;
-        if let Some(entry) = state.entries.get_mut(key) {
-            entry.last_access = last_access;
-        }
-        state.lru.insert(last_access, key.clone());
-        state.decoded_hits = state.decoded_hits.saturating_add(1);
-        Some(records)
-    }
-
-    fn insert_records(&self, key: &TableBlockCacheKey, records: Arc<Vec<TableScanRecord>>) {
-        let decoded_bytes = records
-            .capacity()
-            .saturating_mul(std::mem::size_of::<TableScanRecord>())
-            .saturating_add(records.iter().fold(0usize, |bytes, record| {
-                bytes
-                    .saturating_add(record.key.capacity())
-                    .saturating_add(record.value.as_ref().map_or(0, Vec::capacity))
-            }));
-        let Ok(mut state) = self.state.lock() else {
-            return;
-        };
-        if decoded_bytes == 0
-            || decoded_bytes > state.capacity_bytes
-            || state.entries.get(key).is_none_or(|entry| {
-                entry.records.is_some()
-                    || entry.bytes.len().saturating_add(decoded_bytes) > state.capacity_bytes
-            })
-        {
-            return;
-        }
-
-        let mut deferred_current = None;
-        while state.resident_bytes.saturating_add(decoded_bytes) > state.capacity_bytes {
-            let Some((access, oldest_key)) = state.lru.pop_first() else {
-                if let Some((access, deferred_key)) = deferred_current.take() {
-                    state.lru.insert(access, deferred_key);
-                }
-                return;
-            };
-            if oldest_key == *key {
-                deferred_current = Some((access, oldest_key));
-                continue;
-            }
-            if let Some(oldest) = state.entries.remove(&oldest_key) {
-                state.resident_bytes = state
-                    .resident_bytes
-                    .saturating_sub(oldest.bytes.len().saturating_add(oldest.decoded_bytes));
-                state.evictions = state.evictions.saturating_add(1);
-            }
-        }
-        if let Some((access, deferred_key)) = deferred_current {
-            state.lru.insert(access, deferred_key);
-        }
-        if let Some(entry) = state.entries.get_mut(key)
-            && entry.records.is_none()
-        {
-            entry.decoded_bytes = decoded_bytes;
-            entry.records = Some(records);
-            state.resident_bytes = state.resident_bytes.saturating_add(decoded_bytes);
-        }
-    }
-
-    fn insert(&self, key: TableBlockCacheKey, bytes: Arc<Vec<u8>>) {
-        let Ok(mut state) = self.state.lock() else {
-            return;
-        };
-        if bytes.len() > state.capacity_bytes || state.capacity_bytes == 0 {
-            return;
-        }
-        if let Some(previous) = state.entries.remove(&key) {
-            state.lru.remove(&previous.last_access);
-            state.resident_bytes = state
-                .resident_bytes
-                .saturating_sub(previous.bytes.len().saturating_add(previous.decoded_bytes));
-        }
-        while state.resident_bytes.saturating_add(bytes.len()) > state.capacity_bytes {
-            let Some((access, oldest_key)) = state.lru.pop_first() else {
-                break;
-            };
-            if let Some(oldest) = state.entries.remove(&oldest_key) {
-                state.resident_bytes = state
-                    .resident_bytes
-                    .saturating_sub(oldest.bytes.len().saturating_add(oldest.decoded_bytes));
-                state.evictions = state.evictions.saturating_add(1);
-            } else {
-                state.lru.remove(&access);
-            }
-        }
-        state.access_clock = state.access_clock.wrapping_add(1);
-        let last_access = state.access_clock;
-        state.resident_bytes = state.resident_bytes.saturating_add(bytes.len());
-        state.entries.insert(
-            key.clone(),
-            CachedTableBlock {
-                bytes: Arc::clone(&bytes),
-                records: None,
-                decoded_bytes: 0,
-                last_access,
-            },
-        );
-        state.lru.insert(last_access, key);
-    }
-}
-
-#[derive(Clone)]
-struct TableScanRecord {
-    key: Vec<u8>,
-    value: Option<Vec<u8>>,
-    priority: usize,
-}
-
-struct TableScanCursor {
-    block_index: usize,
-    legacy_entries: Option<Arc<Vec<TableIndexEntry>>>,
-    legacy_entry_index: usize,
-    is_v2: bool,
-    include_values: bool,
-    records: Arc<Vec<TableScanRecord>>,
-    record_index: usize,
-    priority: usize,
-    bytes_read: u64,
-    read_duration_ns: u64,
 }
 
 impl TableLayer {
@@ -825,232 +554,6 @@ impl TableLayer {
         self.blocks
             .get(index)
             .filter(|block| block.first_key.as_slice() <= key && key <= block.last_key.as_slice())
-    }
-}
-
-impl TableScanCursor {
-    fn new(
-        layer: &TableLayer,
-        priority: usize,
-        lower: &[u8],
-        upper: Option<&[u8]>,
-        after: Option<&[u8]>,
-        include_values: bool,
-    ) -> Result<Self> {
-        let legacy_entries = if layer.blocks.is_empty() {
-            layer.entries.get().cloned()
-        } else {
-            None
-        };
-        let legacy_entry_index = legacy_entries.as_ref().map_or(0, |entries| {
-            let lower_index = entries.partition_point(|entry| entry.key.as_slice() < lower);
-            after.map_or(lower_index, |after| {
-                entries
-                    .partition_point(|entry| entry.key.as_slice() <= after)
-                    .max(lower_index)
-            })
-        });
-        let block_index = layer
-            .blocks
-            .partition_point(|block| block.last_key.as_slice() < lower);
-        let mut cursor = Self {
-            block_index,
-            legacy_entries,
-            legacy_entry_index,
-            is_v2: layer.is_v2,
-            include_values,
-            records: Arc::new(Vec::new()),
-            record_index: 0,
-            priority,
-            bytes_read: 0,
-            read_duration_ns: 0,
-        };
-        if cursor.legacy_entries.is_some() {
-            cursor.load_next_legacy_entry(layer, lower, upper)?;
-        } else {
-            cursor.load_next_block(layer, lower, upper, after)?;
-        }
-        Ok(cursor)
-    }
-
-    fn head(&self) -> Option<&TableScanRecord> {
-        self.records.get(self.record_index)
-    }
-
-    fn advance(&mut self, layer: &TableLayer, lower: &[u8], upper: Option<&[u8]>) -> Result<()> {
-        self.record_index = self.record_index.saturating_add(1);
-        if self.record_index < self.records.len() {
-            return Ok(());
-        }
-        if self.legacy_entries.is_some() {
-            self.load_next_legacy_entry(layer, lower, upper)
-        } else {
-            self.load_next_block(layer, lower, upper, None)
-        }
-    }
-
-    fn load_next_legacy_entry(
-        &mut self,
-        layer: &TableLayer,
-        lower: &[u8],
-        upper: Option<&[u8]>,
-    ) -> Result<()> {
-        self.records = Arc::new(Vec::new());
-        self.record_index = 0;
-        let Some(entries) = self.legacy_entries.as_ref() else {
-            return Ok(());
-        };
-        let Some(entry) = entries.get(self.legacy_entry_index) else {
-            return Ok(());
-        };
-        if entry.key.as_slice() < lower || upper.is_some_and(|upper| entry.key.as_slice() >= upper)
-        {
-            return Ok(());
-        }
-        self.legacy_entry_index += 1;
-        let (value, _, read_duration_ns) = read_table_value_handle(&layer.file, entry, self.is_v2)?;
-        self.bytes_read = self.bytes_read.saturating_add(entry.length);
-        self.read_duration_ns = self.read_duration_ns.saturating_add(read_duration_ns);
-        self.records = Arc::new(vec![TableScanRecord {
-            key: entry.key.clone(),
-            value,
-            priority: self.priority,
-        }]);
-        Ok(())
-    }
-
-    fn load_next_block(
-        &mut self,
-        layer: &TableLayer,
-        lower: &[u8],
-        upper: Option<&[u8]>,
-        after: Option<&[u8]>,
-    ) -> Result<()> {
-        self.records = Arc::new(Vec::new());
-        self.record_index = 0;
-        while let Some(block) = layer.blocks.get(self.block_index) {
-            self.block_index += 1;
-            if block.last_key.as_slice() < lower {
-                continue;
-            }
-            if upper.is_some_and(|upper| block.first_key.as_slice() >= upper) {
-                break;
-            }
-            let (records, bytes_read, read_duration_ns) =
-                read_table_block_records(layer, block, self.include_values)?;
-            self.bytes_read = self.bytes_read.saturating_add(bytes_read);
-            self.read_duration_ns = self.read_duration_ns.saturating_add(read_duration_ns);
-            let lower_index = records.partition_point(|record| record.key.as_slice() < lower);
-            let after_index = after.map_or(lower_index, |after| {
-                let index = records.partition_point(|record| record.key.as_slice() <= after);
-                index.max(lower_index)
-            });
-            let end_index = upper.map_or(records.len(), |upper| {
-                records.partition_point(|record| record.key.as_slice() < upper)
-            });
-            if after_index < end_index {
-                self.records = records;
-                self.record_index = after_index;
-                return Ok(());
-            }
-        }
-        Ok(())
-    }
-}
-
-struct DurableScanPageSnapshot {
-    state: Vec<TableScanRecord>,
-    pending: Vec<TableScanRecord>,
-    state_after: Option<Vec<u8>>,
-    pending_after: Option<Vec<u8>>,
-    state_has_more: bool,
-    pending_has_more: bool,
-    layers: Vec<TableLayer>,
-    lower: Vec<u8>,
-    upper: Option<Vec<u8>>,
-    after: Option<Vec<u8>>,
-    generation: u64,
-    lock_wait_ns: u64,
-    lock_held_ns: u64,
-    cursor_init_ns: u64,
-}
-
-const DURABLE_SCAN_MEMTABLE_CHUNK_SIZE: usize = 256;
-
-struct DurableMemtableScanChunk {
-    records: Vec<TableScanRecord>,
-    after: Option<Vec<u8>>,
-    has_more: bool,
-}
-
-fn capture_durable_memtable_chunk<V, F>(
-    map: &BTreeMap<Vec<u8>, V>,
-    lower: &[u8],
-    upper: Option<&[u8]>,
-    after: Option<&[u8]>,
-    priority: usize,
-    value: F,
-) -> DurableMemtableScanChunk
-where
-    F: Fn(&V) -> Option<Vec<u8>>,
-{
-    let lower_bound = after.map_or_else(
-        || Bound::Included(lower.to_vec()),
-        |key| Bound::Excluded(key.to_vec()),
-    );
-    let upper_bound = upper.map_or(Bound::Unbounded, |key| Bound::Excluded(key.to_vec()));
-    let mut records = Vec::with_capacity(DURABLE_SCAN_MEMTABLE_CHUNK_SIZE);
-    let mut has_more = false;
-    for (key, stored_value) in map
-        .range((lower_bound, upper_bound))
-        .take(DURABLE_SCAN_MEMTABLE_CHUNK_SIZE.saturating_add(1))
-    {
-        if records.len() == DURABLE_SCAN_MEMTABLE_CHUNK_SIZE {
-            has_more = true;
-            break;
-        }
-        records.push(TableScanRecord {
-            key: key.clone(),
-            value: value(stored_value),
-            priority,
-        });
-    }
-    let after = records.last().map(|record| record.key.clone());
-    DurableMemtableScanChunk {
-        records,
-        after,
-        has_more,
-    }
-}
-
-#[derive(Default)]
-struct DurableScanPageCaptureMetrics {
-    attempted: bool,
-    duration_ns: u64,
-    candidates_copied: u64,
-    fallback: bool,
-}
-
-impl DurableScanPageCaptureMetrics {
-    fn record(&self, diagnostics: &mut WalDiagnostics) {
-        if !self.attempted {
-            return;
-        }
-        diagnostics.scan_page_capture_count = diagnostics.scan_page_capture_count.saturating_add(1);
-        diagnostics.scan_page_capture_duration_ns = diagnostics
-            .scan_page_capture_duration_ns
-            .saturating_add(self.duration_ns);
-        diagnostics.scan_page_capture_candidates_copied = diagnostics
-            .scan_page_capture_candidates_copied
-            .saturating_add(self.candidates_copied);
-        if self.fallback {
-            diagnostics.scan_page_capture_fallback_count = diagnostics
-                .scan_page_capture_fallback_count
-                .saturating_add(1);
-            diagnostics.scan_page_capture_fallback_candidates_copied = diagnostics
-                .scan_page_capture_fallback_candidates_copied
-                .saturating_add(self.candidates_copied);
-        }
     }
 }
 
@@ -1754,14 +1257,6 @@ pub struct Iter {
     error: Option<Error>,
 }
 
-struct ScanBounds<'a> {
-    prefix: Option<&'a [u8]>,
-    start: Option<(Vec<u8>, bool)>,
-    end: Option<(Vec<u8>, bool)>,
-    offset: usize,
-    limit: Option<usize>,
-}
-
 impl Iter {
     /// Return a scan error observed while producing this iterator, if any.
     pub fn error(&self) -> Option<&Error> {
@@ -1800,24 +1295,12 @@ impl Database {
         clone: u64,
         acquire: u64,
     ) {
-        self.record_ram_lookup_batch_timing(1, lock_wait, lock_held, lookup, clone, acquire);
-    }
-
-    fn record_ram_lookup_batch_timing(
-        &self,
-        lookup_count: u64,
-        lock_wait: u64,
-        lock_held: u64,
-        lookup: u64,
-        clone: u64,
-        acquire: u64,
-    ) {
         if self.ram_keyspaces.is_none() {
             return;
         }
         self.ram_hot_diagnostics
             .lookup_count
-            .fetch_add(lookup_count, Ordering::Relaxed);
+            .fetch_add(1, Ordering::Relaxed);
         RamHotDiagnostics::add(&self.ram_hot_diagnostics.lock_wait_duration_ns, lock_wait);
         RamHotDiagnostics::add(&self.ram_hot_diagnostics.lock_held_duration_ns, lock_held);
         RamHotDiagnostics::add(&self.ram_hot_diagnostics.lookup_duration_ns, lookup);
@@ -1881,7 +1364,6 @@ impl Database {
         let ram_logical_commit_count = Arc::new(AtomicU64::new(0));
         let ram_total_group_size = Arc::new(AtomicU64::new(0));
         let ram_state_apply_duration_ns = Arc::new(AtomicU64::new(0));
-        let table_block_cache = Arc::new(TableBlockCache::default());
         let inner = Arc::new(Mutex::new(Inner {
             path: PathBuf::new(),
             wal: None,
@@ -1898,7 +1380,6 @@ impl Database {
             max_memtable_bytes: 0,
             max_table_layers: 0,
             diagnostics: WalDiagnostics::default(),
-            table_block_cache,
             recovery_required: false,
             commit_gate: Arc::clone(&commit_gate),
             wal_io_lock: Arc::new(Mutex::new(())),
@@ -2107,18 +1588,6 @@ impl Database {
             .lock()
             .map_err(|_| Error::message("database lock poisoned"))?;
         let mut diagnostics = inner.diagnostics.clone();
-        let block_cache = inner.table_block_cache.diagnostics();
-        diagnostics.table_block_cache_capacity_bytes =
-            u64::try_from(block_cache.capacity_bytes).unwrap_or(u64::MAX);
-        diagnostics.table_block_cache_resident_bytes =
-            u64::try_from(block_cache.resident_bytes).unwrap_or(u64::MAX);
-        diagnostics.table_block_cache_entries =
-            u64::try_from(block_cache.entries).unwrap_or(u64::MAX);
-        diagnostics.table_block_cache_hits = block_cache.hits;
-        diagnostics.table_block_cache_misses = block_cache.misses;
-        diagnostics.table_block_cache_decoded_hits = block_cache.decoded_hits;
-        diagnostics.table_block_cache_decoded_misses = block_cache.decoded_misses;
-        diagnostics.table_block_cache_evictions = block_cache.evictions;
         if inner.in_memory {
             diagnostics.logical_commit_count =
                 self.ram_logical_commit_count.load(Ordering::Relaxed);
@@ -2381,17 +1850,12 @@ fn flush_table_locked(
         write_manifest(&inner.path, &manifest, sync)?;
         maybe_fail("after-manifest-rename-before-wal-truncate", fault_point)?;
         inner.table_files = table_files;
-        let (_, entries, is_v2, blocks) = read_table_metadata(&table_path)?;
+        let (_, entries, is_v2, blocks) = read_table_index(&table_path)?;
         inner.table_layers.push(TableLayer {
             file: Arc::new(File::open(&table_path)?),
             path: table_path,
-            entries: Arc::new(if blocks.is_empty() {
-                OnceLock::from(Arc::new(entries))
-            } else {
-                OnceLock::new()
-            }),
+            entries: Arc::new(OnceLock::from(Arc::new(entries))),
             blocks: Arc::new(blocks),
-            block_cache: Arc::clone(&inner.table_block_cache),
             is_v2,
         });
         inner.diagnostics.table_layer_count = inner.table_layers.len() as u64;
@@ -2419,7 +1883,6 @@ fn flush_table_locked(
         inner.pending_table = updates;
         inner.pending_table_bytes = update_bytes;
     }
-    inner.state_generation = inner.state_generation.saturating_add(1);
     inner.diagnostics.flush_duration_ns = inner
         .diagnostics
         .flush_duration_ns
@@ -2441,7 +1904,6 @@ impl Database {
     }
 }
 
-#[allow(clippy::too_many_lines)]
 fn compact_tables_locked(
     inner: &mut Inner,
     sync: bool,
@@ -2508,17 +1970,12 @@ fn compact_tables_locked(
         }
     }
     inner.table_files = vec![table_name];
-    let (_, entries, is_v2, blocks) = read_table_metadata(&table_path)?;
+    let (_, entries, is_v2, blocks) = read_table_index(&table_path)?;
     inner.table_layers = vec![TableLayer {
         file: Arc::new(File::open(&table_path)?),
         path: table_path.clone(),
-        entries: Arc::new(if blocks.is_empty() {
-            OnceLock::from(Arc::new(entries))
-        } else {
-            OnceLock::new()
-        }),
+        entries: Arc::new(OnceLock::from(Arc::new(entries))),
         blocks: Arc::new(blocks),
-        block_cache: Arc::clone(&inner.table_block_cache),
         is_v2,
     }];
     inner.diagnostics.table_layer_count = 1;
@@ -2526,7 +1983,6 @@ fn compact_tables_locked(
     inner.state.clear();
     inner.pending_table.clear();
     inner.pending_table_bytes = 0;
-    inner.state_generation = inner.state_generation.saturating_add(1);
     {
         let wal = inner
             .wal
@@ -2626,7 +2082,6 @@ impl DatabaseBuilder {
         let mut state = BTreeMap::new();
         let mut table_sequence = 0;
         let mut table_layers = Vec::new();
-        let table_block_cache = Arc::new(TableBlockCache::default());
         let mut table_open_duration_ns: u64 = 0;
         let table_files = manifest
             .as_ref()
@@ -2670,7 +2125,6 @@ impl DatabaseBuilder {
                         OnceLock::new()
                     }),
                     blocks: Arc::new(blocks),
-                    block_cache: Arc::clone(&table_block_cache),
                     is_v2,
                 });
             }
@@ -2733,7 +2187,6 @@ impl DatabaseBuilder {
                 table_open_duration_ns,
                 ..WalDiagnostics::default()
             },
-            table_block_cache,
             recovery_required: false,
             commit_gate: Arc::clone(&commit_gate),
             wal_io_lock: Arc::new(Mutex::new(())),
@@ -2768,190 +2221,6 @@ impl Drop for Inner {
 }
 
 impl Database {
-    fn count_durable_namespace(&self, namespace: &[u8], prefix: Option<&[u8]>) -> Result<usize> {
-        let lock_started = Instant::now();
-        let mut inner = self
-            .inner
-            .lock()
-            .map_err(|_| Error::message("database lock poisoned"))?;
-        if inner.in_memory {
-            return Err(Error::message(
-                "ThingDB RAM keyspace count should use its in-memory map",
-            ));
-        }
-        let lock_wait_ns = elapsed_nanos(lock_started.elapsed());
-        let lock_held_started = Instant::now();
-        let mut capture_metrics = DurableScanPageCaptureMetrics::default();
-        let snapshot = capture_durable_table_page(
-            &inner,
-            namespace,
-            prefix,
-            None,
-            None,
-            lock_wait_ns,
-            elapsed_nanos(lock_held_started.elapsed()),
-            true,
-            &mut capture_metrics,
-        )
-        .ok_or_else(|| Error::message("ThingDB durable count requires a durable database"))?;
-        capture_metrics.record(&mut inner.diagnostics);
-        drop(inner);
-
-        let mut count = 0usize;
-        iter_durable_table_page(
-            self,
-            namespace,
-            prefix,
-            None,
-            None,
-            0,
-            usize::MAX,
-            snapshot,
-            Some(&mut count),
-        )
-        .into_result()?;
-        Ok(count)
-    }
-
-    #[allow(clippy::too_many_lines)]
-    fn get_many_durable_values(&self, keys: &[Vec<u8>]) -> Result<Vec<Option<Vec<u8>>>> {
-        let lock_started = Instant::now();
-        let (mut values, unresolved, table_layers) = {
-            let mut inner = self
-                .inner
-                .lock()
-                .map_err(|_| Error::message("database lock poisoned"))?;
-            if inner.in_memory {
-                return Err(Error::message(
-                    "durable multi-get called for an in-memory database",
-                ));
-            }
-            let lock_wait = elapsed_nanos(lock_started.elapsed());
-            let lookup_started = Instant::now();
-            let mut values = vec![None; keys.len()];
-            let mut unresolved = Vec::new();
-            for (index, key) in keys.iter().enumerate() {
-                inner.diagnostics.pending_table_lookup_count = inner
-                    .diagnostics
-                    .pending_table_lookup_count
-                    .saturating_add(1);
-                if let Some(value) = inner.pending_table.get(key) {
-                    values[index].clone_from(value);
-                    continue;
-                }
-                inner.diagnostics.mutable_state_lookup_count = inner
-                    .diagnostics
-                    .mutable_state_lookup_count
-                    .saturating_add(1);
-                if let Some(value) = inner.state.get(key) {
-                    values[index] = Some(value.clone());
-                } else {
-                    unresolved.push(index);
-                }
-            }
-            let table_layers = if unresolved.is_empty() {
-                Vec::new()
-            } else {
-                let unresolved_count = unresolved.len() as u64;
-                let layer_count = inner.table_layers.len() as u64;
-                inner.diagnostics.table_lookup_count = inner
-                    .diagnostics
-                    .table_lookup_count
-                    .saturating_add(unresolved_count);
-                inner.diagnostics.immutable_layer_lookup_count = inner
-                    .diagnostics
-                    .immutable_layer_lookup_count
-                    .saturating_add(unresolved_count.saturating_mul(layer_count));
-                inner.diagnostics.table_layers_consulted = inner
-                    .diagnostics
-                    .table_layers_consulted
-                    .saturating_add(unresolved_count.saturating_mul(layer_count));
-                inner.table_layers.clone()
-            };
-            let lookup_duration = elapsed_nanos(lookup_started.elapsed());
-            inner.diagnostics.read_lock_wait_duration_ns = inner
-                .diagnostics
-                .read_lock_wait_duration_ns
-                .saturating_add(lock_wait);
-            inner.diagnostics.read_lock_held_duration_ns = inner
-                .diagnostics
-                .read_lock_held_duration_ns
-                .saturating_add(elapsed_nanos(lock_started.elapsed()));
-            inner.diagnostics.table_lookup_duration_ns = inner
-                .diagnostics
-                .table_lookup_duration_ns
-                .saturating_add(lookup_duration);
-            (values, unresolved, table_layers)
-        };
-
-        let mut bytes_read = 0_u64;
-        let mut reader_wait_ns = 0_u64;
-        let mut file_read_ns = 0_u64;
-        for index in unresolved {
-            let key = &keys[index];
-            for layer in table_layers.iter().rev() {
-                if let Some(block) = layer.candidate_block(key) {
-                    let entries = layer.loaded_entries()?;
-                    let range = layer.candidate_entry_range(key);
-                    let Ok(relative_index) = entries[range.clone()]
-                        .binary_search_by(|entry| entry.key.as_slice().cmp(key))
-                    else {
-                        continue;
-                    };
-                    let entry = &entries[range.start + relative_index];
-                    let (found, bytes, duration) =
-                        read_table_block_entry_value(layer, block, entry)?;
-                    bytes_read = bytes_read.saturating_add(bytes);
-                    file_read_ns = file_read_ns.saturating_add(duration);
-                    if let Some(value) = found {
-                        values[index] = value;
-                        break;
-                    }
-                    continue;
-                }
-                let entries = layer.loaded_entries()?;
-                let range = layer.candidate_entry_range(key);
-                let Ok(relative_index) =
-                    entries[range.clone()].binary_search_by(|entry| entry.key.as_slice().cmp(key))
-                else {
-                    continue;
-                };
-                let entry = &entries[range.start + relative_index];
-                let (value, reader_wait, duration) =
-                    read_table_value_handle(&layer.file, entry, layer.is_v2)?;
-                values[index] = value;
-                bytes_read = bytes_read.saturating_add(entry.length);
-                reader_wait_ns = reader_wait_ns.saturating_add(reader_wait);
-                file_read_ns = file_read_ns.saturating_add(duration);
-                break;
-            }
-        }
-
-        if bytes_read > 0 || reader_wait_ns > 0 || file_read_ns > 0 {
-            let mut inner = self
-                .inner
-                .lock()
-                .map_err(|_| Error::message("database lock poisoned"))?;
-            inner.diagnostics.table_bytes_read = inner
-                .diagnostics
-                .table_bytes_read
-                .saturating_add(bytes_read);
-            inner.diagnostics.table_read_duration_ns = inner
-                .diagnostics
-                .table_read_duration_ns
-                .saturating_add(file_read_ns);
-            inner.diagnostics.table_reader_wait_duration_ns = inner
-                .diagnostics
-                .table_reader_wait_duration_ns
-                .saturating_add(reader_wait_ns);
-            inner.diagnostics.file_read_duration_ns = inner
-                .diagnostics
-                .file_read_duration_ns
-                .saturating_add(file_read_ns);
-        }
-        Ok(values)
-    }
-
     #[allow(clippy::too_many_lines)]
     fn get_durable_value(&self, key: &[u8]) -> Result<Option<Vec<u8>>> {
         let lock_started = Instant::now();
@@ -3018,16 +2287,8 @@ impl Database {
         }
         for layer in table_layers.iter().rev() {
             if let Some(block) = layer.candidate_block(key) {
-                let entries = layer.loaded_entries()?;
-                let candidate_range = layer.candidate_entry_range(key);
-                let Ok(relative_index) = entries[candidate_range.clone()]
-                    .binary_search_by(|entry| entry.key.as_slice().cmp(key))
-                else {
-                    continue;
-                };
-                let entry = &entries[candidate_range.start + relative_index];
                 let (found, bytes_read, read_duration) =
-                    read_table_block_entry_value(layer, block, entry)?;
+                    read_table_block_value(&layer.file, block, key, layer.is_v2)?;
                 let mut inner = self
                     .inner
                     .lock()
@@ -3260,85 +2521,6 @@ impl Keyspace {
         Ok(value)
     }
 
-    /// Read multiple values while acquiring the RAM state lock only once.
-    ///
-    /// Results preserve input order and duplicates. Values are returned with
-    /// shared ownership so callers can deserialize them after the state lock
-    /// has been released. Durable databases use individual durable lookups.
-    pub fn get_many_shared(&self, keys: &[Vec<u8>]) -> Result<Vec<Option<Arc<Vec<u8>>>>> {
-        if keys.is_empty() {
-            return Ok(Vec::new());
-        }
-
-        #[cfg(feature = "benchmark")]
-        if let Some(rcu) = &self.db.ram_rcu_keyspaces {
-            let started = Instant::now();
-            let generation = rcu.load_full();
-            let values = keys
-                .iter()
-                .map(|key| {
-                    generation
-                        .get(self.name.as_ref())
-                        .and_then(|keyspace| keyspace.get(key))
-                        .cloned()
-                })
-                .collect();
-            self.db.record_ram_lookup_batch_timing(
-                u64::try_from(keys.len()).unwrap_or(u64::MAX),
-                0,
-                0,
-                elapsed_nanos(started.elapsed()),
-                0,
-                0,
-            );
-            return Ok(values);
-        }
-
-        if let Some(ram_keyspaces) = self.db.ram_keyspaces.as_ref() {
-            let lookup_started = Instant::now();
-            let lock_started = Instant::now();
-            let keyspaces = ram_keyspaces
-                .read()
-                .map_err(|_| Error::message("ThingDB RAM state lock poisoned"))?;
-            let lock_wait = elapsed_nanos(lock_started.elapsed());
-            let acquire_started = Instant::now();
-            let values = keys
-                .iter()
-                .map(|key| {
-                    keyspaces
-                        .get(self.name.as_ref())
-                        .and_then(|keyspace| keyspace.get(key))
-                        .cloned()
-                })
-                .collect();
-            let acquire_duration = elapsed_nanos(acquire_started.elapsed());
-            let lookup_duration = elapsed_nanos(lookup_started.elapsed());
-            drop(keyspaces);
-            self.db.record_ram_lookup_batch_timing(
-                u64::try_from(keys.len()).unwrap_or(u64::MAX),
-                lock_wait,
-                lookup_duration.saturating_sub(lock_wait),
-                lookup_duration,
-                0,
-                acquire_duration,
-            );
-            return Ok(values);
-        }
-
-        let physical_keys: Vec<_> = keys
-            .iter()
-            .map(|key| physical_key_from_namespace(&self.namespace, key))
-            .collect();
-        self.db
-            .get_many_durable_values(&physical_keys)
-            .map(|values| {
-                values
-                    .into_iter()
-                    .map(|value| value.map(Arc::new))
-                    .collect()
-            })
-    }
-
     /// Read a value by user key.
     pub fn get(&self, key: impl AsRef<[u8]>) -> Result<Option<Vec<u8>>> {
         let key = key.as_ref();
@@ -3453,77 +2635,6 @@ impl Keyspace {
         self.iter_bounds(Some(prefix.as_ref()), None, None)
     }
 
-    /// Return a bounded ordered page of entries whose user keys start with
-    /// `prefix`.
-    ///
-    /// `offset` entries are skipped without copying their values, and at most
-    /// `limit` entries are materialized. The page is captured under one
-    /// in-memory read boundary, so concurrent writes cannot produce a mixed
-    /// page. Durable databases preserve the same ordering and page semantics.
-    pub fn prefix_page(&self, prefix: impl AsRef<[u8]>, offset: usize, limit: usize) -> Iter {
-        self.iter_bounds_paginated(Some(prefix.as_ref()), None, None, offset, Some(limit))
-    }
-
-    /// Return an ordered page of entries whose keys start with `prefix` and
-    /// are strictly greater than `after_key`.
-    ///
-    /// Passing `None` starts at the first matching key. The cursor is a user
-    /// key from this keyspace, which makes repeated pages efficient without
-    /// rematerializing earlier entries.
-    pub fn prefix_page_after(
-        &self,
-        prefix: impl AsRef<[u8]>,
-        after_key: Option<&[u8]>,
-        limit: usize,
-    ) -> Iter {
-        let start = after_key.map(|key| (key.to_vec(), false));
-        self.iter_bounds_paginated(Some(prefix.as_ref()), start, None, 0, Some(limit))
-    }
-
-    /// Count visible entries in this keyspace.
-    ///
-    /// RAM databases read the ordered map length directly. Durable databases
-    /// merge keys and tombstones across table layers without materializing the
-    /// full result set.
-    pub fn count(&self) -> Result<usize> {
-        #[cfg(feature = "benchmark")]
-        if let Some(rcu) = &self.db.ram_rcu_keyspaces {
-            return Ok(rcu
-                .load()
-                .get(self.name.as_ref())
-                .map_or(0, |keyspace| keyspace.len()));
-        }
-        if let Some(ram_keyspaces) = &self.db.ram_keyspaces {
-            let keyspaces = ram_keyspaces
-                .read()
-                .map_err(|_| Error::message("ThingDB RAM state lock poisoned"))?;
-            return Ok(keyspaces.get(self.name.as_ref()).map_or(0, BTreeMap::len));
-        }
-        self.db.count_durable_namespace(&self.namespace, None)
-    }
-
-    /// Count visible entries whose user keys start with `prefix`.
-    pub fn count_prefix(&self, prefix: impl AsRef<[u8]>) -> Result<usize> {
-        let prefix = prefix.as_ref();
-        #[cfg(feature = "benchmark")]
-        if let Some(rcu) = &self.db.ram_rcu_keyspaces {
-            return Ok(rcu
-                .load()
-                .get(self.name.as_ref())
-                .map_or(0, |keyspace| count_memory_prefix(keyspace, prefix)));
-        }
-        if let Some(ram_keyspaces) = &self.db.ram_keyspaces {
-            let keyspaces = ram_keyspaces
-                .read()
-                .map_err(|_| Error::message("ThingDB RAM state lock poisoned"))?;
-            return Ok(keyspaces
-                .get(self.name.as_ref())
-                .map_or(0, |keyspace| count_memory_prefix(keyspace, prefix)));
-        }
-        self.db
-            .count_durable_namespace(&self.namespace, Some(prefix))
-    }
-
     /// Return the first entry whose user key starts with `prefix`.
     pub fn first_prefix(&self, prefix: impl AsRef<[u8]>) -> Result<Option<Entry>> {
         self.first_prefix_after(prefix, None)
@@ -3585,7 +2696,7 @@ impl Keyspace {
         start: Option<(Vec<u8>, bool)>,
         end: Option<(Vec<u8>, bool)>,
     ) -> Iter {
-        self.iter_bounds_paginated(prefix, start, end, 0, None)
+        self.iter_bounds_limited(prefix, start, end, None)
     }
 
     #[allow(clippy::too_many_lines)]
@@ -3596,37 +2707,16 @@ impl Keyspace {
         end: Option<(Vec<u8>, bool)>,
         limit: Option<usize>,
     ) -> Iter {
-        self.iter_bounds_paginated(prefix, start, end, 0, limit)
-    }
-
-    #[allow(clippy::too_many_lines)]
-    fn iter_bounds_paginated(
-        &self,
-        prefix: Option<&[u8]>,
-        start: Option<(Vec<u8>, bool)>,
-        end: Option<(Vec<u8>, bool)>,
-        offset: usize,
-        limit: Option<usize>,
-    ) -> Iter {
-        if limit == Some(0) {
-            return Iter {
-                entries: Vec::new().into_iter(),
-                error: None,
-            };
-        }
         #[cfg(feature = "benchmark")]
         if let Some(rcu) = &self.db.ram_rcu_keyspaces {
             return iter_memory_rcu_bounds(
                 &self.db,
                 rcu.load_full(),
                 &self.name,
-                ScanBounds {
-                    prefix,
-                    start,
-                    end,
-                    offset,
-                    limit,
-                },
+                prefix,
+                start,
+                end,
+                limit,
             );
         }
         if self.db.ram_keyspaces.is_some() {
@@ -3640,13 +2730,10 @@ impl Keyspace {
                     &self.db,
                     ram_keyspaces,
                     &self.name,
-                    ScanBounds {
-                        prefix,
-                        start,
-                        end,
-                        offset,
-                        limit,
-                    },
+                    prefix,
+                    start,
+                    end,
+                    limit,
                 ),
                 Err(error) => Iter {
                     entries: Vec::new().into_iter(),
@@ -3655,7 +2742,7 @@ impl Keyspace {
             };
         }
         let scan_lock_started = Instant::now();
-        let Ok(mut inner) = self.db.inner.lock() else {
+        let Ok(inner) = self.db.inner.lock() else {
             return Iter {
                 entries: Vec::new().into_iter(),
                 error: None,
@@ -3674,13 +2761,10 @@ impl Keyspace {
                     &self.db,
                     ram_keyspaces,
                     &self.name,
-                    ScanBounds {
-                        prefix,
-                        start,
-                        end,
-                        offset,
-                        limit,
-                    },
+                    prefix,
+                    start,
+                    end,
+                    limit,
                 ),
                 Err(error) => Iter {
                     entries: Vec::new().into_iter(),
@@ -3688,57 +2772,9 @@ impl Keyspace {
                 },
             };
         }
-        if inner.table_layers.is_empty()
-            && limit.is_some_and(|limit| limit <= 4_096)
-            && let Some(page) = iter_durable_memtable_page(
-                &mut inner,
-                &self.namespace,
-                prefix,
-                start.as_ref(),
-                end.as_ref(),
-                offset,
-                limit.unwrap_or_default(),
-                scan_lock_wait,
-                &scan_lock_started,
-            )
-        {
-            return page;
-        }
-        if offset == 0 && limit == Some(1) {
+        if limit == Some(1) {
             drop(inner);
             return self.iter_durable_first(prefix, start, end);
-        }
-        if let Some(limit) = limit
-            && limit <= 4_096
-            && offset.saturating_add(limit) <= 16_384
-        {
-            let mut capture_metrics = DurableScanPageCaptureMetrics::default();
-            let snapshot = capture_durable_table_page(
-                &inner,
-                &self.namespace,
-                prefix,
-                start.as_ref(),
-                end.as_ref(),
-                scan_lock_wait,
-                elapsed_nanos(scan_lock_started.elapsed()).saturating_sub(scan_lock_wait),
-                false,
-                &mut capture_metrics,
-            );
-            capture_metrics.record(&mut inner.diagnostics);
-            if let Some(snapshot) = snapshot {
-                drop(inner);
-                return iter_durable_table_page(
-                    &self.db,
-                    &self.namespace,
-                    prefix,
-                    start,
-                    end,
-                    offset,
-                    limit,
-                    snapshot,
-                    None,
-                );
-            }
         }
         let state = inner.state.clone();
         let pending_table = inner.pending_table.clone();
@@ -3749,23 +2785,18 @@ impl Keyspace {
         let namespace = self.namespace.clone();
         let scan_started = Instant::now();
         let cursor_started = Instant::now();
-        let lower = durable_scan_lower(&namespace, prefix, start.as_ref());
-        let upper = durable_scan_upper(&namespace, prefix, end.as_ref());
-        if upper
-            .as_deref()
-            .is_some_and(|upper| lower.as_slice() >= upper)
-        {
-            return Iter {
-                entries: Vec::new().into_iter(),
-                error: None,
-            };
-        }
-        let cursor_after = start
+        let lower = start
             .as_ref()
-            .and_then(|(key, inclusive)| {
-                (!inclusive).then(|| physical_key_from_namespace(&namespace, key))
-            })
-            .filter(|key| key.as_slice() >= lower.as_slice());
+            .map(|(key, _)| physical_key_from_namespace(&namespace, key))
+            .unwrap_or_else(|| namespace.to_vec());
+        let upper = end
+            .as_ref()
+            .map(|(key, _)| physical_key_from_namespace(&namespace, key))
+            .and_then(|key| successor(&key))
+            .or_else(|| successor(&namespace));
+        let cursor_after = start.as_ref().and_then(|(key, inclusive)| {
+            (!inclusive).then(|| physical_key_from_namespace(&namespace, key))
+        });
         let layer_entries = match table_layers
             .iter()
             .map(TableLayer::loaded_entries)
@@ -3785,7 +2816,6 @@ impl Keyspace {
         let mut scan_layers_consulted = 0u64;
         let mut table_bytes_read = 0u64;
         let mut table_read_duration_ns = 0u64;
-        let mut entries_skipped = 0usize;
         let mut state_key = next_map_key(&state, &lower, upper.as_deref(), cursor_after.as_deref());
         let mut pending_key = next_map_key(
             &pending_table,
@@ -3894,10 +2924,6 @@ impl Keyspace {
                     continue;
                 }
             }
-            if entries_skipped < offset {
-                entries_skipped += 1;
-                continue;
-            }
             entries.push(Entry {
                 key: user_key.to_vec(),
                 value,
@@ -3982,20 +3008,23 @@ impl Keyspace {
                     let lock_wait = elapsed_nanos(lock_started.elapsed());
                     let lower = durable_scan_lower(&namespace, prefix, start.as_ref());
                     let upper = durable_scan_upper(&namespace, prefix, end.as_ref());
-                    let cursor_after = after.as_deref().filter(|key| *key >= lower.as_slice());
                     let state_candidate =
-                        next_map_key(&inner.state, &lower, upper.as_deref(), cursor_after)
+                        next_map_key(&inner.state, &lower, upper.as_deref(), after.as_deref())
                             .and_then(|key| {
                                 inner.state.get(&key).map(|value| (key, value.clone()))
                             });
-                    let pending_candidate =
-                        next_map_key(&inner.pending_table, &lower, upper.as_deref(), cursor_after)
-                            .and_then(|key| {
-                                inner
-                                    .pending_table
-                                    .get(&key)
-                                    .map(|value| (key, value.clone()))
-                            });
+                    let pending_candidate = next_map_key(
+                        &inner.pending_table,
+                        &lower,
+                        upper.as_deref(),
+                        after.as_deref(),
+                    )
+                    .and_then(|key| {
+                        inner
+                            .pending_table
+                            .get(&key)
+                            .map(|value| (key, value.clone()))
+                    });
                     let layers = inner.table_layers.clone();
                     let generation = inner.state_generation;
                     let lock_held = elapsed_nanos(lock_started.elapsed());
@@ -4210,21 +3239,6 @@ fn get_scan_value_snapshot(
     let mut layers_consulted = 0;
     for layer in table_layers.iter().rev() {
         layers_consulted += 1;
-        if let Some(block) = layer.candidate_block(key) {
-            let entries = layer.loaded_entries()?;
-            let candidate_range = layer.candidate_entry_range(key);
-            let Ok(relative_index) = entries[candidate_range.clone()]
-                .binary_search_by(|entry| entry.key.as_slice().cmp(key))
-            else {
-                continue;
-            };
-            let entry = &entries[candidate_range.start + relative_index];
-            let (value, bytes_read, duration) = read_table_block_entry_value(layer, block, entry)?;
-            let value = value.ok_or_else(|| {
-                Error::message("ThingDB table index record was not found in its block")
-            })?;
-            return Ok((value, layers_consulted, bytes_read, duration));
-        }
         let entries = layer.loaded_entries()?;
         let candidate_range = layer.candidate_entry_range(key);
         let Ok(relative_index) = entries[candidate_range.clone()]
@@ -4238,676 +3252,6 @@ fn get_scan_value_snapshot(
         );
     }
     Ok((None, layers_consulted, 0, 0))
-}
-
-#[allow(clippy::too_many_arguments)]
-#[allow(clippy::too_many_lines)]
-fn iter_durable_memtable_page(
-    inner: &mut Inner,
-    namespace: &[u8],
-    prefix: Option<&[u8]>,
-    start: Option<&(Vec<u8>, bool)>,
-    end: Option<&(Vec<u8>, bool)>,
-    offset: usize,
-    limit: usize,
-    scan_lock_wait: u64,
-    scan_lock_started: &Instant,
-) -> Option<Iter> {
-    let scan_started = Instant::now();
-    let cursor_started = Instant::now();
-    let lower = durable_scan_lower(namespace, prefix, start);
-    let upper = durable_scan_upper(namespace, prefix, end);
-    let cursor_after = start
-        .and_then(|(key, inclusive)| {
-            (!inclusive).then(|| physical_key_from_namespace(namespace, key))
-        })
-        .filter(|key| key.as_slice() >= lower.as_slice());
-    let cursor_duration = elapsed_nanos(cursor_started.elapsed());
-    let merge_started = Instant::now();
-    let mut entries = Vec::with_capacity(limit.min(1024));
-    let mut scan_keys_examined = 0u64;
-
-    if upper
-        .as_deref()
-        .is_none_or(|upper| lower.as_slice() < upper)
-    {
-        let range_start =
-            cursor_after.map_or_else(|| Bound::Included(lower.clone()), Bound::Excluded);
-        let range_end = upper
-            .as_ref()
-            .map_or(Bound::Unbounded, |key| Bound::Excluded(key.clone()));
-        let mut state = inner
-            .state
-            .range((range_start.clone(), range_end.clone()))
-            .peekable();
-        let mut pending = inner
-            .pending_table
-            .range((range_start, range_end))
-            .peekable();
-        let max_examined = offset
-            .saturating_add(limit)
-            .saturating_mul(4)
-            .saturating_add(64)
-            .clamp(256, 16_384);
-        let mut visible_entries_skipped = 0usize;
-
-        while entries.len() < limit {
-            let state_key = state.peek().map(|(key, _)| key.as_slice());
-            let pending_key = pending.peek().map(|(key, _)| key.as_slice());
-            let (key, from_pending, advance_state, advance_pending) = match (state_key, pending_key)
-            {
-                (None, None) => break,
-                (Some(_), None) => {
-                    let (key, _) = state.peek().expect("state cursor was inspected");
-                    ((*key).clone(), false, true, false)
-                },
-                (None, Some(_)) => {
-                    let (key, _) = pending.peek().expect("pending cursor was inspected");
-                    ((*key).clone(), true, false, true)
-                },
-                (Some(state_key), Some(pending_key)) => match state_key.cmp(pending_key) {
-                    std::cmp::Ordering::Less => {
-                        let (key, _) = state.peek().expect("state cursor was inspected");
-                        ((*key).clone(), false, true, false)
-                    },
-                    std::cmp::Ordering::Equal => {
-                        let (key, _) = pending.peek().expect("pending cursor was inspected");
-                        ((*key).clone(), true, true, true)
-                    },
-                    std::cmp::Ordering::Greater => {
-                        let (key, _) = pending.peek().expect("pending cursor was inspected");
-                        ((*key).clone(), true, false, true)
-                    },
-                },
-            };
-            if advance_state {
-                state.next();
-            }
-            if advance_pending {
-                pending.next();
-            }
-            scan_keys_examined = scan_keys_examined.saturating_add(1);
-            if scan_keys_examined as usize > max_examined && entries.len() < limit {
-                return None;
-            }
-            let value = if from_pending {
-                inner.pending_table.get(&key).and_then(Option::as_ref)
-            } else {
-                inner.state.get(&key)
-            };
-            let Some(value) = value else {
-                continue;
-            };
-            let Some(user_key) = key.strip_prefix(namespace) else {
-                continue;
-            };
-            if prefix.is_some_and(|prefix| !user_key.starts_with(prefix)) {
-                continue;
-            }
-            if let Some((start, inclusive)) = start {
-                let matches = if *inclusive {
-                    user_key >= start.as_slice()
-                } else {
-                    user_key > start.as_slice()
-                };
-                if !matches {
-                    continue;
-                }
-            }
-            if let Some((end, inclusive)) = end {
-                let matches = if *inclusive {
-                    user_key <= end.as_slice()
-                } else {
-                    user_key < end.as_slice()
-                };
-                if !matches {
-                    continue;
-                }
-            }
-            if visible_entries_skipped < offset {
-                visible_entries_skipped += 1;
-                continue;
-            }
-            entries.push(Entry {
-                key: user_key.to_vec(),
-                value: value.clone(),
-            });
-        }
-    }
-
-    let scan_merge_duration = elapsed_nanos(merge_started.elapsed());
-    let scan_lock_held = elapsed_nanos(scan_lock_started.elapsed()).saturating_sub(scan_lock_wait);
-    let scan_duration = elapsed_nanos(scan_started.elapsed());
-    inner.diagnostics.scan_count = inner.diagnostics.scan_count.saturating_add(1);
-    inner.diagnostics.scan_keys_examined = inner
-        .diagnostics
-        .scan_keys_examined
-        .saturating_add(scan_keys_examined);
-    inner.diagnostics.scan_lock_wait_duration_ns = inner
-        .diagnostics
-        .scan_lock_wait_duration_ns
-        .saturating_add(scan_lock_wait);
-    inner.diagnostics.scan_lock_held_duration_ns = inner
-        .diagnostics
-        .scan_lock_held_duration_ns
-        .saturating_add(scan_lock_held);
-    inner.diagnostics.scan_cursor_init_duration_ns = inner
-        .diagnostics
-        .scan_cursor_init_duration_ns
-        .saturating_add(cursor_duration);
-    inner.diagnostics.scan_merge_duration_ns = inner
-        .diagnostics
-        .scan_merge_duration_ns
-        .saturating_add(scan_merge_duration);
-    inner.diagnostics.scan_returned_entries = inner
-        .diagnostics
-        .scan_returned_entries
-        .saturating_add(entries.len() as u64);
-    inner.diagnostics.scan_duration_ns = inner
-        .diagnostics
-        .scan_duration_ns
-        .saturating_add(scan_duration);
-    Some(Iter {
-        entries: entries.into_iter(),
-        error: None,
-    })
-}
-
-#[allow(clippy::too_many_arguments)]
-fn capture_durable_table_page(
-    inner: &Inner,
-    namespace: &[u8],
-    prefix: Option<&[u8]>,
-    start: Option<&(Vec<u8>, bool)>,
-    end: Option<&(Vec<u8>, bool)>,
-    lock_wait_ns: u64,
-    lock_held_ns: u64,
-    count_only: bool,
-    metrics: &mut DurableScanPageCaptureMetrics,
-) -> Option<DurableScanPageSnapshot> {
-    if inner.in_memory {
-        return None;
-    }
-    let cursor_init_started = Instant::now();
-    metrics.attempted = true;
-    let lower = durable_scan_lower(namespace, prefix, start);
-    let upper = durable_scan_upper(namespace, prefix, end);
-    if upper
-        .as_deref()
-        .is_some_and(|upper| lower.as_slice() >= upper)
-    {
-        metrics.duration_ns = elapsed_nanos(cursor_init_started.elapsed());
-        return Some(DurableScanPageSnapshot {
-            state: Vec::new(),
-            pending: Vec::new(),
-            state_after: None,
-            pending_after: None,
-            state_has_more: false,
-            pending_has_more: false,
-            layers: Vec::new(),
-            lower,
-            upper,
-            after: None,
-            generation: inner.state_generation,
-            lock_wait_ns,
-            lock_held_ns,
-            cursor_init_ns: elapsed_nanos(cursor_init_started.elapsed()),
-        });
-    }
-    let after = start
-        .and_then(|(key, inclusive)| {
-            (!inclusive).then(|| physical_key_from_namespace(namespace, key))
-        })
-        .filter(|key| key.as_slice() >= lower.as_slice());
-    let state_chunk = capture_durable_memtable_chunk(
-        &inner.state,
-        &lower,
-        upper.as_deref(),
-        after.as_deref(),
-        usize::MAX - 1,
-        |value| {
-            Some(if count_only {
-                Vec::new()
-            } else {
-                value.clone()
-            })
-        },
-    );
-    let pending_chunk = capture_durable_memtable_chunk(
-        &inner.pending_table,
-        &lower,
-        upper.as_deref(),
-        after.as_deref(),
-        usize::MAX,
-        |value| {
-            value.as_ref().map(|value| {
-                if count_only {
-                    Vec::new()
-                } else {
-                    value.clone()
-                }
-            })
-        },
-    );
-    metrics.candidates_copied =
-        state_chunk.records.len() as u64 + pending_chunk.records.len() as u64;
-    metrics.duration_ns = elapsed_nanos(cursor_init_started.elapsed());
-    Some(DurableScanPageSnapshot {
-        state: state_chunk.records,
-        pending: pending_chunk.records,
-        state_after: state_chunk.after,
-        pending_after: pending_chunk.after,
-        state_has_more: state_chunk.has_more,
-        pending_has_more: pending_chunk.has_more,
-        layers: inner.table_layers.clone(),
-        lower,
-        upper,
-        after,
-        generation: inner.state_generation,
-        lock_wait_ns,
-        lock_held_ns,
-        cursor_init_ns: elapsed_nanos(cursor_init_started.elapsed()),
-    })
-}
-
-#[allow(clippy::too_many_arguments)]
-#[allow(clippy::too_many_lines)]
-fn iter_durable_table_page(
-    database: &Database,
-    namespace: &[u8],
-    prefix: Option<&[u8]>,
-    start: Option<(Vec<u8>, bool)>,
-    end: Option<(Vec<u8>, bool)>,
-    offset: usize,
-    limit: usize,
-    mut snapshot: DurableScanPageSnapshot,
-    mut count_output: Option<&mut usize>,
-) -> Iter {
-    for attempt in 0..4 {
-        let count_only = count_output.is_some();
-        if let Some(count) = count_output.as_deref_mut() {
-            *count = 0;
-        }
-        let scan_started = Instant::now();
-        let merge_started = Instant::now();
-        let mut table_cursors = Vec::with_capacity(snapshot.layers.len());
-        let mut scan_error = None;
-        let mut counted_entries = 0usize;
-        for (index, layer) in snapshot.layers.iter().enumerate() {
-            if layer.blocks.is_empty()
-                && layer.entries.get().is_none_or(|entries| entries.is_empty())
-            {
-                continue;
-            }
-            match TableScanCursor::new(
-                layer,
-                index.saturating_add(1),
-                &snapshot.lower,
-                snapshot.upper.as_deref(),
-                snapshot.after.as_deref(),
-                !count_only,
-            ) {
-                Ok(cursor) => table_cursors.push((index, cursor)),
-                Err(error) => {
-                    scan_error = Some(error);
-                    break;
-                },
-            }
-        }
-        let cursor_init_ns = elapsed_nanos(merge_started.elapsed());
-        let mut entries = Vec::with_capacity(limit.min(1024));
-        let mut scan_keys_examined = 0u64;
-        let mut entries_skipped = 0usize;
-        let mut state_index = 0usize;
-        let mut pending_index = 0usize;
-        let mut scan_lock_wait_ns = snapshot.lock_wait_ns;
-        let mut scan_lock_held_ns = snapshot.lock_held_ns;
-
-        if scan_error.is_none() {
-            while if count_only {
-                counted_entries < limit
-            } else {
-                entries.len() < limit
-            } {
-                let refill_state = state_index == snapshot.state.len() && snapshot.state_has_more;
-                let refill_pending =
-                    pending_index == snapshot.pending.len() && snapshot.pending_has_more;
-                if refill_state || refill_pending {
-                    let lock_started = Instant::now();
-                    let Ok(mut inner) = database.inner.lock() else {
-                        scan_error = Some(Error::message("database lock poisoned"));
-                        break;
-                    };
-                    let refill_lock_wait_ns = elapsed_nanos(lock_started.elapsed());
-                    scan_lock_wait_ns = scan_lock_wait_ns.saturating_add(refill_lock_wait_ns);
-                    let lock_held_started = Instant::now();
-                    if inner.state_generation != snapshot.generation {
-                        scan_lock_held_ns = scan_lock_held_ns
-                            .saturating_add(elapsed_nanos(lock_held_started.elapsed()));
-                        break;
-                    }
-
-                    let capture_started = Instant::now();
-                    let mut capture_metrics = DurableScanPageCaptureMetrics {
-                        attempted: true,
-                        ..DurableScanPageCaptureMetrics::default()
-                    };
-                    if refill_state {
-                        let chunk = capture_durable_memtable_chunk(
-                            &inner.state,
-                            &snapshot.lower,
-                            snapshot.upper.as_deref(),
-                            snapshot.state_after.as_deref(),
-                            usize::MAX - 1,
-                            |value| {
-                                Some(if count_only {
-                                    Vec::new()
-                                } else {
-                                    value.clone()
-                                })
-                            },
-                        );
-                        capture_metrics.candidates_copied = capture_metrics
-                            .candidates_copied
-                            .saturating_add(chunk.records.len() as u64);
-                        snapshot.state = chunk.records;
-                        snapshot.state_after = chunk.after;
-                        snapshot.state_has_more = chunk.has_more;
-                        state_index = 0;
-                    }
-                    if refill_pending {
-                        let chunk = capture_durable_memtable_chunk(
-                            &inner.pending_table,
-                            &snapshot.lower,
-                            snapshot.upper.as_deref(),
-                            snapshot.pending_after.as_deref(),
-                            usize::MAX,
-                            |value| {
-                                value.as_ref().map(|value| {
-                                    if count_only {
-                                        Vec::new()
-                                    } else {
-                                        value.clone()
-                                    }
-                                })
-                            },
-                        );
-                        capture_metrics.candidates_copied = capture_metrics
-                            .candidates_copied
-                            .saturating_add(chunk.records.len() as u64);
-                        snapshot.pending = chunk.records;
-                        snapshot.pending_after = chunk.after;
-                        snapshot.pending_has_more = chunk.has_more;
-                        pending_index = 0;
-                    }
-                    capture_metrics.duration_ns = elapsed_nanos(capture_started.elapsed());
-                    capture_metrics.record(&mut inner.diagnostics);
-                    scan_lock_held_ns = scan_lock_held_ns
-                        .saturating_add(elapsed_nanos(lock_held_started.elapsed()));
-                    drop(inner);
-                }
-
-                let mut next_key: Option<&[u8]> = snapshot
-                    .state
-                    .get(state_index)
-                    .map(|record| record.key.as_slice());
-                if let Some(key) = snapshot
-                    .pending
-                    .get(pending_index)
-                    .map(|record| record.key.as_slice())
-                    && next_key.is_none_or(|current| key < current)
-                {
-                    next_key = Some(key);
-                }
-                for (_, cursor) in &table_cursors {
-                    if let Some(key) = cursor.head().map(|record| record.key.as_slice())
-                        && next_key.is_none_or(|current| key < current)
-                    {
-                        next_key = Some(key);
-                    }
-                }
-                let Some(key) = next_key.map(<[u8]>::to_vec) else {
-                    break;
-                };
-                if snapshot
-                    .upper
-                    .as_deref()
-                    .is_some_and(|upper| key.as_slice() >= upper)
-                {
-                    break;
-                }
-                scan_keys_examined = scan_keys_examined.saturating_add(1);
-                let mut selected: Option<(usize, bool, Option<Vec<u8>>)> = None;
-                for record in [
-                    snapshot.state.get(state_index),
-                    snapshot.pending.get(pending_index),
-                ]
-                .into_iter()
-                .flatten()
-                .filter(|record| record.key == key)
-                {
-                    if selected
-                        .as_ref()
-                        .is_none_or(|(priority, _, _)| record.priority > *priority)
-                    {
-                        selected = Some((
-                            record.priority,
-                            record.value.is_some(),
-                            (!count_only).then(|| record.value.clone()).flatten(),
-                        ));
-                    }
-                }
-                for (_, cursor) in &table_cursors {
-                    if let Some(record) = cursor.head().filter(|record| record.key == key)
-                        && selected
-                            .as_ref()
-                            .is_none_or(|(priority, _, _)| cursor.priority > *priority)
-                    {
-                        selected = Some((
-                            cursor.priority,
-                            record.value.is_some(),
-                            (!count_only).then(|| record.value.clone()).flatten(),
-                        ));
-                    }
-                }
-                if let Some((_, is_live, value)) = selected
-                    && is_live
-                    && let Some(user_key) = key.strip_prefix(namespace)
-                    && prefix.is_none_or(|prefix| user_key.starts_with(prefix))
-                    && start.as_ref().is_none_or(|(bound, inclusive)| {
-                        if *inclusive {
-                            user_key >= bound.as_slice()
-                        } else {
-                            user_key > bound.as_slice()
-                        }
-                    })
-                    && end.as_ref().is_none_or(|(bound, inclusive)| {
-                        if *inclusive {
-                            user_key <= bound.as_slice()
-                        } else {
-                            user_key < bound.as_slice()
-                        }
-                    })
-                {
-                    if entries_skipped < offset {
-                        entries_skipped += 1;
-                    } else if count_only {
-                        counted_entries = counted_entries.saturating_add(1);
-                    } else {
-                        entries.push(Entry {
-                            key: user_key.to_vec(),
-                            value: value.unwrap_or_default(),
-                        });
-                        if entries.len() >= limit {
-                            break;
-                        }
-                    }
-                }
-
-                if snapshot
-                    .state
-                    .get(state_index)
-                    .is_some_and(|record| record.key == key)
-                {
-                    state_index += 1;
-                }
-                if snapshot
-                    .pending
-                    .get(pending_index)
-                    .is_some_and(|record| record.key == key)
-                {
-                    pending_index += 1;
-                }
-                for (layer_index, cursor) in &mut table_cursors {
-                    if cursor.head().is_some_and(|record| record.key == key)
-                        && let Err(error) = cursor.advance(
-                            &snapshot.layers[*layer_index],
-                            &snapshot.lower,
-                            snapshot.upper.as_deref(),
-                        )
-                    {
-                        scan_error = Some(error);
-                        break;
-                    }
-                }
-                if scan_error.is_some() {
-                    break;
-                }
-            }
-        }
-
-        let scan_merge_ns = elapsed_nanos(merge_started.elapsed());
-        let table_bytes_read = table_cursors
-            .iter()
-            .map(|(_, cursor)| cursor.bytes_read)
-            .sum::<u64>();
-        let table_read_duration_ns = table_cursors
-            .iter()
-            .map(|(_, cursor)| cursor.read_duration_ns)
-            .sum::<u64>();
-        let scan_layers = table_cursors.len() as u64;
-        let lock_started = Instant::now();
-        let Ok(mut inner) = database.inner.lock() else {
-            return Iter {
-                entries: entries.into_iter(),
-                error: Some(Error::message("database lock poisoned")),
-            };
-        };
-        let validation_lock_wait_ns = elapsed_nanos(lock_started.elapsed());
-        let validation_lock_held_started = Instant::now();
-        let final_attempt = attempt == 3;
-        let generation_matches = inner.state_generation == snapshot.generation;
-        inner.diagnostics.scan_count = inner.diagnostics.scan_count.saturating_add(1);
-        inner.diagnostics.scan_keys_examined = inner
-            .diagnostics
-            .scan_keys_examined
-            .saturating_add(scan_keys_examined);
-        inner.diagnostics.scan_layers_consulted = inner
-            .diagnostics
-            .scan_layers_consulted
-            .saturating_add(scan_layers);
-        inner.diagnostics.scan_lock_wait_duration_ns = inner
-            .diagnostics
-            .scan_lock_wait_duration_ns
-            .saturating_add(scan_lock_wait_ns)
-            .saturating_add(validation_lock_wait_ns);
-        inner.diagnostics.scan_lock_held_duration_ns = inner
-            .diagnostics
-            .scan_lock_held_duration_ns
-            .saturating_add(scan_lock_held_ns)
-            .saturating_add(elapsed_nanos(validation_lock_held_started.elapsed()));
-        inner.diagnostics.scan_cursor_init_duration_ns = inner
-            .diagnostics
-            .scan_cursor_init_duration_ns
-            .saturating_add(snapshot.cursor_init_ns)
-            .saturating_add(cursor_init_ns);
-        inner.diagnostics.scan_merge_duration_ns = inner
-            .diagnostics
-            .scan_merge_duration_ns
-            .saturating_add(scan_merge_ns);
-        inner.diagnostics.scan_returned_entries = inner
-            .diagnostics
-            .scan_returned_entries
-            .saturating_add(if count_only {
-                counted_entries as u64
-            } else {
-                entries.len() as u64
-            });
-        inner.diagnostics.table_bytes_read = inner
-            .diagnostics
-            .table_bytes_read
-            .saturating_add(table_bytes_read);
-        inner.diagnostics.table_read_duration_ns = inner
-            .diagnostics
-            .table_read_duration_ns
-            .saturating_add(table_read_duration_ns);
-        inner.diagnostics.scan_duration_ns = inner
-            .diagnostics
-            .scan_duration_ns
-            .saturating_add(elapsed_nanos(scan_started.elapsed()));
-        if scan_error.is_some() || (final_attempt && !generation_matches) {
-            inner.diagnostics.scan_error_count =
-                inner.diagnostics.scan_error_count.saturating_add(1);
-        }
-        if let Some(error) = scan_error {
-            return Iter {
-                entries: entries.into_iter(),
-                error: Some(error),
-            };
-        }
-        if generation_matches {
-            if let Some(count) = count_output.as_deref_mut() {
-                *count = counted_entries;
-            }
-            return Iter {
-                entries: entries.into_iter(),
-                error: None,
-            };
-        }
-        if final_attempt {
-            return Iter {
-                entries: Vec::new().into_iter(),
-                error: Some(Error::message(
-                    "ThingDB durable scan changed repeatedly while reading table blocks",
-                )),
-            };
-        }
-        let lock_wait_ns = elapsed_nanos(lock_started.elapsed());
-        let recapture_started = Instant::now();
-        let mut capture_metrics = DurableScanPageCaptureMetrics::default();
-        let next_snapshot = capture_durable_table_page(
-            &inner,
-            namespace,
-            prefix,
-            start.as_ref(),
-            end.as_ref(),
-            lock_wait_ns,
-            0,
-            count_only,
-            &mut capture_metrics,
-        );
-        capture_metrics.record(&mut inner.diagnostics);
-        let Some(next_snapshot) = next_snapshot else {
-            inner.diagnostics.scan_error_count =
-                inner.diagnostics.scan_error_count.saturating_add(1);
-            return Iter {
-                entries: Vec::new().into_iter(),
-                error: Some(Error::message(
-                    "ThingDB durable scan changed to a state requiring compatibility scan",
-                )),
-            };
-        };
-        let next_lock_held_ns = elapsed_nanos(validation_lock_held_started.elapsed());
-        drop(inner);
-        snapshot = DurableScanPageSnapshot {
-            lock_held_ns: next_lock_held_ns,
-            cursor_init_ns: next_snapshot
-                .cursor_init_ns
-                .saturating_add(elapsed_nanos(recapture_started.elapsed())),
-            ..next_snapshot
-        };
-    }
-    unreachable!("bounded ThingDB table scan retry loop exits explicitly")
 }
 
 fn next_map_key<V>(
@@ -4969,15 +3313,11 @@ fn iter_memory_bounds(
     db: &Database,
     ram_keyspaces: &Arc<RwLock<HashMap<Arc<str>, BTreeMap<Vec<u8>, Arc<Vec<u8>>>>>>,
     name: &str,
-    bounds: ScanBounds<'_>,
+    prefix: Option<&[u8]>,
+    start: Option<(Vec<u8>, bool)>,
+    end: Option<(Vec<u8>, bool)>,
+    limit: Option<usize>,
 ) -> Iter {
-    let ScanBounds {
-        prefix,
-        start,
-        end,
-        offset,
-        limit,
-    } = bounds;
     let iteration_started = Instant::now();
     let mut entries = Vec::new();
     let mut entries_examined = 0u64;
@@ -5022,17 +3362,12 @@ fn iter_memory_bounds(
             (_, Some(prefix_upper)) => Bound::Excluded(prefix_upper),
             (None, None) => Bound::Unbounded,
         };
-        let mut skipped = 0usize;
         for (key, value) in keyspace.range::<[u8], _>((lower, upper)) {
             entries_examined = entries_examined.saturating_add(1);
             if let Some(prefix) = prefix
                 && !key.starts_with(prefix)
             {
                 break;
-            }
-            if skipped < offset {
-                skipped += 1;
-                continue;
             }
             entries.push(Entry {
                 key: key.clone(),
@@ -5062,27 +3397,16 @@ fn iter_memory_bounds(
     }
 }
 
-fn count_memory_prefix(keyspace: &BTreeMap<Vec<u8>, Arc<Vec<u8>>>, prefix: &[u8]) -> usize {
-    keyspace
-        .range::<[u8], _>((Bound::Included(prefix), Bound::Unbounded))
-        .take_while(|(key, _)| key.starts_with(prefix))
-        .count()
-}
-
 #[cfg(feature = "benchmark")]
 fn iter_memory_rcu_bounds(
     db: &Database,
     generation: Arc<RamGeneration>,
     name: &str,
-    bounds: ScanBounds<'_>,
+    prefix: Option<&[u8]>,
+    start: Option<(Vec<u8>, bool)>,
+    end: Option<(Vec<u8>, bool)>,
+    limit: Option<usize>,
 ) -> Iter {
-    let ScanBounds {
-        prefix,
-        start,
-        end,
-        offset,
-        limit,
-    } = bounds;
     let started = Instant::now();
     let mut entries = Vec::new();
     let mut examined = 0u64;
@@ -5124,15 +3448,10 @@ fn iter_memory_rcu_bounds(
             (_, Some(prefix_upper)) => Bound::Excluded(prefix_upper),
             (None, None) => Bound::Unbounded,
         };
-        let mut skipped = 0usize;
         for (key, value) in keyspace.range::<[u8], _>((lower, upper)) {
             examined = examined.saturating_add(1);
             if prefix.is_some_and(|prefix| !key.starts_with(prefix)) {
                 break;
-            }
-            if skipped < offset {
-                skipped += 1;
-                continue;
             }
             entries.push(Entry {
                 key: key.clone(),
@@ -5574,6 +3893,10 @@ fn write_table(
         }
         let record_checksum = checksum(&record);
         write_u32(&mut record, record_checksum);
+        if block_first_key.is_none() {
+            block_first_key = Some(key.clone());
+        }
+        block_last_key = Some(key.clone());
         if buffer.len().saturating_add(record.len()) > TABLE_WRITE_BUFFER_BYTES
             && !buffer.is_empty()
         {
@@ -5592,10 +3915,6 @@ fn write_table(
             block_offset = block_offset.saturating_add(buffer.len() as u64);
             buffer.clear();
         }
-        if block_first_key.is_none() {
-            block_first_key = Some(key.clone());
-        }
-        block_last_key = Some(key.clone());
         buffer.extend_from_slice(&record);
     }
     if !buffer.is_empty() {
@@ -5857,18 +4176,12 @@ fn read_table_value_handle(
     Ok((value?, reader_wait, read_duration))
 }
 
-fn read_cached_table_block(
-    layer: &TableLayer,
+fn read_table_block_value(
+    file: &Arc<File>,
     block: &TableBlock,
-) -> Result<(Arc<Vec<u8>>, u64, u64)> {
-    let cache_key = TableBlockCacheKey {
-        path: layer.path.clone(),
-        offset: block.offset,
-    };
-    if let Some(bytes) = layer.block_cache.get(&cache_key) {
-        return Ok((bytes, 0, 0));
-    }
-
+    key: &[u8],
+    is_v2: bool,
+) -> Result<(Option<Option<Vec<u8>>>, u64, u64)> {
     let started = Instant::now();
     let length: usize = block
         .length
@@ -5876,125 +4189,57 @@ fn read_cached_table_block(
         .map_err(|_| Error::message("ThingDB table block is too large"))?;
     let mut bytes = vec![0; length];
     #[cfg(unix)]
-    layer.file.read_exact_at(&mut bytes, block.offset)?;
+    file.read_exact_at(&mut bytes, block.offset)?;
     #[cfg(not(unix))]
     {
-        let mut reader = layer.file.try_clone()?;
+        let mut reader = file.try_clone()?;
         reader.seek(SeekFrom::Start(block.offset))?;
         reader.read_exact(&mut bytes)?;
     }
     if checksum(&bytes) != block.checksum {
         return Err(Error::message("ThingDB table block checksum mismatch"));
     }
-    let read_duration = elapsed_nanos(started.elapsed());
-    let bytes = Arc::new(bytes);
-    layer.block_cache.insert(cache_key, Arc::clone(&bytes));
-    Ok((bytes, block.length, read_duration))
-}
-
-fn read_table_block_records(
-    layer: &TableLayer,
-    block: &TableBlock,
-    include_values: bool,
-) -> Result<(Arc<Vec<TableScanRecord>>, u64, u64)> {
-    let cache_key = TableBlockCacheKey {
-        path: layer.path.clone(),
-        offset: block.offset,
-    };
-    if let Some(records) = layer.block_cache.get_records(&cache_key) {
-        return Ok((records, 0, 0));
-    }
-    let (bytes, bytes_read, read_duration) = read_cached_table_block(layer, block)?;
-    let mut records = Vec::new();
     let mut cursor = 0;
     while cursor < bytes.len() {
         let record_start = cursor;
-        let key = read_bytes(&bytes, &mut cursor)?;
-        let value = match read_byte(&bytes, &mut cursor)? {
-            1 if include_values => Some(read_bytes(&bytes, &mut cursor)?),
-            1 => {
-                skip_bytes(&bytes, &mut cursor)?;
-                Some(Vec::new())
-            },
-            2 => None,
-            _ => return Err(Error::message("invalid ThingDB table operation")),
-        };
+        let record_key = read_bytes(&bytes, &mut cursor)?;
+        if is_v2 {
+            match read_byte(&bytes, &mut cursor)? {
+                1 | 2 => {},
+                _ => return Err(Error::message("invalid ThingDB table operation")),
+            }
+            if bytes.get(cursor - 1) == Some(&1) {
+                let _ = read_bytes(&bytes, &mut cursor)?;
+            }
+        } else {
+            let _ = read_bytes(&bytes, &mut cursor)?;
+        }
         let checksum_end = cursor;
         let stored = read_u32(&bytes, &mut cursor)?;
         if stored != checksum(&bytes[record_start..checksum_end]) {
             return Err(Error::message("ThingDB table checksum mismatch"));
         }
-        if records
-            .last()
-            .is_some_and(|record: &TableScanRecord| record.key >= key)
-        {
-            return Err(Error::message(
-                "ThingDB table block keys are not strictly ordered",
-            ));
+        if record_key == key {
+            let mut decode_cursor = 0;
+            let _ = read_bytes(&bytes[record_start..cursor], &mut decode_cursor)?;
+            let value = if !is_v2 {
+                Some(read_bytes(
+                    &bytes[record_start..cursor],
+                    &mut decode_cursor,
+                )?)
+            } else if bytes[record_start + decode_cursor] == 1 {
+                decode_cursor += 1;
+                Some(read_bytes(
+                    &bytes[record_start..cursor],
+                    &mut decode_cursor,
+                )?)
+            } else {
+                None
+            };
+            return Ok((Some(value), block.length, elapsed_nanos(started.elapsed())));
         }
-        records.push(TableScanRecord {
-            key,
-            value,
-            priority: 0,
-        });
     }
-    if records.first().map(|record| &record.key) != Some(&block.first_key)
-        || records.last().map(|record| &record.key) != Some(&block.last_key)
-    {
-        return Err(Error::message(
-            "ThingDB table block key range does not match its index",
-        ));
-    }
-    let records = Arc::new(records);
-    if include_values {
-        layer
-            .block_cache
-            .insert_records(&cache_key, Arc::clone(&records));
-    }
-    Ok((records, bytes_read, read_duration))
-}
-
-fn read_table_block_entry_value(
-    layer: &TableLayer,
-    block: &TableBlock,
-    entry: &TableIndexEntry,
-) -> Result<(Option<Option<Vec<u8>>>, u64, u64)> {
-    let (bytes, bytes_read, read_duration) = read_cached_table_block(layer, block)?;
-    let offset: usize = entry
-        .offset
-        .checked_sub(block.offset)
-        .ok_or_else(|| Error::message("ThingDB table index precedes its block"))?
-        .try_into()
-        .map_err(|_| Error::message("ThingDB table index offset is too large"))?;
-    let length: usize = entry
-        .length
-        .try_into()
-        .map_err(|_| Error::message("ThingDB table record is too large"))?;
-    let end = offset
-        .checked_add(length)
-        .ok_or_else(|| Error::message("ThingDB table record range overflow"))?;
-    let record = bytes
-        .get(offset..end)
-        .ok_or_else(|| Error::message("ThingDB table index record is outside its block"))?;
-    let mut cursor = 0;
-    let key = read_bytes(record, &mut cursor)?;
-    if key != entry.key {
-        return Err(Error::message("ThingDB table index key mismatch"));
-    }
-    let value = match read_byte(record, &mut cursor)? {
-        1 => Some(read_bytes(record, &mut cursor)?),
-        2 => None,
-        _ => return Err(Error::message("invalid ThingDB table operation")),
-    };
-    let checksum_end = cursor;
-    let stored = read_u32(record, &mut cursor)?;
-    if stored != checksum(&record[..checksum_end]) {
-        return Err(Error::message("ThingDB table checksum mismatch"));
-    }
-    if cursor != record.len() {
-        return Err(Error::message("trailing bytes in ThingDB table record"));
-    }
-    Ok((Some(value), bytes_read, read_duration))
+    Ok((None, block.length, elapsed_nanos(started.elapsed())))
 }
 
 #[cfg(unix)]
@@ -6135,21 +4380,6 @@ fn read_bytes(bytes: &[u8], cursor: &mut usize) -> Result<Vec<u8>> {
         .to_vec();
     *cursor = end;
     Ok(value)
-}
-
-fn skip_bytes(bytes: &[u8], cursor: &mut usize) -> Result<()> {
-    let length = read_u64(bytes, cursor)?;
-    let length: usize = length
-        .try_into()
-        .map_err(|_| Error::message("ThingDB value length does not fit platform"))?;
-    let end = cursor
-        .checked_add(length)
-        .ok_or_else(|| Error::message("ThingDB value length overflow"))?;
-    if end > bytes.len() {
-        return Err(Error::message("truncated ThingDB value"));
-    }
-    *cursor = end;
-    Ok(())
 }
 
 #[cfg(test)]
@@ -6327,87 +4557,6 @@ mod tests {
     }
 
     #[test]
-    fn in_memory_prefix_page_only_materializes_the_requested_page() {
-        let db = Database::in_memory().unwrap();
-        let objects = db
-            .keyspace("objects", KeyspaceCreateOptions::default)
-            .unwrap();
-        for index in 0..1_000_u32 {
-            let key = format!("collection/{index:04}");
-            objects.insert(key.as_bytes(), b"payload").unwrap();
-        }
-
-        let before = db.ram_diagnostics().unwrap().iteration_entries_examined;
-        let page: Vec<_> = objects
-            .prefix_page(b"collection/", 50, 25)
-            .map(|entry| entry.key)
-            .collect();
-        let examined = db
-            .ram_diagnostics()
-            .unwrap()
-            .iteration_entries_examined
-            .saturating_sub(before);
-
-        assert_eq!(page.len(), 25);
-        assert_eq!(page.first(), Some(&b"collection/0050".to_vec()));
-        assert_eq!(page.last(), Some(&b"collection/0074".to_vec()));
-        assert_eq!(examined, 75);
-        assert!(objects.prefix_page(b"collection/", 0, 0).next().is_none());
-    }
-
-    #[test]
-    fn in_memory_prefix_page_after_uses_an_exclusive_cursor() {
-        let db = Database::in_memory().unwrap();
-        let objects = db
-            .keyspace("objects", KeyspaceCreateOptions::default)
-            .unwrap();
-        for index in 0..1_000_u32 {
-            let key = format!("collection/{index:04}");
-            objects.insert(key.as_bytes(), b"payload").unwrap();
-        }
-
-        let before = db.ram_diagnostics().unwrap().iteration_entries_examined;
-        let page: Vec<_> = objects
-            .prefix_page_after(b"collection/", Some(b"collection/0050"), 25)
-            .map(|entry| entry.key)
-            .collect();
-        let examined = db
-            .ram_diagnostics()
-            .unwrap()
-            .iteration_entries_examined
-            .saturating_sub(before);
-
-        assert_eq!(page.len(), 25);
-        assert_eq!(page.first(), Some(&b"collection/0051".to_vec()));
-        assert_eq!(page.last(), Some(&b"collection/0075".to_vec()));
-        assert_eq!(examined, 25);
-        assert!(
-            objects
-                .prefix_page_after(b"collection/", Some(b"collection/0050"), 0)
-                .next()
-                .is_none()
-        );
-    }
-
-    #[test]
-    fn in_memory_counts_do_not_materialize_values() {
-        let db = Database::in_memory().unwrap();
-        let objects = db
-            .keyspace("objects", KeyspaceCreateOptions::default)
-            .unwrap();
-        for index in 0..1_000_u32 {
-            let key = format!("collection/{index:04}");
-            objects.insert(key.as_bytes(), b"large-ish-value").unwrap();
-        }
-
-        let before = db.ram_diagnostics().unwrap().iteration_count;
-        assert_eq!(objects.count().unwrap(), 1_000);
-        assert_eq!(objects.count_prefix(b"collection/00").unwrap(), 100);
-        assert_eq!(objects.count_prefix(b"missing/").unwrap(), 0);
-        assert_eq!(db.ram_diagnostics().unwrap().iteration_count, before);
-    }
-
-    #[test]
     fn in_memory_first_prefix_after_honors_result_limit() {
         let db = Database::in_memory().unwrap();
         let objects = db
@@ -6444,44 +4593,6 @@ mod tests {
         assert_eq!(shared.as_slice(), b"before");
         assert_eq!(objects.get(b"key").unwrap(), Some(b"after".to_vec()));
         assert!(db.ram_diagnostics().unwrap().lookup_count >= 1);
-    }
-
-    #[test]
-    fn in_memory_batched_shared_reads_preserve_order_duplicates_and_snapshot_values() {
-        let db = Database::in_memory().unwrap();
-        let objects = db
-            .keyspace("objects", KeyspaceCreateOptions::default)
-            .unwrap();
-        db.batch()
-            .put(&objects, b"a", b"one")
-            .put(&objects, b"b", b"two")
-            .commit()
-            .unwrap();
-
-        let keys = vec![
-            b"b".to_vec(),
-            b"missing".to_vec(),
-            b"a".to_vec(),
-            b"b".to_vec(),
-        ];
-        let values = objects.get_many_shared(&keys).unwrap();
-        objects.insert(b"b", b"updated").unwrap();
-
-        assert_eq!(values.len(), keys.len());
-        assert_eq!(
-            values[0].as_deref().map(Vec::as_slice),
-            Some(b"two".as_slice())
-        );
-        assert!(values[1].is_none());
-        assert_eq!(
-            values[2].as_deref().map(Vec::as_slice),
-            Some(b"one".as_slice())
-        );
-        assert_eq!(
-            values[3].as_deref().map(Vec::as_slice),
-            Some(b"two".as_slice())
-        );
-        assert_eq!(objects.get(b"b").unwrap(), Some(b"updated".to_vec()));
     }
 
     #[test]
@@ -6650,121 +4761,6 @@ mod tests {
     }
 
     #[test]
-    fn durable_batched_reads_preserve_layers_tombstones_order_and_duplicates() {
-        let directory = tempfile::tempdir().unwrap();
-        let db = Database::open(directory.path()).unwrap();
-        let objects = db
-            .keyspace("objects", KeyspaceCreateOptions::default)
-            .unwrap();
-
-        db.batch()
-            .put(&objects, b"a", b"old")
-            .put(&objects, b"deleted", b"before")
-            .commit()
-            .unwrap();
-        db.persist(PersistMode::SyncAll).unwrap();
-        db.batch()
-            .put(&objects, b"a", b"new")
-            .delete(&objects, b"deleted")
-            .commit()
-            .unwrap();
-        db.persist(PersistMode::SyncAll).unwrap();
-        objects.insert(b"mutable", b"current").unwrap();
-
-        let values = objects
-            .get_many_shared(&[
-                b"a".to_vec(),
-                b"deleted".to_vec(),
-                b"mutable".to_vec(),
-                b"missing".to_vec(),
-                b"a".to_vec(),
-            ])
-            .unwrap();
-
-        let values: Vec<_> = values
-            .into_iter()
-            .map(|value| value.map(|value| value.as_ref().clone()))
-            .collect();
-        assert_eq!(
-            values,
-            vec![
-                Some(b"new".to_vec()),
-                None,
-                Some(b"current".to_vec()),
-                None,
-                Some(b"new".to_vec()),
-            ]
-        );
-    }
-
-    #[test]
-    fn legacy_table_formats_use_bounded_paginated_scans() {
-        for legacy_magic in [TABLE_MAGIC, TABLE_MAGIC_V2] {
-            let directory = tempfile::tempdir().unwrap();
-            let db = Database::open(directory.path()).unwrap();
-            let objects = db
-                .keyspace("objects", KeyspaceCreateOptions::default)
-                .unwrap();
-            for index in 0..32_u8 {
-                let key = format!("legacy/{index:02}");
-                let value = format!("value-{index:02}");
-                objects.insert(key.as_bytes(), value.as_bytes()).unwrap();
-            }
-            db.compact().unwrap();
-            drop(objects);
-            drop(db);
-
-            let manifest: Manifest = serde_json::from_slice(
-                &std::fs::read(directory.path().join(MANIFEST_FILE)).unwrap(),
-            )
-            .unwrap();
-            let table_path = directory.path().join(manifest.table_file.unwrap());
-            let (sequence, entries, _, _) = read_table_index(&table_path).unwrap();
-            let file = Arc::new(File::open(&table_path).unwrap());
-            let mut legacy = Vec::new();
-            legacy.extend_from_slice(legacy_magic);
-            write_u64(&mut legacy, sequence);
-            write_u64(&mut legacy, entries.len() as u64);
-            for entry in &entries {
-                let value = read_table_value_handle(&file, entry, true)
-                    .unwrap()
-                    .0
-                    .unwrap();
-                let record_start = legacy.len();
-                write_bytes(&mut legacy, &entry.key).unwrap();
-                if legacy_magic == TABLE_MAGIC_V2 {
-                    legacy.push(1);
-                }
-                write_bytes(&mut legacy, &value).unwrap();
-                let record_checksum = checksum(&legacy[record_start..]);
-                write_u32(&mut legacy, record_checksum);
-            }
-            std::fs::write(&table_path, legacy).unwrap();
-
-            let db = Database::open(directory.path()).unwrap();
-            let objects = db
-                .keyspace("objects", KeyspaceCreateOptions::default)
-                .unwrap();
-            let first_page = objects
-                .prefix_page(b"legacy/", 0, 10)
-                .into_result()
-                .unwrap();
-            let second_page = objects
-                .prefix_page(b"legacy/", 10, 10)
-                .into_result()
-                .unwrap();
-            assert_eq!(first_page.len(), 10);
-            assert_eq!(second_page.len(), 10);
-            assert_eq!(first_page[0].key, b"legacy/00");
-            assert_eq!(second_page[0].key, b"legacy/10");
-            assert_eq!(second_page[9].value, b"value-19");
-            let diagnostics = db.wal_diagnostics().unwrap();
-            assert_eq!(diagnostics.scan_count, 2);
-            assert!(diagnostics.table_bytes_read > 0);
-        }
-    }
-
-    #[test]
     fn bounded_scans_merge_overlapping_layers_without_materializing_outside_range() {
         let directory = tempfile::tempdir().unwrap();
         let db = Database::open(directory.path()).unwrap();
@@ -6823,434 +4819,6 @@ mod tests {
             reopened_prefix,
             vec![b"aa-1".to_vec(), b"ac-1".to_vec(), b"ad-1".to_vec()]
         );
-    }
-
-    #[test]
-    fn durable_prefix_pages_seek_to_prefix_and_skip_pending_tombstones() {
-        let directory = tempfile::tempdir().unwrap();
-        let db = Database::open(directory.path()).unwrap();
-        let objects = db
-            .keyspace("objects", KeyspaceCreateOptions::default)
-            .unwrap();
-        let mut batch = db.batch_with_capacity(1_100);
-        for index in 0..1_000_u32 {
-            let key = format!("a/{index:04}");
-            batch = batch.put(&objects, key.as_bytes(), b"outside");
-        }
-        for index in 0..100_u32 {
-            let key = format!("target/{index:04}");
-            batch = batch.put(&objects, key.as_bytes(), b"inside");
-        }
-        batch.commit().unwrap();
-        db.batch()
-            .delete(&objects, b"target/0000")
-            .delete(&objects, b"target/0001")
-            .commit()
-            .unwrap();
-
-        assert_eq!(
-            objects
-                .first_prefix_after(b"target/", Some(b"a/0999"))
-                .unwrap()
-                .map(|entry| entry.key),
-            Some(b"target/0002".to_vec())
-        );
-
-        let before = db.wal_diagnostics().unwrap().scan_keys_examined;
-        let page: Vec<_> = objects
-            .prefix_page_after(b"target/", Some(b"a/0999"), 10)
-            .map(|entry| entry.key)
-            .collect();
-        let examined = db
-            .wal_diagnostics()
-            .unwrap()
-            .scan_keys_examined
-            .saturating_sub(before);
-
-        assert_eq!(page.len(), 10);
-        assert_eq!(page.first(), Some(&b"target/0002".to_vec()));
-        assert_eq!(page.last(), Some(&b"target/0011".to_vec()));
-        assert_eq!(
-            examined, 12,
-            "prefix seek should examine only matching keys"
-        );
-
-        let before = db.wal_diagnostics().unwrap().scan_keys_examined;
-        let page: Vec<_> = objects
-            .prefix_page_after(b"target/", Some(b"target/0050"), 10)
-            .map(|entry| entry.key)
-            .collect();
-        let examined = db
-            .wal_diagnostics()
-            .unwrap()
-            .scan_keys_examined
-            .saturating_sub(before);
-
-        assert_eq!(page.first(), Some(&b"target/0051".to_vec()));
-        assert_eq!(page.last(), Some(&b"target/0060".to_vec()));
-        assert_eq!(examined, 10, "exclusive cursor should seek past its key");
-    }
-
-    #[test]
-    fn durable_table_pages_seek_blocks_and_keep_the_full_index_lazy() {
-        let directory = tempfile::tempdir().unwrap();
-        let db = Database::open(directory.path()).unwrap();
-        let objects = db
-            .keyspace("objects", KeyspaceCreateOptions::default)
-            .unwrap();
-        let payload = vec![b'x'; 128];
-        let mut batch = db.batch_with_capacity(3_000);
-        for index in 0..3_000_u32 {
-            let key = format!("target/{index:06}");
-            batch = batch.put(&objects, key.as_bytes(), &payload);
-        }
-        batch.commit().unwrap();
-        db.compact().unwrap();
-        drop(objects);
-        drop(db);
-
-        let db = Database::open(directory.path()).unwrap();
-        let objects = db
-            .keyspace("objects", KeyspaceCreateOptions::default)
-            .unwrap();
-        let layer = db.inner.lock().unwrap().table_layers[0].clone();
-        assert!(layer.blocks.len() > 2);
-        assert!(layer.entries.get().is_none());
-        let file_bytes = std::fs::metadata(&layer.path).unwrap().len();
-
-        let page: Vec<_> = objects
-            .prefix_page_after(b"target/", Some(b"target/002500"), 10)
-            .into_result()
-            .unwrap()
-            .into_iter()
-            .map(|entry| entry.key)
-            .collect();
-
-        assert_eq!(page.first(), Some(&b"target/002501".to_vec()));
-        assert_eq!(page.last(), Some(&b"target/002510".to_vec()));
-        assert!(
-            db.wal_diagnostics().unwrap().table_bytes_read < file_bytes,
-            "a bounded page should read fewer bytes than the full table"
-        );
-        assert!(
-            layer.entries.get().is_none(),
-            "bounded scans should not populate the full table index"
-        );
-    }
-
-    #[test]
-    fn durable_counts_merge_layers_and_tombstones_without_loading_full_indexes() {
-        let directory = tempfile::tempdir().unwrap();
-        let db = Database::open(directory.path()).unwrap();
-        let objects = db
-            .keyspace("objects", KeyspaceCreateOptions::default)
-            .unwrap();
-        let mut initial = db.batch_with_capacity(600);
-        for index in 0..600_u32 {
-            initial = initial.put(
-                &objects,
-                format!("collection/00/{index:04}").as_bytes(),
-                b"payload that should not be copied for count",
-            );
-        }
-        initial.commit().unwrap();
-        db.persist(PersistMode::SyncAll).unwrap();
-
-        let mut changes = db.batch_with_capacity(305);
-        for index in 0..300_u32 {
-            changes = changes.delete(&objects, format!("collection/00/{index:04}").as_bytes());
-        }
-        changes = changes
-            .put(&objects, b"collection/00/0599", b"updated")
-            .put(&objects, b"collection/01/0000", b"new")
-            .put(&objects, b"collection/01/0001", b"new")
-            .put(&objects, b"collection/01/0002", b"new")
-            .put(&objects, b"collection/01/0003", b"new")
-            .put(&objects, b"collection/01/0004", b"new");
-        changes.commit().unwrap();
-        db.persist(PersistMode::SyncAll).unwrap();
-        objects.insert(b"collection/01/0005", b"new").unwrap();
-        objects.insert(b"collection/01/0006", b"new").unwrap();
-        objects.insert(b"other/0000", b"new").unwrap();
-
-        assert_eq!(objects.count().unwrap(), 308);
-        assert_eq!(objects.count_prefix(b"collection/00").unwrap(), 300);
-        assert_eq!(objects.count_prefix(b"collection/01").unwrap(), 7);
-        assert_eq!(objects.count_prefix(b"missing/").unwrap(), 0);
-        assert!(
-            db.inner
-                .lock()
-                .unwrap()
-                .table_layers
-                .iter()
-                .all(|layer| layer.entries.get().is_none())
-        );
-
-        drop(objects);
-        drop(db);
-        let db = Database::open(directory.path()).unwrap();
-        let objects = db
-            .keyspace("objects", KeyspaceCreateOptions::default)
-            .unwrap();
-        assert_eq!(objects.count().unwrap(), 308);
-        assert_eq!(objects.count_prefix(b"collection/00").unwrap(), 300);
-        assert_eq!(objects.count_prefix(b"collection/01").unwrap(), 7);
-    }
-
-    #[test]
-    fn bounded_table_pages_refill_memtable_chunks_after_tombstones() {
-        let directory = tempfile::tempdir().unwrap();
-        let db = Database::open(directory.path()).unwrap();
-        let objects = db
-            .keyspace("objects", KeyspaceCreateOptions::default)
-            .unwrap();
-        let mut batch = db.batch_with_capacity(600);
-        for index in 0..600_u32 {
-            batch = batch.put(&objects, format!("target/{index:04}").as_bytes(), b"value");
-        }
-        batch.commit().unwrap();
-        db.persist(PersistMode::SyncAll).unwrap();
-
-        let mut batch = db.batch_with_capacity(300);
-        for index in 0..300_u32 {
-            batch = batch.delete(&objects, format!("target/{index:04}").as_bytes());
-        }
-        batch.commit().unwrap();
-
-        let page: Vec<_> = objects
-            .prefix_page(b"target/", 0, 10)
-            .into_result()
-            .unwrap();
-        assert_eq!(
-            page.iter()
-                .map(|entry| (entry.key.clone(), entry.value.clone()))
-                .collect::<Vec<_>>(),
-            (300..310_u32)
-                .map(|index| { (format!("target/{index:04}").into_bytes(), b"value".to_vec(),) })
-                .collect::<Vec<_>>()
-        );
-        let diagnostics = db.wal_diagnostics().unwrap();
-        assert_eq!(diagnostics.scan_page_capture_count, 2);
-        assert_eq!(diagnostics.scan_page_capture_fallback_count, 0);
-        assert_eq!(diagnostics.scan_page_capture_candidates_copied, 300);
-        assert_eq!(diagnostics.scan_page_capture_fallback_candidates_copied, 0);
-        assert!(diagnostics.scan_page_capture_duration_ns > 0);
-    }
-
-    #[test]
-    fn durable_table_pages_merge_updates_tombstones_and_pending_values() {
-        let directory = tempfile::tempdir().unwrap();
-        let db = Database::open(directory.path()).unwrap();
-        let objects = db
-            .keyspace("objects", KeyspaceCreateOptions::default)
-            .unwrap();
-        db.batch()
-            .put(&objects, b"range/01", b"old")
-            .put(&objects, b"range/02", b"deleted")
-            .put(&objects, b"range/03", b"old-three")
-            .commit()
-            .unwrap();
-        db.persist(PersistMode::SyncAll).unwrap();
-        db.batch()
-            .put(&objects, b"range/01", b"new")
-            .delete(&objects, b"range/02")
-            .put(&objects, b"range/04", b"four")
-            .commit()
-            .unwrap();
-        db.persist(PersistMode::SyncAll).unwrap();
-        db.batch()
-            .put(&objects, b"range/03", b"pending-three")
-            .put(&objects, b"range/05", b"five")
-            .commit()
-            .unwrap();
-
-        let page: Vec<_> = objects
-            .prefix_page(b"range/", 0, 10)
-            .into_result()
-            .unwrap()
-            .into_iter()
-            .map(|entry| (entry.key, entry.value))
-            .collect();
-        assert_eq!(
-            page,
-            vec![
-                (b"range/01".to_vec(), b"new".to_vec()),
-                (b"range/03".to_vec(), b"pending-three".to_vec()),
-                (b"range/04".to_vec(), b"four".to_vec()),
-                (b"range/05".to_vec(), b"five".to_vec()),
-            ]
-        );
-        let bounded_page: Vec<_> = objects
-            .iter_bounds_paginated(
-                None,
-                Some((b"range/01".to_vec(), false)),
-                Some((b"range/05".to_vec(), false)),
-                0,
-                Some(10),
-            )
-            .into_result()
-            .unwrap()
-            .into_iter()
-            .map(|entry| entry.key)
-            .collect();
-        assert_eq!(bounded_page, vec![b"range/03", b"range/04"]);
-
-        let empty_page = objects
-            .iter_bounds_paginated(
-                None,
-                Some((b"range/04".to_vec(), true)),
-                Some((b"range/04".to_vec(), false)),
-                0,
-                Some(10),
-            )
-            .into_result()
-            .unwrap();
-        assert_eq!(empty_page, []);
-    }
-
-    #[test]
-    fn durable_table_page_propagates_block_corruption() {
-        let directory = tempfile::tempdir().unwrap();
-        let db = Database::open(directory.path()).unwrap();
-        let objects = db
-            .keyspace("objects", KeyspaceCreateOptions::default)
-            .unwrap();
-        objects.insert(b"target/one", b"value").unwrap();
-        db.compact().unwrap();
-        let layer = db.inner.lock().unwrap().table_layers[0].clone();
-        let mut table = OpenOptions::new().write(true).open(&layer.path).unwrap();
-        table
-            .seek(SeekFrom::Start(layer.blocks[0].offset + 1))
-            .unwrap();
-        table.write_all(b"z").unwrap();
-        table.sync_all().unwrap();
-
-        let error = objects
-            .prefix_page(b"target/", 0, 10)
-            .into_result()
-            .unwrap_err();
-        assert!(error.to_string().contains("table block checksum mismatch"));
-    }
-
-    #[test]
-    fn durable_table_block_cache_reuses_verified_immutable_blocks() {
-        let directory = tempfile::tempdir().unwrap();
-        let db = Database::open(directory.path()).unwrap();
-        let objects = db
-            .keyspace("objects", KeyspaceCreateOptions::default)
-            .unwrap();
-        let mut batch = db.batch_with_capacity(512);
-        for index in 0..512_u32 {
-            let key = format!("cache/{index:04}");
-            batch = batch.put(&objects, key.as_bytes(), b"cache-value");
-        }
-        batch.commit().unwrap();
-        db.compact().unwrap();
-
-        assert_eq!(
-            objects.get(b"cache/0000").unwrap(),
-            Some(b"cache-value".to_vec())
-        );
-        let first_read = db.wal_diagnostics().unwrap().table_bytes_read;
-        assert!(first_read > 0);
-
-        assert_eq!(
-            objects.get(b"cache/0000").unwrap(),
-            Some(b"cache-value".to_vec())
-        );
-        let second_read = db.wal_diagnostics().unwrap().table_bytes_read;
-        assert_eq!(second_read, first_read);
-
-        let first_page = objects
-            .prefix_page_after(b"cache/", None, 16)
-            .into_result()
-            .unwrap();
-        assert_eq!(first_page.len(), 16);
-        let next_page = objects
-            .prefix_page_after(b"cache/", Some(&first_page[15].key), 16)
-            .into_result()
-            .unwrap();
-        assert_eq!(next_page.len(), 16);
-        assert_eq!(next_page[0].key, b"cache/0016");
-
-        let inner = db.inner.lock().unwrap();
-        let cache = inner.table_block_cache.state.lock().unwrap();
-        assert!(cache.hits >= 1);
-        assert!(cache.decoded_hits >= 1);
-        assert!(cache.resident_bytes <= cache.capacity_bytes);
-        drop(cache);
-        drop(inner);
-
-        let diagnostics = db.wal_diagnostics().unwrap();
-        assert!(diagnostics.table_block_cache_capacity_bytes > 0);
-        assert!(diagnostics.table_block_cache_entries > 0);
-        assert!(diagnostics.table_block_cache_hits >= 1);
-        assert!(diagnostics.table_block_cache_decoded_hits >= 1);
-        assert!(
-            diagnostics.table_block_cache_resident_bytes
-                <= diagnostics.table_block_cache_capacity_bytes
-        );
-    }
-
-    #[test]
-    fn durable_first_prefix_lookup_reuses_verified_immutable_blocks() {
-        let directory = tempfile::tempdir().unwrap();
-        let db = Database::open(directory.path()).unwrap();
-        let objects = db
-            .keyspace("objects", KeyspaceCreateOptions::default)
-            .unwrap();
-        objects.insert(b"prefix/a", b"one").unwrap();
-        objects.insert(b"prefix/b", b"two").unwrap();
-        db.compact().unwrap();
-        let layer = db.inner.lock().unwrap().table_layers[0].clone();
-        assert!(layer.entries.get().is_none());
-
-        assert_eq!(
-            objects
-                .first_prefix_after(b"prefix/", None)
-                .unwrap()
-                .unwrap()
-                .key,
-            b"prefix/a"
-        );
-        assert_eq!(
-            objects
-                .first_prefix_after(b"prefix/", Some(b"prefix/a"))
-                .unwrap()
-                .unwrap()
-                .key,
-            b"prefix/b"
-        );
-        assert!(layer.entries.get().is_some());
-
-        let inner = db.inner.lock().unwrap();
-        let cache = inner.table_block_cache.state.lock().unwrap();
-        assert!(cache.resident_bytes <= cache.capacity_bytes);
-    }
-
-    #[test]
-    fn table_block_cache_evicts_the_least_recently_used_entry_within_its_bound() {
-        let cache = TableBlockCache::with_capacity(6);
-        let key = |offset| TableBlockCacheKey {
-            path: PathBuf::from("table.tdb"),
-            offset,
-        };
-        let first = key(0);
-        let second = key(1);
-        let third = key(2);
-
-        cache.insert(first.clone(), Arc::new(vec![1; 3]));
-        cache.insert(second.clone(), Arc::new(vec![2; 3]));
-        assert!(cache.get(&first).is_some());
-        cache.insert(third.clone(), Arc::new(vec![3; 3]));
-
-        assert!(cache.get(&first).is_some());
-        assert!(cache.get(&second).is_none());
-        assert!(cache.get(&third).is_some());
-        let state = cache.state.lock().unwrap();
-        assert_eq!(state.resident_bytes, 6);
-        assert!(state.resident_bytes <= state.capacity_bytes);
-        assert_eq!(state.evictions, 1);
     }
 
     #[test]
@@ -8122,10 +5690,6 @@ mod tests {
         assert!(error.to_string().contains("table checksum mismatch"));
         let error = objects.first_prefix_after(b"a", None).unwrap_err();
         assert!(error.to_string().contains("table checksum mismatch"));
-        let error = objects.count().unwrap_err();
-        assert!(error.to_string().contains("checksum mismatch"));
-        let error = objects.count_prefix(b"a").unwrap_err();
-        assert!(error.to_string().contains("checksum mismatch"));
     }
 
     #[test]
@@ -8172,11 +5736,6 @@ mod tests {
             .map(|entry| entry.key)
             .collect();
         assert_eq!(range, vec![b"aa".to_vec(), b"ab".to_vec()]);
-        let page: Vec<_> = objects
-            .prefix_page(b"a", 1, 1)
-            .map(|entry| entry.key)
-            .collect();
-        assert_eq!(page, vec![b"ab".to_vec()]);
     }
 
     #[test]
@@ -8205,24 +5764,6 @@ mod tests {
                 .map(|entry| entry.key),
             Some(b"ac".to_vec())
         );
-    }
-
-    #[test]
-    fn durable_first_prefix_uses_bounded_memtable_path_without_table_layers() {
-        let directory = tempfile::tempdir().unwrap();
-        let db = Database::open(directory.path()).unwrap();
-        let ready = db
-            .keyspace("ready", KeyspaceCreateOptions::default)
-            .unwrap();
-        ready.insert(b"queue\0a", b"a").unwrap();
-        ready.insert(b"queue\0b", b"b").unwrap();
-
-        let first = ready.first_prefix_after(b"queue\0", None).unwrap().unwrap();
-        assert_eq!(first.key, b"queue\0a");
-        let diagnostics = db.wal_diagnostics().unwrap();
-        assert_eq!(diagnostics.scan_keys_examined, 1);
-        assert_eq!(diagnostics.scan_returned_entries, 1);
-        assert_eq!(diagnostics.table_layer_count, 0);
     }
 
     #[test]

@@ -151,9 +151,8 @@ thingd db backup --out backup.tar
 thingd db restore --in backup.tar --destination /path/to/thingd.db
 ```
 
-`thingd backup --out <directory>` creates a live, point-in-time RocksDB
-checkpoint through the SDK. `thingd db backup --out <archive>` is a separate
-offline archive command and requires exclusive source access. Encrypted
+For current native runtimes, stop or checkpoint the engine and back up the whole
+database directory, or use the database archive commands above. Encrypted
 backups remain opaque and require the same key to restore. JSON snapshots and
 logical exports are decrypted data.
 
@@ -169,17 +168,16 @@ thingd db restore --in /path/to/backup.tar --destination /path/to/thingd.db [--r
 thingd db reencrypt --source <path> --destination <path> [--allow-plaintext-output]
 ```
 
-- `checkpoint` — Flushes pending native persistent writes; it does not make an external copy of an open database safe
+- `checkpoint` — Flushes pending native persistent writes before a directory backup
 - `compact` — Flushes and compacts the primary native keyspaces; stop application writers first
 - `repack` — Exports a bounded logical snapshot into a new validated native store; the source is retained and the destination must not exist
 - `integrity` — Checks database accessibility and reports status
-- `backup` — Creates an offline tar archive after opening the local database; requires exclusive access to the source.
+- `backup` — Checkpoints and closes a local native database, then creates a tar archive of the complete directory. The source must not be open by another process.
 - `restore` — Validates a Thingd tar archive and atomically restores it into a new destination. Existing destinations require `--replace`.
 - `reencrypt` — Copies logical records into a new destination for migration or
   key rotation without modifying the source
 
-`thingd backup --out <directory>` and the SDK's `backupTo(path)` are the
-live-checkpoint interfaces. The standalone server exposes offline operations as
+The standalone server exposes equivalent offline operations as
 `thingd-server --compact <path>` and
 `thingd-server --repack <source> --destination <path>`. Both forms require
 exclusive access. Compaction reduces physical journal pressure; repacking is a

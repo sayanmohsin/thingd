@@ -35,16 +35,6 @@ impl AppError {
         }
     }
 
-    pub fn unavailable(detail: impl Into<String>) -> Self {
-        Self {
-            status: StatusCode::SERVICE_UNAVAILABLE,
-            title: "Service Unavailable",
-            detail: detail.into(),
-            error_type: "service_unavailable",
-            retry_after: None,
-        }
-    }
-
     pub fn bad_request(detail: impl Into<String>) -> Self {
         Self {
             status: StatusCode::BAD_REQUEST,

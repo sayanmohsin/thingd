@@ -1,8 +1,8 @@
 # MCP Tools Reference
 
-The Node SDK/stdio MCP server exposes 51 SDK tools, including 10 SDK-level scheduler tools. The Rust sidecar exposes 41 engine tools; scheduler tools are not part of the sidecar surface.
+The Node SDK/stdio MCP server exposes 49 SDK tools, including 10 SDK-level scheduler tools. The Rust sidecar exposes 39 engine tools; scheduler tools are not part of the sidecar surface.
 
-**Tool count:** 51 Node SDK tools (36 read-only, 15 write — 4 of which are destructive); the Rust sidecar exposes 41 core tools.
+**Tool count:** 49 Node SDK tools (36 read-only, 13 write — 4 of which are destructive); the Rust sidecar exposes 39 core tools.
 
 ## Encrypted storage and MCP
 
@@ -236,16 +236,6 @@ Claim the next ready job from a queue. Job is leased for `leaseMs` (default 30s)
 
 **Returns:** `QueueJob | null`
 
-### `thing_queue_claim_batch`
-
-Lease up to 1000 ready jobs in a single atomic storage batch. Jobs remain leased for independent processing and must later be acked or nacked.
-
-```json
-{ "queue": "email-queue", "limit": 64, "leaseMs": 30000 }
-```
-
-`limit` defaults to 100. Returns an array containing up to that many leased jobs.
-
 ---
 
 ### `thing_queue_ack`
@@ -257,16 +247,6 @@ Mark a leased job as completed. Emits audit event `queue.ack`.
 ```
 
 **Returns:** `QueueJobResult` — `{ ok: true, job }` or `{ ok: false, reason }`
-
-### `thing_queue_ack_batch`
-
-Atomically complete up to 1000 leased jobs. IDs must be unique and every job must currently be leased; invalid input fails the batch without completing any jobs.
-
-```json
-{ "queue": "email-queue", "ids": ["job-1", "job-2"] }
-```
-
-Returns the completed jobs in input order.
 
 ---
 
