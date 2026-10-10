@@ -21,8 +21,8 @@ crate-type = ["cdylib"]
 path = "native/src/lib.rs"
 
 [dependencies]
-thingd = { path = "../../crates/thingd", version = "0.91", default-features = false } # x-release-please-version
-thingd-schema = { path = "../../crates/thingd-schema", version = "0.91" }
+thingd = { path = "../../crates/thingd", version = "0.92", default-features = false } # x-release-please-version
+thingd-schema = { path = "../../crates/thingd-schema", version = "0.92" }
 napi = { version = "3.12.7", default-features = false, features = ["napi4"] }
 napi-derive = "3.6.8"
 serde = { version = "1.0.229", features = ["derive"] }
