@@ -362,7 +362,12 @@ jobs:
             echo "thingd ${VERSION} already exists; package validation passed without a duplicate dry run"
             cargo package --allow-dirty -p thingd --features persistent,search
           else
-            cargo publish --dry-run --allow-dirty -p thingd --features persistent,search
+            # ThingDB is published immediately before Thingd, so it is not yet
+            # guaranteed to be available in the crates.io index during preflight.
+            # Resolve that exact release against this checkout while validating;
+            # the prepared package manifest still contains the registry version.
+            cargo publish --dry-run --allow-dirty -p thingd --features persistent,search \
+              --config 'patch.crates-io.thingdb.path="crates/thingdb"'
           fi
 
   release-preflight:

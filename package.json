@@ -16,7 +16,7 @@
     "check:comparable-benchmark": "node scripts/check-comparable-benchmark.mjs",
     "test:comparable-benchmark": "node --test scripts/check-comparable-benchmark.test.mjs",
     "check": "biome check .",
-    "check:actions": "node scripts/check-actions.mjs",
+    "check:actions": "node scripts/check-actions.mjs && node scripts/check-cargo-release-preflight.mjs",
     "check:native-toolchain": "node scripts/check-native-toolchain.mjs",
     "check:nice-code": "node scripts/check-nice-code.mjs",
     "check:docs": "node scripts/check-docs.mjs && node scripts/check-public-storage-names.mjs && node scripts/check-public-doc-boundary.mjs",
