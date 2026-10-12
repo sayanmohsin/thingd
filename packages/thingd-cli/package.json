@@ -45,7 +45,7 @@
     "@thingd/client": "workspace:^",
     "@thingd/sdk": "workspace:^",
     "picocolors": "^1.1.1",
-    "zod": "^4.6.5"
+    "zod": "^4.6.6"
   },
   "scripts": {
     "build": "pnpm --filter frontend build && tsc -p tsconfig.json && node -e \"fs.mkdirSync('dist/dashboard', { recursive: true }); fs.cpSync('src/dashboard/public', 'dist/dashboard/public', { recursive: true })\"",

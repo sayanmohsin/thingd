@@ -1,2 +1,4 @@
+overrides:
+  vite: 6.4.4
 allowBuilds:
   esbuild: true
