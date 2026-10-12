@@ -31,7 +31,7 @@ backends, search, and vectors are enabled. Applications embedding this crate
 can choose a smaller backend set explicitly:
 
 ```toml
-thingd-native = { version = "0.91", default-features = false, features = [
+thingd-native = { version = "0.92", default-features = false, features = [
   "thingdb-backend",
   "search",
   "vectors",

@@ -135,8 +135,8 @@ Checklist of files to audit:
 
 When `[workspace.package].version` bumps in `Cargo.toml`, path deps with exact version specs must follow:
 ```
-crates/thingd-server/Cargo.toml: thingd = { path = "../thingd", version = "0.48" }
-packages/thingd-native/Cargo.toml: thingd = { path = "../../crates/thingd", version = "0.48" }
+crates/thingd-server/Cargo.toml: thingd = { path = "../thingd", version = "0.92" }
+packages/thingd-native/Cargo.toml: thingd = { path = "../../crates/thingd", version = "0.92" }
 ```
 Search with `rg 'version = "0\.xx"' crates/ packages/` after every version bump.
 

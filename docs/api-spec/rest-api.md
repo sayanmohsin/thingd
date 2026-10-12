@@ -728,6 +728,10 @@ curl "http://localhost:8757/v1/events?stream=audit&limit=10"
 | `maxAttempts` | no | Max attempts before dead-letter (default: 3) |
 | `delayMs` | no | Delay before job becomes claimable |
 
+`idempotencyKey` must contain 1–256 UTF-8 bytes when supplied. The key is
+scoped to its queue; repeating it returns the original job and does not enqueue
+a second job. `delayMs` is applied when the job is first created.
+
 ```bash
 curl -X POST http://localhost:8757/v1/queues/email-queue/push \
   -H "Content-Type: application/json" \

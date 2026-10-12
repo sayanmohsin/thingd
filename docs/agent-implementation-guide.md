@@ -118,6 +118,21 @@ Use `pnpm bench:rust` when storage performance changes. Read
 claims. Benchmark runs do not update docs automatically; baseline updates are
 intentional documentation edits.
 
+## Dependency maintenance
+
+Keep dependency manifests and lockfiles in sync across the Rust workspace,
+pnpm workspace, examples, and docs workspace. Preserve workspace protocol
+references for local packages and update every supported example when a shared
+toolchain dependency changes. Review major-version migration notes before
+updating compiler or runtime tooling.
+
+After an upgrade, run the focused workspace checks plus the affected package
+builds and tests. Run `pnpm check:docs` and build the VitePress site when docs
+tooling changes. Review advisory output separately from build results and
+record any unresolved transitive advisory with its upstream constraint. Do not
+describe an engine/API release upgrade as a dependency-only refresh; update the
+API spec, changelog, and user-facing guides when public behavior changes.
+
 ## Basic Node.js Pattern
 
 ```ts
