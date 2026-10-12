@@ -1494,12 +1494,22 @@ pub async fn push_job(
         .get("maxAttempts")
         .and_then(|v| v.as_u64())
         .unwrap_or(3) as u32;
-    let job = QueueJob::new(
-        &queue,
-        uuid::Uuid::new_v4().to_string(),
-        payload.to_string(),
-        max_at,
-    );
+    let idempotency_key = match body.get("idempotencyKey") {
+        None => None,
+        Some(Value::String(key)) if !key.is_empty() && key.len() <= 256 => Some(key.as_str()),
+        Some(_) => {
+            return Err(AppError::bad_request(
+                "idempotencyKey must contain 1 to 256 UTF-8 bytes",
+            ));
+        },
+    };
+    let job_id = idempotency_key
+        .map(str::to_string)
+        .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+    let mut job = QueueJob::new(&queue, job_id, payload.to_string(), max_at);
+    if let Some(delay_ms) = body.get("delayMs").and_then(Value::as_u64) {
+        job = job.delay_by_ms(delay_ms);
+    }
     let e = get_engine(&state, &headers)?;
     let mut g = e.lock();
     ok(g.push_job(job)
@@ -3362,6 +3372,86 @@ mod tests {
             first_value["data"]["sequence"],
             second_value["data"]["sequence"]
         );
+    }
+
+    #[tokio::test]
+    async fn test_queue_push_idempotency_key_is_replayable() {
+        let (state, config) = test_state_and_config();
+        let app = crate::server::build_router(state, &config);
+        let body = r#"{"payload":{"task":"send"},"maxAttempts":3,"idempotencyKey":"queue-job-1"}"#;
+        let request = || {
+            Request::builder()
+                .method("POST")
+                .uri("/v1/queues/email/push")
+                .header("content-type", "application/json")
+                .body(Body::from(body))
+                .unwrap()
+        };
+
+        let first = app.clone().oneshot(request()).await.unwrap();
+        let first_body = first.into_body().collect().await.unwrap().to_bytes();
+        let first_value: Value = serde_json::from_slice(&first_body).unwrap();
+        let second = app.oneshot(request()).await.unwrap();
+        let second_body = second.into_body().collect().await.unwrap().to_bytes();
+        let second_value: Value = serde_json::from_slice(&second_body).unwrap();
+        assert_eq!(first_value["data"]["id"], "queue-job-1");
+        assert_eq!(first_value["data"]["id"], second_value["data"]["id"]);
+    }
+
+    #[tokio::test]
+    async fn test_queue_push_rejects_oversized_idempotency_keys() {
+        let (state, config) = test_state_and_config();
+        let app = crate::server::build_router(state, &config);
+        let key = "k".repeat(257);
+        let body = serde_json::json!({"payload": {}, "idempotencyKey": key}).to_string();
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/queues/email/push")
+                    .header("content-type", "application/json")
+                    .body(Body::from(body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn test_queue_push_rejects_non_string_idempotency_key() {
+        let (state, config) = test_state_and_config();
+        let app = crate::server::build_router(state, &config);
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/queues/email/push")
+                    .header("content-type", "application/json")
+                    .body(Body::from(r#"{"payload":{},"idempotencyKey":123}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn test_queue_push_rejects_empty_idempotency_key() {
+        let (state, config) = test_state_and_config();
+        let app = crate::server::build_router(state, &config);
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/queues/email/push")
+                    .header("content-type", "application/json")
+                    .body(Body::from(r#"{"payload":{},"idempotencyKey":""}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     }
 
     #[tokio::test]
