@@ -28,7 +28,7 @@ tower = { version = "0.5", features = ["buffer", "limit", "timeout", "util"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 uuid = { version = "1", features = ["v4", "v5"] }
-parking_lot = "0.13.0"
+parking_lot = "0.12.5"
 reqwest = { version = "0.13", default-features = false, features = ["json", "rustls"] }
 jsonwebtoken = { version = "11", features = ["aws_lc_rs"] }
 
