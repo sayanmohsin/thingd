@@ -8,8 +8,13 @@
     "build": "vitepress build",
     "preview": "vitepress preview"
   },
+  "pnpm": {
+    "overrides": {
+      "vite": "^6.4.5"
+    }
+  },
   "dependencies": {
-    "vue": "^3.5.43"
+    "vue": "^3.5.45"
   },
   "devDependencies": {
     "vitepress": "^1.6.4"

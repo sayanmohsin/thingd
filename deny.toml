@@ -49,6 +49,12 @@ skip = [
     # Rustls uses Ring's untrusted 0.9 while AWS-LC-RS retains untrusted 0.7;
     # the two crypto backends cannot currently share this dependency version.
     { name = "untrusted", version = "0.7" },
+    # Tantivy 0.27 depends on rand 0.9 while SQLx 0.9 depends on rand 0.10;
+    # their incompatible major-version APIs also require matching rand_core and
+    # getrandom platform crates.
+    { name = "rand", version = "0.9" },
+    { name = "rand_core", version = "0.9" },
+    { name = "r-efi", version = "5" },
 ]
 
 [sources]
