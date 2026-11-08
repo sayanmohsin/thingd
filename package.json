@@ -65,7 +65,7 @@
     "verify:pr": "pnpm check:cargo-versions && pnpm check && pnpm check:docs && pnpm verify:rust && pnpm build:node && pnpm test:node:built && pnpm test:package:built && pnpm test:cli:built"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.6.5",
+    "@biomejs/biome": "2.6.6",
     "@modelcontextprotocol/sdk": "^1.32.2",
     "@sayanmohsin/nice-code": "0.3.2",
     "@thingd/native": "file:packages/thingd-native",
