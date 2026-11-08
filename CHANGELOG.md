@@ -13,6 +13,14 @@
 - server: harden security boundaries (0961ffe)
 - complete public SDK type exports (8a8889a)
 
+## [0.92.3](https://github.com/sayanmohsin/thingd/compare/thingd-v0.92.2...thingd-v0.92.3) (2026-10-12)
+
+
+### Bug Fixes
+
+* honor REST queue push idempotency keys ([5c59a33](https://github.com/sayanmohsin/thingd/commit/5c59a33af34e6b9430a73d86d0694d8d7105685b))
+* validate REST queue idempotency keys ([2a25688](https://github.com/sayanmohsin/thingd/commit/2a2568834927a30b8731a66f087611d83d229003))
+
 ## [0.92.2](https://github.com/sayanmohsin/thingd/compare/thingd-v0.92.1...thingd-v0.92.2) (2026-10-11)
 
 
