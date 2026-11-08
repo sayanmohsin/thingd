@@ -13,6 +13,13 @@
 - server: harden security boundaries (0961ffe)
 - complete public SDK type exports (8a8889a)
 
+## [0.92.4](https://github.com/sayanmohsin/thingd/compare/thingd-v0.92.3...thingd-v0.92.4) (2026-11-08)
+
+
+### Bug Fixes
+
+* align dependency graph with cargo-deny ([e88dd22](https://github.com/sayanmohsin/thingd/commit/e88dd22bd632023b0ed25dbfc5adb3475763ef62))
+
 ## [0.92.3](https://github.com/sayanmohsin/thingd/compare/thingd-v0.92.2...thingd-v0.92.3) (2026-10-12)
 
 
