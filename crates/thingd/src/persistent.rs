@@ -139,6 +139,7 @@ impl Drop for PersistentEngine {
             let search_queue = self.search_queue.clone();
             self.stop_search_worker();
             if !self.db.is_in_memory()
+                && self.path.is_dir()
                 && search_queue.as_ref().is_some_and(|queue| {
                     let state = queue.snapshot();
                     state.stale || state.in_flight || queue.depth() > 0
@@ -312,9 +313,6 @@ impl SearchMutationQueue {
                 return Vec::new();
             };
             state = next;
-            if self.shutdown.load(Ordering::Acquire) {
-                return Vec::new();
-            }
             if state.stale {
                 return Vec::new();
             }
