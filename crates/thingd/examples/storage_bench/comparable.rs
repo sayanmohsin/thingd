@@ -132,7 +132,7 @@ impl RawStore {
                     connection.query_row("SELECT sqlite_version()", [], |row| row.get(0))?;
                 Ok(Self {
                     driver: driver.to_string(),
-                    version: format!("SQLite {version}; rusqlite 0.40.2"),
+                    version: format!("SQLite {version}; rusqlite 0.41.1"),
                     durability: "SQLite :memory:; no persistent journal".to_string(),
                     topology: "in-process single connection".to_string(),
                     namespace: namespace.to_string(),
@@ -165,7 +165,7 @@ impl RawStore {
                     connection.query_row("SELECT sqlite_version()", [], |row| row.get(0))?;
                 Ok(Self {
                     driver: driver.to_string(),
-                    version: format!("SQLite {version}; rusqlite 0.40.2"),
+                    version: format!("SQLite {version}; rusqlite 0.41.1"),
                     durability: "WAL; synchronous=FULL; autocommit per single write".to_string(),
                     topology: "in-process single connection".to_string(),
                     namespace: namespace.to_string(),
