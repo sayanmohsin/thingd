@@ -12,7 +12,9 @@ on:
         type: string
 
 concurrency:
-  group: release
+  # Keep standard releases serialized, but let a version-specific manual
+  # retry recover when an older release run is stuck in GitHub's queue.
+  group: ${{ inputs.publish_version != '' && format('release-retry-{0}', inputs.publish_version) || 'release' }}
   cancel-in-progress: false
 
 permissions:
@@ -150,11 +152,11 @@ jobs:
             platform: linux
             arch: arm64
             rust_target: ""
-          - os: macos-14
+          - os: macos-15
             platform: darwin
             arch: arm64
             rust_target: ""
-          - os: macos-14
+          - os: macos-15-intel
             platform: darwin
             arch: x64
             rust_target: x86_64-apple-darwin
