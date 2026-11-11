@@ -13,6 +13,13 @@
 - server: harden security boundaries (0961ffe)
 - complete public SDK type exports (8a8889a)
 
+## [0.92.5](https://github.com/sayanmohsin/thingd/compare/thingd-v0.92.4...thingd-v0.92.5) (2026-11-11)
+
+
+### Bug Fixes
+
+* update bundled sqlite for security advisory ([#273](https://github.com/sayanmohsin/thingd/issues/273)) ([4e8e54d](https://github.com/sayanmohsin/thingd/commit/4e8e54d8b78725ba2179412809a286be814d795b))
+
 ## [0.92.4](https://github.com/sayanmohsin/thingd/compare/thingd-v0.92.3...thingd-v0.92.4) (2026-11-08)
 
 
