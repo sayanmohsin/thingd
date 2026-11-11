@@ -13,6 +13,15 @@
 - server: harden security boundaries (0961ffe)
 - complete public SDK type exports (8a8889a)
 
+## [0.92.7](https://github.com/sayanmohsin/thingd/compare/thingd-v0.92.6...thingd-v0.92.7) (2026-11-11)
+
+
+### Bug Fixes
+
+* **ci:** build client and recover stale search index ([#279](https://github.com/sayanmohsin/thingd/issues/279)) ([6b300e2](https://github.com/sayanmohsin/thingd/commit/6b300e2125791da7007c789aede461d329965f3a))
+* **release:** recover macOS release retries ([8cbb79b](https://github.com/sayanmohsin/thingd/commit/8cbb79b89ee8a4e78b270402dab1f814576ebf26))
+* **release:** recover macOS release retries ([#277](https://github.com/sayanmohsin/thingd/issues/277)) ([63e6533](https://github.com/sayanmohsin/thingd/commit/63e653388d01ac0de4cc08dc599aeebfc200378b))
+
 ## [0.92.6](https://github.com/sayanmohsin/thingd/compare/thingd-v0.92.5...thingd-v0.92.6) (2026-11-11)
 
 
