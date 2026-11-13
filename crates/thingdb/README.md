@@ -7,6 +7,19 @@ with atomic batches, snapshots, and ordered prefix/range scans. It is intended
 for Rust applications that need an embedded key/value engine—not a SQL server
 or a full application-level object database.
 
+## Install
+
+Add the crate to a Rust project:
+
+```sh
+cargo add thingdb
+```
+
+ThingDB is published independently as a Rust crate. It does not require Thingd,
+RocksDB, a server process, or a C++ toolchain.
+
+## In-memory usage
+
 ```rust
 use thingdb::{Database, KeyspaceCreateOptions};
 
@@ -17,13 +30,31 @@ assert_eq!(users.get(b"alice")?, Some(br#"{"active":true}"#.to_vec()));
 # Ok::<(), thingdb::Error>(())
 ```
 
-ThingDB has two storage modes. `:memory:` opens ordered process-local RAM
-storage: it performs no filesystem I/O and loses all data when the process
-exits. A filesystem path opens the experimental durable mode, which uses a
-checksummed WAL, recoverable manifests, and immutable ordered tables.
-Successful durable writes cross the WAL sync boundary before acknowledgement.
-The durable format is not compatible with RocksDB files, and no durable
-file-format stability promise is made before ThingDB 1.0.
+## Durable usage
+
+Pass a filesystem path to open the experimental durable mode:
+
+```rust
+use thingdb::{Database, KeyspaceCreateOptions, PersistMode};
+
+let db = Database::open("./data")?;
+let users = db.keyspace("users", KeyspaceCreateOptions::default)?;
+users.insert(b"alice", br#"{"active":true}"#)?;
+db.persist(PersistMode::SyncAll)?;
+# Ok::<(), thingdb::Error>(())
+```
+
+Successful durable writes sync their WAL data before acknowledging success.
+ThingDB supports atomic batches across keyspaces, consistent snapshots, and
+ordered iteration, prefix, and range scans. Values are opaque bytes; ThingDB
+does not parse JSON or provide SQL queries.
+
+`:memory:` opens process-local RAM storage, performs no filesystem I/O, and
+loses all data when the process exits. Durable ThingDB uses a checksummed WAL,
+recoverable manifests, and immutable ordered tables. Its file format is not
+compatible with RocksDB, and no durable format stability promise is made before
+ThingDB 1.0. Keep independent backups and do not use it as the only copy of
+important data.
 
 `MemoryCache` is a separate bounded, process-local cache with TTL and LRU
 eviction. It is not a durable database and does not change Thingd's backend
