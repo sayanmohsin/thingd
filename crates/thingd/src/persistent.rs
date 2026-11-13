@@ -1378,7 +1378,7 @@ impl PersistentEngine {
                 batch.insert(&self.lease_jobs, key, data);
                 *lease_counts.entry(job.queue.clone()).or_insert(0_usize) += 1;
                 *lease_expirations
-                    .entry(job.queue.clone())
+                    .entry(job.queue)
                     .or_default()
                     .entry(expires_at_ms)
                     .or_default() += 1;
@@ -3827,16 +3827,16 @@ impl ObjectStore for PersistentEngine {
                 {
                     for (field_name, field_val) in map {
                         let entry = field_types
-                            .entry(field_name.clone())
+                            .entry(field_name)
                             .or_insert_with(|| ("unknown".into(), false, Vec::new()));
                         let t = infer_json_type(&field_val);
                         if entry.0 == "unknown" {
-                            entry.0 = t.clone();
+                            entry.0 = t;
                         } else if entry.0 != t {
                             entry.0 = "string".into();
                         }
                         if !field_val.is_null() && entry.2.len() < 3 {
-                            entry.2.push(field_val.clone());
+                            entry.2.push(field_val);
                         }
                     }
                 }
@@ -5733,7 +5733,7 @@ impl PersistentEngine {
                     id: seq.to_string(),
                     text: body.clone(),
                     score: score.into(),
-                    body: body.clone(),
+                    body,
                     version: None,
                     created_at: event.created_at,
                     updated_at: None,
@@ -5791,7 +5791,7 @@ impl PersistentEngine {
                     body: object.body.clone(),
                     version: Some(object.version),
                     created_at: object.created_at.clone(),
-                    updated_at: Some(object.updated_at.clone()),
+                    updated_at: Some(object.updated_at),
                     event_type: None,
                 });
             }
@@ -5830,7 +5830,7 @@ impl PersistentEngine {
                     version: None,
                     created_at: event.created_at.clone(),
                     updated_at: None,
-                    event_type: Some(event.event_type.clone()),
+                    event_type: Some(event.event_type),
                 });
             }
         }
@@ -6434,7 +6434,7 @@ impl crate::store::VectorStore for PersistentEngine {
 
                 let score = crate::cosine_similarity(query_vector, &vector);
                 hits.push(VectorSearchHit {
-                    id: id.clone(),
+                    id,
                     score,
                     value: object,
                 });
