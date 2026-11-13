@@ -15,6 +15,7 @@ on:
       - "biome.json"
       - "tsconfig*.json"
       - "crates/**"
+      - "bindings/**"
       - "packages/**"
       - "scripts/**"
       - "examples/**"
@@ -122,15 +123,33 @@ jobs:
       - name: Check formatting
         run: cargo fmt --all --check
       - name: Test standalone crate
-        run: cargo test -p thingdb --all-targets
+        run: cargo test -p thingdb -p thingdb-ffi -p thingdb-node --all-targets
       - name: Lint standalone crate
-        run: cargo clippy -p thingdb --all-targets -- -D warnings
+        run: cargo clippy -p thingdb -p thingdb-ffi -p thingdb-node --all-targets -- -D warnings
       - name: Build standalone rustdoc
         env:
           RUSTDOCFLAGS: -D warnings
         run: cargo doc -p thingdb --all-features --no-deps
       - name: Package and run an independent consumer
         run: node scripts/test-thingdb-package.mjs
+      - name: Build and smoke-test standalone Node package
+        run: node scripts/test-thingdb-node.mjs
+      - name: Check standalone Node TypeScript declarations
+        run: pnpm test:thingdb-types
+      - name: Check C ABI header and Go binding
+        run: node scripts/check-thingdb-bindings.mjs
+      - name: Build ThingDB C ABI library
+        run: cargo build --release -p thingdb-ffi
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: bindings/go/go.mod
+          cache-dependency-path: bindings/go/go.mod
+      - name: Test Go binding
+        working-directory: bindings/go
+        env:
+          LD_LIBRARY_PATH: ${{ github.workspace }}/target/release
+          CGO_LDFLAGS: -L${{ github.workspace }}/target/release
+        run: go test ./...
 
   # ── Rust runtime: fmt + clippy + test (parallel to node) ─
   rust:

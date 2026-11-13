@@ -1,10 +1,9 @@
-//! Experimental Rust-native durable ordered key-value storage for Thingd.
+//! Embedded, ordered byte key-value storage that can be used independently of Thingd.
 //!
 //! The initial format is intentionally small and conservative: a checksummed
 //! write-ahead log provides crash recovery, while immutable sorted table
-//! snapshots bound WAL growth. The API is shaped around Thingd's keyspace,
-//! batch, prefix, and range needs so it can later be extracted as a standalone
-//! database without coupling the file format to the public Thingd API.
+//! snapshots bound WAL growth. The durable file format remains experimental
+//! until ThingDB 1.0; users should retain independent backups before then.
 
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]

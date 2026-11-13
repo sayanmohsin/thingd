@@ -2,6 +2,8 @@
 members = [
     "crates/thingd",
     "crates/thingdb",
+    "packages/thingdb-node",
+    "bindings/thingdb-ffi",
     "crates/thingd-schema",
     "crates/thingd-server",
     "packages/thingd-native",

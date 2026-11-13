@@ -1,0 +1,36 @@
+{
+  "name": "@thingd/thingdb",
+  "version": "0.92.9",
+  "description": "Embedded byte key-value database for Node.js, backed by ThingDB.",
+  "type": "module",
+  "publishConfig": {
+    "access": "public"
+  },
+  "homepage": "https://engine.thingd.cloud/api-spec/thingdb",
+  "author": "Sayan Mohsin",
+  "license": "Apache-2.0",
+  "keywords": [
+    "thingdb",
+    "embedded",
+    "key-value",
+    "database",
+    "napi-rs"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sayanmohsin/thingd.git"
+  },
+  "main": "./index.js",
+  "types": "./index.d.ts",
+  "files": [
+    "prebuilds",
+    "index.js",
+    "index.d.ts",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "node scripts/build-native.mjs",
+    "build:prebuild": "node scripts/copy-prebuild.mjs",
+    "prepack": "node scripts/validate-package.mjs"
+  }
+}

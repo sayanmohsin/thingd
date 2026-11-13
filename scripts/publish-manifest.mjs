@@ -13,6 +13,7 @@ export const publishPackages = [
     dependencies: { "@thingd/sdk": "dependencies", "@thingd/client": "dependencies" },
   },
   { name: "@thingd/native", path: "packages/thingd-native", dependencies: {} },
+  { name: "@thingd/thingdb", path: "packages/thingdb-node", dependencies: {} },
   { name: "@thingd/client", path: "packages/thingd-client", dependencies: {} },
 ];
 

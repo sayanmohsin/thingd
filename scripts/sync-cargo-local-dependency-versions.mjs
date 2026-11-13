@@ -27,6 +27,7 @@ async function cargoManifests(directory) {
 const manifests = [
   ...(await cargoManifests("crates")),
   ...(await cargoManifests("packages")),
+  ...(await cargoManifests("bindings")),
 ];
 const stale = [];
 
