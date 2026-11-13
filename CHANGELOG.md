@@ -13,6 +13,14 @@
 - server: harden security boundaries (0961ffe)
 - complete public SDK type exports (8a8889a)
 
+## [0.92.8](https://github.com/sayanmohsin/thingd/compare/thingd-v0.92.7...thingd-v0.92.8) (2026-11-13)
+
+
+### Bug Fixes
+
+* **thingdb:** prepare standalone crate for release ([#281](https://github.com/sayanmohsin/thingd/issues/281)) ([333f832](https://github.com/sayanmohsin/thingd/commit/333f832e738586a210b6890e2f53670ff0cab2bf))
+* **thingdb:** remove redundant clone ([127293c](https://github.com/sayanmohsin/thingd/commit/127293c983605f0411141ec52759c799b35dbf67))
+
 ## [0.92.7](https://github.com/sayanmohsin/thingd/compare/thingd-v0.92.6...thingd-v0.92.7) (2026-11-11)
 
 
