@@ -136,7 +136,24 @@ impl Drop for PersistentEngine {
     fn drop(&mut self) {
         #[cfg(feature = "search")]
         {
+            let search_queue = self.search_queue.clone();
             self.stop_search_worker();
+            if !self.db.is_in_memory()
+                && self.path.is_dir()
+                && search_queue.as_ref().is_some_and(|queue| {
+                    let state = queue.snapshot();
+                    state.stale || state.in_flight || queue.depth() > 0
+                })
+                && let Err(error) = std::fs::write(
+                    self.path.join(".thingd-search-rebuild"),
+                    b"search index requires rebuild after an incomplete queue drain\n",
+                )
+            {
+                eprintln!(
+                    "failed to mark stale search index at {} for rebuild: {error}",
+                    self.path.display()
+                );
+            }
             // The worker normally drains the queue during shutdown. Commit
             // once more after it joins so a final derived-index mutation is
             // never left buffered when the primary store is reopened.
@@ -296,9 +313,6 @@ impl SearchMutationQueue {
                 return Vec::new();
             };
             state = next;
-            if self.shutdown.load(Ordering::Acquire) {
-                return Vec::new();
-            }
             if state.stale {
                 return Vec::new();
             }
@@ -1334,6 +1348,9 @@ impl PersistentEngine {
             engine.commit_search_index();
             engine.search_rebuild_required = false;
             engine.maintenance.state = "idle".to_string();
+            if !in_memory {
+                let _ = std::fs::remove_file(path.join(".thingd-search-rebuild"));
+            }
         }
 
         #[cfg(feature = "search")]
@@ -1361,7 +1378,7 @@ impl PersistentEngine {
                 batch.insert(&self.lease_jobs, key, data);
                 *lease_counts.entry(job.queue.clone()).or_insert(0_usize) += 1;
                 *lease_expirations
-                    .entry(job.queue.clone())
+                    .entry(job.queue)
                     .or_default()
                     .entry(expires_at_ms)
                     .or_default() += 1;
@@ -2228,11 +2245,16 @@ impl PersistentEngine {
     ) -> ThingdResult<(Option<tantivy::Index>, bool)> {
         let search_dir = path.join("search");
         let marker_path = path.join(".thingd-search-rebuild");
+        let rebuild_marker_present = marker_path.exists();
 
-        if marker_path.exists() && !rebuild_incompatible {
+        if rebuild_marker_present && !rebuild_incompatible {
             return Ok((None, true));
         }
-        if rebuild_incompatible {
+        if rebuild_marker_present && rebuild_incompatible && search_dir.exists() {
+            std::fs::remove_dir_all(&search_dir).map_err(|error| {
+                ThingdError::Storage(format!("discard stale search index: {error}"))
+            })?;
+        } else if rebuild_incompatible && !rebuild_marker_present {
             let _ = std::fs::remove_file(&marker_path);
         }
 
@@ -3805,16 +3827,16 @@ impl ObjectStore for PersistentEngine {
                 {
                     for (field_name, field_val) in map {
                         let entry = field_types
-                            .entry(field_name.clone())
+                            .entry(field_name)
                             .or_insert_with(|| ("unknown".into(), false, Vec::new()));
                         let t = infer_json_type(&field_val);
                         if entry.0 == "unknown" {
-                            entry.0 = t.clone();
+                            entry.0 = t;
                         } else if entry.0 != t {
                             entry.0 = "string".into();
                         }
                         if !field_val.is_null() && entry.2.len() < 3 {
-                            entry.2.push(field_val.clone());
+                            entry.2.push(field_val);
                         }
                     }
                 }
@@ -5711,7 +5733,7 @@ impl PersistentEngine {
                     id: seq.to_string(),
                     text: body.clone(),
                     score: score.into(),
-                    body: body.clone(),
+                    body,
                     version: None,
                     created_at: event.created_at,
                     updated_at: None,
@@ -5769,7 +5791,7 @@ impl PersistentEngine {
                     body: object.body.clone(),
                     version: Some(object.version),
                     created_at: object.created_at.clone(),
-                    updated_at: Some(object.updated_at.clone()),
+                    updated_at: Some(object.updated_at),
                     event_type: None,
                 });
             }
@@ -5808,7 +5830,7 @@ impl PersistentEngine {
                     version: None,
                     created_at: event.created_at.clone(),
                     updated_at: None,
-                    event_type: Some(event.event_type.clone()),
+                    event_type: Some(event.event_type),
                 });
             }
         }
@@ -6412,7 +6434,7 @@ impl crate::store::VectorStore for PersistentEngine {
 
                 let score = crate::cosine_similarity(query_vector, &vector);
                 hits.push(VectorSearchHit {
-                    id: id.clone(),
+                    id,
                     score,
                     value: object,
                 });
@@ -7019,6 +7041,38 @@ mod tests {
             reopened.storage_maintenance_status().state,
             "rebuilding_search"
         );
+    }
+
+    #[cfg(feature = "search")]
+    #[test]
+    fn stale_search_queue_is_rebuilt_on_next_persistent_open() {
+        let dir = tempfile::tempdir().unwrap();
+        {
+            let mut engine = PersistentEngine::open(dir.path()).unwrap();
+            engine
+                .put_object(MemoryObject::new(
+                    "notes",
+                    "one",
+                    r#"{"text":"search survives queue recovery"}"#,
+                ))
+                .unwrap();
+            engine
+                .search_queue
+                .as_ref()
+                .unwrap()
+                .record_error("simulate an incomplete search-index flush".to_string());
+        }
+
+        assert!(dir.path().join(".thingd-search-rebuild").exists());
+        let reopened = PersistentEngine::open(dir.path()).unwrap();
+        assert_eq!(
+            reopened
+                .search("survives", SearchOptions::default())
+                .unwrap()
+                .len(),
+            1
+        );
+        assert!(!dir.path().join(".thingd-search-rebuild").exists());
     }
 
     #[test]

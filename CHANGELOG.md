@@ -13,6 +13,37 @@
 - server: harden security boundaries (0961ffe)
 - complete public SDK type exports (8a8889a)
 
+## [0.92.9](https://github.com/sayanmohsin/thingd/compare/thingd-v0.92.8...thingd-v0.92.9) (2026-11-13)
+
+
+### Bug Fixes
+
+* **thingd:** resolve redundant-clone Clippy errors ([#283](https://github.com/sayanmohsin/thingd/issues/283)) ([c45a681](https://github.com/sayanmohsin/thingd/commit/c45a681e1d86ab42a1d430bf6191e40ecc790676))
+
+## [0.92.8](https://github.com/sayanmohsin/thingd/compare/thingd-v0.92.7...thingd-v0.92.8) (2026-11-13)
+
+
+### Bug Fixes
+
+* **thingdb:** prepare standalone crate for release ([#281](https://github.com/sayanmohsin/thingd/issues/281)) ([333f832](https://github.com/sayanmohsin/thingd/commit/333f832e738586a210b6890e2f53670ff0cab2bf))
+* **thingdb:** remove redundant clone ([127293c](https://github.com/sayanmohsin/thingd/commit/127293c983605f0411141ec52759c799b35dbf67))
+
+## [0.92.7](https://github.com/sayanmohsin/thingd/compare/thingd-v0.92.6...thingd-v0.92.7) (2026-11-11)
+
+
+### Bug Fixes
+
+* **ci:** build client and recover stale search index ([#279](https://github.com/sayanmohsin/thingd/issues/279)) ([6b300e2](https://github.com/sayanmohsin/thingd/commit/6b300e2125791da7007c789aede461d329965f3a))
+* **release:** recover macOS release retries ([8cbb79b](https://github.com/sayanmohsin/thingd/commit/8cbb79b89ee8a4e78b270402dab1f814576ebf26))
+* **release:** recover macOS release retries ([#277](https://github.com/sayanmohsin/thingd/issues/277)) ([63e6533](https://github.com/sayanmohsin/thingd/commit/63e653388d01ac0de4cc08dc599aeebfc200378b))
+
+## [0.92.6](https://github.com/sayanmohsin/thingd/compare/thingd-v0.92.5...thingd-v0.92.6) (2026-11-11)
+
+
+### Bug Fixes
+
+* **deps:** refresh workspace dependencies ([9b0f92c](https://github.com/sayanmohsin/thingd/commit/9b0f92c9af430903a5be587ae256cfe54f3018e8))
+
 ## [0.92.5](https://github.com/sayanmohsin/thingd/compare/thingd-v0.92.4...thingd-v0.92.5) (2026-11-11)
 
 
