@@ -2663,7 +2663,7 @@ impl DatabaseBuilder {
                     table_open_duration_ns.saturating_add(elapsed_nanos(open_started.elapsed()));
                 table_layers.push(TableLayer {
                     file: Arc::new(file),
-                    path: table_path.clone(),
+                    path: table_path,
                     entries: Arc::new(if blocks.is_empty() {
                         OnceLock::from(Arc::new(entries))
                     } else {
