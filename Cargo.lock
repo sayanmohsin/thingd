@@ -3493,6 +3493,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "thingdb-ffi"
+version = "0.92.9"
+dependencies = [
+ "thingdb",
+]
+
+[[package]]
+name = "thingdb-node"
+version = "0.92.9"
+dependencies = [
+ "napi",
+ "napi-build",
+ "napi-derive",
+ "thingdb",
+]
+
+[[package]]
 name = "thiserror"
 version = "2.0.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"

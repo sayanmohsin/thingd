@@ -22,6 +22,11 @@
         },
         {
           "type": "json",
+          "path": "packages/thingdb-node/package.json",
+          "jsonpath": "$.version"
+        },
+        {
+          "type": "json",
           "path": "packages/thingd-client/package.json",
           "jsonpath": "$.version"
         },
@@ -41,6 +46,14 @@
         {
           "type": "generic",
           "path": "packages/thingd-native/Cargo.toml"
+        },
+        {
+          "type": "generic",
+          "path": "packages/thingdb-node/Cargo.toml"
+        },
+        {
+          "type": "generic",
+          "path": "bindings/thingdb-ffi/Cargo.toml"
         },
         {
           "type": "generic",

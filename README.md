@@ -4,6 +4,7 @@
 [![npm downloads (CLI)](https://img.shields.io/npm/dm/@thingd/cli?label=CLI&logo=npm&color=ff6a00)](https://www.npmjs.com/package/@thingd/cli)
 [![Crates.io](https://img.shields.io/crates/v/thingd?label=engine&logo=rust&color=ff6a00)](https://crates.io/crates/thingd)
 [![ThingDB](https://img.shields.io/crates/v/thingdb?label=ThingDB&logo=rust&color=ff6a00)](https://crates.io/crates/thingdb)
+[![ThingDB npm](https://img.shields.io/npm/v/@thingd/thingdb?label=ThingDB%20npm&logo=npm&color=ff6a00)](https://www.npmjs.com/package/@thingd/thingdb)
 [![Docker pulls](https://img.shields.io/docker/pulls/sayanmohsin/thingd?label=Docker&logo=docker&color=ff6a00)](https://hub.docker.com/r/sayanmohsin/thingd)
 [![GitHub stars](https://img.shields.io/github/stars/sayanmohsin/thingd?label=Stars&logo=github&color=ff6a00)](https://github.com/sayanmohsin/thingd)
 

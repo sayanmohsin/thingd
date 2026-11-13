@@ -69,6 +69,10 @@ export default defineConfig({
             link: "https://www.npmjs.com/package/@thingd/sdk",
           },
           {
+            text: "npm (ThingDB)",
+            link: "https://www.npmjs.com/package/@thingd/thingdb",
+          },
+          {
             text: "Docker Hub",
             link: "https://hub.docker.com/r/sayanmohsin/thingd",
           },

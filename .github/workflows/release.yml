@@ -241,6 +241,71 @@ jobs:
           path: packages/thingd-native/prebuilds/
           retention-days: 1
 
+  build-thingdb-node:
+    name: Build ThingDB Node addon (${{ matrix.platform }}-${{ matrix.arch }})
+    needs: release-please
+    if: ${{ needs.release-please.outputs.release_created == 'true' || needs.release-please.outputs.retry == 'true' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux
+            arch: x64
+            rust_target: ""
+          - os: ubuntu-24.04-arm
+            platform: linux
+            arch: arm64
+            rust_target: ""
+          - os: macos-15
+            platform: darwin
+            arch: arm64
+            rust_target: ""
+          - os: macos-15-intel
+            platform: darwin
+            arch: x64
+            rust_target: x86_64-apple-darwin
+          - os: windows-2025
+            platform: win32
+            arch: x64
+            rust_target: ""
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+          ref: ${{ needs.release-please.outputs.tag_name }}
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: thingdb-node-${{ runner.os }}-${{ runner.arch }}-${{ matrix.platform }}-${{ matrix.arch }}-${{ matrix.rust_target || 'native' }}-release
+          key: ${{ hashFiles('**/Cargo.lock', 'packages/thingdb-node/**/*.rs', 'crates/thingdb/**/*.rs') }}
+      - name: Install cross-compilation target
+        if: ${{ matrix.rust_target != '' }}
+        run: rustup target add "${{ matrix.rust_target }}"
+      - name: Build ThingDB Node addon
+        shell: bash
+        env:
+          RUST_TARGET: ${{ matrix.rust_target }}
+        run: |
+          if [ -n "$RUST_TARGET" ]; then
+            cargo build -p thingdb-node --release --target "$RUST_TARGET"
+          else
+            cargo build -p thingdb-node --release
+          fi
+      - name: Copy ThingDB Node prebuild
+        env:
+          NATIVE_PLATFORM: ${{ matrix.platform }}
+          NATIVE_ARCH: ${{ matrix.arch }}
+          NATIVE_TARGET: ${{ matrix.rust_target }}
+        run: node packages/thingdb-node/scripts/copy-prebuild.mjs
+      - uses: actions/upload-artifact@v7
+        with:
+          name: thingdb-prebuild-${{ matrix.platform }}-${{ matrix.arch }}
+          path: packages/thingdb-node/prebuilds/
+          retention-days: 1
+
   build-javascript:
     name: Build JavaScript packages
     needs: release-please
@@ -276,7 +341,7 @@ jobs:
 
   npm-preflight:
     name: Validate npm release artifacts
-    needs: [release-please, build-native, build-javascript]
+    needs: [release-please, build-native, build-thingdb-node, build-javascript]
     if: ${{ needs.release-please.outputs.release_created == 'true' || needs.release-please.outputs.retry == 'true' }}
     runs-on: ubuntu-latest
     steps:
@@ -305,10 +370,16 @@ jobs:
         with:
           path: prebuild-artifacts
           pattern: prebuild-*
+      - uses: actions/download-artifact@v8
+        with:
+          path: thingdb-prebuild-artifacts
+          pattern: thingdb-prebuild-*
       - name: Merge native prebuilds
         run: |
           mkdir -p packages/thingd-native/prebuilds
           for dir in prebuild-artifacts/*/; do [ -d "$dir" ] && cp -r "$dir". packages/thingd-native/prebuilds/; done
+          mkdir -p packages/thingdb-node/prebuilds
+          for dir in thingdb-prebuild-artifacts/*/; do [ -d "$dir" ] && cp -r "$dir". packages/thingdb-node/prebuilds/; done
       - uses: actions/download-artifact@v8
         with:
           name: javascript-builds
@@ -355,6 +426,18 @@ jobs:
           else
             cargo publish --dry-run --allow-dirty -p thingdb
           fi
+      - name: Package and validate ThingDB C ABI crate
+        env:
+          VERSION: ${{ needs.release-please.outputs.version }}
+        run: |
+          cargo package --allow-dirty -p thingdb-ffi
+          test -f "target/package/thingdb-ffi-${VERSION}.crate"
+          if curl -fsS -A "thingd-release/${GITHUB_REPOSITORY} run/${GITHUB_RUN_ID}" "https://crates.io/api/v1/crates/thingdb-ffi/${VERSION}" >/dev/null; then
+            echo "thingdb-ffi ${VERSION} already exists; package validation passed without a duplicate dry run"
+          else
+            cargo publish --dry-run --allow-dirty -p thingdb-ffi \
+              --config 'patch.crates-io.thingdb.path="crates/thingdb"'
+          fi
       - name: Prepare and validate Thingd crate
         env:
           VERSION: ${{ needs.release-please.outputs.version }}
@@ -374,7 +457,7 @@ jobs:
 
   release-preflight:
     name: All artifact build and package validations
-    needs: [release-please, build-native, build-javascript, npm-preflight, docker-validate, crates-preflight]
+    needs: [release-please, build-native, build-thingdb-node, build-javascript, npm-preflight, docker-validate, crates-preflight]
     if: ${{ needs.release-please.outputs.release_created == 'true' || needs.release-please.outputs.retry == 'true' }}
     runs-on: ubuntu-latest
     steps:
@@ -413,10 +496,16 @@ jobs:
         with:
           path: prebuild-artifacts
           pattern: prebuild-*
+      - uses: actions/download-artifact@v8
+        with:
+          path: thingdb-prebuild-artifacts
+          pattern: thingdb-prebuild-*
       - name: Merge native prebuilds
         run: |
           mkdir -p packages/thingd-native/prebuilds
           for dir in prebuild-artifacts/*/; do [ -d "$dir" ] && cp -r "$dir". packages/thingd-native/prebuilds/; done
+          mkdir -p packages/thingdb-node/prebuilds
+          for dir in thingdb-prebuild-artifacts/*/; do [ -d "$dir" ] && cp -r "$dir". packages/thingdb-node/prebuilds/; done
       - uses: actions/download-artifact@v8
         with:
           name: javascript-builds
@@ -440,6 +529,7 @@ jobs:
             case "$PACKAGE" in
               @thingd/sdk) PACKAGE_DIR="packages/thingd" ;;
               @thingd/native) PACKAGE_DIR="packages/thingd-native" ;;
+              @thingd/thingdb) PACKAGE_DIR="packages/thingdb-node" ;;
               @thingd/cli) PACKAGE_DIR="packages/thingd-cli" ;;
               @thingd/client) PACKAGE_DIR="packages/thingd-client" ;;
               *) echo "Unknown package: $PACKAGE" >&2; return 1 ;;
@@ -454,6 +544,7 @@ jobs:
           publish_if_missing @thingd/native
           publish_if_missing @thingd/cli
           publish_if_missing @thingd/client
+          publish_if_missing @thingd/thingdb
       - name: Verify published CLI installation
         env:
           VERSION: ${{ needs.release-please.outputs.version }}
@@ -479,6 +570,36 @@ jobs:
           npm init -y --prefix "$SMOKE_DIR" >/dev/null
           npm install --prefix "$SMOKE_DIR" --prefer-online --no-audit --no-fund "@thingd/cli@$VERSION"
           (cd "$SMOKE_DIR" && node --input-type=module -e "await import('@thingd/cli')")
+      - name: Verify published ThingDB Node package
+        env:
+          VERSION: ${{ needs.release-please.outputs.version }}
+        run: |
+          SMOKE_DIR=$(mktemp -d)
+          trap 'rm -rf "$SMOKE_DIR"' EXIT
+          npm init -y --prefix "$SMOKE_DIR" >/dev/null
+          delay=2
+          for attempt in $(seq 1 8); do
+            if npm view "@thingd/thingdb@$VERSION" version --registry=https://registry.npmjs.org 2>/dev/null | grep -qx "$VERSION"; then
+              break
+            fi
+            if [ "$attempt" -eq 8 ]; then
+              echo "@thingd/thingdb@$VERSION was not visible on npm within the bounded propagation window" >&2
+              exit 1
+            fi
+            sleep "$delay"
+            delay=$(( delay * 2 ))
+            if [ "$delay" -gt 30 ]; then delay=30; fi
+          done
+          npm install --prefix "$SMOKE_DIR" --prefer-online --no-audit --no-fund "@thingd/thingdb@$VERSION"
+          cd "$SMOKE_DIR"
+          node --input-type=module <<'EOF'
+          import assert from 'node:assert/strict';
+          import { ThingDB } from '@thingd/thingdb';
+          const db = new ThingDB(':memory:');
+          const data = db.keyspace('consumer-smoke');
+          await data.put(Buffer.from('key'), Buffer.from('value'));
+          assert.equal(Buffer.from(await data.get(Buffer.from('key'))).toString(), 'value');
+          EOF
       - name: Summarize npm publication timing
         if: ${{ always() }}
         env:
@@ -752,6 +873,28 @@ jobs:
           else
             cargo publish --allow-dirty -p thingdb
           fi
+      - name: Publish ThingDB C ABI if missing
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+          VERSION: ${{ needs.release-please.outputs.version }}
+        run: |
+          if ! curl -fsS -A "thingd-release/${GITHUB_REPOSITORY} run/${GITHUB_RUN_ID}" "https://crates.io/api/v1/crates/thingdb-ffi/${VERSION}" >/dev/null; then
+            delay=2
+            for attempt in $(seq 1 8); do
+              if curl -fsS "https://index.crates.io/th/in/thingdb" | grep -q "\"vers\":\"${VERSION}\""; then
+                break
+              fi
+              if [ "$attempt" -eq 8 ]; then
+                echo "thingdb ${VERSION} was not visible in the crates.io index before publishing thingdb-ffi" >&2
+                exit 1
+              fi
+              sleep "$delay"
+              delay=$(( delay * 2 ))
+            done
+            cargo publish --allow-dirty -p thingdb-ffi
+          else
+            echo "thingdb-ffi ${VERSION} already exists"
+          fi
       - name: Prepare public Cargo manifest
         env:
           VERSION: ${{ needs.release-please.outputs.version }}
@@ -769,9 +912,32 @@ jobs:
             cargo publish --allow-dirty -p thingd --features persistent,search
           fi
 
+  go-module-tag:
+    name: Publish Go module version tag
+    needs: [release-please, release-preflight]
+    if: ${{ needs.release-please.outputs.release_created == 'true' || needs.release-please.outputs.retry == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+          ref: ${{ needs.release-please.outputs.tag_name }}
+      - name: Create nested Go module tag if missing
+        env:
+          VERSION: ${{ needs.release-please.outputs.version }}
+        run: |
+          MODULE_TAG="bindings/go/v${VERSION}"
+          if git ls-remote --exit-code --tags origin "refs/tags/${MODULE_TAG}" >/dev/null 2>&1; then
+            echo "${MODULE_TAG} already exists"
+          else
+            git tag "${MODULE_TAG}" "${{ needs.release-please.outputs.tag_name }}"
+            git push origin "refs/tags/${MODULE_TAG}"
+          fi
+
   release-timing:
     name: Summarize release timing
-    needs: [release-please, publish-npm, docker, crates-publish]
+    needs: [release-please, publish-npm, docker, crates-publish, go-module-tag]
     if: ${{ always() && (needs.release-please.outputs.release_created == 'true' || needs.release-please.outputs.retry == 'true') }}
     runs-on: ubuntu-latest
     steps:

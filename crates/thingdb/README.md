@@ -1,6 +1,6 @@
 # ThingDB
 
-ThingDB is an experimental embedded key-value database written in Rust. It is
+ThingDB is an embedded key-value database written in Rust. It is
 available as the standalone `thingdb` crate and can be used without the
 `thingd` crate. It stores opaque byte keys and values in ordered keyspaces,
 with atomic batches, snapshots, and ordered prefix/range scans. It is intended
@@ -18,6 +18,14 @@ cargo add thingdb
 ThingDB is published independently as a Rust crate. It does not require Thingd,
 RocksDB, a server process, or a C++ toolchain.
 
+The Rust crate is the reference API. JavaScript projects can use
+[`@thingd/thingdb`](https://www.npmjs.com/package/@thingd/thingdb), which
+provides an asynchronous byte-oriented API and does not require Thingd.
+The C ABI is published as [`thingdb-ffi`](https://crates.io/crates/thingdb-ffi)
+and the Go wrapper is available as a versioned nested module; both are
+documented in the repository's [`bindings`](https://github.com/sayanmohsin/thingd/tree/main/bindings)
+directory.
+
 ## In-memory usage
 
 ```rust
@@ -32,7 +40,7 @@ assert_eq!(users.get(b"alice")?, Some(br#"{"active":true}"#.to_vec()));
 
 ## Durable usage
 
-Pass a filesystem path to open the experimental durable mode:
+Pass a filesystem path to open durable mode:
 
 ```rust
 use thingdb::{Database, KeyspaceCreateOptions, PersistMode};
@@ -68,8 +76,11 @@ its own semantic layer. RocksDB remains Thingd's default durable backend;
 durable ThingDB is opt-in and experimental. This integration is one use of
 the database, not a requirement for using the standalone crate.
 
-ThingDB remains experimental and should not be the only copy of important
-data. See the [ThingDB API documentation](https://docs.rs/thingdb), the [ThingDB
+ThingDB's durable file format remains experimental until 1.0 and should not be
+the only copy of important data. The database is thread-safe within one
+process; a durable path can be opened by only one process at a time. Use
+independent backups and export/reimport data when moving between incompatible
+format versions. See the [ThingDB API documentation](https://docs.rs/thingdb), the [ThingDB
 API contract](https://github.com/sayanmohsin/thingd/blob/main/docs/api-spec/thingdb.md),
 the [Thingd storage backend guide](https://github.com/sayanmohsin/thingd/blob/main/docs/storage-backends.md),
 and the [benchmark methodology](https://github.com/sayanmohsin/thingd/blob/main/docs/benchmarks.md).
