@@ -35,7 +35,8 @@ Node reads, writes, deletes, scans, batches, snapshot creation, persistence, and
 compaction are Promise-based. Snapshot lookups and `ThingDB.close()` are
 synchronous. Closing releases the database handle;
 operations after close fail. Key and value inputs accept `Buffer` or
-`Uint8Array`. The first package release supports Linux x64 and
+`Uint8Array`. The package requires Node.js 24 or newer. The first package
+release supports Linux x64 and
 arm64, macOS x64 and arm64, and Windows x64.
 
 The C ABI is available in the published `thingdb-ffi` crate with the public

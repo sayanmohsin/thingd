@@ -39,7 +39,7 @@ pub struct BatchOperation {
     pub delete: Option<bool>,
 }
 
-#[napi(js_name = "ThingDB")]
+#[napi(js_name = "ThingDB", type_tag = "com.thingd.thingdb.database")]
 pub struct ThingDB {
     database: DbHandle,
 }
@@ -133,7 +133,7 @@ impl ThingDB {
     }
 }
 
-#[napi(js_name = "ThingDBKeyspace")]
+#[napi(js_name = "ThingDBKeyspace", type_tag = "com.thingd.thingdb.keyspace")]
 pub struct ThingDBKeyspace {
     database: DbHandle,
     name: String,
@@ -188,7 +188,7 @@ impl ThingDBKeyspace {
     }
 }
 
-#[napi(js_name = "ThingDBSnapshot")]
+#[napi(js_name = "ThingDBSnapshot", type_tag = "com.thingd.thingdb.snapshot")]
 pub struct ThingDBSnapshot {
     snapshot: thingdb::Snapshot,
 }

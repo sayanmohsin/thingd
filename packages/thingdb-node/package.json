@@ -9,6 +9,9 @@
   "homepage": "https://engine.thingd.cloud/api-spec/thingdb",
   "author": "Sayan Mohsin",
   "license": "Apache-2.0",
+  "engines": {
+    "node": ">=24.0.0"
+  },
   "keywords": [
     "thingdb",
     "embedded",

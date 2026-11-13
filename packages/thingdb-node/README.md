@@ -3,6 +3,8 @@
 Standalone embedded ordered byte key/value storage for Node.js. The package
 does not start Thingd or a network service.
 
+Requires Node.js 24 or newer.
+
 ```sh
 npm install @thingd/thingdb
 ```

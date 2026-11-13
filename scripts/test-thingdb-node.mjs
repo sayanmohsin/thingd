@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createRequire } from "node:module";
 import { spawnSync } from "node:child_process";
 import { mkdirSync, copyFileSync, rmSync } from "node:fs";
 import os from "node:os";
@@ -6,6 +7,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 
 const root = process.cwd();
+const require = createRequire(import.meta.url);
 const build = spawnSync("cargo", ["build", "-p", "thingdb-node"], { cwd: root, stdio: "inherit" });
 if (build.status !== 0) {
   process.exit(build.status ?? 1);
@@ -41,6 +43,21 @@ try {
   await db.compact();
   db.close();
   assert.throws(() => db.keyspace("closed"), /closed/);
+
+  const native = require(path.join(packageRoot, "dist/thingdb_node.node"));
+  const nativeDb = new native.ThingDB(path.join(temp, "native-type-check"));
+  const nativeKeyspace = nativeDb.keyspace("users");
+  const nativeSnapshot = await nativeDb.snapshot();
+  assert.throws(() => native.ThingDB.prototype.close.call(nativeKeyspace), /Illegal invocation|ThingDB/);
+  assert.throws(
+    () => native.ThingDBKeyspace.prototype.get.call(nativeDb, Buffer.from("alice")),
+    /Illegal invocation|ThingDBKeyspace/,
+  );
+  assert.throws(
+    () => native.ThingDBSnapshot.prototype.get.call(nativeDb, "users", Buffer.from("alice")),
+    /Illegal invocation|ThingDBSnapshot/,
+  );
+  nativeDb.close();
 } finally {
   rmSync(temp, { recursive: true, force: true });
   rmSync(dist, { recursive: true, force: true });
