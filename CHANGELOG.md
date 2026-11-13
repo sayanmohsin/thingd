@@ -13,6 +13,13 @@
 - server: harden security boundaries (0961ffe)
 - complete public SDK type exports (8a8889a)
 
+## [0.92.9](https://github.com/sayanmohsin/thingd/compare/thingd-v0.92.8...thingd-v0.92.9) (2026-11-13)
+
+
+### Bug Fixes
+
+* **thingd:** resolve redundant-clone Clippy errors ([#283](https://github.com/sayanmohsin/thingd/issues/283)) ([c45a681](https://github.com/sayanmohsin/thingd/commit/c45a681e1d86ab42a1d430bf6191e40ecc790676))
+
 ## [0.92.8](https://github.com/sayanmohsin/thingd/compare/thingd-v0.92.7...thingd-v0.92.8) (2026-11-13)
 
 
