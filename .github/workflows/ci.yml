@@ -156,14 +156,20 @@ jobs:
           fi
           cargo fmt --all --check
           if [[ "${{ github.event_name }}" == "pull_request" ]]; then
-            cargo check --workspace --all-targets --all-features
-            cargo check -p thingd-native
+            # The standalone ThingDB job compiles its tests/examples, and the
+            # focused Thingd test below compiles its test target. Keep this
+            # workspace check to production targets to avoid rebuilding every
+            # test/example target with the full feature union on each PR.
+            started=$SECONDS
+            cargo check --workspace --all-features
+            echo "- PR workspace check: $((SECONDS - started))s" >> "$GITHUB_STEP_SUMMARY"
             native_default_tree="$(cargo tree -p thingd-native -e normal,build)"
             if ! grep -q 'librocksdb-sys' <<< "$native_default_tree"; then
               echo "Default native feature graph unexpectedly excludes librocksdb-sys" >&2
               exit 1
             fi
-            cargo check -p thingd-native --no-default-features --features rocksdb-backend,search,vectors
+            # The all-features workspace check already compiles this native
+            # RocksDB + ThingDB combination, which is also the crate default.
             cargo check -p thingd-native --no-default-features --features thingdb-backend,search,vectors
             native_thingdb_tree="$(cargo tree -p thingd-native --no-default-features --features thingdb-backend,search,vectors -e normal,build)"
             if grep -q 'librocksdb-sys' <<< "$native_thingdb_tree"; then
@@ -179,7 +185,9 @@ jobs:
               echo "Native build failed without the expected backend guidance" >&2
               exit 1
             fi
+            started=$SECONDS
             cargo test -p thingd --lib
+            echo "- Focused Thingd tests: $((SECONDS - started))s" >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
           started=$SECONDS
@@ -193,7 +201,6 @@ jobs:
           echo "- Rust documentation tests: $((SECONDS - started))s" >> "$GITHUB_STEP_SUMMARY"
           cargo check -p thingd --no-default-features --features thingdb-backend,search,vectors
           cargo test -p thingd --no-default-features --features thingdb-backend,search,vectors --lib thingdb
-          cargo test -p thingdb --all-targets
           cargo test -p thingd --features persistent --lib thingdb
           cargo test -p thingd --features persistent --lib encrypted_thingdb
           cargo test -p thingd --features persistent --lib repacks_rocksdb_into_thingdb
