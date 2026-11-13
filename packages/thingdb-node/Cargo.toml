@@ -13,7 +13,7 @@ crate-type = ["cdylib"]
 path = "native/src/lib.rs"
 
 [dependencies]
-thingdb = { path = "../../crates/thingdb", version = "0.92" } # x-release-please-version
+thingdb = { path = "../../crates/thingdb", version = "0.93" } # x-release-please-version
 napi = { version = "3.14.2", default-features = false, features = ["napi8"] }
 napi-derive = "3.6.12"
 
