@@ -14,6 +14,7 @@ export class ThingDB {
 export class ThingDBSnapshot {
   private constructor();
   get(keyspace: string, key: Uint8Array): Uint8Array | null;
+  close(): void;
 }
 
 export class ThingDBKeyspace {

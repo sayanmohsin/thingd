@@ -7,7 +7,13 @@
     clippy::option_if_let_else
 )] // N-API's owned values and Task types are required by the JS boundary.
 
-use std::sync::{Arc, Mutex};
+use std::{
+    collections::HashMap,
+    sync::{
+        Arc, LazyLock, Mutex,
+        atomic::{AtomicU32, Ordering},
+    },
+};
 
 use napi::bindgen_prelude::{AsyncTask, Buffer};
 use napi::{Env, Task};
@@ -22,7 +28,28 @@ type BatchItem = (String, Vec<u8>, Option<Vec<u8>>, bool);
 
 type DbHandle = Arc<Mutex<Option<Database>>>;
 
-fn clone_database(handle: &DbHandle) -> napi::Result<Database> {
+static DATABASES: LazyLock<Mutex<HashMap<u32, DbHandle>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+static SNAPSHOTS: LazyLock<Mutex<HashMap<u32, Arc<thingdb::Snapshot>>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+static NEXT_DATABASE_HANDLE: AtomicU32 = AtomicU32::new(1);
+static NEXT_SNAPSHOT_HANDLE: AtomicU32 = AtomicU32::new(1);
+
+fn next_handle(counter: &AtomicU32, kind: &str) -> napi::Result<u32> {
+    counter
+        .try_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
+            current.checked_add(1)
+        })
+        .map_err(|_| napi::Error::from_reason(format!("ThingDB {kind} handle space exhausted")))
+}
+
+fn clone_database(database_handle: u32) -> napi::Result<Database> {
+    let handle = DATABASES
+        .lock()
+        .map_err(|_| napi::Error::from_reason("ThingDB handle registry lock poisoned"))?
+        .get(&database_handle)
+        .cloned()
+        .ok_or_else(|| napi::Error::from_reason("ThingDB is closed or the handle is invalid"))?;
     handle
         .lock()
         .map_err(|_| napi::Error::from_reason("ThingDB handle lock poisoned"))?
@@ -39,169 +66,195 @@ pub struct BatchOperation {
     pub delete: Option<bool>,
 }
 
-#[napi(js_name = "ThingDB", type_tag = "com.thingd.thingdb.database")]
-pub struct ThingDB {
-    database: DbHandle,
+#[napi]
+pub fn open_database(path: String) -> napi::Result<u32> {
+    let database = if path == ":memory:" {
+        Database::in_memory()
+    } else {
+        Database::open(path)
+    }
+    .map_err(napi_error)?;
+    let handle = next_handle(&NEXT_DATABASE_HANDLE, "database")?;
+    DATABASES
+        .lock()
+        .map_err(|_| napi::Error::from_reason("ThingDB handle registry lock poisoned"))?
+        .insert(handle, Arc::new(Mutex::new(Some(database))));
+    Ok(handle)
 }
 
 #[napi]
-impl ThingDB {
-    #[napi(constructor)]
-    pub fn new(path: String) -> napi::Result<Self> {
-        let database = if path == ":memory:" {
-            Database::in_memory()
-        } else {
-            Database::open(path)
-        }
-        .map_err(napi_error)?;
-        Ok(Self {
-            database: Arc::new(Mutex::new(Some(database))),
-        })
+pub fn close_database(database_handle: u32) -> napi::Result<()> {
+    let handle = DATABASES
+        .lock()
+        .map_err(|_| napi::Error::from_reason("ThingDB handle registry lock poisoned"))?
+        .remove(&database_handle)
+        .ok_or_else(|| {
+            napi::Error::from_reason("ThingDB is already closed or the handle is invalid")
+        })?;
+    let database = handle
+        .lock()
+        .map_err(|_| napi::Error::from_reason("ThingDB handle lock poisoned"))?
+        .take();
+    if database.is_none() {
+        return Err(napi::Error::from_reason("ThingDB is already closed"));
     }
-
-    #[napi]
-    pub fn keyspace(&self, name: String) -> napi::Result<ThingDBKeyspace> {
-        let database = clone_database(&self.database)?;
-        database
-            .keyspace(&name, KeyspaceCreateOptions::default)
-            .map_err(napi_error)?;
-        Ok(ThingDBKeyspace {
-            database: Arc::clone(&self.database),
-            name,
-        })
-    }
-
-    #[napi]
-    pub fn close(&self) -> napi::Result<()> {
-        let database = self
-            .database
-            .lock()
-            .map_err(|_| napi::Error::from_reason("ThingDB handle lock poisoned"))?
-            .take();
-        if database.is_none() {
-            return Err(napi::Error::from_reason("ThingDB is already closed"));
-        }
-        drop(database);
-        Ok(())
-    }
-
-    #[napi]
-    pub fn put_many(
-        &self,
-        operations: Vec<BatchOperation>,
-    ) -> napi::Result<AsyncTask<PutManyTask>> {
-        if operations.is_empty() {
-            return Err(napi::Error::from_reason(
-                "putMany requires at least one operation",
-            ));
-        }
-        Ok(AsyncTask::new(PutManyTask {
-            database: clone_database(&self.database)?,
-            operations: operations
-                .into_iter()
-                .map(|operation| {
-                    (
-                        operation.keyspace,
-                        operation.key.to_vec(),
-                        operation.value.map(|value| value.to_vec()),
-                        operation.delete.unwrap_or(false),
-                    )
-                })
-                .collect(),
-        }))
-    }
-
-    #[napi]
-    pub fn persist(&self) -> napi::Result<AsyncTask<PersistTask>> {
-        Ok(AsyncTask::new(PersistTask {
-            database: clone_database(&self.database)?,
-        }))
-    }
-
-    #[napi]
-    pub fn compact(&self) -> napi::Result<AsyncTask<CompactTask>> {
-        Ok(AsyncTask::new(CompactTask {
-            database: clone_database(&self.database)?,
-        }))
-    }
-
-    #[napi]
-    pub fn snapshot(&self) -> napi::Result<AsyncTask<SnapshotTask>> {
-        Ok(AsyncTask::new(SnapshotTask {
-            database: clone_database(&self.database)?,
-        }))
-    }
+    drop(database);
+    Ok(())
 }
 
-#[napi(js_name = "ThingDBKeyspace", type_tag = "com.thingd.thingdb.keyspace")]
-pub struct ThingDBKeyspace {
-    database: DbHandle,
+#[napi]
+pub fn create_keyspace(database_handle: u32, name: String) -> napi::Result<()> {
+    clone_database(database_handle)?
+        .keyspace(&name, KeyspaceCreateOptions::default)
+        .map(|_| ())
+        .map_err(napi_error)
+}
+
+#[napi]
+pub fn put_many(
+    database_handle: u32,
+    operations: Vec<BatchOperation>,
+) -> napi::Result<AsyncTask<PutManyTask>> {
+    if operations.is_empty() {
+        return Err(napi::Error::from_reason(
+            "putMany requires at least one operation",
+        ));
+    }
+    Ok(AsyncTask::new(PutManyTask {
+        database: clone_database(database_handle)?,
+        operations: operations
+            .into_iter()
+            .map(|operation| {
+                (
+                    operation.keyspace,
+                    operation.key.to_vec(),
+                    operation.value.map(|value| value.to_vec()),
+                    operation.delete.unwrap_or(false),
+                )
+            })
+            .collect(),
+    }))
+}
+
+#[napi]
+pub fn persist(database_handle: u32) -> napi::Result<AsyncTask<PersistTask>> {
+    Ok(AsyncTask::new(PersistTask {
+        database: clone_database(database_handle)?,
+    }))
+}
+
+#[napi]
+pub fn compact(database_handle: u32) -> napi::Result<AsyncTask<CompactTask>> {
+    Ok(AsyncTask::new(CompactTask {
+        database: clone_database(database_handle)?,
+    }))
+}
+
+#[napi]
+pub fn get(database_handle: u32, name: String, key: Buffer) -> napi::Result<AsyncTask<GetTask>> {
+    Ok(AsyncTask::new(GetTask {
+        database: clone_database(database_handle)?,
+        name,
+        key: key.to_vec(),
+    }))
+}
+
+#[napi]
+pub fn put(
+    database_handle: u32,
     name: String,
+    key: Buffer,
+    value: Buffer,
+) -> napi::Result<AsyncTask<PutTask>> {
+    Ok(AsyncTask::new(PutTask {
+        database: clone_database(database_handle)?,
+        name,
+        key: key.to_vec(),
+        value: value.to_vec(),
+    }))
+}
+
+#[napi(js_name = "delete")]
+pub fn delete_key(
+    database_handle: u32,
+    name: String,
+    key: Buffer,
+) -> napi::Result<AsyncTask<DeleteTask>> {
+    Ok(AsyncTask::new(DeleteTask {
+        database: clone_database(database_handle)?,
+        name,
+        key: key.to_vec(),
+    }))
 }
 
 #[napi]
-impl ThingDBKeyspace {
-    #[napi]
-    pub fn get(&self, key: Buffer) -> napi::Result<AsyncTask<GetTask>> {
-        Ok(AsyncTask::new(GetTask {
-            database: clone_database(&self.database)?,
-            name: self.name.clone(),
-            key: key.to_vec(),
-        }))
-    }
-
-    #[napi]
-    pub fn put(&self, key: Buffer, value: Buffer) -> napi::Result<AsyncTask<PutTask>> {
-        Ok(AsyncTask::new(PutTask {
-            database: clone_database(&self.database)?,
-            name: self.name.clone(),
-            key: key.to_vec(),
-            value: value.to_vec(),
-        }))
-    }
-
-    #[napi]
-    pub fn delete(&self, key: Buffer) -> napi::Result<AsyncTask<DeleteTask>> {
-        Ok(AsyncTask::new(DeleteTask {
-            database: clone_database(&self.database)?,
-            name: self.name.clone(),
-            key: key.to_vec(),
-        }))
-    }
-
-    #[napi]
-    pub fn entries(&self) -> napi::Result<AsyncTask<EntriesTask>> {
-        Ok(AsyncTask::new(EntriesTask {
-            database: clone_database(&self.database)?,
-            name: self.name.clone(),
-            prefix: None,
-        }))
-    }
-
-    #[napi]
-    pub fn prefix(&self, prefix: Buffer) -> napi::Result<AsyncTask<EntriesTask>> {
-        Ok(AsyncTask::new(EntriesTask {
-            database: clone_database(&self.database)?,
-            name: self.name.clone(),
-            prefix: Some(prefix.to_vec()),
-        }))
-    }
-}
-
-#[napi(js_name = "ThingDBSnapshot", type_tag = "com.thingd.thingdb.snapshot")]
-pub struct ThingDBSnapshot {
-    snapshot: thingdb::Snapshot,
+pub fn entries(database_handle: u32, name: String) -> napi::Result<AsyncTask<EntriesTask>> {
+    Ok(AsyncTask::new(EntriesTask {
+        database: clone_database(database_handle)?,
+        name,
+        prefix: None,
+    }))
 }
 
 #[napi]
-impl ThingDBSnapshot {
-    #[napi]
-    pub fn get(&self, keyspace: String, key: Buffer) -> Option<Buffer> {
-        self.snapshot
-            .keyspace(&keyspace)
-            .get(key.as_ref())
-            .map(Buffer::from)
-    }
+pub fn prefix(
+    database_handle: u32,
+    name: String,
+    prefix: Buffer,
+) -> napi::Result<AsyncTask<EntriesTask>> {
+    Ok(AsyncTask::new(EntriesTask {
+        database: clone_database(database_handle)?,
+        name,
+        prefix: Some(prefix.to_vec()),
+    }))
+}
+
+#[napi]
+pub fn snapshot(database_handle: u32) -> napi::Result<AsyncTask<SnapshotTask>> {
+    Ok(AsyncTask::new(SnapshotTask {
+        database: clone_database(database_handle)?,
+    }))
+}
+
+fn register_snapshot(snapshot: thingdb::Snapshot) -> napi::Result<u32> {
+    let handle = next_handle(&NEXT_SNAPSHOT_HANDLE, "snapshot")?;
+    SNAPSHOTS
+        .lock()
+        .map_err(|_| napi::Error::from_reason("ThingDB snapshot registry lock poisoned"))?
+        .insert(handle, Arc::new(snapshot));
+    Ok(handle)
+}
+
+#[napi]
+pub fn snapshot_get(
+    snapshot_handle: u32,
+    keyspace: String,
+    key: Buffer,
+) -> napi::Result<Option<Buffer>> {
+    let snapshot = SNAPSHOTS
+        .lock()
+        .map_err(|_| napi::Error::from_reason("ThingDB snapshot registry lock poisoned"))?
+        .get(&snapshot_handle)
+        .cloned()
+        .ok_or_else(|| {
+            napi::Error::from_reason("ThingDB snapshot is closed or the handle is invalid")
+        })?;
+    Ok(snapshot
+        .keyspace(&keyspace)
+        .get(key.as_ref())
+        .map(Buffer::from))
+}
+
+#[napi]
+pub fn close_snapshot(snapshot_handle: u32) -> napi::Result<()> {
+    SNAPSHOTS
+        .lock()
+        .map_err(|_| napi::Error::from_reason("ThingDB snapshot registry lock poisoned"))?
+        .remove(&snapshot_handle)
+        .map(|_| ())
+        .ok_or_else(|| {
+            napi::Error::from_reason("ThingDB snapshot is already closed or the handle is invalid")
+        })
 }
 
 pub struct GetTask {
@@ -339,14 +392,14 @@ pub struct SnapshotTask {
 #[napi]
 impl Task for SnapshotTask {
     type Output = thingdb::Snapshot;
-    type JsValue = ThingDBSnapshot;
+    type JsValue = u32;
 
     fn compute(&mut self) -> napi::Result<Self::Output> {
         self.database.snapshot().map_err(napi_error)
     }
 
     fn resolve(&mut self, _env: Env, snapshot: Self::Output) -> napi::Result<Self::JsValue> {
-        Ok(ThingDBSnapshot { snapshot })
+        register_snapshot(snapshot)
     }
 }
 

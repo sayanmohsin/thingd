@@ -39,25 +39,20 @@ try {
   assert.equal(entries.length, 1);
   const snapshot = await db.snapshot();
   assert.equal(Buffer.from(snapshot.get("users", Buffer.from("bob"))).toString(), "two");
+  snapshot.close();
+  assert.throws(() => snapshot.get("users", Buffer.from("bob")), /snapshot is closed/);
   await db.persist();
   await db.compact();
   db.close();
   assert.throws(() => db.keyspace("closed"), /closed/);
 
   const native = require(path.join(packageRoot, "dist/thingdb_node.node"));
-  const nativeDb = new native.ThingDB(path.join(temp, "native-type-check"));
-  const nativeKeyspace = nativeDb.keyspace("users");
-  const nativeSnapshot = await nativeDb.snapshot();
-  assert.throws(() => native.ThingDB.prototype.close.call(nativeKeyspace), /Illegal invocation|ThingDB/);
+  assert.throws(() => native.get(0, "users", Buffer.from("alice")), /closed|invalid/);
   assert.throws(
-    () => native.ThingDBKeyspace.prototype.get.call(nativeDb, Buffer.from("alice")),
-    /Illegal invocation|ThingDBKeyspace/,
+    () => native.snapshotGet(0, "users", Buffer.from("alice")),
+    /closed|invalid/,
   );
-  assert.throws(
-    () => native.ThingDBSnapshot.prototype.get.call(nativeDb, "users", Buffer.from("alice")),
-    /Illegal invocation|ThingDBSnapshot/,
-  );
-  nativeDb.close();
+  assert.throws(() => native.closeDatabase(0), /closed|invalid/);
 } finally {
   rmSync(temp, { recursive: true, force: true });
   rmSync(dist, { recursive: true, force: true });
