@@ -216,6 +216,8 @@ importers:
 
   packages/thingd-native: {}
 
+  packages/thingdb-node: {}
+
 packages:
 
   '@angular-devkit/core@22.2.6':

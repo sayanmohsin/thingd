@@ -16,7 +16,12 @@ if (!/^\d+\.\d+\.\d+$/.test(version)) {
 }
 
 const majorMinor = version.split(".").slice(0, 2).join(".");
-const cargoFiles = ["crates/thingd-server/Cargo.toml", "packages/thingd-native/Cargo.toml"];
+const cargoFiles = [
+  "crates/thingd-server/Cargo.toml",
+  "packages/thingd-native/Cargo.toml",
+  "packages/thingdb-node/Cargo.toml",
+  "bindings/thingdb-ffi/Cargo.toml",
+];
 const workspaceCargo = fs.readFileSync(path.join(root, "Cargo.toml"), "utf8");
 const workspaceVersion = workspaceCargo.match(/^version = "([^"]+)"/m)?.[1];
 if (workspaceVersion !== version) {

@@ -374,7 +374,7 @@ impl RawStore {
             } => {
                 let mut batch = database.batch_with_capacity(entries.len());
                 for (key, value) in entries {
-                    batch = batch.put_owned(keyspace, key.clone(), value.clone());
+                    batch = batch.put_owned(keyspace, key, value);
                 }
                 batch.commit()?;
             },

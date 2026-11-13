@@ -1904,7 +1904,7 @@ fn run_correctness_smoke(seed: u64) -> Result<(), Box<dyn Error>> {
                     format!("{backend:?}: atomic batch returned {} records", batch.len()).into(),
                 );
             }
-            engine.append_event(MemoryEvent::new("correctness", "smoke", event_body.clone()))?;
+            engine.append_event(MemoryEvent::new("correctness", "smoke", event_body))?;
             if engine.count_objects()? != 2 || engine.count_events()? != 1 {
                 return Err(format!("{backend:?}: count mismatch before reopen").into());
             }

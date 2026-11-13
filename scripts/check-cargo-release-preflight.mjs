@@ -9,10 +9,17 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const workflow = readFileSync(path.join(root, ".github/workflows/release.yml"), "utf8");
 const preflight = workflow.split("  release-preflight:")[0];
 const expectedPatch = `--config 'patch.crates-io.thingdb.path="crates/thingdb"'`;
+const ffiPreflight = preflight
+  .split("Package and validate ThingDB C ABI crate")[1]
+  ?.split("Prepare and validate Thingd crate")[0];
 
 assert.ok(
   preflight.includes(expectedPatch),
   "Thingd crate preflight must patch crates.io ThingDB to the checked-out local crate",
+);
+assert.ok(
+  ffiPreflight?.includes(expectedPatch),
+  "ThingDB C ABI crate preflight must patch crates.io ThingDB to the checked-out local crate",
 );
 
 const fixture = mkdtempSync(path.join(os.tmpdir(), "thingd-cargo-release-preflight-"));

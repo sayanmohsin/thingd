@@ -185,6 +185,12 @@ summary must state its date, engine/server versions, host, filesystem,
 durability policy, topology, operation mix, repetition count, and detailed
 report link.
 
+Standalone ThingDB bindings share the same engine and durability semantics.
+Use the raw key/value workload as the reference baseline, then measure any
+language-boundary overhead separately with identical byte payloads, sync
+policy, host, and repetition settings. Do not set public latency or memory
+thresholds until those repeatable baselines exist.
+
 Use `--backend cache` for a focused ThingDB cache run. This measures byte
 key/value inserts, hot reads, mixed access, TTL/LRU bounds, latency
 percentiles, and four-thread contention. The cache is a separate process-local

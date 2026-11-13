@@ -1,6 +1,6 @@
 # ThingDB: embedded Rust key-value database
 
-ThingDB is an experimental embedded database for ordered byte-key and
+ThingDB is an embedded database for ordered byte-key and
 byte-value storage. It is published as the `thingdb` crate and does not
 require Thingd. Keyspaces organize data; atomic batches group related writes;
 ordered scans and snapshots provide consistent access. It is a low-level
@@ -8,8 +8,45 @@ key/value database, not a SQL server or a semantic object/event/queue API.
 
 ```toml
 [dependencies]
-thingdb = "0.92.0"
+thingdb = "0.92.9"
 ```
+
+Node.js applications can use the standalone `@thingd/thingdb` package:
+
+```sh
+npm install @thingd/thingdb
+```
+
+```js
+import { ThingDB } from "@thingd/thingdb";
+
+const db = new ThingDB("./data");
+const users = db.keyspace("users");
+await users.put(Buffer.from("alice"), Buffer.from("hello"));
+const value = await users.get(Buffer.from("alice"));
+await db.putMany([
+  { keyspace: "users", key: Buffer.from("bob"), value: Buffer.from("world") },
+]);
+const snapshot = await db.snapshot();
+db.close();
+```
+
+Node reads, writes, deletes, scans, batches, snapshot creation, persistence, and
+compaction are Promise-based. Snapshot lookups and `ThingDB.close()` are
+synchronous. `ThingDBSnapshot.close()` releases its snapshot handle. Closing a
+database releases its database handle;
+operations after close fail. Key and value inputs accept `Buffer` or
+`Uint8Array`. The package requires Node.js 16 or newer. The first package
+release supports Linux x64 and
+arm64, macOS x64 and arm64, and Windows x64.
+
+The C ABI is available in the published `thingdb-ffi` crate with the public
+header at `bindings/thingdb-ffi/include/thingdb.h`. It uses opaque database
+handles, byte pointer/length pairs, status codes, and library-owned output
+buffers released with `thingdb_buffer_free`; paths and keyspace names are
+UTF-8, and keys and values accept arbitrary bytes. The versioned Go module wraps that
+ABI with `Open`, `Put`, `Get`, `Delete`, and `Close`; it requires the matching
+ThingDB shared library to be linked into the Go application.
 
 The crate provides process-local RAM and experimental WAL-backed durable
 modes, plus a separate bounded `MemoryCache` primitive. Thingd builds its
@@ -86,10 +123,12 @@ provide bounded operational measurements. RAM diagnostics report no durable
 WAL or disk usage. Checksum, malformed-frame, manifest, table, and recovery
 errors are returned explicitly.
 
-The durable format is experimental: no durable file-format stability promise
-is made before ThingDB 1.0, and no in-place conversion from RocksDB is
-supported. Keep independent backups and do not use experimental durable
-ThingDB as the only copy of important data.
+The durable format and language bindings are experimental until ThingDB 1.0.
+Durable databases are owned by one process at a time, while handles are thread-safe within that
+process. No in-place conversion from RocksDB or compatibility promise for
+pre-1.0 files is provided; export and reimport logical records when moving
+between incompatible formats. Keep independent backups until the v1 format
+stability gate is declared.
 
 ## `MemoryCache`
 

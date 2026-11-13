@@ -71,6 +71,17 @@ if (nativePrebuilds.length < requiredNativePrebuilds) {
   );
 }
 
+const thingdbPackage = packed.get("@thingd/thingdb");
+assertFiles("@thingd/thingdb", thingdbPackage.files, ["index.js", "index.d.ts", "README.md"]);
+const thingdbPrebuilds = [...thingdbPackage.files].filter(
+  (file) => file.startsWith("prebuilds/") && file.endsWith("/thingdb_node.node"),
+);
+if (thingdbPrebuilds.length < requiredNativePrebuilds) {
+  throw new Error(
+    `@thingd/thingdb tarball contains ${thingdbPrebuilds.length} prebuild(s); expected at least ${requiredNativePrebuilds}`,
+  );
+}
+
 console.log(
   `Validated publish artifacts: @thingd/sdk (${sdkFiles.size} files), @thingd/native (${nativePrebuilds.length} prebuilds)`,
 );

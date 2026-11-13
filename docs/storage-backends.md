@@ -39,10 +39,10 @@ non-durable.
 
 ## ThingDB {#thingdb}
 
-ThingDB is an experimental embedded key-value database available as the
-standalone `thingdb` Rust crate. Its low-level API stores opaque byte keys and
-values in ordered keyspaces and provides atomic batches, snapshots, and
-prefix/range scans. It can run entirely in RAM or use its own WAL-backed
+ThingDB is an embedded key-value database available as the standalone
+`thingdb` Rust crate and `@thingd/thingdb` Node.js package. Its low-level API
+stores opaque byte keys and values in ordered keyspaces and provides atomic
+batches, snapshots, and prefix/range scans. It can run entirely in RAM or use its own WAL-backed
 durable format. It is not a SQL server and does not itself implement Thingd's
 object, event, queue, vector, or search semantics.
 
@@ -56,6 +56,9 @@ Use the standalone [`thingdb` crate](https://crates.io/crates/thingdb) without
 Thingd when ordered key/value storage is the needed abstraction. See the
 [ThingDB API guide](./api-spec/thingdb.md) for examples and its low-level
 contract.
+Node.js projects can install [`@thingd/thingdb`](https://www.npmjs.com/package/@thingd/thingdb)
+and use the same embedded byte-oriented engine without the Thingd SDK or a
+network service.
 
 ## ThingDB in Thingd
 
