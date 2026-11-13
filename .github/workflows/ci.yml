@@ -116,6 +116,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
       - uses: dtolnay/rust-toolchain@stable
       - name: Check formatting
         run: cargo fmt --all --check
@@ -137,6 +139,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 2
       - uses: dtolnay/rust-toolchain@stable
       - name: Install RocksDB bindgen dependencies
         run: sudo apt-get update && sudo apt-get install -y clang libclang-dev
@@ -156,6 +160,27 @@ jobs:
           fi
           cargo fmt --all --check
           if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            changed_files="$(git diff --name-only HEAD^1...HEAD)"
+            thingdb_only=true
+            while IFS= read -r changed_file; do
+              case "$changed_file" in
+                crates/thingdb/*|crates/thingd/README.md|docs/api-spec/thingdb.md|README.md|.github/workflows/ci.yml) ;;
+                *) thingdb_only=false ;;
+              esac
+            done <<< "$changed_files"
+            if [[ -z "$changed_files" ]]; then
+              thingdb_only=false
+            fi
+            if [[ "$thingdb_only" == "true" ]]; then
+              echo "ThingDB-only PR: relying on the standalone crate suite and ThingDB backend integration tests."
+              started=$SECONDS
+              cargo check -p thingd --no-default-features --features thingdb-backend,search,vectors
+              echo "- ThingDB backend check: $((SECONDS - started))s" >> "$GITHUB_STEP_SUMMARY"
+              started=$SECONDS
+              cargo test -p thingd --no-default-features --features thingdb-backend,search,vectors --lib thingdb
+              echo "- ThingDB backend tests: $((SECONDS - started))s" >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
             # The standalone ThingDB job compiles its tests/examples, and the
             # focused Thingd test below compiles its test target. Keep this
             # workspace check to production targets to avoid rebuilding every
