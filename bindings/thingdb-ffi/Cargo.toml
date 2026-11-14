@@ -14,7 +14,7 @@ include = ["Cargo.toml", "README.md", "include/**", "src/**"]
 crate-type = ["cdylib", "staticlib"]
 
 [dependencies]
-thingdb = { path = "../../crates/thingdb", version = "0.92" } # x-release-please-version
+thingdb = { path = "../../crates/thingdb", version = "0.93" } # x-release-please-version
 
 [lints.rust]
 unsafe_code = "allow"

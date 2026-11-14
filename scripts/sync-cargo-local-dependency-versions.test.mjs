@@ -15,6 +15,7 @@ test("synchronizes path dependency versions with trailing fields", async () => {
     await Promise.all([
       mkdir(path.join(root, "crates", "thingd"), { recursive: true }),
       mkdir(path.join(root, "packages", "native"), { recursive: true }),
+      mkdir(path.join(root, "bindings", "thingdb-ffi"), { recursive: true }),
     ]);
     await writeFile(
       path.join(root, "crates", "thingd", "Cargo.toml"),
@@ -24,12 +25,18 @@ test("synchronizes path dependency versions with trailing fields", async () => {
       path.join(root, "packages", "native", "Cargo.toml"),
       '[dependencies]\nthingd = { path = "../../crates/thingd", version = "0.85", features = ["persistent"] }\n',
     );
+    await writeFile(
+      path.join(root, "bindings", "thingdb-ffi", "Cargo.toml"),
+      '[dependencies]\nthingdb = { path = "../../crates/thingdb", version = "0.85" }\n',
+    );
 
     execFileSync(process.execPath, [script], { cwd: root, stdio: "pipe" });
     const thingd = await readFile(path.join(root, "crates", "thingd", "Cargo.toml"), "utf8");
     const native = await readFile(path.join(root, "packages", "native", "Cargo.toml"), "utf8");
+    const ffi = await readFile(path.join(root, "bindings", "thingdb-ffi", "Cargo.toml"), "utf8");
     assert.match(thingd, /version = "0\.86"/);
     assert.match(native, /version = "0\.86"/);
+    assert.match(ffi, /version = "0\.86"/);
     execFileSync(process.execPath, [script, "--check"], { cwd: root, stdio: "pipe" });
   } finally {
     await rm(root, { recursive: true, force: true });
