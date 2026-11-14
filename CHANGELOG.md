@@ -13,6 +13,13 @@
 - server: harden security boundaries (0961ffe)
 - complete public SDK type exports (8a8889a)
 
+## [0.93.1](https://github.com/sayanmohsin/thingd/compare/thingd-v0.93.0...thingd-v0.93.1) (2026-11-14)
+
+
+### Bug Fixes
+
+* **release:** patch ThingDB during FFI packaging ([#287](https://github.com/sayanmohsin/thingd/issues/287)) ([c354060](https://github.com/sayanmohsin/thingd/commit/c35406026dc2242baf52bad02ec0a377d01a2850))
+
 ## [0.93.0](https://github.com/sayanmohsin/thingd/compare/thingd-v0.92.9...thingd-v0.93.0) (2026-11-13)
 
 
