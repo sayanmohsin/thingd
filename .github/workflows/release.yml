@@ -430,7 +430,8 @@ jobs:
         env:
           VERSION: ${{ needs.release-please.outputs.version }}
         run: |
-          cargo package --allow-dirty -p thingdb-ffi
+          cargo package --allow-dirty -p thingdb-ffi \
+            --config 'patch.crates-io.thingdb.path="crates/thingdb"'
           test -f "target/package/thingdb-ffi-${VERSION}.crate"
           if curl -fsS -A "thingd-release/${GITHUB_REPOSITORY} run/${GITHUB_RUN_ID}" "https://crates.io/api/v1/crates/thingdb-ffi/${VERSION}" >/dev/null; then
             echo "thingdb-ffi ${VERSION} already exists; package validation passed without a duplicate dry run"
