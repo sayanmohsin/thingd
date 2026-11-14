@@ -13,6 +13,22 @@
 - server: harden security boundaries (0961ffe)
 - complete public SDK type exports (8a8889a)
 
+## [0.93.0](https://github.com/sayanmohsin/thingd/compare/thingd-v0.92.9...thingd-v0.93.0) (2026-11-13)
+
+
+### Features
+
+* **thingdb:** add standalone database bindings ([#285](https://github.com/sayanmohsin/thingd/issues/285)) ([dcf6516](https://github.com/sayanmohsin/thingd/commit/dcf6516d5efcb0a47b2bc3ed1d754829ea29128f))
+* **thingdb:** add standalone Node, C, and Go bindings ([c40311a](https://github.com/sayanmohsin/thingd/commit/c40311a63978498d41cf163d58213705eb56129f))
+
+
+### Bug Fixes
+
+* **ci:** set up pnpm for ThingDB checks ([9243bda](https://github.com/sayanmohsin/thingd/commit/9243bdaf506065e46f1e21a9a4319566248b0bc3))
+* **thingdb:** include Node smoke test and clear clippy ([51ccd29](https://github.com/sayanmohsin/thingd/commit/51ccd290d1c80dc630925de4fd3426193b44b9f1))
+* **thingdb:** remove native class pointer receivers ([47eafb1](https://github.com/sayanmohsin/thingd/commit/47eafb1215fcda66d6fab69d2c4595c9edfbeaf1))
+* **thingdb:** validate N-API class handles ([310fce7](https://github.com/sayanmohsin/thingd/commit/310fce78724b52d137fcace78e90d6b1f204fa00))
+
 ## [0.92.9](https://github.com/sayanmohsin/thingd/compare/thingd-v0.92.8...thingd-v0.92.9) (2026-11-13)
 
 
