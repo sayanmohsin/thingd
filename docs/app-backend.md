@@ -62,7 +62,7 @@ Hosted app backends use these routes below `/v1`:
 | GET | `/app/functions` | List published actions (compatibility route) |
 | GET | `/app/functions/:name` | Read one action definition (compatibility route) |
 | POST | `/app/functions/:name` | Invoke an action (compatibility route) |
-| GET | `/app/actions/:name/usage` | Read the authenticated user's lifetime action quota |
+| GET | `/app/actions/:name/usage` | Read the authenticated user's action quota |
 | GET | `/app/objects/:collection/:id` | Read an allowed object |
 | GET | `/app/objects/:collection` | List allowed objects with `limit` and `offset` pagination |
 | POST | `/app/search` | Search allowed objects |
@@ -91,7 +91,7 @@ published manifest are the sole action source.
 
 An action may declare provider-neutral `execution.kind: "ai_json"` policy.
 The declaration contains an operation, system prompt, allowlisted input fields,
-output schema (`outputSchema`), optional principal lifetime `usageLimit`,
+output schema (`outputSchema`), optional principal `usageLimit` with lifetime or daily periods,
 bounded output-token limit, generated-ID paths, retrieval sources, and a
 trusted write target. These server-side execution details are not returned in
 the client manifest. The manifest exposes the action's public input/output
@@ -116,13 +116,16 @@ An authenticated `GET /app/actions/:name/usage` response is:
     "limit": 3,
     "used": 1,
     "remaining": 2,
-    "period": "lifetime"
+    "period": "daily",
+    "resetAt": "2026-11-17T00:00:00.000Z"
   }
 }
 ```
 
-The route reports a principal-scoped lifetime limit declared by the action.
-Actions without a configured limit do not have a usage summary. Usage
+The route reports the configured principal-scoped lifetime or daily limit.
+Set `usageLimit.period` to `"lifetime"` or `"day"` in the action definition.
+Daily limits reset at 00:00 UTC; the response uses `"daily"` and includes the
+next reset time in UTC. Actions without a configured limit do not have a usage summary. Usage
 inspection does not reserve quota or guarantee that a subsequent invocation
 will succeed.
 

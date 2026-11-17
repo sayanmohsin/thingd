@@ -86,7 +86,7 @@ export type AppActionExecution = {
   usageLimit?: {
     scope: "principal";
     limit: number;
-    period: "lifetime";
+    period: "lifetime" | "day";
   };
   maxOutputTokens?: number;
   generatedIdPaths?: string[];
@@ -127,7 +127,8 @@ export type AppActionUsage = {
   limit: number;
   used: number;
   remaining: number;
-  period: "lifetime";
+  period: "lifetime" | "daily";
+  resetAt?: string;
 };
 
 export type AppErrorDetail = {

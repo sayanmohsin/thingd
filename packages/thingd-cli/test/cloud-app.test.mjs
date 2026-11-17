@@ -122,6 +122,12 @@ test("cloud app check validates locally without Cloud credentials", async () => 
     const validAi = await run(["cloud", "app", "check", "--file", file]);
     assert.equal(validAi.code, 0, validAi.stderr);
 
+    definition.actions[0].execution.usageLimit.period = "day";
+    writeFileSync(file, JSON.stringify(definition), "utf8");
+    const validDailyAi = await run(["cloud", "app", "check", "--file", file]);
+    assert.equal(validDailyAi.code, 0, validDailyAi.stderr);
+    definition.actions[0].execution.usageLimit.period = "lifetime";
+
     definition.actions[0].execution.retrieval.sources = [
       ...definition.actions[0].execution.retrieval.sources,
       "malformed source",

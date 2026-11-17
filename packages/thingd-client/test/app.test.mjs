@@ -311,6 +311,32 @@ test("app action usage is fetched from the authenticated action-scoped route", a
   assert.equal(new Headers(captured.init.headers).get("authorization"), "Bearer user-token");
 });
 
+test("app action usage returns the daily quota and reset time", async () => {
+  const client = createThingdAppClient({
+    baseUrl: "https://cloud.example",
+    publishableKey: "pk_nice_rep",
+    fetch: async () => response({
+      data: {
+        action: "create_program",
+        limit: 1,
+        used: 0,
+        remaining: 1,
+        period: "daily",
+        resetAt: "2026-11-17T00:00:00.000Z",
+      },
+    }),
+  });
+
+  assert.deepEqual(await client.actions.getUsage("create_program"), {
+    action: "create_program",
+    limit: 1,
+    used: 0,
+    remaining: 1,
+    period: "daily",
+    resetAt: "2026-11-17T00:00:00.000Z",
+  });
+});
+
 test("app client reports invalid success envelopes as structured errors", async () => {
   const client = createThingdAppClient({
     baseUrl: "https://cloud.example",

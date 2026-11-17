@@ -770,10 +770,8 @@ jobs:
         with:
           name: thingd-server-${{ matrix.arch }}
           path: docker-context/artifact
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 10.12.4
-      - uses: actions/setup-node@v5
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v6
         with:
           node-version: 24
           cache: pnpm
