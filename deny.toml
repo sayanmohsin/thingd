@@ -15,12 +15,21 @@ allow = [
 ]
 confidence-threshold = 0.8
 
+[[licenses.exceptions]]
+name = "ar_archive_writer"
+allow = ["Apache-2.0 WITH LLVM-exception"]
+
 [bans]
 multiple-versions = "deny"
 wildcards = "deny"
 highlight = "all"
 allow-wildcard-paths = false
 skip = [
+    # The server uses parking_lot 0.13 while upstream crates still need 0.12.
+    { name = "parking_lot", version = "0.12" },
+    { name = "parking_lot_core", version = "0.9" },
+    { name = "lock_api", version = "0.4" },
+    { name = "redox_syscall", version = "0.5" },
     { name = "hashbrown", version = "0.16" },
     { name = "hashbrown", version = "0.17" },
     # RocksDB's bindgen build dependency still requires these older versions;
