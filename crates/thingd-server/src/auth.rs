@@ -516,7 +516,8 @@ mod tests {
         let token = encode(
             &Header::new(Algorithm::HS256),
             &claims(Some("tenant-a"), ISSUER, AUDIENCE, now() + 300),
-            &EncodingKey::from_secret(b"not-an-rsa-key"),
+            &EncodingKey::from_secret(b"not-an-rsa-key-but-long-enough-32")
+                .expect("create HMAC key"),
         )
         .expect("encode unsupported JWT");
 

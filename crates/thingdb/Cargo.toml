@@ -16,8 +16,8 @@ include = ["Cargo.toml", "README.md", "src/**", "examples/**"]
 benchmark = ["dep:arc-swap"]
 
 [dependencies]
-arc-swap = { version = "1.9.2", optional = true }
-crc32fast = "1.5.2"
+arc-swap = { version = "1.9.5", optional = true }
+crc32fast = "1.5.5"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 

@@ -150,12 +150,15 @@ export function validateAppDefinition(value: unknown): AppDefinitionIssue[] {
     if (
       execution.usageLimit !== undefined &&
       (usageLimit?.scope !== "principal" ||
-        usageLimit.period !== "lifetime" ||
+        !(["lifetime", "day"] as unknown[]).includes(usageLimit.period) ||
         !Number.isInteger(usageLimit.limit) ||
         Number(usageLimit.limit) < 1 ||
         Number(usageLimit.limit) > 1_000_000)
     ) {
-      issue(`${executionPath}.usageLimit`, "must be a principal lifetime limit from 1 to 1000000");
+      issue(
+        `${executionPath}.usageLimit`,
+        "must be a principal lifetime or daily limit from 1 to 1000000"
+      );
     }
     if (
       execution.maxOutputTokens !== undefined &&

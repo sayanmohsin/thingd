@@ -4,22 +4,23 @@
   "private": true,
   "type": "commonjs",
   "scripts": {
-    "start": "nest start",
-    "start:dev": "nest start --watch",
-    "build": "nest build"
+    "start": "pnpm build && node dist/main.js",
+    "start:dev": "pnpm build && concurrently -k \"tsc --watch -p tsconfig.json\" \"node --watch dist/main.js\"",
+    "build": "tsc -p tsconfig.json"
   },
   "dependencies": {
-    "@nestjs/common": "^12.4.2",
-    "@nestjs/core": "^12.4.2",
-    "@nestjs/platform-express": "^12.4.2",
+    "@nestjs/common": "^12.5.1",
+    "@nestjs/core": "^12.5.1",
+    "@nestjs/platform-express": "^12.5.1",
     "@thingd/sdk": "workspace:*",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.2"
   },
   "devDependencies": {
-    "@nestjs/cli": "^12.0.12",
+    "@nestjs/cli": "^12.0.13",
     "@types/node": "26.6.6",
-    "typescript": "6.0.3",
+    "concurrently": "^10.0.7",
+    "typescript": "7.0.2",
     "webpack": "5.112.2"
   }
 }

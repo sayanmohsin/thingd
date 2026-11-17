@@ -3,6 +3,9 @@ packages:
   - packages/thingd-cli/src/dashboard/frontend
   - examples/*
 
+overrides:
+  minimatch: ^11.0.1
+
 allowBuilds:
   '@nestjs/core': false
   esbuild: true
