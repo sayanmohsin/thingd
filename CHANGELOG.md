@@ -13,6 +13,13 @@
 - server: harden security boundaries (0961ffe)
 - complete public SDK type exports (8a8889a)
 
+## [0.93.2](https://github.com/sayanmohsin/thingd/compare/thingd-v0.93.1...thingd-v0.93.2) (2026-11-17)
+
+
+### Bug Fixes
+
+* support daily action usage limits ([74a571a](https://github.com/sayanmohsin/thingd/commit/74a571af8c83039bf14997426153964d82d70756))
+
 ## [0.93.1](https://github.com/sayanmohsin/thingd/compare/thingd-v0.93.0...thingd-v0.93.1) (2026-11-14)
 
 
