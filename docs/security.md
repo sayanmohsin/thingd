@@ -73,7 +73,7 @@ deployment environment or the Cloud dashboard.
 **Token requirements:**
 - Minimum 16 characters when `allow_unauthenticated` is `false`
 - Empty token = no auth (allowed when `allow_unauthenticated` is `true`)
-- The auth middleware is wired when authentication is configured and `allow_unauthenticated` is `false`
+- Production mode rejects `allow_unauthenticated: true` and requires a bearer token for single-tenant deployments
 
 **Unauthenticated endpoints:**
 - `/healthz`, `/metrics` — health and metrics endpoints
@@ -169,7 +169,8 @@ hardening:
 
 - Returns `429 Too Many Requests` when exceeded
 - Bucket refills over 60-second window
-- Keyed by the TCP peer address; untrusted `X-Forwarded-For` headers are ignored
+- Keyed by client IP (source port is ignored); untrusted `X-Forwarded-For` headers are ignored
+- The in-memory bucket table is capped at 10,000 entries and evicts stale/old buckets under address churn
 
 ## Connector restrictions
 
@@ -183,8 +184,11 @@ hardening:
   connector_require_tls: true
 ```
 
-File imports must resolve inside the configured root. Postgres and MySQL
-imports must target an exact allowlisted host and use TLS when required.
+File imports must resolve inside the configured root. Remote CSV response bytes
+are capped while streaming. Postgres and MySQL imports must target an exact
+allowlisted host. With `connector_require_tls: true`, `sslMode: "require"` is
+mandatory; `prefer` is rejected because it can downgrade to cleartext. This
+requires encryption but does not configure certificate/hostname verification.
 
 ## Error Sanitization
 
@@ -198,7 +202,7 @@ server:
 - Storage errors map to generic `"Internal server error"` messages
 - Full error details are still logged server-side
 - In development mode (default), all error details are returned to the client
-- When `production_mode` is `true`, an auth token is required
+- When `production_mode` is `true`, a single-tenant bearer token is required and `allow_unauthenticated` must be `false`
 
 ## Input Validation
 
@@ -209,7 +213,9 @@ server:
 
 ## CI Security Scanning
 
-The CI pipeline runs the following security checks on every push and PR:
+The CI pipeline runs the following blocking security checks on pushes to `main`
+and pull requests targeting `main`, including release pull requests. Scheduled
+scans also run weekly:
 
 - **`cargo audit`** — Rust dependency vulnerability scanning
 - **`cargo deny`** — License compliance and duplicate crate detection
@@ -225,6 +231,7 @@ The CI pipeline runs the following security checks on every push and PR:
 - [ ] Enable production mode: `server.production_mode: true`
 - [ ] Set `hardening.max_payload_bytes` to an appropriate limit for your use case
 - [ ] Configure connector roots and host allowlists before enabling imports
+- [ ] Require TLS with `sslMode: "require"`; configure certificate/hostname verification at the database driver or network layer where required
 - [ ] Configure native storage encryption when filesystem-level protection is insufficient
 - [ ] Store `THINGD_ENCRYPTION_KEY` in a deployment secret manager
 - [ ] Test encrypted backup restore with the correct key

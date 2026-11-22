@@ -7,7 +7,9 @@ use crate::connector::{
     Column as ConnColumn, ColumnType, Connector, ConnectorConfig, PullStream, Schema,
 };
 use crate::{ThingdError, ThingdResult};
+use futures_util::StreamExt;
 use sqlx::{Column, Row};
+use tokio::sync::mpsc;
 
 /// Connector that pulls data from a MySQL/MariaDB database.
 pub struct MysqlConnector {
@@ -126,64 +128,73 @@ impl Connector for MysqlConnector {
     }
 
     fn pull(&self, config: &ConnectorConfig) -> ThingdResult<PullStream> {
-        let pool = self.pool(config)?;
+        let auth = config
+            .auth
+            .as_ref()
+            .ok_or_else(|| ThingdError::Storage("MySQL connector requires auth config".into()))?;
+        let uri = auth.mysql_uri();
         let query = config
             .query
             .as_deref()
             .ok_or_else(|| ThingdError::Storage("MySQL connector requires a query".into()))?
             .to_string();
-        let batch_size = config.batch_size.max(1);
-
-        let rows = self
-            .runtime
-            .as_ref()
-            .expect("MysqlConnector runtime already shut down")
-            .block_on(sqlx::query(sqlx::AssertSqlSafe(query)).fetch_all(&pool))
-            .map_err(|e| ThingdError::Storage(format!("MySQL query failed: {e}")))?;
-
-        let total = rows.len();
-        let mut cursor = 0usize;
-
-        // Build column name list from the first row
-        let columns: Vec<String> = if let Some(first) = rows.first() {
-            first
-                .columns()
-                .iter()
-                .map(|c| c.name().to_string())
-                .collect()
-        } else {
-            return Ok(Box::new(std::iter::empty()));
-        };
-
-        let stream = std::iter::from_fn(move || {
-            let remaining = total.saturating_sub(cursor);
-            if remaining == 0 {
-                return None;
-            }
-
-            let end = (cursor + batch_size).min(total);
-            let batch = &rows[cursor..end];
-            cursor = end;
-
-            Some(
-                batch
-                    .iter()
-                    .map(|row| {
-                        let mut obj = serde_json::Map::new();
-                        for (i, col) in columns.iter().enumerate() {
-                            let value = mysql_row_to_json_value(row, i);
-                            obj.insert(col.clone(), value);
+        let capacity = config.batch_size.clamp(1, 1_000);
+        let (sender, mut receiver) = mpsc::channel(capacity);
+        let error_sender = sender.clone();
+        std::thread::Builder::new()
+            .name("thingd-mysql-pull".to_string())
+            .spawn(move || {
+                let runtime = match tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                {
+                    Ok(runtime) => runtime,
+                    Err(error) => {
+                        let _ = error_sender.blocking_send(Err(ThingdError::Storage(format!(
+                            "failed to build MySQL pull runtime: {error}"
+                        ))));
+                        return;
+                    },
+                };
+                let result = runtime.block_on(async move {
+                    let pool = sqlx::MySqlPool::connect(&uri).await.map_err(|error| {
+                        ThingdError::Storage(format!("MySQL query failed: {error}"))
+                    })?;
+                    let mut rows = sqlx::query(sqlx::AssertSqlSafe(query)).fetch(&pool);
+                    while let Some(row) = rows.next().await {
+                        let row = row.map_err(|error| {
+                            ThingdError::Storage(format!("MySQL query failed: {error}"))
+                        })?;
+                        let value = mysql_record_to_json_value(&row);
+                        if sender.send(Ok(value)).await.is_err() {
+                            return Ok::<_, ThingdError>(());
                         }
-                        Ok(serde_json::Value::Object(obj))
-                    })
-                    .collect::<Vec<ThingdResult<serde_json::Value>>>()
-                    .into_iter(),
-            )
-        })
-        .flatten();
+                    }
+                    Ok(())
+                });
+                if let Err(error) = result {
+                    let _ = error_sender.blocking_send(Err(error));
+                }
+            })
+            .map_err(|error| {
+                ThingdError::Storage(format!("failed to start MySQL pull: {error}"))
+            })?;
 
-        Ok(Box::new(stream))
+        Ok(Box::new(std::iter::from_fn(move || {
+            receiver.blocking_recv()
+        })))
     }
+}
+
+fn mysql_record_to_json_value(row: &sqlx::mysql::MySqlRow) -> serde_json::Value {
+    let mut object = serde_json::Map::new();
+    for (index, column) in row.columns().iter().enumerate() {
+        object.insert(
+            column.name().to_string(),
+            mysql_row_to_json_value(row, index),
+        );
+    }
+    serde_json::Value::Object(object)
 }
 
 fn mysql_type_to_column_type(mysql_type: &str) -> ColumnType {

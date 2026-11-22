@@ -1084,7 +1084,7 @@ impl crate::store::AggregateStore for MemoryEngine {
                 })
                 .collect();
 
-        // Bucket by created_at using chrono
+        // Bucket by created_at using RFC 3339 timestamps.
         let mut buckets: std::collections::HashMap<String, Vec<&MemoryObject>> =
             std::collections::HashMap::new();
         for obj in &objects {
@@ -1267,11 +1267,10 @@ fn compute_aggregate(
 /// Format a timestamp string to a bucket label using the given strftime format.
 fn format_timestamp(ts: &str, format: &str) -> String {
     // Parse ISO 8601 timestamp and reformat
-    let Ok(dt) = chrono::DateTime::parse_from_rfc3339(ts) else {
+    let Ok(timestamp) = ts.parse::<jiff::Timestamp>() else {
         return ts.to_string();
     };
-    let utc = dt.with_timezone(&chrono::Utc);
-    utc.format(format).to_string()
+    timestamp.strftime(format).to_string()
 }
 
 /// Infer field schemas from sampled object bodies.
@@ -1328,7 +1327,7 @@ fn infer_json_type(value: &serde_json::Value) -> String {
         serde_json::Value::String(s) => {
             if s.len() > 10
                 && (s.contains('T') || s.contains('-'))
-                && chrono::DateTime::parse_from_rfc3339(s).is_ok()
+                && s.parse::<jiff::Timestamp>().is_ok()
             {
                 "date".to_string()
             } else {
@@ -1376,6 +1375,14 @@ mod tests {
     use super::*;
     use crate::store::{LinkStore, Searcher, VectorStore};
     use crate::{Link, ListObjectsOptions, SearchOptions, VectorSearchOptions};
+
+    #[test]
+    fn time_series_formatting_normalizes_offsets_to_utc() {
+        assert_eq!(
+            format_timestamp("2026-01-01T00:30:00+02:00", "%Y-%m-%dT%H:%M:%S"),
+            "2025-12-31T22:30:00"
+        );
+    }
 
     #[test]
     fn stores_and_reads_objects() {

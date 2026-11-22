@@ -132,7 +132,7 @@ pub(crate) fn u64_to_i64(value: u64) -> i64 {
 }
 
 pub(crate) fn now_iso_string() -> String {
-    chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
+    format!("{:.3}", jiff::Timestamp::now())
 }
 
 /// Compute cosine similarity between two vectors.
@@ -148,4 +148,19 @@ pub(crate) fn cosine_similarity(a: &[f32], b: &[f32]) -> f64 {
         return 0.0;
     }
     f64::from(dot / (norm_a * norm_b))
+}
+
+#[cfg(test)]
+mod timestamp_tests {
+    #[test]
+    fn generated_timestamps_keep_rfc3339_millisecond_precision() {
+        let value = super::now_iso_string();
+        let fraction = value
+            .strip_suffix('Z')
+            .and_then(|value| value.rsplit_once('.'))
+            .map(|(_, fraction)| fraction);
+
+        assert_eq!(fraction.map(str::len), Some(3));
+        assert!(value.parse::<jiff::Timestamp>().is_ok());
+    }
 }
