@@ -7816,6 +7816,15 @@ mod tests {
 
         drop(objects);
         drop(db);
+        let lock_path = directory.path().join(LOCK_FILE);
+        let close_deadline = Instant::now() + Duration::from_secs(2);
+        while lock_path.exists() {
+            assert!(
+                Instant::now() < close_deadline,
+                "background flush worker did not release the database lock after close"
+            );
+            std::thread::sleep(Duration::from_millis(1));
+        }
         let db = Database::open(directory.path()).unwrap();
         let objects = db
             .keyspace("objects", KeyspaceCreateOptions::default)
