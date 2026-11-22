@@ -37,6 +37,26 @@ test("app client normalizes the base URL and sends app credentials", async () =>
   const headers = new Headers(requests[0]?.init.headers);
   assert.equal(headers.get("x-thingd-publishable-key"), "pk_nice_rep");
   assert.equal(headers.get("authorization"), "Bearer app-access-token");
+  assert.match(headers.get("x-request-id"), /^[0-9a-f-]{36}$/i);
+});
+
+test("app client preserves its request reference when fetch fails", async () => {
+  let requestId;
+  const client = createThingdAppClient({
+    baseUrl: "https://cloud.example",
+    publishableKey: "pk_nice_rep",
+    fetch: async (_input, init) => {
+      requestId = new Headers(init?.headers).get("x-request-id");
+      throw new Error("socket closed");
+    },
+  });
+
+  await assert.rejects(client.actions.invoke("createProfile", {}), (error) => {
+    assert.ok(error instanceof ThingdAppError);
+    assert.equal(error.code, "app_network_error");
+    assert.equal(error.requestId, requestId);
+    return true;
+  });
 });
 
 test("app client requires HTTPS except for loopback and rejects unsafe URL components", () => {

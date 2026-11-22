@@ -190,6 +190,8 @@ export class ThingdAppClient {
       accept: "application/json",
       "x-thingd-publishable-key": this.options.publishableKey,
     };
+    const correlationId = globalThis.crypto.randomUUID();
+    headers["x-request-id"] = correlationId;
     if (body !== undefined) {
       headers["content-type"] = "application/json";
     }
@@ -200,11 +202,21 @@ export class ThingdAppClient {
       headers["idempotency-key"] = idempotencyKey;
     }
 
-    const response = await this.fetcher(`${this.base}${path}`, {
-      method,
-      headers,
-      body: body === undefined ? undefined : JSON.stringify(body),
-    });
+    let response: Response;
+    try {
+      response = await this.fetcher(`${this.base}${path}`, {
+        method,
+        headers,
+        body: body === undefined ? undefined : JSON.stringify(body),
+      });
+    } catch {
+      throw new ThingdAppError(
+        0,
+        "app_network_error",
+        "The app request failed before a response was received",
+        correlationId
+      );
+    }
     let payload: unknown;
     try {
       payload = await response.json();
@@ -232,7 +244,7 @@ export class ThingdAppClient {
       const requestId =
         (typeof responseRecord.requestId === "string" && responseRecord.requestId) ||
         response.headers.get("x-request-id") ||
-        undefined;
+        correlationId;
       throw new ThingdAppError(
         response.status,
         code,
@@ -246,7 +258,7 @@ export class ThingdAppClient {
         502,
         "invalid_app_response",
         "The app backend returned an invalid response",
-        response.headers.get("x-request-id") ?? undefined
+        response.headers.get("x-request-id") ?? correlationId
       );
     }
     return (payload as AppEnvelope<T>).data;
