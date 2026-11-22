@@ -42,8 +42,8 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.2",
-    "@thingd/client": "workspace:^",
-    "@thingd/sdk": "workspace:^",
+    "@thingd/client": "^0.93.1",
+    "@thingd/sdk": "^0.93.1",
     "picocolors": "^1.1.1",
     "zod": "^4.6.7"
   },
