@@ -6056,15 +6056,19 @@ impl LinkStore for PersistentEngine {
 
         let link_id_key = self.make_link_id_key(&link.id);
         let index_data = self.serialize(&link.id)?;
-        self.links_by_id.insert(&link_id_key, &data)?;
-        self.links_from.insert(
+        let mut batch = self.db.batch();
+        batch.insert(&self.links_by_id, &link_id_key, &data);
+        batch.insert(
+            &self.links_from,
             self.make_link_from_key(&link.from_ref, &link.link_type, &link.id),
             &index_data,
-        )?;
-        self.links_to.insert(
+        );
+        batch.insert(
+            &self.links_to,
             self.make_link_to_key(&link.to_ref, &link.link_type, &link.id),
             &index_data,
-        )?;
+        );
+        batch.commit()?;
 
         Ok(link)
     }
@@ -6088,15 +6092,19 @@ impl LinkStore for PersistentEngine {
         let data = self.serialize(&link)?;
         let link_id_key = self.make_link_id_key(&link.id);
         let index_data = self.serialize(&link.id)?;
-        self.links_by_id.insert(&link_id_key, &data)?;
-        self.links_from.insert(
+        let mut batch = self.db.batch();
+        batch.insert(&self.links_by_id, &link_id_key, &data);
+        batch.insert(
+            &self.links_from,
             self.make_link_from_key(&link.from_ref, &link.link_type, &link.id),
             &index_data,
-        )?;
-        self.links_to.insert(
+        );
+        batch.insert(
+            &self.links_to,
             self.make_link_to_key(&link.to_ref, &link.link_type, &link.id),
             &index_data,
-        )?;
+        );
+        batch.commit()?;
         if let Some(sequence) = link
             .id
             .strip_prefix("link-")
@@ -6129,11 +6137,17 @@ impl LinkStore for PersistentEngine {
         let link_id_key = self.make_link_id_key(id);
         if let Some(data) = value_to_vec(self.links_by_id.get(&link_id_key)?) {
             let link: Link = self.deserialize(&data)?;
-            self.links_by_id.remove(&link_id_key)?;
-            self.links_from
-                .remove(self.make_link_from_key(&link.from_ref, &link.link_type, id))?;
-            self.links_to
-                .remove(self.make_link_to_key(&link.to_ref, &link.link_type, id))?;
+            let mut batch = self.db.batch();
+            batch.remove(&self.links_by_id, &link_id_key);
+            batch.remove(
+                &self.links_from,
+                self.make_link_from_key(&link.from_ref, &link.link_type, id),
+            );
+            batch.remove(
+                &self.links_to,
+                self.make_link_to_key(&link.to_ref, &link.link_type, id),
+            );
+            batch.commit()?;
             Ok(true)
         } else {
             Ok(false)

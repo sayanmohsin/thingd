@@ -16,7 +16,10 @@ use crate::error::AppError;
 struct Bucket {
     tokens: u64,
     last_refill: Instant,
+    last_seen: Instant,
 }
+
+const MAX_BUCKETS: usize = 10_000;
 
 /// A simple token-bucket rate limiter keyed by client IP.
 pub struct RateLimiter {
@@ -39,16 +42,27 @@ impl RateLimiter {
         let mut buckets = self.buckets.lock();
         let now = Instant::now();
 
-        // Prune stale entries if the map grows large
-        if buckets.len() > 10_000 {
+        // Keep memory bounded even when an attacker rotates source addresses.
+        if buckets.len() >= MAX_BUCKETS {
             let cutoff = now - Duration::from_secs(120);
             buckets.retain(|_, b| b.last_refill > cutoff);
+
+            if buckets.len() >= MAX_BUCKETS
+                && let Some(oldest_key) = buckets
+                    .iter()
+                    .min_by_key(|(_, bucket)| bucket.last_seen)
+                    .map(|(key, _)| key.clone())
+            {
+                buckets.remove(&oldest_key);
+            }
         }
 
         let bucket = buckets.entry(key.to_string()).or_insert(Bucket {
             tokens: self.max_tokens,
             last_refill: now,
+            last_seen: now,
         });
+        bucket.last_seen = now;
 
         // Refill tokens based on elapsed time
         let elapsed = now.duration_since(bucket.last_refill);
@@ -72,7 +86,7 @@ impl RateLimiter {
 fn client_key(extensions: &Extensions) -> String {
     extensions
         .get::<ConnectInfo<SocketAddr>>()
-        .map(|ConnectInfo(addr)| addr.to_string())
+        .map(|ConnectInfo(addr)| addr.ip().to_string())
         .unwrap_or_else(|| "default".to_string())
 }
 
@@ -147,8 +161,30 @@ mod tests {
         for i in 0..10_001 {
             limiter.check(&format!("client{}", i));
         }
-        assert!(limiter.buckets.lock().len() > 10_000);
-        // Next check triggers pruning — should not panic
+        // The active map must never exceed its hard memory bound.
         limiter.check("trigger-prune");
+        assert!(limiter.buckets.lock().len() <= MAX_BUCKETS);
+    }
+
+    #[test]
+    fn client_key_uses_ip_and_ignores_source_port() {
+        let mut first = Extensions::new();
+        first.insert(ConnectInfo(
+            "192.0.2.10:10001".parse::<SocketAddr>().unwrap(),
+        ));
+        let mut second = Extensions::new();
+        second.insert(ConnectInfo(
+            "192.0.2.10:54321".parse::<SocketAddr>().unwrap(),
+        ));
+        assert_eq!(client_key(&first), client_key(&second));
+    }
+
+    #[test]
+    fn bucket_count_stays_bounded_for_unique_keys() {
+        let limiter = RateLimiter::new(1);
+        for i in 0..(MAX_BUCKETS + 100) {
+            assert!(limiter.check(&format!("client-{i}")));
+        }
+        assert!(limiter.buckets.lock().len() <= MAX_BUCKETS);
     }
 }

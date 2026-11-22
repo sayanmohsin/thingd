@@ -59,8 +59,13 @@ impl ConnectorAuth {
 
     /// Build a `MySQL` connection string.
     pub fn mysql_uri(&self) -> String {
+        let ssl_mode = match self.ssl_mode {
+            SslMode::Disable => "DISABLED",
+            SslMode::Prefer => "PREFERRED",
+            SslMode::Require => "REQUIRED",
+        };
         format!(
-            "mysql://{}:{}@{}:{}/{}",
+            "mysql://{}:{}@{}:{}/{}?ssl-mode={ssl_mode}",
             self.username, self.password, self.host, self.port, self.database
         )
     }
@@ -1012,7 +1017,15 @@ mod tests {
         };
         assert_eq!(
             auth.mysql_uri(),
-            "mysql://root:secret@db.example.com:3306/analytics"
+            "mysql://root:secret@db.example.com:3306/analytics?ssl-mode=PREFERRED"
+        );
+        let required = ConnectorAuth {
+            ssl_mode: SslMode::Require,
+            ..auth
+        };
+        assert_eq!(
+            required.mysql_uri(),
+            "mysql://root:secret@db.example.com:3306/analytics?ssl-mode=REQUIRED"
         );
     }
 

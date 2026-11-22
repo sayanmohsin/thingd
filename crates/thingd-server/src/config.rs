@@ -812,14 +812,18 @@ impl Config {
         if self.hardening.cors_max_age_secs == 0 {
             return Err("hardening.cors_max_age_secs must be greater than 0".into());
         }
+        if self.server.production_mode && self.auth.allow_unauthenticated {
+            return Err(
+                "auth.allow_unauthenticated must be false when server.production_mode is true"
+                    .into(),
+            );
+        }
         if self.server.production_mode
             && std::env::var("THINGD_AUTH_TOKEN")
                 .ok()
                 .filter(|t| !t.is_empty())
                 .is_none()
             && self.auth.token.is_empty()
-            && self.auth.tenant_tokens.is_empty()
-            && self.auth.mode != AuthMode::TenantJwt
         {
             return Err("auth.token is required when server.production_mode is true".into());
         }
@@ -908,6 +912,24 @@ mod tests {
         config.auth.allow_unauthenticated = true;
         config.auth.token = "".to_string();
         assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn production_mode_rejects_unauthenticated_access_even_with_token() {
+        let mut config = Config::default();
+        config.server.production_mode = true;
+        config.auth.token = "a-long-enough-production-token".to_string();
+        config.auth.allow_unauthenticated = true;
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn single_tenant_production_requires_the_bearer_token_even_in_jwt_mode() {
+        let mut config = Config::default();
+        config.server.production_mode = true;
+        config.auth.mode = AuthMode::TenantJwt;
+        config.auth.allow_unauthenticated = false;
+        assert!(config.validate().is_err());
     }
 
     #[test]

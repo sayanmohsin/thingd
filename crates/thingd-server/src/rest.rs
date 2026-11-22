@@ -26,6 +26,7 @@ const MAX_BATCH_ITEMS: usize = 1_000;
 const MAX_BLOCKING_WORKERS: usize = 8;
 const SNAPSHOT_PAGE_SIZE: u64 = 250;
 const SNAPSHOT_MAX_LINE_BYTES: usize = 16 * 1024 * 1024;
+const MAX_CONNECTOR_RETURN_OBJECTS: usize = 1_000;
 const BACKUP_TOKEN_HEADER: &str = "x-thingd-backup-token";
 static BLOCKING_GATE: OnceLock<Arc<Semaphore>> = OnceLock::new();
 static BLOCKING_ACTIVE: AtomicU64 = AtomicU64::new(0);
@@ -283,12 +284,27 @@ pub async fn metrics(
         Err(e) => return e.into_response(),
     };
     let g = e.lock();
-    let objects = g.count_objects().unwrap_or(0);
-    let events = g.count_events().unwrap_or(0);
-    let links = g.count_links().unwrap_or(0);
-    let queue_count = g.list_queues().unwrap_or_default().len() as u64;
-    let active_jobs = g.count_active_jobs().unwrap_or(0);
-    let dead_jobs = g.count_dead_jobs().unwrap_or(0);
+    let counts = (|| {
+        Ok::<_, AppError>((
+            g.count_objects()
+                .map_err(|error| AppError::internal(error.to_string()))?,
+            g.count_events()
+                .map_err(|error| AppError::internal(error.to_string()))?,
+            g.count_links()
+                .map_err(|error| AppError::internal(error.to_string()))?,
+            g.list_queues()
+                .map_err(|error| AppError::internal(error.to_string()))?
+                .len() as u64,
+            g.count_active_jobs()
+                .map_err(|error| AppError::internal(error.to_string()))?,
+            g.count_dead_jobs()
+                .map_err(|error| AppError::internal(error.to_string()))?,
+        ))
+    })();
+    let (objects, events, links, queue_count, active_jobs, dead_jobs) = match counts {
+        Ok(counts) => counts,
+        Err(error) => return error.into_response(),
+    };
 
     let body = format!(
         "# HELP thingd_objects_total Total number of objects.\n\
@@ -1953,14 +1969,19 @@ async fn prepare_remote_source(
             "Connector source exceeds the configured size limit",
         ));
     }
-    let bytes = response
-        .bytes()
+    let mut bytes = Vec::new();
+    let mut response = response;
+    while let Some(chunk) = response
+        .chunk()
         .await
-        .map_err(|e| AppError::bad_request(format!("failed to read connector source: {e}")))?;
-    if bytes.len() as u64 > hardening.max_connector_file_bytes {
-        return Err(AppError::bad_request(
-            "Connector source exceeds the configured size limit",
-        ));
+        .map_err(|e| AppError::bad_request(format!("failed to read connector source: {e}")))?
+    {
+        if bytes.len().saturating_add(chunk.len()) as u64 > hardening.max_connector_file_bytes {
+            return Err(AppError::bad_request(
+                "Connector source exceeds the configured size limit",
+            ));
+        }
+        bytes.extend_from_slice(&chunk);
     }
     let path =
         std::env::temp_dir().join(format!("thingd-google-sheets-{}.csv", uuid::Uuid::new_v4()));
@@ -2035,9 +2056,9 @@ fn validate_connector_access(
             {
                 return Err(AppError::forbidden("Connector host is not allowlisted"));
             }
-            if hardening.connector_require_tls && auth.ssl_mode == SslMode::Disable {
+            if hardening.connector_require_tls && auth.ssl_mode != SslMode::Require {
                 return Err(AppError::bad_request(
-                    "Encrypted connector transport is required",
+                    "Connector sslMode must be 'require' when encrypted transport is required",
                 ));
             }
         },
@@ -2158,15 +2179,18 @@ pub async fn preview_connector(
         .clamp(1, 100) as usize;
     let (config, cleanup) =
         prepare_remote_source(&connector_type, config, &state.hardening_config).await?;
-    let result = tokio::task::spawn_blocking(move || connector.pull(&config))
-        .await
-        .map_err(|e| AppError::internal(format!("Connector task failed: {e}")))?;
+    let task_result = tokio::task::spawn_blocking(move || {
+        let stream = connector.pull(&config).map_err(|error| error.to_string())?;
+        stream
+            .take(limit)
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|error| error.to_string())
+    })
+    .await;
     cleanup_remote_source(cleanup);
-    let stream = result.map_err(|e| AppError::bad_request(e.to_string()))?;
-    let rows = stream
-        .take(limit)
-        .map(|row| row.map_err(|e| AppError::bad_request(e.to_string())))
-        .collect::<Result<Vec<_>, _>>()?;
+    let result =
+        task_result.map_err(|e| AppError::internal(format!("Connector task failed: {e}")))?;
+    let rows = result.map_err(|e| AppError::bad_request(e.to_string()))?;
     ok(json!({ "rows": rows, "limit": limit }))
 }
 
@@ -2191,58 +2215,88 @@ pub async fn pull_data(
         .and_then(|value| value.as_bool())
         .unwrap_or(false);
 
-    let stream = tokio::task::spawn_blocking(move || connector.pull(&config))
-        .await
-        .map_err(|e| AppError::internal(format!("Connector task failed: {e}")))?
-        .map_err(|e| AppError::internal(e.to_string()))?;
+    let e = match get_engine(&state, &headers) {
+        Ok(engine) => engine,
+        Err(error) => {
+            cleanup_remote_source(cleanup);
+            return Err(error);
+        },
+    };
+    let permit = match blocking_permit() {
+        Ok(permit) => permit,
+        Err(error) => {
+            cleanup_remote_source(cleanup);
+            return Err(error);
+        },
+    };
+    let response_collection = collection.clone();
+    let result = tokio::task::spawn_blocking(move || {
+        let _permit = permit;
+        let imported_result = (|| -> Result<(u64, Vec<Value>, bool), AppError> {
+            let stream = connector
+                .pull(&config)
+                .map_err(|error| AppError::internal(error.to_string()))?;
+            let mut imported = 0u64;
+            let mut batch: Vec<MemoryObject> = Vec::new();
+            let mut returned_objects: Vec<Value> = Vec::new();
+            let mut objects_truncated = false;
+            let mut g = e.lock();
+
+            for row in stream {
+                let row = row.map_err(|error| AppError::internal(error.to_string()))?;
+                let id = row
+                    .get("id")
+                    .and_then(Value::as_str)
+                    .map(str::to_string)
+                    .unwrap_or_else(|| {
+                        connector_row_id(
+                            &connector_type,
+                            &source_identity,
+                            query_identity.as_deref(),
+                            &row,
+                        )
+                    });
+                let body_str = serde_json::to_string(&row)
+                    .map_err(|error| AppError::internal(error.to_string()))?;
+                let obj = MemoryObject::new(&collection, &id, &body_str);
+                if return_objects {
+                    if returned_objects.len() < MAX_CONNECTOR_RETURN_OBJECTS {
+                        returned_objects
+                            .push(json!({ "id": id, "collection": collection, "body": row }));
+                    } else {
+                        objects_truncated = true;
+                    }
+                }
+                batch.push(obj);
+
+                if batch.len() >= batch_size {
+                    let count = batch.len();
+                    g.put_objects_batch(std::mem::take(&mut batch))
+                        .map_err(|error| AppError::internal(error.to_string()))?;
+                    imported += count as u64;
+                }
+            }
+
+            if !batch.is_empty() {
+                let count = batch.len();
+                g.put_objects_batch(batch)
+                    .map_err(|error| AppError::internal(error.to_string()))?;
+                imported += count as u64;
+            }
+            Ok((imported, returned_objects, objects_truncated))
+        })();
+        finish_blocking();
+        imported_result
+    })
+    .await
+    .map_err(|error| AppError::internal(format!("Connector task failed: {error}")));
     cleanup_remote_source(cleanup);
+    let (imported, returned_objects, objects_truncated) = result??;
 
-    let mut imported = 0u64;
-    let mut batch: Vec<MemoryObject> = Vec::new();
-    let mut returned_objects: Vec<Value> = Vec::new();
-
-    let e = get_engine(&state, &headers)?;
-    let mut g = e.lock();
-
-    for row in stream {
-        let row = row.map_err(|e| AppError::internal(e.to_string()))?;
-        let id = row
-            .get("id")
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string())
-            .unwrap_or_else(|| {
-                connector_row_id(
-                    &connector_type,
-                    &source_identity,
-                    query_identity.as_deref(),
-                    &row,
-                )
-            });
-        let body_str =
-            serde_json::to_string(&row).map_err(|e| AppError::internal(e.to_string()))?;
-        let obj = MemoryObject::new(&collection, &id, &body_str);
-        if return_objects {
-            returned_objects.push(json!({ "id": id, "collection": collection, "body": row }));
-        }
-        batch.push(obj);
-
-        if batch.len() >= batch_size {
-            g.put_objects_batch(std::mem::take(&mut batch))
-                .map_err(|e| AppError::internal(e.to_string()))?;
-            imported += batch_size as u64;
-        }
-    }
-
-    if !batch.is_empty() {
-        let count = batch.len();
-        g.put_objects_batch(batch)
-            .map_err(|e| AppError::internal(e.to_string()))?;
-        imported += count as u64;
-    }
-
-    let mut response = json!({ "imported": imported, "collection": collection });
+    let mut response = json!({ "imported": imported, "collection": response_collection });
     if return_objects {
         response["objects"] = Value::Array(returned_objects);
+        response["objectsTruncated"] = json!(objects_truncated);
     }
     ok(response)
 }
@@ -4506,6 +4560,50 @@ mod tests {
         assert!(
             validate_connector_access("postgres", &config, &HardeningConfig::default()).is_err()
         );
+    }
+
+    #[test]
+    fn connector_tls_policy_rejects_preferred_downgrade() {
+        let config = ConnectorConfig {
+            connector_type: "postgres".to_string(),
+            auth: Some(ConnectorAuth {
+                username: "u".to_string(),
+                password: "p".to_string(),
+                host: "db.example.com".to_string(),
+                port: 5432,
+                database: "db".to_string(),
+                ssl_mode: SslMode::Prefer,
+            }),
+            ..Default::default()
+        };
+        let hardening = HardeningConfig {
+            connector_allowed_hosts: vec!["db.example.com".to_string()],
+            connector_require_tls: true,
+            ..Default::default()
+        };
+        assert!(validate_connector_access("postgres", &config, &hardening).is_err());
+    }
+
+    #[test]
+    fn connector_tls_policy_accepts_required_tls() {
+        let config = ConnectorConfig {
+            connector_type: "mysql".to_string(),
+            auth: Some(ConnectorAuth {
+                username: "u".to_string(),
+                password: "p".to_string(),
+                host: "db.example.com".to_string(),
+                port: 3306,
+                database: "db".to_string(),
+                ssl_mode: SslMode::Require,
+            }),
+            ..Default::default()
+        };
+        let hardening = HardeningConfig {
+            connector_allowed_hosts: vec!["db.example.com".to_string()],
+            connector_require_tls: true,
+            ..Default::default()
+        };
+        assert!(validate_connector_access("mysql", &config, &hardening).is_ok());
     }
 
     #[tokio::test]

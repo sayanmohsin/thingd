@@ -1175,6 +1175,12 @@ Pull data from an external source into a thingd collection. Each row becomes an 
 | `syncStrategy` | no | `"full"` (default) or `"incremental"` |
 | `returnObjects` | no | When `true`, include imported row objects in the response for projection consumers. Disabled by default. |
 
+Postgres and MySQL rows are pulled through a bounded channel and applied in
+batches, so the connector does not retain the complete query result in memory.
+When `returnObjects` is enabled, at most 1,000 imported objects are included;
+`objectsTruncated: true` indicates the response list was capped while the full
+stream continued to import.
+
 ```bash
 curl -X POST http://localhost:8757/v1/connectors/postgres/pull \
   -H "Content-Type: application/json" \
@@ -1278,12 +1284,16 @@ hardening:
   rate_limit_requests_per_minute: 300
 ```
 
-- Per-IP token bucket keyed by the TCP peer address; untrusted `X-Forwarded-For`
+- Per-IP token bucket keyed by the peer IP (source port is ignored); untrusted `X-Forwarded-For`
   headers are ignored
+- The in-memory bucket table is bounded to 10,000 entries
 - Returns `429 Too Many Requests` with `Retry-After` header when exceeded
 - Blocking-worker saturation returns `503 Service Unavailable` with error type
   `worker_saturated` and `Retry-After: 1`.
 - Enabled by default (300 rpm per IP). Set `rate_limit_enabled: false` to disable.
+
+Metrics collection returns an error response if any storage count fails. It
+does not report missing counts as zero.
 
 ### Input Validation
 

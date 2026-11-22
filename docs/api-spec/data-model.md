@@ -248,7 +248,7 @@ Authentication credentials for external database connectors.
 | `database` | string | yes | Database name |
 | `username` | string | yes | Database user |
 | `password` | string | yes | Database password |
-| `sslMode` | string | no | `"disable"` \| `"prefer"` (default) \| `"require"` |
+| `sslMode` | string | no | `"disable"` \| `"prefer"` (default) \| `"require"`; the server rejects every mode except `"require"` when `connector_require_tls` is enabled |
 
 ### ConnectorType
 
