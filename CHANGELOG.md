@@ -13,6 +13,15 @@
 - server: harden security boundaries (0961ffe)
 - complete public SDK type exports (8a8889a)
 
+## [0.93.3](https://github.com/sayanmohsin/thingd/compare/thingd-v0.93.2...thingd-v0.93.3) (2026-11-22)
+
+
+### Bug Fixes
+
+* emit structured search recovery warning ([12b7771](https://github.com/sayanmohsin/thingd/commit/12b777198f771359a88cd1af3e9710578c983cfb))
+* harden engine production paths ([b990dab](https://github.com/sayanmohsin/thingd/commit/b990dab5b94b6e25b7f3f848dd3e6ea859ed87b5))
+* replace unmaintained chrono with jiff ([82a0ec1](https://github.com/sayanmohsin/thingd/commit/82a0ec15e3e7abdd18ae9e009850edb5c05cee94))
+
 ## [0.93.2](https://github.com/sayanmohsin/thingd/compare/thingd-v0.93.1...thingd-v0.93.2) (2026-11-17)
 
 
