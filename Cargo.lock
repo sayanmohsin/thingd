@@ -3478,6 +3478,7 @@ dependencies = [
  "tempfile",
  "thingdb",
  "tokio",
+ "tracing",
 ]
 
 [[package]]

@@ -149,9 +149,10 @@ impl Drop for PersistentEngine {
                     b"search index requires rebuild after an incomplete queue drain\n",
                 )
             {
-                eprintln!(
-                    "failed to mark stale search index at {} for rebuild: {error}",
-                    self.path.display()
+                tracing::warn!(
+                    path = %self.path.display(),
+                    error = %error,
+                    "failed to mark stale search index for rebuild"
                 );
             }
             // The worker normally drains the queue during shutdown. Commit
