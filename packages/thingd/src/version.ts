@@ -2,4 +2,4 @@
  * The published version of the thingd SDK.
  * Updated automatically by Release Please during the release PR process.
  */
-export const SDK_VERSION = "0.93.3"; // x-release-please-version
+export const SDK_VERSION = "0.93.4"; // x-release-please-version
