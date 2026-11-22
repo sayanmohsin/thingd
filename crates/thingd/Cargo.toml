@@ -38,7 +38,7 @@ tantivy = { version = "0.27.0", optional = true }
 csv = { version = "1.4", optional = true }
 futures-util = { version = "0.3", optional = true }
 calamine = { version = "0.38.0", optional = true }
-chrono = "0.4.45"
+jiff = { version = "1.0.2", default-features = false, features = ["std"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "tls-rustls-ring", "postgres", "mysql"], optional = true }

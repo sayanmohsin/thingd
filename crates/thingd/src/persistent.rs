@@ -2903,8 +2903,9 @@ fn guard_data(kv: Guard) -> ThingdResult<(Vec<u8>, Vec<u8>)> {
 }
 
 fn timestamp_before(value: &str, cutoff_ms: i64) -> bool {
-    chrono::DateTime::parse_from_rfc3339(value)
-        .is_ok_and(|timestamp| timestamp.timestamp_millis() < cutoff_ms)
+    value
+        .parse::<jiff::Timestamp>()
+        .is_ok_and(|timestamp| timestamp.as_millisecond() < cutoff_ms)
 }
 
 impl crate::SchemaStore for PersistentEngine {
@@ -6653,7 +6654,7 @@ fn infer_json_type(value: &serde_json::Value) -> String {
         serde_json::Value::Bool(_) => "boolean".to_string(),
         serde_json::Value::Number(_) => "number".to_string(),
         serde_json::Value::String(s) => {
-            if s.parse::<chrono::DateTime<chrono::Utc>>().is_ok() {
+            if s.parse::<jiff::Timestamp>().is_ok() {
                 "date".to_string()
             } else {
                 "string".to_string()
@@ -6665,12 +6666,12 @@ fn infer_json_type(value: &serde_json::Value) -> String {
 }
 
 fn bucket_label_for_date(iso_date: &str, bucket: TimeBucket) -> String {
-    if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(iso_date) {
+    if let Ok(timestamp) = iso_date.parse::<jiff::Timestamp>() {
         match bucket {
-            TimeBucket::Hour => dt.format("%Y-%m-%dT%H:00:00Z").to_string(),
-            TimeBucket::Day => dt.format("%Y-%m-%d").to_string(),
-            TimeBucket::Week => dt.format("%Y-W%V").to_string(),
-            TimeBucket::Month => dt.format("%Y-%m").to_string(),
+            TimeBucket::Hour => timestamp.strftime("%Y-%m-%dT%H:00:00Z").to_string(),
+            TimeBucket::Day => timestamp.strftime("%Y-%m-%d").to_string(),
+            TimeBucket::Week => timestamp.strftime("%Y-W%V").to_string(),
+            TimeBucket::Month => timestamp.strftime("%Y-%m").to_string(),
         }
     } else {
         iso_date.to_string()
@@ -9766,6 +9767,25 @@ mod tests {
             .unwrap();
         assert_eq!(result.buckets.len(), 1);
         assert_eq!(result.buckets[0].value, 2.0);
+    }
+
+    #[test]
+    fn timestamp_before_compares_epoch_milliseconds() {
+        assert!(timestamp_before("1970-01-01T00:00:00.999Z", 1_000));
+        assert!(!timestamp_before("1970-01-01T00:00:01.000Z", 1_000));
+        assert!(!timestamp_before("not-a-timestamp", 1_000));
+    }
+
+    #[test]
+    fn timeseries_buckets_normalize_offsets_to_utc() {
+        assert_eq!(
+            bucket_label_for_date("2026-01-01T00:30:00+02:00", TimeBucket::Day),
+            "2025-12-31"
+        );
+        assert_eq!(
+            bucket_label_for_date("2026-01-01T00:30:00+02:00", TimeBucket::Week),
+            "2025-W01"
+        );
     }
 
     // ── ready_jobs index behavior (Persistent-specific) ───────────────────────
