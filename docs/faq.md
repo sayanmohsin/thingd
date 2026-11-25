@@ -307,7 +307,7 @@ thingd does not have built-in zero-downtime upgrade support. Restarting the proc
 
 ## thingd-cloud
 
-thingd-cloud is the managed hosted version. See the [thingd-cloud](https://github.com/sayanmohsin/thingd-cloud) repo for details. For self-hosting, use the sidecar with `THINGD_URL`.
+thingd Cloud is the managed hosted version. See the [thingd Cloud website](https://thingd.cloud/) and [product guide](https://thingd.cloud/guide/) for details. For self-hosting, use the sidecar with `THINGD_URL`.
 
 ### Will APIs differ between local and cloud?
 
