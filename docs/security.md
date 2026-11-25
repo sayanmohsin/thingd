@@ -110,6 +110,25 @@ auth:
     tenant-b: "tenant-b-token-min-16-chars"
 ```
 
+## Dashboard access
+
+`thingd dashboard` serves its browser UI on loopback on the user's computer.
+The local CLI and dashboard can connect to a remote Thingd database using its
+URL and credentials. To inspect the same remote database from another device,
+run the CLI and dashboard on that device with valid database credentials.
+
+The dashboard validates the local Host and browser Origin against its actual
+listening port. Foreign websites and unsupported Host values are rejected for
+reads and writes, and wildcard CORS is disabled. Same-origin requests on custom
+local ports and non-browser requests without Origin remain supported.
+
+When the dashboard starts with an auth token, that fixed startup credential
+protects all dashboard API routes, including connection switching. Destination
+database credentials can change without changing the dashboard access token.
+An unsuccessful replacement open leaves the existing database usable. A local
+dashboard started without a token remains in local no-token mode, protected by
+its loopback binding and Host/Origin checks.
+
 ## TLS / HTTPS
 
 thingd-server does not serve HTTPS directly. The recommended deployment pattern uses a reverse proxy:

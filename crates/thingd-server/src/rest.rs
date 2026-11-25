@@ -4050,6 +4050,69 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn batch_reads_accept_post_and_legacy_get_with_identical_results() {
+        let (state, config) = test_state_and_config();
+        let app = crate::server::build_router(state, &config);
+        let inserted = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("PUT")
+                    .uri("/v1/objects/batch?collection=notes")
+                    .header("content-type", "application/json")
+                    .body(Body::from(r#"[{"id":"first"},{"id":"second"}]"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(inserted.status(), StatusCode::OK);
+        for method in ["POST", "GET"] {
+            for body in [
+                r#"["second","missing","first","second"]"#,
+                r#"{"ids":["second","missing","first","second"]}"#,
+            ] {
+                let response = app
+                    .clone()
+                    .oneshot(
+                        Request::builder()
+                            .method(method)
+                            .uri("/v1/objects/batch?collection=notes")
+                            .header("content-type", "application/json")
+                            .body(Body::from(body))
+                            .unwrap(),
+                    )
+                    .await
+                    .unwrap();
+                assert_eq!(response.status(), StatusCode::OK);
+                let body: Value = serde_json::from_slice(
+                    &response.into_body().collect().await.unwrap().to_bytes(),
+                )
+                .unwrap();
+                let rows = body["data"].as_array().unwrap();
+                assert_eq!(rows.len(), 4);
+                assert_eq!(rows[0]["id"], "second");
+                assert!(rows[1].is_null());
+                assert_eq!(rows[2]["id"], "first");
+                assert_eq!(rows[3], rows[0]);
+            }
+        }
+        let oversized = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/objects/batch?collection=notes")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::to_string(&vec!["first"; 1001]).unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(oversized.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
     async fn test_batch_upsert() {
         let (state, config) = test_state_and_config();
         let app = crate::server::build_router(state, &config);

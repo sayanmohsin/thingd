@@ -1,8 +1,11 @@
 # Error Taxonomy
 
-thingd uses structured error responses across all interfaces (MCP, REST, SDK). Every error has a `type` (machine-readable), `title`, `status` (HTTP code), and `detail` (human-readable).
+thingd exposes errors through REST responses, MCP tool results, and SDK
+exceptions. The formats and missing-record behavior are described below.
 
 ## REST Error Format
+
+The Rust sidecar uses this format:
 
 ```json
 {
@@ -16,6 +19,10 @@ thingd uses structured error responses across all interfaces (MCP, REST, SDK). E
 ```
 
 **Production mode:** When `server.production_mode` is `true`, the `detail` field is empty for `internal_error` responses. Full details are logged server-side.
+
+The TypeScript REST adapter uses `{ "error": { "code": "...", "message": "..." } }`.
+The HTTP clients accept both formats and legacy string errors. They preserve
+useful messages and use the actual HTTP response status to identify failures.
 
 HTTP status codes map to error categories:
 
@@ -40,14 +47,20 @@ MCP errors are returned via the `isError: true` flag in the tool result:
 
 ## SDK Error Format
 
-The TypeScript SDK throws `Error` objects with descriptive messages. The HTTP REST client (`HttpThingStore` / `ThingdClient`) may throw plain `Error` objects from HTTP errors, while the MCP client throws errors received from the MCP tool layer:
+The TypeScript SDK throws `Error` instances with descriptive messages. The HTTP
+REST clients (`HttpThingStore` and `ThingdClient`) return `null` for an actual
+404 response from `get()` or `getLink()`, including non-JSON 404 responses.
+Other HTTP failures still throw, even when their messages contain the text
+`404`. Non-JSON HTTP failures use an `HTTP <status>` message; network errors
+from `fetch()` propagate to the caller. MCP clients throw errors received from
+the MCP tool layer.
 
 ```typescript
 try {
   await thingd.put("users", { id: "user-001" });
 } catch (err) {
   const message = err instanceof Error ? err.message : String(err);
-  // Check for error type or HTTP status in the message
+  // Report the failure or apply an application-specific retry policy.
 }
 ```
 
@@ -362,6 +375,6 @@ try {
   await thingd.put("users", { id: "user-001" });
 } catch (err) {
   const message = err instanceof Error ? err.message : String(err);
-  // Handle based on message content or HTTP status
+  // Report the failure or apply an application-specific retry policy.
 }
 ```

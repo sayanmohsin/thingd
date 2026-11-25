@@ -1,6 +1,152 @@
 import assert from "node:assert/strict";
+import { once } from "node:events";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { createServer, request as httpRequest } from "node:http";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 import { startDashboardServer } from "../dist/dashboard/server.js";
+
+test("Dashboard - keeps access protection separate from remote database credentials", async (t) => {
+  const upstreamTokens = [];
+  const upstream = createServer((req, res) => {
+    upstreamTokens.push(req.headers.authorization);
+    res.writeHead(200, { "content-type": "application/json" });
+    res.end(JSON.stringify({ data: { count: 0, queues: 0 } }));
+  });
+  upstream.listen(0, "127.0.0.1");
+  await once(upstream, "listening");
+  t.after(() => new Promise((resolve) => {
+    upstream.close(resolve);
+    upstream.closeAllConnections();
+  }));
+  for (const token of [undefined, "dashboard-access-key"]) {
+    await t.test(token ? "protected local session" : "local session without a token", async () => {
+      const { server, close } = await startDashboardServer({
+        path: ":memory:", driver: "memory", cloud: false, authToken: token,
+      }, 0);
+      const url = `http://127.0.0.1:${server.address().port}`;
+      const headers = {
+        "content-type": "application/json",
+        ...(token ? { authorization: `Bearer ${token}` } : {}),
+      };
+      try {
+        if (token) {
+          for (const authorization of [undefined, "Bearer wrong-token"]) {
+            const denied = await fetch(`${url}/api/connect`, {
+              method: "POST",
+              headers: { "content-type": "application/json", ...(authorization ? { authorization } : {}) },
+              body: JSON.stringify({ path: ":memory:", driver: "memory" }),
+            });
+            assert.equal(denied.status, 401);
+          }
+        }
+        const remote = await fetch(`${url}/api/connect`, {
+          method: "POST", headers,
+          body: JSON.stringify({
+            path: `http://127.0.0.1:${upstream.address().port}`,
+            driver: "cloud", authToken: "remote-database-key",
+          }),
+        });
+        assert.equal(remote.status, 200);
+        const status = await fetch(`${url}/api/status`, { headers });
+        assert.equal(status.status, 200);
+        assert.equal((await status.json()).authRequired, Boolean(token));
+        assert.ok(upstreamTokens.length > 0);
+        assert.ok(upstreamTokens.every((value) => value === "Bearer remote-database-key"));
+        if (token) {
+          assert.equal((await fetch(`${url}/api/status`)).status, 401);
+          assert.equal((await fetch(`${url}/api/status`, {
+            headers: { authorization: "Bearer remote-database-key" },
+          })).status, 401);
+        }
+        const local = await fetch(`${url}/api/connect`, {
+          method: "POST", headers,
+          body: JSON.stringify({ path: ":memory:", driver: "memory" }),
+        });
+        assert.equal(local.status, 200);
+        assert.equal((await fetch(`${url}/api/status`, { headers })).status, 200);
+        if (token) {
+          assert.equal((await fetch(`${url}/api/status`)).status, 401);
+        }
+      } finally {
+        await close();
+      }
+    });
+  }
+});
+
+test("Dashboard - rejects foreign origins and hosts on its actual local port", async () => {
+  const { server, close } = await startDashboardServer({
+    path: ":memory:", driver: "memory", cloud: false,
+  }, 0);
+  const { port, address } = server.address();
+  const url = `http://127.0.0.1:${port}`;
+  assert.equal(address, "127.0.0.1");
+  try {
+    for (const method of ["GET", "POST", "OPTIONS"]) {
+      for (const origin of ["https://foreign.example", "null", `http://127.0.0.1:${port + 1}`]) {
+        const response = await fetch(`${url}/api/connect`, { method, headers: { origin } });
+        assert.equal(response.status, 403);
+        assert.equal(response.headers.get("access-control-allow-origin"), null);
+      }
+    }
+    for (const fetchSite of ["cross-site", "same-site"]) {
+      const response = await fetch(`${url}/api/status`, { headers: { "sec-fetch-site": fetchSite } });
+      assert.equal(response.status, 403);
+    }
+    const allowed = await fetch(`${url}/api/status`, { headers: { origin: url } });
+    assert.equal(allowed.status, 200);
+    assert.equal(allowed.headers.get("access-control-allow-origin"), url);
+    const write = await fetch(`${url}/api/objects`, {
+      method: "POST", headers: { origin: url, "content-type": "application/json" },
+      body: JSON.stringify({ collection: "notes", id: "same-origin", text: "Allowed" }),
+    });
+    assert.equal(write.status, 200);
+    const preflight = await fetch(`${url}/api/objects`, { method: "OPTIONS", headers: { origin: url } });
+    assert.equal(preflight.status, 204);
+    const untrustedHost = await new Promise((resolve, reject) => {
+      const req = httpRequest(`${url}/api/status`, { headers: { host: "foreign.example" } }, (res) => {
+        res.resume();
+        res.on("end", () => resolve(res.statusCode));
+      });
+      req.on("error", reject);
+      req.end();
+    });
+    assert.equal(untrustedHost, 403);
+    assert.equal((await fetch(`${url}/api/status`)).status, 200);
+  } finally {
+    await close();
+  }
+});
+
+test("Dashboard - a failed replacement leaves the current database usable", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "thingd-dashboard-switch-"));
+  const invalidPath = join(directory, "not-a-directory");
+  await writeFile(invalidPath, "not a database directory");
+  const { server, close } = await startDashboardServer({
+    path: ":memory:", driver: "memory", cloud: false,
+  }, 0);
+  const url = `http://127.0.0.1:${server.address().port}`;
+  try {
+    const created = await fetch(`${url}/api/objects`, {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ collection: "notes", id: "keep", text: "Keep this connection" }),
+    });
+    assert.equal(created.status, 200);
+    const failed = await fetch(`${url}/api/connect`, {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ path: invalidPath, driver: "native" }),
+    });
+    assert.equal(failed.status, 500);
+    const response = await fetch(`${url}/api/objects?collection=notes`);
+    assert.equal(response.status, 200);
+    assert.equal((await response.json())[0].id, "keep");
+  } finally {
+    await close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
 
 test("Dashboard - serves static assets and REST API endpoints", async () => {
   // Start the dashboard server on a random available port (0)

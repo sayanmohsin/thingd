@@ -1,3 +1,12 @@
+## Unreleased
+
+### Bug Fixes
+
+- Keep dashboard access credentials stable across connection changes, restrict the local dashboard to loopback and trusted browser origins, and preserve the current database when a replacement cannot open.
+- Add fetch-compatible POST batch reads to the Rust and TypeScript REST servers while retaining the legacy GET alias. SDK batch reads require the new POST route.
+- Return null only for actual object/link HTTP 404s in both clients, preserving other HTTP failures and network errors.
+- Give dashboard diagnostic entries unique keys so entries created in the same second do not prevent the UI from loading.
+
 ## [0.72.0](https://github.com/sayanmohsin/thingd/compare/v0.71.0...v0.72.0) (2026-08-02)
 
 ### Features
