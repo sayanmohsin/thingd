@@ -100,6 +100,7 @@ jobs:
             echo "LLVM_CONFIG_PATH=$(brew --prefix llvm)/bin/llvm-config"
             echo "LIBCLANG_PATH=$(brew --prefix llvm)/lib"
           } >> "$GITHUB_ENV"
+      - run: node --test scripts/check-native-toolchain.test.mjs
       - run: pnpm check:native-toolchain -- --json --strict
 
   thingdb-standalone:

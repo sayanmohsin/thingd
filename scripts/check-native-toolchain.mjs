@@ -1,4 +1,5 @@
-import { existsSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
+import { isAbsolute, relative, sep as pathSeparator } from "node:path";
 import { execFileSync } from "node:child_process";
 import { env, platform, arch } from "node:process";
 
@@ -53,8 +54,11 @@ if (llvmConfigPath && !existsSync(llvmConfigPath)) {
 if (env.DYLD_LIBRARY_PATH) {
   warnings.push("DYLD_LIBRARY_PATH is set; remove it while invoking rustc to avoid libLLVM conflicts");
 }
-if (llvmConfigVersion && llvmConfigPrefix && libclangPath && !libclangPath.startsWith(llvmConfigPrefix)) {
-  warnings.push("LIBCLANG_PATH and llvm-config resolve to different LLVM installations");
+if (llvmConfigVersion && llvmConfigPrefix && libclangPath && existsSync(libclangPath) && existsSync(llvmConfigPrefix)) {
+  const location = relative(realpathSync(llvmConfigPrefix), realpathSync(libclangPath));
+  if (location === ".." || location.startsWith(`..${pathSeparator}`) || isAbsolute(location)) {
+    warnings.push("LIBCLANG_PATH and llvm-config resolve to different LLVM installations");
+  }
 }
 
 if (process.argv.includes("--json")) {
