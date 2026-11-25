@@ -52,8 +52,9 @@ credentials and static log messages can trigger security patterns without
 containing real secrets.
 
 The repository-specific [`.nice-code.json`](../.nice-code.json) excludes only
-generated, vendored, and build-output paths. It contains no broad category
-disables or unexplained exceptions.
+generated, vendored, and build-output paths. Its explicit profiles include Rust,
+TypeScript, React, Svelte, NestJS, and web; this list replaces automatic profile
+selection. It contains no broad category disables or unexplained exceptions.
 
 ## Thingd review focus
 

@@ -1,5 +1,5 @@
 {
-  "profiles": ["default", "typescript", "react", "web"],
+  "profiles": ["default", "rust", "typescript", "react", "svelte", "nestjs", "web"],
   "ignore": [
     "target/**",
     ".nice-code/**",
