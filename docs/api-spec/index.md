@@ -116,7 +116,7 @@ MCP server endpoints use the same Bearer token scheme.
 | REST | `DELETE /v1/objects/:collection/:id` | Delete object |
 | REST | `GET /v1/objects?collection=` | List objects |
 | REST | `PUT /v1/objects/batch?collection=` | Batch create |
-| REST | `GET /v1/objects/batch?collection=` | Batch read |
+| REST | `POST /v1/objects/batch?collection=` | Batch read (legacy GET alias retained) |
 | REST | `POST /v1/search` | Full-text search |
 | REST | `POST /v1/events/:stream` | Append event |
 | REST | `GET /v1/events?stream=` | List events |

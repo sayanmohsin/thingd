@@ -241,8 +241,8 @@ export async function handleRestRequest(
       return;
     }
 
-    // GET /v1/objects/batch?collection=...
-    if (pathname === "/v1/objects/batch" && method === "GET") {
+    // POST is fetch-compatible; retain GET with a body for legacy callers.
+    if (pathname === "/v1/objects/batch" && (method === "POST" || method === "GET")) {
       const collection = url.searchParams.get("collection");
       if (!collection) {
         sendError(res, 400, "bad_request", "Query parameter 'collection' is required");
@@ -250,8 +250,12 @@ export async function handleRestRequest(
       }
       const body = JSON.parse(await readBody(req));
       const ids = Array.isArray(body) ? body : body.ids;
-      if (!Array.isArray(ids)) {
-        sendError(res, 400, "bad_request", "Body must be an array or { ids: [...] }");
+      if (!Array.isArray(ids) || !ids.every((id: unknown) => typeof id === "string")) {
+        sendError(res, 400, "bad_request", "Body must be an array of string IDs or { ids: [...] }");
+        return;
+      }
+      if (ids.length > 1_000) {
+        sendError(res, 400, "bad_request", "Object batch must contain at most 1000 IDs");
         return;
       }
       const objects = await db.getBatch(collection, ids);

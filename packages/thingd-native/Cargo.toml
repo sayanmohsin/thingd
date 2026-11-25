@@ -23,10 +23,10 @@ path = "native/src/lib.rs"
 [dependencies]
 thingd = { path = "../../crates/thingd", version = "0.93", default-features = false } # x-release-please-version
 thingd-schema = { path = "../../crates/thingd-schema", version = "0.93" }
-napi = { version = "3.16.2", default-features = false, features = ["napi4"] }
-napi-derive = "3.7.1"
+napi = { version = "3.16.3", default-features = false, features = ["napi4"] }
+napi-derive = "3.7.2"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 
 [build-dependencies]
-napi-build = "2.6.0"
+napi-build = "2.7.0"

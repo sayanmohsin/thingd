@@ -30,6 +30,7 @@ runs:
       with:
         node-version: ${{ inputs.node-version }}
         registry-url: ${{ inputs.registry-url }}
+        package-manager-cache: false
 
     - name: Locate pnpm store
       id: pnpm-store
@@ -63,7 +64,7 @@ runs:
           echo "### Dependency cache"
           echo "- pnpm store: **$status**"
           if [ -n "$MATCHED_KEY" ]; then
-            echo "- Restored key: `$MATCHED_KEY`"
+            printf -- '- Restored key: `%s`\n' "$MATCHED_KEY"
           fi
         } >> "$GITHUB_STEP_SUMMARY"
 

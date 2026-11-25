@@ -203,7 +203,7 @@ See [mcp-server.md](./mcp-server.md) for the full reference.
 | Mode | How | Backend |
 |------|-----|---------|
 | **Rust embedded** | `use thingd::{PersistentEngine, ObjectStore}` | RocksDB by default, ThingDB experimental opt-in, or InMemory |
-| **Node.js embedded** | `new ThingD({driver:"native"})` | persistent or InMemory |
+| **Node.js embedded** | `await ThingD.open({path:"./thingd-data",driver:"native"})` | RocksDB durable storage by default |
 | **MCP sidecar** | `thingd mcp` | PersistentEngine with optional storage codec |
 | **REST sidecar** | `thingd-server` (axum) | PersistentEngine |
 | **Docker** | `docker run thingd/thingd-server` | PersistentEngine on a persistent volume |

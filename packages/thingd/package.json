@@ -71,7 +71,7 @@
     "zod": "^4.6.7"
   },
   "optionalDependencies": {
-    "@thingd/native": "^0.93.1"
+    "@thingd/native": "workspace:^"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",

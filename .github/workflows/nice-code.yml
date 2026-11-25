@@ -2,9 +2,9 @@ name: Nice Code
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, development]
   push:
-    branches: [main]
+    branches: [main, development]
   workflow_dispatch:
 
 concurrency:
@@ -22,6 +22,7 @@ jobs:
   review:
     name: Advisory engineering review
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Check out Thingd
         uses: actions/checkout@v6

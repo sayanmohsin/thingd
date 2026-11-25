@@ -12,7 +12,7 @@ const nativeBinaryPath = fileURLToPath(
 );
 const nativeAvailable = existsSync(nativeBinaryPath);
 
-runThingDBehaviorSuite("memory", () => ThingD.open(":memory:"));
+runThingDBehaviorSuite("memory", () => ThingD.open({ driver: "memory" }));
 
 if (nativeAvailable) {
   runThingDBehaviorSuite("native", () =>

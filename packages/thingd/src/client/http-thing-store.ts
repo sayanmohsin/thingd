@@ -43,6 +43,16 @@ export type HttpThingStoreOptions = {
   instanceSlug?: string;
 };
 
+class HttpResponseError extends Error {
+  constructor(
+    readonly status: number,
+    message: string
+  ) {
+    super(message);
+    this.name = "HttpResponseError";
+  }
+}
+
 function trimTrailingSlashes(s: string): string {
   let end = s.length;
   while (end > 0 && s.charCodeAt(end - 1) === 47) {
@@ -80,11 +90,18 @@ export class HttpThingStore implements ThingStore {
       headers,
       body: body ? JSON.stringify(body) : undefined,
     });
-    const json = await res.json();
     if (!res.ok) {
-      const msg = json?.error?.message ?? `HTTP ${res.status}`;
-      throw new Error(msg);
+      const json = await res.json().catch(() => null);
+      const error = json?.error;
+      const message =
+        typeof error === "string" ? error : error?.detail || error?.message || error?.title;
+      throw new HttpResponseError(
+        res.status,
+        typeof message === "string" && message ? message : `HTTP ${res.status}`
+      );
     }
+
+    const json = await res.json();
     return json.data as T;
   }
 
@@ -103,7 +120,7 @@ export class HttpThingStore implements ThingStore {
         `/objects/${encodeURIComponent(collection)}/${encodeURIComponent(id)}`
       );
     } catch (err) {
-      if (err instanceof Error && err.message.includes("404")) {
+      if (err instanceof HttpResponseError && err.status === 404) {
         return null;
       }
       throw err;
@@ -112,7 +129,7 @@ export class HttpThingStore implements ThingStore {
 
   async getBatch<T = StoredMemoryObject>(collection: string, ids: string[]): Promise<(T | null)[]> {
     return this.request<(T | null)[]>(
-      "GET",
+      "POST",
       `/objects/batch?collection=${encodeURIComponent(collection)}`,
       ids
     );
@@ -288,7 +305,7 @@ export class HttpThingStore implements ThingStore {
         `/links/${encodeURIComponent(id)}`
       );
     } catch (err) {
-      if (err instanceof Error && err.message.includes("404")) {
+      if (err instanceof HttpResponseError && err.status === 404) {
         return null;
       }
       throw err;

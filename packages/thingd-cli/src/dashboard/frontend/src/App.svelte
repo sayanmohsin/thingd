@@ -14,9 +14,10 @@
   let dbHealth = { integrityOk: false, integrityMessage: 'Not checked', walMode: '-', walFrames: 0, backupPath: '', backupSize: 0 };
   let replication = { configured: false, config: null, sourceId: '-', latestCursor: 0, protectedCloudTarget: false };
   let serverVersion = '';
+  let diagnosticLogSequence = 0;
   let diagnosticLogs = [
-    { time: new Date().toLocaleTimeString(), text: 'Svelte Dashboard loaded successfully.', type: 'muted' },
-    { time: new Date().toLocaleTimeString(), text: 'Establishing database connections...', type: 'info' }
+    { id: diagnosticLogSequence++, time: new Date().toLocaleTimeString(), text: 'Svelte Dashboard loaded successfully.', type: 'muted' },
+    { id: diagnosticLogSequence++, time: new Date().toLocaleTimeString(), text: 'Establishing database connections...', type: 'info' }
   ];
 
   // Auth Key Gate
@@ -135,7 +136,7 @@
 
   function logDiagnostic(text, type = '') {
     const time = new Date().toLocaleTimeString();
-    diagnosticLogs = [...diagnosticLogs, { time, text, type }];
+    diagnosticLogs = [...diagnosticLogs, { id: diagnosticLogSequence++, time, text, type }];
     if (diagnosticLogs.length > 50) {
       diagnosticLogs = diagnosticLogs.slice(-50);
     }
@@ -771,7 +772,7 @@
   function openConnSettingsModal() {
     connDriver = dbDriver.includes('In-Memory') ? 'memory' : dbDriver.includes('Tantivy') ? 'native' : 'cloud';
     connPath = dbPath;
-    connToken = authToken;
+    connToken = '';
     modalConnVisible = true;
   }
 
@@ -787,14 +788,9 @@
         })
       });
       
-      // Update local storage credentials
-      authToken = connToken;
-      if (authToken) {
-        localStorage.setItem('thingd_auth_token', authToken);
-      } else {
-        localStorage.removeItem('thingd_auth_token');
-      }
-      
+      // The destination token never replaces the dashboard login credential.
+      connToken = '';
+
       showToast('Database connection swapped successfully.', 'success');
       logDiagnostic(`Swapped database connection to: [${connDriver}] ${connPath}`);
       modalConnVisible = false;
@@ -851,12 +847,12 @@
         <span class="brand-logo brand-logo-large">tg</span>
       </div>
       <div class="modal-body auth-body">
-        <h2 class="text-center">thingd Security Shield</h2>
-        <p class="text-muted text-center">This database instance is protected. Enter the authorization bearer token to gain access.</p>
+        <h2 class="text-center">thingd Dashboard Access</h2>
+        <p class="text-muted text-center">This dashboard is protected. Enter the token used when the dashboard started.</p>
         
         <form on:submit={handleLogin}>
           <div class="form-group">
-            <label for="auth-key">Authorization Bearer Token *</label>
+            <label for="auth-key">Dashboard Access Token *</label>
             <input type="password" id="auth-key" bind:value={inputAuthToken} placeholder="Enter auth token..." class="form-input auth-token-input" required>
           </div>
           <div class="modal-footer auth-footer">
@@ -1062,7 +1058,7 @@
                   <span class="terminal-title">quick diagnostics</span>
                 </div>
                 <div class="terminal-body" style="max-height: 180px; overflow-y: auto;">
-                  {#each diagnosticLogs as log (log.time)}
+                  {#each diagnosticLogs as log (log.id)}
                     <div class="log-line" in:fly={{ y: 10, duration: 200 }}>
                       <span class="text-muted">[{log.time}]</span>
                       <span class={log.type ? `text-${log.type}` : ''}>{log.text}</span>
@@ -1914,8 +1910,8 @@
             <input type="text" id="conn-pth" bind:value={connPath} placeholder="e.g. :memory: or database.db" class="form-input" required>
           </div>
           <div class="form-group">
-            <label for="conn-tok">Bearer Security Token (optional)</label>
-            <input type="password" id="conn-tok" bind:value={connToken} placeholder="Security authorization key..." class="form-input">
+            <label for="conn-tok">Remote Database Token (optional)</label>
+            <input type="password" id="conn-tok" bind:value={connToken} placeholder="Token for the destination database..." class="form-input">
           </div>
           <div class="modal-footer">
             <button type="button" class="btn btn-secondary" on:click={() => modalConnVisible = false}>Cancel</button>

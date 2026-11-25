@@ -80,7 +80,9 @@ export async function startDashboardServer(
   connectionOptions: ConnectionOptions,
   port: number
 ): Promise<{ server: import("node:http").Server; close: () => Promise<void> }> {
-  // 1. Maintain dynamic active database options
+  // Dashboard access stays fixed while destination database credentials can change.
+  const dashboardAuthToken = connectionOptions.authToken;
+  let connectionChange: Promise<void> = Promise.resolve();
   let activeOptions = { ...connectionOptions };
   let db = await ThingD.open({
     path: activeOptions.path,
@@ -93,23 +95,43 @@ export async function startDashboardServer(
   // 2. Create HTTP Server
   const server = createServer(async (req, res) => {
     try {
-      const url = new URL(req.url || "", `http://${req.headers.host || "localhost"}`);
-      const pathname = url.pathname;
-
-      // Handle CORS for ease of developer integrations
-      const allowedOrigins = [
-        "http://localhost:8757",
-        "http://localhost:8758",
-        "http://127.0.0.1:8757",
-        "http://127.0.0.1:8758",
-      ];
-      const origin = req.headers.origin;
-      if (origin && allowedOrigins.includes(origin)) {
-        res.setHeader("Access-Control-Allow-Origin", origin);
-      } else {
-        res.setHeader("Access-Control-Allow-Origin", "*");
+      const address = server.address();
+      if (!address || typeof address === "string") {
+        sendError(res, 503, "Dashboard is not listening");
+        return;
       }
-      res.setHeader("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
+      const hosts = new Set([
+        `localhost:${address.port}`,
+        `127.0.0.1:${address.port}`,
+        ...(address.port === 80 ? ["localhost", "127.0.0.1"] : []),
+      ]);
+      const host = req.headers.host?.toLowerCase();
+      if (!host || !hosts.has(host)) {
+        sendError(res, 403, "Unsupported dashboard host");
+        return;
+      }
+      const expectedOrigin = new URL(`http://${host}`).origin;
+      const origin = req.headers.origin;
+      const fetchSite = req.headers["sec-fetch-site"];
+      if (
+        (origin !== undefined && origin !== expectedOrigin) ||
+        fetchSite === "cross-site" ||
+        fetchSite === "same-site"
+      ) {
+        sendError(res, 403, "Cross-origin dashboard requests are not allowed");
+        return;
+      }
+      const url = new URL(req.url || "/", expectedOrigin);
+      if (url.origin !== expectedOrigin) {
+        sendError(res, 403, "Unsupported dashboard origin");
+        return;
+      }
+      const pathname = url.pathname;
+      if (origin) {
+        res.setHeader("Access-Control-Allow-Origin", origin);
+        res.setHeader("Vary", "Origin");
+      }
+      res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
       res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
 
       if (req.method === "OPTIONS") {
@@ -118,23 +140,13 @@ export async function startDashboardServer(
         return;
       }
 
-      // CSRF protection: state-changing requests must come from a known origin
-      if (req.method !== "GET" && req.method !== "OPTIONS" && req.method !== "HEAD") {
-        const requestOrigin = req.headers.origin;
-        if (requestOrigin && !allowedOrigins.includes(requestOrigin)) {
-          sendError(res, 403, "Cross-origin state-changing requests are not allowed");
-          return;
-        }
-      }
-
       // Security Gate middleware for API endpoints
       const isApiRoute = pathname.startsWith("/api/");
-      const isConnectRoute = pathname === "/api/connect";
       const isRestRoute = pathname.startsWith("/v1/");
 
-      if ((isApiRoute || isRestRoute) && !isConnectRoute && activeOptions.authToken) {
+      if ((isApiRoute || isRestRoute) && dashboardAuthToken) {
         const authHeader = req.headers.authorization;
-        const expectedHeader = `Bearer ${activeOptions.authToken}`;
+        const expectedHeader = `Bearer ${dashboardAuthToken}`;
         if (!authHeader || authHeader !== expectedHeader) {
           res.writeHead(401, { "Content-Type": "application/json" });
           res.end(JSON.stringify({ error: "Unauthorized. Valid auth token is required." }));
@@ -158,25 +170,32 @@ export async function startDashboardServer(
           const resolvedToken = authToken || (cloudMode ? readCloudConfig()?.token : undefined);
           const resolvedInstanceSlug = instanceSlug || activeOptions.instanceSlug;
 
-          // Safely shut down the old db instance
-          await db.close();
-
-          // Spawn new db connection dynamically
-          db = await ThingD.open({
-            path,
-            url: cloudMode ? path : undefined,
-            driver,
-            authToken: resolvedToken,
-            instanceSlug: resolvedInstanceSlug,
+          const change = connectionChange.then(async () => {
+            // Open first so a failed replacement leaves the active database usable.
+            const replacement = await ThingD.open({
+              path,
+              url: cloudMode ? path : undefined,
+              driver,
+              authToken: resolvedToken,
+              instanceSlug: resolvedInstanceSlug,
+            });
+            try {
+              await db.close();
+            } catch (error) {
+              await replacement.close();
+              throw error;
+            }
+            db = replacement;
+            activeOptions = {
+              path,
+              driver,
+              authToken: resolvedToken,
+              cloud: cloudMode,
+              instanceSlug: resolvedInstanceSlug,
+            };
           });
-
-          activeOptions = {
-            path,
-            driver,
-            authToken: resolvedToken,
-            cloud: cloudMode,
-            instanceSlug: resolvedInstanceSlug,
-          };
+          connectionChange = change.catch(() => {});
+          await change;
 
           res.writeHead(200, { "Content-Type": "application/json" });
           res.end(JSON.stringify({ success: true, path, driver }));
@@ -210,7 +229,7 @@ export async function startDashboardServer(
               driver: activeOptions.driver || "memory",
               path: activeOptions.path,
               metrics: { objects, events, activeJobs, deadJobs, dbSize },
-              authRequired: !!activeOptions.authToken,
+              authRequired: !!dashboardAuthToken,
             })
           );
           return;
@@ -722,11 +741,12 @@ Example: { "action": "aggregate", "collection": "orders", "function": "sum", "fi
   });
 
   return new Promise((resolvePromise, rejectPromise) => {
-    server.listen(port, () => {
+    server.listen(port, "127.0.0.1", () => {
       resolvePromise({
         server,
         close: async () => {
           await new Promise<void>((closeRes) => server.close(() => closeRes()));
+          await connectionChange;
           await db.close();
         },
       });

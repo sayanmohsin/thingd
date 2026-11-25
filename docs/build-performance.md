@@ -66,7 +66,35 @@ receive a prebuilt `@thingd/native` artifact and do not need these tools.
 Pull requests keep the Rust runtime and Node/native checks as separate
 correctness gates. Their caches are keyed independently by job, platform,
 architecture, and lockfile so concurrent jobs do not overwrite one another's
-target cache.
+target cache. Stable job prefixes allow dependency cache fallback when a lockfile
+changes. Rust Clippy, workspace tests, doctests, feature boundaries, and Node
+package checks run on pull requests and pushes to both `main` and `development`,
+including release branches and release commits.
+
+CI also checks workflow syntax, expressions, and shell commands with actionlint,
+scans both root and documentation dependencies, and exercises the portable
+SDK, browser client, and CLI on macOS ARM64, macOS Intel, and Windows. Native
+addon builds run separately on Linux and in the release platform matrix. Jobs
+have explicit time limits, including up to 90 minutes for cold native builds.
+
+The dashboard smoke test runs in Chromium against temporary local servers. It
+covers dashboard login, an authenticated remote database with a different token,
+reading remote collections, switching back to RAM, and keeping access after page
+reloads. It fails on uncaught browser errors. Run it locally with:
+
+```bash
+pnpm exec playwright install chromium
+pnpm test:browser
+```
+
+On Linux, use `pnpm exec playwright install --with-deps chromium` to install
+browser system dependencies too. `pnpm verify:pr` includes this smoke test after
+building the packages. CI uploads screenshots, traces, and an HTML report when
+the browser job fails, retaining them for seven days.
+
+Run `pnpm check:workflows` with Go and ShellCheck installed to reproduce workflow
+validation locally. CI runs this validation on every change, including updates
+to composite actions and root configuration.
 
 The release workflow builds the static Docker server for `linux/amd64` and
 `linux/arm64` in parallel, uploads the two binaries, and then assembles the

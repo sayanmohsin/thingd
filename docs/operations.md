@@ -343,7 +343,7 @@ thingd doctor
 ```
 
 The doctor command checks:
-- Node.js version (requires 20+)
+- Node.js version (SDK and CLI require 24+)
 - Native addon availability
 - Auth token configuration (for cloud driver)
 - Connectivity to remote endpoints (for cloud driver)

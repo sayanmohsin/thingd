@@ -223,6 +223,21 @@ thingd dashboard
 
 Opens a live browser dashboard at `http://localhost:8758`.
 
+The dashboard runs on your computer and listens only on loopback. Use
+`--port <number>` to choose a different local port. It can inspect a remote
+Thingd database through the same connection options as other CLI commands:
+
+```bash
+export THINGD_AUTH_TOKEN="<database-token>"
+thingd dashboard --url https://db.example.com
+```
+
+When started with a token, enter that startup token at the dashboard login.
+It continues to protect the dashboard when you switch databases. The
+connection dialog's remote database token is used only for the destination
+database and does not replace your dashboard login. See
+[Dashboard access](./security.md#dashboard-access) for the access boundary.
+
 ### Metrics
 
 ```txt

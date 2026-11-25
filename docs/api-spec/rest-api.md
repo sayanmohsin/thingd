@@ -553,14 +553,14 @@ curl -X DELETE "http://localhost:8757/v1/objects/batch?collection=users" \
 { "data": { "deleted": 2 } }
 ```
 
-### `GET /v1/objects/batch` — Batch read
+### `POST /v1/objects/batch` — Batch read
 
 **Query parameter:** `collection` (required)
 
 **Body:** array of IDs or `{ "ids": [...] }`
 
 ```bash
-curl -X GET "http://localhost:8757/v1/objects/batch?collection=users" \
+curl -X POST "http://localhost:8757/v1/objects/batch?collection=users" \
   -H "Content-Type: application/json" \
   -d '["user-010", "user-011", "user-999"]'
 ```
@@ -575,8 +575,14 @@ curl -X GET "http://localhost:8757/v1/objects/batch?collection=users" \
 }
 ```
 
-Missing IDs return `null` entries, preserving input order.
-```
+Missing IDs return `null` entries, preserving input order and duplicate IDs.
+An empty batch returns an empty array. At most 1,000 IDs are accepted.
+
+The SDK's `getBatch()` uses POST because standard `fetch()` implementations
+reject GET requests with a body. Both the Rust sidecar and TypeScript REST
+adapter retain `GET /v1/objects/batch` with the same body and response as a
+legacy alias. SDK batch reads require a server version that supports the POST
+route; upgrade older servers before using this method.
 
 ---
 

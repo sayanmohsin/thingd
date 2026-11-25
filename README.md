@@ -85,7 +85,7 @@ See the [public documentation index](https://github.com/sayanmohsin/thingd/blob/
 - **Optional schema files** — custom `schema.thingd` syntax, Rust parsing, validation, canonical JSON, and stable schema hashes via `thingd schema check`.
 - **Provider-neutral replication** — synchronize one explicit Thingd source to one replica, including objects, deletes, tombstones, events, cursors, snapshots, provenance, and quarantined conflicts.
 - **MCP server** — 51 SDK tools, stdio + Streamable HTTP, audit events, collection allowlists, and read-only mode; the Rust sidecar exposes 41 core tools (scheduler tools are SDK-only)
-- **Docker** — multi-stage image, compose + K8s for leader/follower cluster
+- **Docker** — runtime image, compose + K8s for leader/follower cluster
 - **CI/tooling** — Release Please, biome, lefthook, doc tests, cargo audit, cargo deny, CodeQL
 
 ### What's next
@@ -210,7 +210,7 @@ npm install @thingd/sdk
 
 ```toml
 [dependencies]
-thingd = { version = "0.92", features = ["persistent", "search"] } # x-release-please-version
+thingd = { version = "0.93", features = ["persistent", "search"] } # x-release-please-version
 ```
 
 ### Subpath imports
@@ -247,7 +247,7 @@ See the [Docker Hub](https://hub.docker.com/r/sayanmohsin/thingd) page for all t
 
 ## Example API
 
-This is the target developer experience.
+A local in-memory example:
 
 ```ts
 import { ThingD } from "@thingd/sdk";
@@ -283,7 +283,7 @@ For the local Rust-backed persistent path, build the native package and
 request the native driver:
 
 ```bash
-pnpm --filter thingd-native build
+pnpm --filter @thingd/native build
 ```
 
 ```ts
@@ -436,7 +436,7 @@ const count = await db.countLinks();
 - compact old memory
 - run a background task
 
-Target API:
+Example API:
 
 ```ts
 const queue = db.queue("embed");
@@ -495,7 +495,7 @@ keyword / full-text search
 + permission filters
 ```
 
-Target API:
+Example API:
 
 ```ts
 const hits = await db.search("customers who upgraded after a failed deployment", {
@@ -520,7 +520,7 @@ for all tools with schemas and examples.
 # Auto-configure Claude Desktop / Cursor for local sidecar
 thingd install
 
-# Connect to a remote thingd instance
+# Start a local MCP server with the native driver
 thingd mcp --driver native
 
 # Optional local encrypted storage; the key stays outside MCP configuration

@@ -14,11 +14,11 @@ path = "native/src/lib.rs"
 
 [dependencies]
 thingdb = { path = "../../crates/thingdb", version = "0.93" } # x-release-please-version
-napi = { version = "3.16.2", default-features = false, features = ["napi8"] }
-napi-derive = "3.7.1"
+napi = { version = "3.16.3", default-features = false, features = ["napi8"] }
+napi-derive = "3.7.2"
 
 [build-dependencies]
-napi-build = "2.6.0"
+napi-build = "2.7.0"
 
 [lints.rust]
 unsafe_code = "allow"

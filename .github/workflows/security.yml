@@ -8,9 +8,10 @@ env:
 
 on:
   push:
-    branches: [main]
+    branches: [main, development]
   pull_request:
-    branches: [main]
+    branches: [main, development]
+  workflow_dispatch:
   schedule:
     - cron: "0 6 * * 1" # every Monday 6am UTC
 
@@ -21,18 +22,21 @@ concurrency:
 jobs:
   audit:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v6
       - uses: actions-rust-lang/audit@v1
 
   cargo-deny:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v6
       - uses: EmbarkStudios/cargo-deny-action@v2
 
   npm-audit:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v6
       - uses: ./.github/actions/setup-pnpm
@@ -41,8 +45,23 @@ jobs:
           cache-scope: root
       - run: pnpm audit --audit-level=high
 
+  docs-audit:
+    name: Documentation dependency audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup-pnpm
+        with:
+          lockfile: docs/pnpm-lock.yaml
+          cache-scope: docs
+          working-directory: docs
+      - run: pnpm audit --audit-level=high
+        working-directory: docs
+
   codeql:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       security-events: write
     steps:

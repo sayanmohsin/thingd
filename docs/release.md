@@ -1,9 +1,9 @@
 # Release Process
 
 `thingd` uses Release Please to calculate versions and create release PRs. Merging
-the release PR tags and publishes four npm packages (`@thingd/sdk`, `@thingd/cli`,
-`@thingd/native`, and `@thingd/client`) plus the Rust crates `thingd` and the
-experimental, standalone `thingdb` crate.
+the release PR tags and publishes five npm packages (`@thingd/sdk`, `@thingd/cli`,
+`@thingd/native`, `@thingd/client`, and `@thingd/thingdb`) plus the Rust crates
+`thingd`, the experimental standalone `thingdb`, and its C ABI `thingdb-ffi`.
 
 The current version shown in the Rust dependency example below is read from the
 root `package.json` during the VitePress build. Release Please keeps that value,
@@ -99,7 +99,8 @@ The npm package is configured with npm provenance enabled through `publishConfig
 
 On every release, the workflow publishes `thingd` to [crates.io](https://crates.io/crates/thingd)
 and validates and publishes the experimental standalone
-[`thingdb`](https://crates.io/crates/thingdb) crate. Both Rust crate versions are
+[`thingdb`](https://crates.io/crates/thingdb) crate and its `thingdb-ffi` C ABI.
+All three Rust crate versions are
 kept in sync with the npm packages by Release Please. `thingdb` has no RocksDB
 or native C/C++ dependency and is a separate-format 0.x crate; its durable
 format and API are not stable before 1.0.
@@ -137,7 +138,7 @@ See the [Dockerfile](https://github.com/sayanmohsin/thingd/blob/main/docker-cont
 The workspace uses `workspace:^` dependency specs during development so pnpm links
 the local SDK and native packages. These specs must never reach npm. The release
 workflow runs `scripts/prepare-publish-manifests.mjs` on its ephemeral checkout,
-converts internal ranges to `^${VERSION}`, validates all four packed manifests,
+converts internal ranges to `^${VERSION}`, validates all five packed manifests,
 and installs the packed CLI in a clean temporary application before publishing.
 
 After publishing, the workflow installs `@thingd/cli@VERSION` from the public npm
@@ -145,7 +146,7 @@ registry as a second smoke test. This catches registry metadata problems that a
 local tarball test cannot detect.
 
 The release workflow pins Node.js 24. Each release automatically publishes all
-four npm packages, updates `CHANGELOG.md` from conventional commits, creates a
+five npm packages, updates `CHANGELOG.md` from conventional commits, creates a
 GitHub Release with release notes, and commits the synchronized version bump to
 `main`.
 
@@ -225,7 +226,7 @@ To compile and stage a prebuild for your current platform and architecture:
    ```
 2. Run the staging script to copy the binary to the `prebuilds/` distribution folder:
    ```bash
-   pnpm --filter thingd-native build:prebuild
+   pnpm --filter @thingd/native build:prebuild
    ```
    *(Or run `node packages/thingd-native/scripts/copy-prebuild.mjs` directly.)*
 

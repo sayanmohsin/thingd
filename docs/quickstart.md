@@ -13,7 +13,7 @@ npm install -g @thingd/cli
 Or run directly with `npx`:
 
 ```bash
-npx thingd install
+npx --package @thingd/cli thingd install
 ```
 
 > **Note:** `thingd install` also sets up Claude Desktop (on macOS) and prints Cursor MCP settings.
@@ -24,7 +24,9 @@ npx thingd install
 npm install @thingd/sdk
 ```
 
-```ts
+Save the following as `quickstart.mjs` in the same directory:
+
+```js
 import { ThingD } from "@thingd/sdk";
 
 const db = await ThingD.open({ driver: "memory" });
@@ -59,7 +61,9 @@ await db.queue("index").push(
 await db.close();
 ```
 
-That's it — object storage, search, events, and queues in a dozen lines.
+Run it with `node quickstart.mjs`. You should see the saved note and search results containing it (the exact output includes additional fields).
+
+That's object storage, search, events, and queues in one script.
 The explicit `memory` driver is the portable TypeScript/reference store. In
 Node.js, `ThingD.open(":memory:")` uses the ThingDB RAM engine when the native
 addon is available and never creates durable files; data is lost on process
@@ -86,7 +90,27 @@ const db = await ThingD.open({
 The key is a process startup secret, not an MCP or REST credential. Encrypted
 databases require it on every reopen; changing it does not rotate the database.
 
-## 3. Try the CLI
+## 3. Try persistent storage and the CLI
+
+The example above uses process-local memory, so the CLI cannot see its data.
+To share a local database, change the `ThingD.open` line in `quickstart.mjs` to:
+
+```js
+const db = await ThingD.open({ driver: "native", path: "./thingd-data" });
+```
+
+Run `node quickstart.mjs` again and wait for it to close the database. Then run
+the CLI from the same directory, pointing it at the same path:
+
+```bash
+export THINGD_PATH="$(pwd)/thingd-data"
+thingd objects list notes
+```
+
+The output should include `hello-world`. Close one process before opening the
+same local database in another. The CLI defaults to `~/.thingd/data.db` when
+no path is specified; see [storage backends](./storage-backends.md) for driver
+and durability details.
 
 The CLI gives you the same primitives from the terminal:
 
@@ -186,14 +210,7 @@ In `.vscode/mcp.json` at your project root:
 thingd doctor
 ```
 
-Expected output:
-
-```txt
-✔ Node runtime: /usr/local/bin/node
-✔ Native driver: available
-✔ Database: ~/.thingd/data.db
-✔ MCP server: reachable
-```
+The diagnostic reports the Node version, the selected driver and local path, or remote connectivity when configured. Check your editor’s MCP status separately to confirm that it connected.
 
 Once connected to the Node MCP server, your agent can call all 51 tools — search, objects, events, queues, links, aggregate, schema, NLQ, vector, indexing, scheduler, and discovery.
 
@@ -222,6 +239,13 @@ For a React Native or Expo application that does not need a custom API server,
 follow the [Nice Rep CLI-first mobile setup](./nice-rep.md). It covers the
 declarative app definition, `schema.thingd`, Publish lifecycle, publishable-key
 configuration, and the `createThingdAppClient` flow.
+
+## Troubleshooting
+
+- **Node version or command not found:** run `node --version` and check that the global npm bin directory is on your PATH. The SDK requires Node.js 24 or newer.
+- **Native addon unavailable:** run `thingd doctor --driver native` and check its addon output. See [storage backends](./storage-backends.md) for native and portable options.
+- **Objects missing in the CLI:** the memory example disappears when its process exits. For a persistent database, check that the SDK and CLI use the same absolute path and that the SDK process has closed it.
+- **Editor cannot connect:** run `thingd doctor`, check the command and path in your editor’s MCP configuration, then restart the editor. See [MCP setup](./mcp-server.md) for more connection options.
 
 ## 5. Secure your deployment (optional)
 
