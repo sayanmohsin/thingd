@@ -2,6 +2,15 @@
 
 The Node SDK/stdio MCP server exposes 51 SDK tools, including 10 SDK-level scheduler tools. The Rust sidecar exposes 41 engine tools; scheduler tools are not part of the sidecar surface.
 
+| Runtime | Connection | MCP surface |
+| --- | --- | --- |
+| Node CLI / SDK | stdio or Streamable HTTP | 51 tools, including scheduler tools |
+| Rust sidecar | Streamable HTTP | 41 engine tools; no SDK scheduler tools |
+| Thingd Cloud | Hosted MCP endpoint | See [Cloud setup](../agent-setup.md) for connection details and available access. |
+
+Choose the Node server when you need the SDK scheduler tools. For deployment
+and authentication details, see [MCP server setup](../mcp-server.md).
+
 **Tool count:** 51 Node SDK tools (36 read-only, 15 write — 4 of which are destructive); the Rust sidecar exposes 41 core tools.
 
 ## Encrypted storage and MCP

@@ -8,7 +8,7 @@ const packageVersion = JSON.parse(
 
 export default defineConfig({
   title: "thingd — Open-Source Rust Data Engine for AI Agents",
-  description: `thingd is an open-source Rust data engine for AI agents. Object-shaped storage, durable queues, event streams, full-text search, and ${mcpToolCount} MCP tools — all in one binary. Deploy via Docker, embed in Node.js, or run as a sidecar. Built by Sayan Mohsin.`,
+  description: `thingd is an open-source Rust data engine for AI agents. Object-shaped storage, durable queues, event streams, full-text search, and MCP access. Deploy via Docker, embed in Node.js, or run as a sidecar. Built by Sayan Mohsin.`,
   base: "/",
   lang: "en-US",
 
@@ -23,7 +23,7 @@ export default defineConfig({
       "meta",
       {
         property: "og:description",
-        content: `Object-shaped storage, durable queues, event streams, full-text search, and ${mcpToolCount} MCP tools — all in one open-source Rust binary. Built by Sayan Mohsin.`,
+        content: `Object-shaped storage, durable queues, event streams, full-text search, and MCP access. Built by Sayan Mohsin.`,
       },
     ],
     ["meta", { name: "twitter:card", content: "summary_large_image" }],
@@ -97,7 +97,16 @@ export default defineConfig({
       },
       {
         text: "Guides",
-        items: [{ text: "Queue Deep Dive", link: "/guides/queues" }],
+        items: [
+          { text: "Embed locally", link: "/quickstart" },
+          { text: "Run a sidecar", link: "/docker-runtime" },
+          { text: "Connect an agent", link: "/agent-setup" },
+          { text: "Bun and Hono", link: "/bun-hono" },
+          { text: "Queue Deep Dive", link: "/guides/queues" },
+          { text: "Clipboard history", link: "/use-cases/clipbuf" },
+          { text: "Desktop agent", link: "/use-cases/desktop-agent" },
+          { text: "Cloud backup", link: "/use-cases/cloud-backup" },
+        ],
       },
       {
         text: "API Reference",
