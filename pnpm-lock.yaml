@@ -198,8 +198,8 @@ importers:
         specifier: 1.65.1
         version: 1.65.1
       '@sayanmohsin/nice-code':
-        specifier: 0.3.2
-        version: 0.3.2
+        specifier: 0.3.3
+        version: 0.3.3
       '@thingd/native':
         specifier: file:packages/thingd-native
         version: link:packages/thingd-native
@@ -1045,8 +1045,8 @@ packages:
   '@rolldown/pluginutils@1.1.1':
     resolution: {integrity: sha512-glFIJDvLNDtJhT9qrMFWLPbvS+skxgt4L0K8Ei2YtnhPysAJnsI7nyxSJxKj4ADeKX0OLjC4ntRkwpLOoS3rwA==}
 
-  '@sayanmohsin/nice-code@0.3.2':
-    resolution: {integrity: sha512-H4mXtzKEs0o8kiwkPAMt3oSbpG1WHgppWw8yGnFCttJWTMvazGi/lOgKCao/n+WNVVf/DvyYjvnu84mRlbKjkA==}
+  '@sayanmohsin/nice-code@0.3.3':
+    resolution: {integrity: sha512-qA9GacGI+ivdC8m2zfrbf+Wl/eNnNPrE1r783aNT0Zd/w9XERc46ttXY1OBryBjJr3EixAi0miohogthDzwGag==}
     engines: {node: '>=20'}
     hasBin: true
 
@@ -2941,7 +2941,7 @@ snapshots:
 
   '@rolldown/pluginutils@1.1.1': {}
 
-  '@sayanmohsin/nice-code@0.3.2': {}
+  '@sayanmohsin/nice-code@0.3.3': {}
 
   '@sindresorhus/is@4.6.0': {}
 

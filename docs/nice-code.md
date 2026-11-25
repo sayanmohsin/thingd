@@ -1,6 +1,6 @@
 # Nice Code review
 
-Thingd uses [Nice Code](https://github.com/sayanmohsin/nice-code) as an
+Thingd uses [Nice Code](https://sayanmohsin.github.io/nice-code/) as an
 advisory engineering-review layer. It reviews source patterns that ordinary
 formatters, compilers, and linters cannot fully judge, including persistence,
 concurrency, errors, logging, security, testing, and performance measurement.
@@ -29,6 +29,7 @@ For machine-readable output:
 ```bash
 NICE_CODE_FORMAT=json pnpm check:nice-code
 NICE_CODE_FORMAT=sarif pnpm check:nice-code
+NICE_CODE_FORMAT=agent pnpm check:nice-code
 ```
 
 The runner uses the exact Nice Code npm version in the workspace lockfile and
@@ -46,7 +47,9 @@ The initial policy is advisory: findings are visible but do not block a pull
 request. A missing checker or malformed report does fail the review job so
 that the signal cannot silently disappear. Findings are classified as
 `FAIL`, `WARN`, `REVIEW`, or `PASS`; `REVIEW` means human context is required,
-not that the code is incorrect.
+not that the code is incorrect. Review each finding in context: fixture
+credentials and static log messages can trigger security patterns without
+containing real secrets.
 
 The repository-specific [`.nice-code.json`](../.nice-code.json) excludes only
 generated, vendored, and build-output paths. It contains no broad category
