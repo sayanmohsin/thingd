@@ -17,7 +17,7 @@ Current implementation:
 - `packages/thingd` exposes the Node.js SDK.
 - `packages/thingd/src/stores/in-memory-thing-store.ts` is the current in-memory store.
 - `crates/thingd` contains the Rust storage boundary, in-memory Rust engine, and `PersistentEngine` behind the `persistent` feature.
-- `packages/thingd-native` is a private N-API binding for local native driver testing.
+- `packages/thingd-native` is the published `@thingd/native` N-API binding used by the native SDK driver.
 - `packages/thingd/src/client/http-thing-store.ts` lets the SDK talk to a sidecar over HTTP REST.
 - `packages/thingd-cli` exposes the visual TUI dashboard, non-interactive CLI commands, and integrated stdio and Streamable HTTP MCP servers.
 - the HTTP MCP runtime supports `single`, `leader`, and `follower` bridge modes.
@@ -45,7 +45,7 @@ embedded mode:
   Node.js app -> native Rust binding -> local persistent directory
 
 server/sidecar mode:
-  Node.js app -> HTTP/gRPC/Unix socket -> thingd server -> local thingd file
+  Node.js app -> HTTP REST -> thingd server -> local storage directory
 
 cluster sidecar mode:
   Node.js app -> localhost thingd sidecar -> leader/follower thingd cluster
@@ -54,9 +54,9 @@ cluster sidecar mode:
 The Node.js default uses native ThingDB RAM for `:memory:` when the addon is
 available. Explicit `driver: "memory"` selects the TypeScript reference store.
 Durable local persistence uses the native persistent adapter through
-`driver: "native"` after `thingd-native` is built locally. The durable backend remains
-available only for historical compatibility and is not the current runtime
-model.
+`driver: "native"` with the published `@thingd/native` addon or a local build.
+RocksDB is the default durable backend; durable ThingDB is an experimental,
+explicit opt-in. See [Storage backends](./storage-backends.md).
 The SDK can opt into sidecar mode with `driver: "cloud"` or automatically when
 `THINGD_URL` is set.
 The HTTP MCP runtime can run as a bridge follower and forward MCP traffic to a
@@ -213,7 +213,7 @@ export const THINGD = Symbol("THINGD");
   providers: [
     {
       provide: THINGD,
-      useFactory: () => new ThingD({ /* ... */ }),
+      useFactory: () => ThingD.open({ path: "./thingd-data", driver: "native" }),
     },
   ],
   exports: [THINGD],
@@ -252,7 +252,8 @@ The current `examples/nestjs-basic` app uses a local adapter shape.
 
 The MCP package wraps the same SDK surface. It should not bypass validation or use internal store implementation details.
 
-Current tools:
+Examples of core tools (see the [complete MCP reference](./api-spec/mcp-tools.md)
+for the SDK and sidecar registries):
 
 ```txt
 thing_search
@@ -286,7 +287,7 @@ thingd
   NativeThingStore adapter
 
 thingd-native
-  private N-API binding
+  published N-API binding used internally by the SDK
   wraps crates/thingd
 
 crates/thingd

@@ -67,13 +67,6 @@ an external issue.
 - **Rust**: edition 2024, `cargo fmt` must pass
 - **Commits**: conventionalcommits (`fix:`, `feat:`, `refactor:`, `BREAKING CHANGE:`) for Release Please
 
-## Branch workflow
-
-Use `main` as the integration, production, and release branch. Create feature
-branches from `main` and open every feature, fix, documentation, or maintenance
-pull request against `main`. Squash-merge completed work into `main` with a
-conventional commit title.
-
 ## Keeping AGENTS.md healthy
 
 This file should stay useful but not become a dump. Rules:
@@ -96,7 +89,6 @@ Use semantic branch prefixes such as `feature/<name>`, `fix/<name>`,
 
 ## Common miss patterns
 
-- **AGENTS.md test counts** — `pnpm test:node`/`:cli`/`:rust` counts in the Commands section must match `package.json` test scripts. Run each to verify before committing.
 - **AGENTS.md version examples** — `Version specifier propagation` examples must match the current workspace `[workspace.package].version` in `Cargo.toml`.
 - **Release dependency sync** — run `pnpm check:cargo-versions`; Release Please uses `scripts/sync-cargo-local-dependency-versions.mjs` to update every local Cargo path dependency, including `thingd-schema`.
 - **MCP tool count** — update in `packages/thingd/src/constants.ts` only; VitePress docs use `{{ $themeConfig.mcpToolCount }}` from `docs/.vitepress/config.ts`
@@ -111,11 +103,10 @@ Use semantic branch prefixes such as `feature/<name>`, `fix/<name>`,
 
 ### Doc audit after every change
 
-After any implementation, audit ALL public docs for staleness. This session found:
-- **AGENTS.md** claimed sidecar MCP was a "stub with 5 tools" (now 32 tools)
-- **rest-api.md** had wrong error format, missing `body` field in GET response, wrong links endpoint
-- **mcp-tools.md** had incorrect tool breakdown (claimed 12/12/3, actual 16 read-only / 11 write of which 3 destructive)
-- **errors.md** referenced non-existent `ThingDError` class (SDK throws plain `Error`)
+After any implementation, audit public docs for staleness. Derive MCP tool
+counts from the registries and generated metadata; historical counts are not
+the current contract. Check REST response shapes, SDK errors, and endpoint paths
+against their implementations.
 
 Checklist of files to audit:
 - `AGENTS.md` — remove stale claims about stubs or incomplete features
@@ -135,8 +126,8 @@ Checklist of files to audit:
 
 When `[workspace.package].version` bumps in `Cargo.toml`, path deps with exact version specs must follow:
 ```
-crates/thingd-server/Cargo.toml: thingd = { path = "../thingd", version = "0.92" }
-packages/thingd-native/Cargo.toml: thingd = { path = "../../crates/thingd", version = "0.92" }
+crates/thingd-server/Cargo.toml: thingd = { path = "../thingd", version = "0.93" }
+packages/thingd-native/Cargo.toml: thingd = { path = "../../crates/thingd", version = "0.93" }
 ```
 Search with `rg 'version = "0\.xx"' crates/ packages/` after every version bump.
 
@@ -160,9 +151,11 @@ Search with `rg 'version = "0\.xx"' crates/ packages/` after every version bump.
 
 ## Publishing
 
-Releases via Release Please on main. All four npm packages (`@thingd/sdk`, `@thingd/cli`, `@thingd/native`, and `@thingd/client`) and the Rust crate (`thingd`) publish in lockstep. Version tag format: `thingd-v${version}`. Release Please opens a release PR; merging it triggers the publication workflow.
-
-> **Save GitHub Actions credits:** Release only through the `development` → `main` merge. Each push to `main` with releasable commits (`feat:`, `fix:`) triggers a release workflow. Squash feature branches into `development`, batch related work, and use a regular merge into `main` so one release covers the full batch.
+Releases via Release Please on main. All five npm packages (`@thingd/sdk`,
+`@thingd/cli`, `@thingd/native`, `@thingd/client`, and `@thingd/thingdb`) and the
+Rust crates `thingd`, `thingdb`, and `thingdb-ffi` publish in lockstep. Version
+tag format: `thingd-v${version}`. Release Please opens a release PR; merging it
+triggers the publication workflow. See `docs/release.md` for the full process.
 
 Manual first publish (for new scoped packages):
 ```bash

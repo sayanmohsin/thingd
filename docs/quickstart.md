@@ -13,7 +13,7 @@ npm install -g @thingd/cli
 Or run directly with `npx`:
 
 ```bash
-npx thingd install
+npx --package @thingd/cli thingd install
 ```
 
 > **Note:** `thingd install` also sets up Claude Desktop (on macOS) and prints Cursor MCP settings.

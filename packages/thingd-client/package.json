@@ -25,6 +25,7 @@
   "sideEffects": false,
   "scripts": {
     "build": "tsc",
-    "test": "tsc && node --test test/*.test.mjs"
+    "test": "pnpm build && pnpm test:built",
+    "test:built": "node --test test/*.test.mjs"
   }
 }

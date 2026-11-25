@@ -210,7 +210,7 @@ npm install @thingd/sdk
 
 ```toml
 [dependencies]
-thingd = { version = "0.92", features = ["persistent", "search"] } # x-release-please-version
+thingd = { version = "0.93", features = ["persistent", "search"] } # x-release-please-version
 ```
 
 ### Subpath imports
@@ -283,7 +283,7 @@ For the local Rust-backed persistent path, build the native package and
 request the native driver:
 
 ```bash
-pnpm --filter thingd-native build
+pnpm --filter @thingd/native build
 ```
 
 ```ts
