@@ -45,6 +45,8 @@ pnpm build
 pnpm test:node
 pnpm test:cli
 pnpm test:rust
+pnpm test:browser # Install Chromium first; see docs/build-performance.md
+pnpm check:workflows # Requires Go and ShellCheck
 cargo fmt --all --check
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 ```

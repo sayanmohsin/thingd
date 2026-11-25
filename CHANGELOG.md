@@ -2,6 +2,8 @@
 
 ### Bug Fixes
 
+- Run complete CI checks on development and release changes, fix platform coverage and dependency cache fallback, audit documentation dependencies, and add a Chromium dashboard smoke test.
+
 - Keep dashboard access credentials stable across connection changes, restrict the local dashboard to loopback and trusted browser origins, and preserve the current database when a replacement cannot open.
 - Add fetch-compatible POST batch reads to the Rust and TypeScript REST servers while retaining the legacy GET alias. SDK batch reads require the new POST route.
 - Return null only for actual object/link HTTP 404s in both clients, preserving other HTTP failures and network errors.

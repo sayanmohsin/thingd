@@ -6,22 +6,7 @@ on:
     # Run required checks for history-only synchronization PRs as well as code PRs.
   push:
     branches: [main, development]
-    paths:
-      - ".github/workflows/**"
-      - "Cargo.toml"
-      - "Cargo.lock"
-      - "package.json"
-      - "pnpm-lock.yaml"
-      - "biome.json"
-      - "tsconfig*.json"
-      - "crates/**"
-      - "bindings/**"
-      - "packages/**"
-      - "scripts/**"
-      - "examples/**"
-      - "deploy/**"
-      - "docs/**"
-      - ".dockerignore"
+  workflow_dispatch:
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -35,47 +20,50 @@ env:
 
 jobs:
 
-  # Release commits are already validated by the release workflow. Skip only
-  # the duplicate full push suite; pull requests and ordinary main pushes
-  # retain the complete required checks.
+  workflow-lint:
+    name: Workflow validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v7
+        with:
+          go-version: stable
+          cache: false
+      - name: Validate workflow syntax, expressions, and shell scripts
+        run: |
+          shellcheck --version
+          go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12 -color
 
   # ── Fast gate: lint + typecheck (30s) ─────────────────
   lint:
     name: Lint (biome)
-    if: "${{ github.event_name != 'push' || github.ref != 'refs/heads/main' || !startsWith(github.event.head_commit.message, 'chore(main): release') }}"
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v6
       - uses: ./.github/actions/setup-pnpm
         with:
           lockfile: pnpm-lock.yaml
           cache-scope: root
-      - name: Validate repository or release metadata
+      - name: Validate repository and release metadata
         run: |
           set -eu
-          if [[ "${{ startsWith(github.head_ref, 'release-please--branches--main--components--') }}" == "true" ]]; then
-            pnpm check:cargo-versions
-            pnpm test:publish-manifests
-            pnpm docs:metadata
-            git diff --exit-code -- docs/.generated/mcp-metadata.json
-          else
-            pnpm check
-            pnpm check:actions
-            pnpm check:docs
-            pnpm check:cargo-versions
-            pnpm test:publish-manifests
-            pnpm docs:metadata
-            git diff --exit-code -- docs/.generated/mcp-metadata.json
-          fi
+          pnpm check
+          pnpm check:actions
+          pnpm check:docs
+          pnpm check:cargo-versions
+          pnpm test:publish-manifests
+          node --test scripts/sync-cargo-local-dependency-versions.test.mjs
+          pnpm docs:metadata
+          git diff --exit-code -- docs/.generated/mcp-metadata.json
       - name: Set up documentation workspace
-        if: ${{ !startsWith(github.head_ref, 'release-please--branches--main--components--') }}
         uses: ./.github/actions/setup-pnpm
         with:
           lockfile: docs/pnpm-lock.yaml
           cache-scope: docs
           working-directory: docs
       - name: Build VitePress documentation
-        if: ${{ !startsWith(github.head_ref, 'release-please--branches--main--components--') }}
         run: |
           started=$SECONDS
           pnpm build
@@ -84,7 +72,6 @@ jobs:
 
   native-toolchain:
     name: Native toolchain diagnostics
-    if: "${{ github.event_name != 'push' || github.ref != 'refs/heads/main' || !startsWith(github.event.head_commit.message, 'chore(main): release') }}"
     strategy:
       fail-fast: false
       matrix:
@@ -92,6 +79,7 @@ jobs:
           - os: ubuntu-latest
           - os: macos-15
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v6
       - uses: pnpm/action-setup@v6
@@ -99,6 +87,7 @@ jobs:
         with:
           node-version: 24
           package-manager-cache: false
+      - uses: dtolnay/rust-toolchain@stable
       - name: Install Linux LLVM tools
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y clang llvm libclang-dev
@@ -106,15 +95,17 @@ jobs:
         if: runner.os == 'macOS'
         run: |
           brew install llvm
-          echo "PATH=$(brew --prefix llvm)/bin:$PATH" >> "$GITHUB_ENV"
-          echo "LLVM_CONFIG_PATH=$(brew --prefix llvm)/bin/llvm-config" >> "$GITHUB_ENV"
-          echo "LIBCLANG_PATH=$(brew --prefix llvm)/lib" >> "$GITHUB_ENV"
-      - run: pnpm check:native-toolchain -- --json
+          {
+            echo "PATH=$(brew --prefix llvm)/bin:$PATH"
+            echo "LLVM_CONFIG_PATH=$(brew --prefix llvm)/bin/llvm-config"
+            echo "LIBCLANG_PATH=$(brew --prefix llvm)/lib"
+          } >> "$GITHUB_ENV"
+      - run: pnpm check:native-toolchain -- --json --strict
 
   thingdb-standalone:
     name: Standalone ThingDB crate
-    if: "${{ github.event_name != 'push' || github.ref != 'refs/heads/main' || !startsWith(github.event.head_commit.message, 'chore(main): release') }}"
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v6
         with:
@@ -124,6 +115,10 @@ jobs:
           lockfile: pnpm-lock.yaml
           cache-scope: root
       - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: thingdb-standalone
+          cache-all-crates: true
       - name: Check formatting
         run: cargo fmt --all --check
       - name: Test standalone crate
@@ -158,8 +153,8 @@ jobs:
   # ── Rust runtime: fmt + clippy + test (parallel to node) ─
   rust:
     name: Rust (fmt, clippy, test)
-    if: "${{ github.event_name != 'push' || github.ref != 'refs/heads/main' || !startsWith(github.event.head_commit.message, 'chore(main): release') }}"
     runs-on: ubuntu-latest
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v6
         with:
@@ -169,89 +164,46 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y clang libclang-dev
       - uses: Swatinem/rust-cache@v2
         with:
-          shared-key: rust-runtime-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/Cargo.lock') }}
+          shared-key: rust-runtime-${{ runner.os }}-${{ runner.arch }}
           cache-all-crates: true
           save-if: ${{ runner.os == 'Linux' }}
       - name: Validate Rust
         run: |
           set -eu
-          if [[ "${{ startsWith(github.head_ref, 'release-please--branches--main--components--') }}" == "true" ]]; then
-            cargo metadata --no-deps --format-version 1 >/dev/null
-            node --test scripts/sync-cargo-local-dependency-versions.test.mjs
-            node scripts/sync-cargo-local-dependency-versions.mjs --check
-            exit 0
-          fi
           cargo fmt --all --check
-          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
-            changed_files="$(git diff --name-only HEAD^1...HEAD)"
-            thingdb_only=true
-            while IFS= read -r changed_file; do
-              case "$changed_file" in
-                crates/thingdb/*|crates/thingd/README.md|docs/api-spec/thingdb.md|README.md|.github/workflows/ci.yml) ;;
-                *) thingdb_only=false ;;
-              esac
-            done <<< "$changed_files"
-            if [[ -z "$changed_files" ]]; then
-              thingdb_only=false
-            fi
-            if [[ "$thingdb_only" == "true" ]]; then
-              echo "ThingDB-only PR: relying on the standalone crate suite and ThingDB backend integration tests."
-              started=$SECONDS
-              cargo check -p thingd --no-default-features --features thingdb-backend,search,vectors
-              echo "- ThingDB backend check: $((SECONDS - started))s" >> "$GITHUB_STEP_SUMMARY"
-              started=$SECONDS
-              cargo test -p thingd --no-default-features --features thingdb-backend,search,vectors --lib thingdb
-              echo "- ThingDB backend tests: $((SECONDS - started))s" >> "$GITHUB_STEP_SUMMARY"
-              exit 0
-            fi
-            # The standalone ThingDB job compiles its tests/examples, and the
-            # focused Thingd test below compiles its test target. Keep this
-            # workspace check to production targets to avoid rebuilding every
-            # test/example target with the full feature union on each PR.
-            started=$SECONDS
-            cargo check --workspace --all-features
-            echo "- PR workspace check: $((SECONDS - started))s" >> "$GITHUB_STEP_SUMMARY"
-            native_default_tree="$(cargo tree -p thingd-native -e normal,build)"
-            if ! grep -q 'librocksdb-sys' <<< "$native_default_tree"; then
-              echo "Default native feature graph unexpectedly excludes librocksdb-sys" >&2
-              exit 1
-            fi
-            # The all-features workspace check already compiles this native
-            # RocksDB + ThingDB combination, which is also the crate default.
-            cargo check -p thingd-native --no-default-features --features thingdb-backend,search,vectors
-            native_thingdb_tree="$(cargo tree -p thingd-native --no-default-features --features thingdb-backend,search,vectors -e normal,build)"
-            if grep -q 'librocksdb-sys' <<< "$native_thingdb_tree"; then
-              echo "ThingDB-only native feature graph unexpectedly includes librocksdb-sys" >&2
-              exit 1
-            fi
-            if cargo check -p thingd-native --no-default-features >/tmp/thingd-native-no-backend.log 2>&1; then
-              echo "Native build without a backend unexpectedly succeeded" >&2
-              exit 1
-            fi
-            if ! grep -q 'enable at least one native storage backend' /tmp/thingd-native-no-backend.log; then
-              cat /tmp/thingd-native-no-backend.log >&2
-              echo "Native build failed without the expected backend guidance" >&2
-              exit 1
-            fi
-            started=$SECONDS
-            cargo test -p thingd --lib
-            echo "- Focused Thingd tests: $((SECONDS - started))s" >> "$GITHUB_STEP_SUMMARY"
-            exit 0
-          fi
           started=$SECONDS
-          cargo clippy --workspace --all-targets --all-features -- -D warnings
+          cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
           echo "- clippy: $((SECONDS - started))s" >> "$GITHUB_STEP_SUMMARY"
           started=$SECONDS
-          cargo test --workspace --all-targets --all-features
+          cargo test --workspace --all-targets --all-features --locked
           echo "- Rust tests: $((SECONDS - started))s" >> "$GITHUB_STEP_SUMMARY"
           started=$SECONDS
-          cargo test --doc --workspace --all-features
+          cargo test --doc --workspace --all-features --locked
           echo "- Rust documentation tests: $((SECONDS - started))s" >> "$GITHUB_STEP_SUMMARY"
           cargo check -p thingd --no-default-features --features thingdb-backend,search,vectors
           cargo test -p thingd --no-default-features --features thingdb-backend,search,vectors --lib thingdb
-          cargo test -p thingd --features persistent --lib thingdb
-          cargo test -p thingd --features persistent --lib encrypted_thingdb
-          cargo test -p thingd --features persistent --lib repacks_rocksdb_into_thingdb
+          native_default_tree="$(cargo tree -p thingd-native -e normal,build)"
+          if ! grep -q 'librocksdb-sys' <<< "$native_default_tree"; then
+            echo "Default native feature graph unexpectedly excludes librocksdb-sys" >&2
+            exit 1
+          fi
+          # The all-features workspace check already compiles this native
+          # RocksDB + ThingDB combination, which is also the crate default.
+          cargo check -p thingd-native --no-default-features --features thingdb-backend,search,vectors
+          native_thingdb_tree="$(cargo tree -p thingd-native --no-default-features --features thingdb-backend,search,vectors -e normal,build)"
+          if grep -q 'librocksdb-sys' <<< "$native_thingdb_tree"; then
+            echo "ThingDB-only native feature graph unexpectedly includes librocksdb-sys" >&2
+            exit 1
+          fi
+          if cargo check -p thingd-native --no-default-features >/tmp/thingd-native-no-backend.log 2>&1; then
+            echo "Native build without a backend unexpectedly succeeded" >&2
+            exit 1
+          fi
+          if ! grep -q 'enable at least one native storage backend' /tmp/thingd-native-no-backend.log; then
+            cat /tmp/thingd-native-no-backend.log >&2
+            echo "Native build failed without the expected backend guidance" >&2
+            exit 1
+          fi
           started=$SECONDS
           cargo build -p thingd-server
           echo "- thingd-server build: $((SECONDS - started))s" >> "$GITHUB_STEP_SUMMARY"
@@ -261,8 +213,8 @@ jobs:
   # ── Node tests (linux) — no `needs: [rust]` ──────────
   node:
     name: Node SDK, package, CLI, and native tests
-    if: "${{ github.event_name != 'push' || github.ref != 'refs/heads/main' || !startsWith(github.event.head_commit.message, 'chore(main): release') }}"
     runs-on: ubuntu-latest
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v6
       - uses: ./.github/actions/setup-pnpm
@@ -274,32 +226,20 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y clang libclang-dev
       - uses: Swatinem/rust-cache@v2
         with:
-          shared-key: rust-node-native-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/Cargo.lock') }}
+          shared-key: rust-node-native-${{ runner.os }}-${{ runner.arch }}
           cache-all-crates: true
           save-if: ${{ runner.os == 'Linux' }}
-      - name: Validate release manifests
-        if: ${{ startsWith(github.head_ref, 'release-please--branches--main--components--') }}
-        run: |
-          node --test scripts/publish-manifest.test.mjs
-          pnpm check:cargo-versions
       - name: Build Node packages
-        if: ${{ !startsWith(github.head_ref, 'release-please--branches--main--components--') }}
         run: |
           started=$SECONDS
-          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
-            pnpm --filter @thingd/sdk --filter @thingd/cli --filter @thingd/client --filter @thingd/native build
-          else
-            pnpm build:node
-          fi
+          pnpm build:node
           echo "- Node build: $((SECONDS - started))s" >> "$GITHUB_STEP_SUMMARY"
       - name: Check examples
-        if: ${{ !startsWith(github.head_ref, 'release-please--branches--main--components--') }}
         run: |
           started=$SECONDS
           pnpm examples:check:built
           echo "- examples:check:built: $((SECONDS - started))s" >> "$GITHUB_STEP_SUMMARY"
       - name: Run built Node tests
-        if: ${{ !startsWith(github.head_ref, 'release-please--branches--main--components--') }}
         run: |
           started=$SECONDS
           pnpm test:node:built
@@ -307,15 +247,14 @@ jobs:
           pnpm test:cli:built
           echo "- built Node tests: $((SECONDS - started))s" >> "$GITHUB_STEP_SUMMARY"
       - name: Exercise release build and package consumer path
-        if: ${{ github.event_name == 'pull_request' || startsWith(github.head_ref, 'release-please--branches--main--components--') }}
         run: |
           VERSION=$(node -p "JSON.parse(require('node:fs').readFileSync('package.json', 'utf8')).version")
-          pnpm --filter @thingd/sdk --filter @thingd/cli --filter @thingd/client build
           node scripts/prepare-publish-manifests.mjs "$VERSION"
-          pnpm test:publish-manifests
-          RELEASE_VERSION="$VERSION" REQUIRED_NATIVE_PREBUILDS=0 pnpm verify:publish
+          # pnpm run can reinstall the workspace after manifest normalization.
+          # Validate the prepared artifacts without changing workspace resolution.
+          node --test scripts/publish-manifest.test.mjs
+          RELEASE_VERSION="$VERSION" REQUIRED_NATIVE_PREBUILDS=0 node scripts/verify-publish-artifacts.mjs
       - name: Verify native ThingDB opt-in preserves the Node API
-        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
         run: |
           THINGD_STORAGE_BACKEND=thingdb node --input-type=module <<'EOF'
           import { mkdtempSync, rmSync } from 'node:fs';
@@ -337,7 +276,6 @@ jobs:
           }
           EOF
       - name: Verify native filter
-        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
         run: |
           node << 'EOF'
           (async () => {
@@ -352,32 +290,65 @@ jobs:
           console.log('Native filter test passed');
           try { require('node:fs').rmSync(path, { recursive: true, force: true }); } catch {}
           })()
+          EOF
 
-  # ── Cross-platform (push to main only) ───────────────
+  # Portable SDK/client/CLI compatibility; native addons are built in the Linux and release jobs.
   platform-test:
-    if: "${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && !startsWith(github.event.head_commit.message, 'chore(main): release') }}"
-    needs: [lint, rust, node]
+    needs: [lint]
     strategy:
       fail-fast: true
       matrix:
         include:
-          - os: macos-14
+          - os: macos-15
             platform: darwin
             arch: arm64
-          - os: macos-15
+          - os: macos-15-intel
             platform: darwin
             arch: x64
           - os: windows-2025
             platform: win32
             arch: x64
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v6
       - uses: ./.github/actions/setup-pnpm
         with:
           lockfile: pnpm-lock.yaml
           cache-scope: root
-      - run: pnpm --filter @thingd/sdk --filter @thingd/cli build
+      - name: Verify runner architecture
+        env:
+          EXPECTED_ARCH: ${{ matrix.arch }}
+        run: node -e "if (process.arch !== process.env.EXPECTED_ARCH) throw new Error('Unexpected runner architecture')"
+      - run: pnpm --filter @thingd/sdk --filter @thingd/client --filter @thingd/cli build
       - run: pnpm test:node:built
+      - run: pnpm test:cli:portable:built
       - run: pnpm test:package:built
         if: matrix.os != 'windows-2025'
+
+  browser:
+    name: Dashboard browser smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup-pnpm
+        with:
+          lockfile: pnpm-lock.yaml
+          cache-scope: root
+      - name: Build browser test dependencies
+        run: pnpm --filter @thingd/sdk --filter @thingd/client --filter @thingd/cli build
+      - name: Install Chromium and system dependencies
+        run: pnpm exec playwright install --with-deps chromium
+      - name: Exercise dashboard login and remote database switching
+        run: pnpm test:browser:built
+      - name: Upload browser failure reports
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: dashboard-browser-failure
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 7
+          if-no-files-found: warn

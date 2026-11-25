@@ -5,6 +5,12 @@ on:
     branches: [main]
     paths:
       - "docs/**"
+      - "package.json"
+      - "packages/thingd/src/mcp/tools.ts"
+      - "crates/thingd-server/src/mcp.rs"
+      - "scripts/generate-doc-metadata.mjs"
+      - ".github/actions/setup-pnpm/action.yml"
+      - ".github/workflows/deploy-docs.yml"
   workflow_dispatch:
 
 permissions:
@@ -20,6 +26,7 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v6
 
@@ -39,7 +46,7 @@ jobs:
           path: docs/.vitepress/dist
 
   deploy:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main'
     permissions:
       pages: write
       id-token: write
@@ -48,6 +55,7 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     needs: build
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Deploy to GitHub Pages
         id: deployment

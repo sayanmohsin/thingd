@@ -55,3 +55,7 @@ tmp/
 .env.*.local
 *.jsonl
 test-snapshot.json
+
+# Browser smoke test reports
+playwright-report/
+test-results/

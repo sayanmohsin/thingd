@@ -64,11 +64,16 @@
     "verify:local": "pnpm check:actions && pnpm check:cargo-versions && pnpm check && pnpm check:docs",
     "build:node": "pnpm --filter @thingd/sdk --filter @thingd/client --filter @thingd/cli --filter @thingd/native --filter @thingd/thingdb build",
     "verify:rust": "pnpm rust:fmt:check && pnpm rust:clippy && pnpm test:rust && pnpm test:rust:docs",
-    "verify:pr": "pnpm check:cargo-versions && pnpm check && pnpm check:docs && pnpm verify:rust && pnpm build:node && pnpm test:node:built && pnpm test:package:built && pnpm test:cli:built"
+    "verify:pr": "pnpm check:cargo-versions && pnpm check && pnpm check:docs && pnpm verify:rust && pnpm build:node && pnpm test:node:built && pnpm test:package:built && pnpm test:cli:built && pnpm test:browser:built",
+    "check:workflows": "shellcheck --version && go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12 -color",
+    "test:browser": "pnpm --filter @thingd/sdk --filter @thingd/client --filter @thingd/cli build && pnpm test:browser:built",
+    "test:browser:built": "playwright test",
+    "test:cli:portable:built": "node --test --test-concurrency=1 packages/thingd-cli/test/cli.test.mjs packages/thingd-cli/test/dashboard.test.mjs"
   },
   "devDependencies": {
     "@biomejs/biome": "2.6.9",
     "@modelcontextprotocol/sdk": "^1.32.2",
+    "@playwright/test": "1.65.1",
     "@sayanmohsin/nice-code": "0.3.2",
     "@thingd/native": "file:packages/thingd-native",
     "@types/node": "26.6.10",
