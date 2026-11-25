@@ -120,12 +120,8 @@ export async function handleRestRequest(
         const { parseSchema } = await import("../stores/native-thing-store.js");
         sendData(res, await parseSchema(source));
       } catch (error) {
-        sendError(
-          res,
-          400,
-          "schema_validation_error",
-          error instanceof Error ? error.message : String(error)
-        );
+        console.error("Schema validation failed:", error);
+        sendError(res, 400, "schema_validation_error", "Schema validation failed");
       }
       return;
     }
@@ -502,12 +498,8 @@ export async function handleRestRequest(
         const jobs = await db.queue(ackBatchMatch.queue).ackMany(body.jobIds);
         sendDataList(res, jobs);
       } catch (error) {
-        sendError(
-          res,
-          409,
-          "conflict",
-          error instanceof Error ? error.message : "Queue batch ack failed"
-        );
+        console.error("Queue batch ack failed:", error);
+        sendError(res, 409, "conflict", "Queue batch ack failed");
       }
       return;
     }

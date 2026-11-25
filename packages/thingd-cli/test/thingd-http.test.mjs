@@ -367,3 +367,17 @@ test("MCP resources list returns thingd://collections resource", { timeout: 10_0
   await client.close();
   await runtime.close();
 });
+
+test("replication endpoints do not expose parsing exception details", { timeout: 10_000 }, async (t) => {
+  const runtime = await startThingdHttpServer({ path: ":memory:", port: 0, syncRole: "replica" });
+  t.after(() => runtime.close());
+  for (const endpoint of ["apply", "snapshot"]) {
+    const response = await fetch(`${runtime.url}/v1/replication/${endpoint}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: '{"secret-in-request":',
+    });
+    assert.equal(response.status, 400);
+    assert.deepEqual(await response.json(), { error: "replication_request_failed" });
+  }
+});
