@@ -9,6 +9,18 @@
 - Return null only for actual object/link HTTP 404s in both clients, preserving other HTTP failures and network errors.
 - Give dashboard diagnostic entries unique keys so entries created in the same second do not prevent the UI from loading.
 
+## [0.93.5](https://github.com/sayanmohsin/thingd/compare/thingd-v0.93.4...thingd-v0.93.5) (2026-11-26)
+
+
+### Bug Fixes
+
+* **ci:** close validation gaps and add dashboard browser smoke ([92b58aa](https://github.com/sayanmohsin/thingd/commit/92b58aac2ad17e8e4818a6f798fed0fc9482aa23))
+* **ci:** resolve LLVM symlinks in toolchain diagnostics ([44792fa](https://github.com/sayanmohsin/thingd/commit/44792faeb43d1fa65a3121f28d1a5084f5920849))
+* enable nice-code rust and framework profiles ([eb5d2ca](https://github.com/sayanmohsin/thingd/commit/eb5d2ca7db0ce3ff7d99e5c94f5e4199247fa142))
+* protect retention and HTTP error details ([f098dc7](https://github.com/sayanmohsin/thingd/commit/f098dc73c11972e74959c2e856d88d9bcfc9338f))
+* protect retention and HTTP error details ([4a613b7](https://github.com/sayanmohsin/thingd/commit/4a613b7894c4388ae61a35c16a7a554b6e2cbedc))
+* secure local dashboard and repair REST client reads ([a6c9086](https://github.com/sayanmohsin/thingd/commit/a6c90867be710d67cee1c1dc79ff0585ee2b90cf))
+
 ## [0.72.0](https://github.com/sayanmohsin/thingd/compare/v0.71.0...v0.72.0) (2026-08-02)
 
 ### Features
