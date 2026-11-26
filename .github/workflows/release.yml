@@ -566,15 +566,18 @@ jobs:
           SMOKE_DIR=$(mktemp -d)
           trap 'rm -rf "$SMOKE_DIR"' EXIT
           delay=2
-          for attempt in $(seq 1 8); do
-            if npm view "@thingd/cli@$VERSION" version --registry=https://registry.npmjs.org 2>/dev/null | grep -qx "$VERSION"; then
+          for attempt in $(seq 1 20); do
+            if npm view "@thingd/cli@$VERSION" version --registry=https://registry.npmjs.org --prefer-online --cache "$SMOKE_DIR/npm-cache" >"$SMOKE_DIR/version" 2>"$SMOKE_DIR/npm-error" && grep -qx "$VERSION" "$SMOKE_DIR/version"; then
               break
             fi
-            if [ "$attempt" -eq 8 ]; then
-              echo "@thingd/cli@$VERSION was not visible on npm within the bounded propagation window" >&2
+            if [ "$attempt" -eq 20 ]; then
+              echo "Could not verify @thingd/cli@$VERSION on npm after $attempt attempts." >&2
+              cat "$SMOKE_DIR/npm-error" >&2
+              cat "$SMOKE_DIR/version" >&2
               exit 1
             fi
-            echo "Waiting for @thingd/cli@$VERSION to propagate on npm (attempt $attempt/8; next wait ${delay}s)"
+            echo "npm lookup for @thingd/cli@$VERSION did not succeed (attempt $attempt/20; retrying in ${delay}s)"
+            cat "$SMOKE_DIR/npm-error" >&2
             sleep "$delay"
             delay=$(( delay * 2 ))
             if [ "$delay" -gt 30 ]; then
@@ -584,6 +587,7 @@ jobs:
           npm init -y --prefix "$SMOKE_DIR" >/dev/null
           npm install --prefix "$SMOKE_DIR" --prefer-online --no-audit --no-fund "@thingd/cli@$VERSION"
           (cd "$SMOKE_DIR" && node --input-type=module -e "await import('@thingd/cli')")
+          "$SMOKE_DIR/node_modules/.bin/thingd" --help
       - name: Verify published ThingDB Node package
         env:
           VERSION: ${{ needs.release-please.outputs.version }}
@@ -592,14 +596,18 @@ jobs:
           trap 'rm -rf "$SMOKE_DIR"' EXIT
           npm init -y --prefix "$SMOKE_DIR" >/dev/null
           delay=2
-          for attempt in $(seq 1 8); do
-            if npm view "@thingd/thingdb@$VERSION" version --registry=https://registry.npmjs.org 2>/dev/null | grep -qx "$VERSION"; then
+          for attempt in $(seq 1 20); do
+            if npm view "@thingd/thingdb@$VERSION" version --registry=https://registry.npmjs.org --prefer-online --cache "$SMOKE_DIR/npm-cache" >"$SMOKE_DIR/version" 2>"$SMOKE_DIR/npm-error" && grep -qx "$VERSION" "$SMOKE_DIR/version"; then
               break
             fi
-            if [ "$attempt" -eq 8 ]; then
-              echo "@thingd/thingdb@$VERSION was not visible on npm within the bounded propagation window" >&2
+            if [ "$attempt" -eq 20 ]; then
+              echo "Could not verify @thingd/thingdb@$VERSION on npm after $attempt attempts." >&2
+              cat "$SMOKE_DIR/npm-error" >&2
+              cat "$SMOKE_DIR/version" >&2
               exit 1
             fi
+            echo "npm lookup for @thingd/thingdb@$VERSION did not succeed (attempt $attempt/20; retrying in ${delay}s)"
+            cat "$SMOKE_DIR/npm-error" >&2
             sleep "$delay"
             delay=$(( delay * 2 ))
             if [ "$delay" -gt 30 ]; then delay=30; fi

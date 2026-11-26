@@ -60,6 +60,12 @@ assertFiles("@thingd/sdk", sdkFiles, [
   "dist/types/index.js",
 ]);
 
+const cliPackage = packed.get("@thingd/cli");
+assertFiles("@thingd/cli", cliPackage.files, ["dist/index.js"]);
+if (cliPackage.manifest.bin?.thingd?.replace(/^\.\//, "") !== "dist/index.js") {
+  throw new Error("@thingd/cli tarball is missing the thingd executable mapping");
+}
+
 const nativeFiles = packed.get("@thingd/native").files;
 assertFiles("@thingd/native", nativeFiles, ["index.js", "index.d.ts"]);
 const nativePrebuilds = [...nativeFiles].filter(
@@ -111,7 +117,15 @@ try {
   if (importCheck.status !== 0) {
     throw new Error("Clean @thingd/cli import failed");
   }
-  console.log("Validated clean installation and import of @thingd/cli");
+  const cliCheck = spawn.sync(join(smokeDir, "node_modules", ".bin", "thingd"), ["--help"], {
+    cwd: smokeDir,
+    encoding: "utf8",
+    stdio: "inherit",
+  });
+  if (cliCheck.status !== 0) {
+    throw new Error("Clean @thingd/cli executable check failed");
+  }
+  console.log("Validated clean installation, import, and executable of @thingd/cli");
 } finally {
   for (const artifact of packed.values()) {
     fs.rmSync(artifact.tarball, { force: true });
