@@ -58,3 +58,20 @@ test("HTTP batch reads use POST and preserve the legacy GET contract", async (t)
   });
   assert.equal(oversized.status, 400);
 });
+
+test("REST batch errors do not expose internal exception details", async (t) => {
+  const db = { queue: () => ({ ackMany: async () => { throw new Error("secret stack detail"); } }) };
+  const server = createServer((req, res) => {
+    void handleRestRequest(db, req, res, new URL(req.url, "http://localhost").pathname);
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+  const response = await fetch(`http://127.0.0.1:${server.address().port}/v1/queues/test/ack-batch`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ jobIds: ["one"] }),
+  });
+  assert.equal(response.status, 409);
+  assert.deepEqual(await response.json(), { error: { code: "conflict", message: "Queue batch ack failed" } });
+});

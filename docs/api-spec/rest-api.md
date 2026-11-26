@@ -130,7 +130,9 @@ an active checkpoint; otherwise those records are reported as skipped.
 ### `POST /v1/schema/validate`
 
 Parse and validate an optional `schema.thingd` source document. This endpoint
-does not modify stored data or apply migrations.
+does not modify stored data or apply migrations. The Node REST implementation
+returns a generic validation error; use `thingd schema check` locally for
+detailed diagnostics.
 
 ```bash
 curl -X POST http://localhost:8757/v1/schema/validate \

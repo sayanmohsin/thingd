@@ -240,9 +240,12 @@ pub async fn retention(
     ensure_source_writable(&state, &headers)?;
     let options: RetentionOptions = serde_json::from_value(body.clone())
         .map_err(|error| AppError::bad_request(format!("invalid retention options: {error}")))?;
-    if !options.dry_run && body.get("confirm").and_then(Value::as_bool) != Some(true) {
+    if !options.dry_run
+        && (body.get("dryRun").and_then(Value::as_bool) != Some(false)
+            || body.get("confirm").and_then(Value::as_bool) != Some(true))
+    {
         return Err(AppError::bad_request(
-            "retention deletion requires confirm=true; use dryRun=true to preview",
+            "retention deletion requires dryRun=false and confirm=true; use dryRun=true to preview",
         ));
     }
     let e = get_engine(&state, &headers)?;
@@ -3365,6 +3368,48 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn retention_requires_explicit_delete_confirmation() {
+        let (state, config) = test_state_and_config();
+        let app = crate::server::build_router(state, &config);
+        for body in [
+            r#"{"beforeUnixMs":1,"confirm":true}"#,
+            r#"{"beforeUnixMs":1,"dryRun":false}"#,
+        ] {
+            let response = app
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .method("POST")
+                        .uri("/admin/retention")
+                        .header("content-type", "application/json")
+                        .body(Body::from(body))
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        }
+        for body in [
+            r#"{"beforeUnixMs":1,"dryRun":true}"#,
+            r#"{"beforeUnixMs":1,"dryRun":false,"confirm":true}"#,
+        ] {
+            let response = app
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .method("POST")
+                        .uri("/admin/retention")
+                        .header("content-type", "application/json")
+                        .body(Body::from(body))
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::OK);
+        }
     }
 
     #[tokio::test]

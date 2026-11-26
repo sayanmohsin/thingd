@@ -70,6 +70,7 @@ test("dashboard login survives remote database switching and reloads", async ({ 
     expect(pageErrors).toEqual([]);
   } finally {
     await page.close();
+    dashboard?.server.closeAllConnections();
     await dashboard?.close();
     upstream.closeAllConnections();
     if (upstream.listening) {

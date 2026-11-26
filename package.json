@@ -74,7 +74,7 @@
     "@biomejs/biome": "2.6.9",
     "@modelcontextprotocol/sdk": "^1.32.2",
     "@playwright/test": "1.65.1",
-    "@sayanmohsin/nice-code": "0.3.2",
+    "@sayanmohsin/nice-code": "0.3.3",
     "@thingd/native": "file:packages/thingd-native",
     "@types/node": "26.6.10",
     "cross-spawn": "^7.0.6",

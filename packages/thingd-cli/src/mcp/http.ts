@@ -871,9 +871,8 @@ async function handleReplicationEvents(
       request.method === "HEAD"
     );
   } catch (error) {
-    writeJson(response, 500, {
-      error: error instanceof Error ? error.message : String(error),
-    });
+    console.error("Replication events failed:", error);
+    writeJson(response, 500, { error: "internal_error" });
   }
 }
 
@@ -1059,7 +1058,8 @@ async function handleReplicationApply(
       data: { applied, skipped, lastAppliedCursor },
     });
   } catch (error) {
-    writeJson(response, 400, { error: error instanceof Error ? error.message : String(error) });
+    console.error("Replication request failed:", error);
+    writeJson(response, 400, { error: "replication_request_failed" });
   }
 }
 
@@ -1241,7 +1241,8 @@ async function handleReplicationSnapshot(
       },
     });
   } catch (error) {
-    writeJson(response, 400, { error: error instanceof Error ? error.message : String(error) });
+    console.error("Replication request failed:", error);
+    writeJson(response, 400, { error: "replication_request_failed" });
   }
 }
 
