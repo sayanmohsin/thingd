@@ -309,7 +309,7 @@ test("cloud app bootstrap publishes only after validation and test", async () =>
       return;
     }
     if (req.url === "/projects/p1/publish/apps/a1/validate") {
-      json(res, { report: { compatible: true } });
+      json(res, { report: { valid: true, issues: [] } });
       return;
     }
     if (req.url === "/projects/p1/publish/apps/a1/test") {

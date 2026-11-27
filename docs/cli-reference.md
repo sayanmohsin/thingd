@@ -344,7 +344,10 @@ local definition to that selected snapshot. Cloud remains authoritative for
 hosted policy validation. `schema.thingd` describes the runtime schema.
 `bootstrap` is idempotent by project, instance, and app slug, supports
 `--dry-run`, and when `--publish` is supplied it runs validation, test, and
-publish in order.
+publish in order. For an existing app it updates the sole draft version or
+creates a new draft from the current published version (or the testing version
+when no published version exists). It stops if multiple drafts exist or Cloud
+validation does not explicitly report `valid: true`.
 
 `cloud app config` returns the app endpoint and project publishable key for
 `createThingdAppClient`. Publishable keys are safe for browser/mobile bundles;
