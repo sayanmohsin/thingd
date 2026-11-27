@@ -358,7 +358,22 @@ async function runBootstrap(context: CliContext): Promise<void> {
   const existing = apps.find(
     (candidate) => candidate.slug === definition.slug && candidate.instanceId === instance.id
   );
-  const action = existing ? "update" : "create";
+  const logicalAppId = existing ? String(existing.appId ?? existing.id) : undefined;
+  const versions = logicalAppId
+    ? (await listPublishAppVersions(config, project.id, logicalAppId)).versions
+    : [];
+  const drafts = versions.filter((version) => version.status === "draft");
+  if (drafts.length > 1) {
+    throw new Error("Multiple draft versions exist; resolve them before bootstrapping this app.");
+  }
+  const draft = drafts[0];
+  if (draft && canonicalJson(appVersionDefinition(draft)) !== canonicalJson(definition)) {
+    throw new Error(
+      `Draft version ${draft.version} differs from the local definition; inspect it with ` +
+        "`thingd cloud app diff` and resolve the draft before bootstrapping."
+    );
+  }
+  const action = existing ? (draft ? "update-draft" : "create-draft") : "create";
   const schema = await validateSchemaIfRequested(
     config,
     project,
@@ -372,7 +387,7 @@ async function runBootstrap(context: CliContext): Promise<void> {
       action,
       project: { id: project.id, slug: project.slug },
       instance: { id: instance.id, slug: instance.slug },
-      app: { id: existing?.id, slug: definition.slug },
+      app: { id: logicalAppId, versionId: draft?.id, slug: definition.slug },
       appDefinition: file,
       schema: schema ?? null,
       publish: hasFlag(context.parsed, "publish"),
@@ -382,14 +397,37 @@ async function runBootstrap(context: CliContext): Promise<void> {
   }
 
   const payload = { ...definition, instanceId: instance.id };
-  const result = existing
-    ? await updatePublishApp(config, project.id, existing.id, payload)
-    : await createPublishApp(config, project.id, payload);
+  let result: { app: CloudPublishApp };
+  if (!existing) {
+    result = await createPublishApp(config, project.id, payload);
+  } else {
+    if (!logicalAppId) {
+      throw new Error("Cloud app response is missing its logical app ID.");
+    }
+    const targetDraft =
+      draft ?? (await createPublishAppVersion(config, project.id, logicalAppId)).app;
+    result = await updatePublishApp(config, project.id, targetDraft.id, payload);
+  }
   const app = result.app;
   const validation = await validatePublishApp(config, project.id, app.id);
   let tested: { app: CloudPublishApp; hostedUrl?: string } | undefined;
   let published: { app: CloudPublishApp; hostedUrl?: string } | undefined;
   if (hasFlag(context.parsed, "publish")) {
+    if ((validation.report as { valid?: unknown }).valid !== true) {
+      const report = validation.report as {
+        issues?: Array<{ path?: string; message?: string; severity?: string }>;
+      };
+      const issues = (report.issues ?? [])
+        .filter((issue) => issue.severity === "error")
+        .map(
+          (issue) => `- ${issue.path ?? "definition"}: ${issue.message ?? "Invalid definition"}`
+        );
+      throw new Error(
+        ["Cloud app validation failed; refusing to test or publish this version.", ...issues].join(
+          "\n"
+        )
+      );
+    }
     tested = await transitionPublishApp(config, project.id, app.id, "test");
     published = await transitionPublishApp(config, project.id, app.id, "publish");
   }
