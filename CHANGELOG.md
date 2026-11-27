@@ -9,6 +9,14 @@
 - Return null only for actual object/link HTTP 404s in both clients, preserving other HTTP failures and network errors.
 - Give dashboard diagnostic entries unique keys so entries created in the same second do not prevent the UI from loading.
 
+## [0.93.6](https://github.com/sayanmohsin/thingd/compare/thingd-v0.93.5...thingd-v0.93.6) (2026-11-27)
+
+
+### Bug Fixes
+
+* harden cloud app bootstrap version selection ([a6d6771](https://github.com/sayanmohsin/thingd/commit/a6d677195789575b5877d64a62e326fe9fc02ce6))
+* harden cloud app bootstrap version selection ([fd327c6](https://github.com/sayanmohsin/thingd/commit/fd327c6fef81445c4e293317eae74b8d911e9b34))
+
 ## [0.93.5](https://github.com/sayanmohsin/thingd/compare/thingd-v0.93.4...thingd-v0.93.5) (2026-11-26)
 
 
